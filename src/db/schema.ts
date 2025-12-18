@@ -692,7 +692,7 @@ export const session = pgTable(
     updatedAt: timestamp('updated_at').$onUpdate(() => new Date()).notNull(),
     ipAddress: text('ip_address'),
     userAgent: text('user_agent'),
-    userId: text('user_id')
+    userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
   },
@@ -706,7 +706,7 @@ export const account = pgTable(
     id: text('id').primaryKey(),
     accountId: text('account_id').notNull(),
     providerId: text('provider_id').notNull(),
-    userId: text('user_id')
+    userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     accessToken: text('access_token'),
@@ -778,7 +778,7 @@ export const assetConditionHistory = pgTable(
       .notNull()
       .default(sql`ARRAY[]::text[]`),
     
-    updatedBy: text('updated_by')
+    updatedBy: uuid('updated_by')
       .notNull()
       .references(() => users.id),
     timestamp: timestamp('timestamp').notNull().defaultNow(),
@@ -815,7 +815,7 @@ export const scanEvents = pgTable(
     notes: text('notes'),
     photos: text('photos').array().default(sql`ARRAY[]::text[]`),
     discrepancyReason: discrepancyReasonEnum('discrepancy_reason'),
-    scannedBy: text('scanned_by')
+    scannedBy: uuid('scanned_by')
       .notNull()
       .references(() => users.id),
     scannedAt: timestamp('scanned_at').notNull().defaultNow(),
@@ -844,7 +844,7 @@ export const orderStatusHistory = pgTable(
     status: orderStatusEnum('status').notNull(),
     notes: text('notes'),
     
-    updatedBy: text('updated_by')
+    updatedBy: uuid('updated_by')
       .notNull()
       .references(() => users.id),
     timestamp: timestamp('timestamp').notNull().defaultNow(),
