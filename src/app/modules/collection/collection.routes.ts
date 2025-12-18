@@ -22,13 +22,13 @@ router.delete("/:id");
 
 
 // collection items
-router.post("/items", payloadValidator(CollectionSchemas.createCollectionItem));
+router.post("/:id/items", payloadValidator(CollectionSchemas.createCollectionItem));
 
-router.put("/items/:id", payloadValidator(CollectionSchemas.updateCollectionItem));
+router.put("/:id/items/:itemId", payloadValidator(CollectionSchemas.updateCollectionItem));
 
-router.delete("/items/:id");
+router.delete("/:id/items/:itemId");
 
-router.get("/availability");
+router.get("/:id/availability");
 
 
 export const CollectionRoutes = router;
