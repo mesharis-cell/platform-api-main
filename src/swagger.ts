@@ -6,7 +6,8 @@ const swaggerDefinition = {
   info: {
     title: "PMG Asset Fulfillment Platform API",
     version: "1.0.0",
-    description: "Multi-tenant asset management and order fulfillment platform API documentation",
+    description:
+      "Multi-tenant asset management and order fulfillment platform API documentation",
     contact: {
       name: "PMG Platform",
       email: "support@pmg-platform.com",
@@ -104,60 +105,9 @@ const swaggerDefinition = {
   },
   tags: [
     {
-      name: "Authentication",
-      description: "User authentication and session management",
-    },
-    {
-      name: "Context",
-      description: "Company domain resolution for pre-login branding",
-    },
-    {
       name: "Platform Management",
-      description: "Platform configuration and feature flags (Platform Admin only)",
-    },
-    {
-      name: "Company Management",
-      description: "Company CRUD operations (Platform Admin only)",
-    },
-    {
-      name: "User Management",
-      description: "User management with RBAC (Platform Admin only)",
-    },
-    {
-      name: "Warehouse Management",
-      description: "Warehouse and zone management (Platform Admin, Logistics)",
-    },
-    {
-      name: "Asset Management",
-      description: "Asset inventory management (Logistics)",
-    },
-    {
-      name: "Collection Management",
-      description: "Asset collection management (Logistics)",
-    },
-    {
-      name: "Pricing Management",
-      description: "Pricing tier configuration (Platform Admin)",
-    },
-    {
-      name: "Order Management (Operations)",
-      description: "Order management for admin and logistics staff",
-    },
-    {
-      name: "QR Scanning",
-      description: "Asset scanning for fulfillment (Logistics)",
-    },
-    {
-      name: "Client Catalog",
-      description: "Asset catalog browsing (Client Users)",
-    },
-    {
-      name: "Client Collections",
-      description: "Collection browsing (Client Users)",
-    },
-    {
-      name: "Client Orders",
-      description: "Order management for client users",
+      description:
+        "Platform configuration and feature flags (Platform Admin only)",
     },
   ],
 };
