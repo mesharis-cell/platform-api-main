@@ -12,7 +12,6 @@ const settingsSchema = z.object({
 
 const createCompany = z.object({
   body: z.object({
-    platform: z.string().uuid({ message: "Platform ID must be a valid UUID" }),
     name: z
       .string()
       .min(2, { message: "Company name must be at least 2 characters long" })

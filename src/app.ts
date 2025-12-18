@@ -30,7 +30,7 @@ app.get("/", (req: Request, res: Response) => {
 });
 
 // main routes
-app.use("/api/v1", router);
+app.use("/api", router);
 app.use("/api-docs", swaggerRoutes);
 
 // handle error

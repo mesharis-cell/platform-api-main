@@ -223,7 +223,7 @@ export const users = pgTable(
     permission_template: varchar('permission_template', { length: 50 }), // PLATFORM_ADMIN, LOGISTICS_STAFF, CLIENT_USER
     isActive: boolean('is_active').notNull().default(true),
     lastLoginAt: timestamp('last_login_at'),
-    createdAt: timestamp('created_at').notNull(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at')
       .$onUpdate(() => new Date())
       .notNull(),

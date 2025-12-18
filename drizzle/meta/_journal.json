@@ -15,6 +15,13 @@
       "when": 1766079578833,
       "tag": "0001_faulty_dexter_bennett",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1766090313793,
+      "tag": "0002_productive_terror",
+      "breakpoints": true
     }
   ]
 }

@@ -8,4 +8,5 @@ export default {
   port: process.env.PORT,
   database_url: process.env.DATABASE_URL,
   app_name: "Drizzle",
+  salt_rounds: Number(process.env.SALT_ROUNDS),
 };

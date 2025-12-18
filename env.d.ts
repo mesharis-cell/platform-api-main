@@ -3,5 +3,6 @@ declare namespace NodeJS {
     NODE_ENV: "development" | "production" | "test";
     DATABASE_URL: string;
     PORT: string;
+    SALT_ROUNDS: string;
   }
 }

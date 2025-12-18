@@ -1,8 +1,10 @@
 import { Router } from "express";
+import payloadValidator from "../../middleware/payload-validator";
 import { PlatformControllers } from "./platform.controllers";
+import { PlatformSchemas } from "./platform.schemas";
 
 const router = Router();
 
-router.post("/", PlatformControllers.createPlatform);
+router.post("/", payloadValidator(PlatformSchemas.createPlatform), PlatformControllers.createPlatform);
 
-export const UserRoutes = router;
+export const PlatformRoutes = router;
