@@ -20,4 +20,15 @@ router.put(
 
 router.delete("/:id");
 
+
+// collection items
+router.post("/items", payloadValidator(CollectionSchemas.createCollectionItem));
+
+router.put("/items/:id", payloadValidator(CollectionSchemas.updateCollectionItem));
+
+router.delete("/items/:id");
+
+router.get("/availability");
+
+
 export const CollectionRoutes = router;

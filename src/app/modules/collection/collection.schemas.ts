@@ -36,7 +36,37 @@ const updateCollection = z.object({
   }),
 });
 
+const createCollectionItem = z.object({
+  body: z.object({
+    collection: z.uuid({ message: "Collection ID must be a valid UUID" }),
+    asset: z.uuid({ message: "Asset ID must be a valid UUID" }),
+    defaultQuantity: z
+      .number()
+      .int()
+      .min(1, { message: "Quantity must be at least 1" })
+      .default(1),
+    notes: z.string().optional(),
+    displayOrder: z.number().int().optional(),
+  }),
+});
+
+const updateCollectionItem = z.object({
+  body: z.object({
+    collection: z.uuid({ message: "Collection ID must be a valid UUID" }).optional(),
+    asset: z.uuid({ message: "Asset ID must be a valid UUID" }).optional(),
+    defaultQuantity: z
+      .number()
+      .int()
+      .min(1, { message: "Quantity must be at least 1" })
+      .optional(),
+    notes: z.string().optional(),
+    displayOrder: z.number().int().optional(),
+  }),
+});
+
 export const CollectionSchemas = {
   createCollection,
   updateCollection,
+  createCollectionItem,
+  updateCollectionItem,
 };
