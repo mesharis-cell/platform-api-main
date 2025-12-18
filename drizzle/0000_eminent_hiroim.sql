@@ -1,5 +1,6 @@
-CREATE TYPE "public"."asset_status" AS ENUM('AVAILABLE', 'BOOKED', 'OUT', 'IN_MAINTENANCE');--> statement-breakpoint
-CREATE TYPE "public"."condition" AS ENUM('GREEN', 'ORANGE', 'RED');--> statement-breakpoint
+CREATE TYPE "public"."asset_category" AS ENUM('FURNITURE', 'GLASSWARE', 'INSTALLATION', 'DECOR', 'OTHER');--> statement-breakpoint
+CREATE TYPE "public"."asset_condition" AS ENUM('GREEN', 'ORANGE', 'RED');--> statement-breakpoint
+CREATE TYPE "public"."asset_status" AS ENUM('AVAILABLE', 'BOOKED', 'OUT', 'MAINTENANCE');--> statement-breakpoint
 CREATE TYPE "public"."discrepancy_reason" AS ENUM('BROKEN', 'LOST', 'OTHER');--> statement-breakpoint
 CREATE TYPE "public"."financial_status" AS ENUM('PENDING_QUOTE', 'QUOTE_SENT', 'QUOTE_ACCEPTED', 'PENDING_INVOICE', 'INVOICED', 'PAID');--> statement-breakpoint
 CREATE TYPE "public"."notification_status" AS ENUM('QUEUED', 'SENT', 'FAILED', 'RETRYING');--> statement-breakpoint
@@ -38,7 +39,7 @@ CREATE TABLE "asset_condition_history" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"platform" uuid NOT NULL,
 	"asset" uuid NOT NULL,
-	"condition" "condition" NOT NULL,
+	"condition" "asset_condition" NOT NULL,
 	"notes" text,
 	"photos" text[] DEFAULT ARRAY[]::text[] NOT NULL,
 	"updated_by" text NOT NULL,
@@ -49,31 +50,32 @@ CREATE TABLE "assets" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"platform" uuid NOT NULL,
 	"company" uuid NOT NULL,
-	"brand" uuid,
 	"warehouse" uuid NOT NULL,
 	"zone" uuid NOT NULL,
-	"name" varchar(255) NOT NULL,
+	"brand" uuid,
+	"name" varchar(200) NOT NULL,
 	"description" text,
-	"category" varchar(100) NOT NULL,
+	"category" "asset_category" NOT NULL,
 	"images" text[] DEFAULT ARRAY[]::text[] NOT NULL,
 	"tracking_method" "tracking_method" NOT NULL,
 	"total_quantity" integer DEFAULT 1 NOT NULL,
-	"qr_code" varchar(255) NOT NULL,
-	"packaging" varchar(255),
-	"weight" numeric(10, 2) NOT NULL,
-	"dimension_length" numeric(10, 2) NOT NULL,
-	"dimension_width" numeric(10, 2) NOT NULL,
-	"dimension_height" numeric(10, 2) NOT NULL,
-	"volume" numeric(10, 3) NOT NULL,
-	"condition" "condition" DEFAULT 'GREEN' NOT NULL,
-	"status" "asset_status" DEFAULT 'AVAILABLE' NOT NULL,
+	"available_quantity" integer DEFAULT 1 NOT NULL,
+	"qr_code" varchar(100) NOT NULL,
+	"packaging" varchar(100),
+	"weight_per_unit" numeric(8, 2) NOT NULL,
+	"dimensions" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"volume_per_unit" numeric(8, 3) NOT NULL,
+	"condition" "asset_condition" DEFAULT 'GREEN' NOT NULL,
+	"condition_notes" text,
 	"refurb_days_estimate" integer,
+	"condition_history" jsonb DEFAULT '[]'::jsonb,
 	"handling_tags" text[] DEFAULT ARRAY[]::text[] NOT NULL,
+	"status" "asset_status" DEFAULT 'AVAILABLE' NOT NULL,
 	"last_scanned_at" timestamp,
-	"last_scanned_by" text,
-	"deleted_at" timestamp,
+	"last_scanned_by" uuid,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp NOT NULL,
+	"deleted_at" timestamp,
 	CONSTRAINT "assets_qr_code_unique" UNIQUE("qr_code")
 );
 --> statement-breakpoint
@@ -81,10 +83,10 @@ CREATE TABLE "brands" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"platform" uuid NOT NULL,
 	"company" uuid NOT NULL,
-	"name" varchar(255) NOT NULL,
+	"name" varchar(100) NOT NULL,
 	"description" text,
-	"logo_url" varchar(500),
-	"deleted_at" timestamp,
+	"logo_url" text,
+	"is_active" boolean DEFAULT true NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp NOT NULL,
 	CONSTRAINT "brands_company_name_unique" UNIQUE("company","name")
@@ -96,6 +98,7 @@ CREATE TABLE "collection_items" (
 	"asset" uuid NOT NULL,
 	"default_quantity" integer DEFAULT 1 NOT NULL,
 	"notes" text,
+	"display_order" integer,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT "collection_items_unique" UNIQUE("collection","asset")
 );
@@ -105,10 +108,11 @@ CREATE TABLE "collections" (
 	"platform" uuid NOT NULL,
 	"company" uuid NOT NULL,
 	"brand" uuid,
-	"name" varchar(255) NOT NULL,
+	"name" varchar(200) NOT NULL,
 	"description" text,
 	"images" text[] DEFAULT ARRAY[]::text[] NOT NULL,
-	"category" varchar(100),
+	"category" varchar(50),
+	"is_active" boolean DEFAULT true NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp NOT NULL,
 	"deleted_at" timestamp
@@ -117,16 +121,13 @@ CREATE TABLE "collections" (
 CREATE TABLE "companies" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"platform" uuid NOT NULL,
-	"name" varchar(255) NOT NULL,
+	"name" varchar(100) NOT NULL,
 	"domain" varchar(50) NOT NULL,
-	"description" text,
 	"settings" jsonb DEFAULT '{}'::jsonb NOT NULL,
-	"contact_email" varchar(255),
-	"contact_phone" varchar(50),
 	"is_active" boolean DEFAULT true NOT NULL,
-	"archived_at" timestamp,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp NOT NULL,
+	"deleted_at" timestamp,
 	CONSTRAINT "companies_platform_domain_unique" UNIQUE("platform","domain")
 );
 --> statement-breakpoint
@@ -163,16 +164,16 @@ CREATE TABLE "order_items" (
 	"platform" uuid NOT NULL,
 	"order" uuid NOT NULL,
 	"asset" uuid NOT NULL,
-	"asset_name" varchar(255) NOT NULL,
+	"asset_name" varchar(200) NOT NULL,
 	"quantity" integer NOT NULL,
-	"volume" numeric(10, 3) NOT NULL,
-	"weight" numeric(10, 2) NOT NULL,
-	"total_volume" numeric(10, 3) NOT NULL,
-	"total_weight" numeric(10, 2) NOT NULL,
-	"condition" "condition" NOT NULL,
+	"volume_per_unit" numeric(8, 3) NOT NULL,
+	"weight_per_unit" numeric(8, 2) NOT NULL,
+	"total_volume" numeric(8, 3) NOT NULL,
+	"total_weight" numeric(8, 2) NOT NULL,
+	"condition_notes" text,
 	"handling_tags" text[] DEFAULT ARRAY[]::text[],
 	"from_collection" uuid,
-	"from_collection_name" varchar(255),
+	"from_collection_name" varchar(200),
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
@@ -189,43 +190,42 @@ CREATE TABLE "order_status_history" (
 CREATE TABLE "orders" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"platform" uuid NOT NULL,
-	"order_id" varchar(50) NOT NULL,
+	"order_id" varchar(20) NOT NULL,
 	"company" uuid NOT NULL,
 	"brand" uuid,
-	"user_id" text NOT NULL,
-	"contact_name" varchar(255),
-	"contact_email" varchar(255),
-	"contact_phone" varchar(50),
-	"event_start_date" timestamp,
-	"event_end_date" timestamp,
-	"venue_name" varchar(255),
-	"venue_country" varchar(100),
-	"venue_city" varchar(100),
-	"venue_address" text,
-	"venue_access_notes" text,
+	"user_id" uuid NOT NULL,
+	"job_number" varchar(50),
+	"contact_name" varchar(100) NOT NULL,
+	"contact_email" varchar(255) NOT NULL,
+	"contact_phone" varchar(50) NOT NULL,
+	"event_start_date" timestamp NOT NULL,
+	"event_end_date" timestamp NOT NULL,
+	"venue_name" varchar(200) NOT NULL,
+	"venue_location" jsonb NOT NULL,
 	"special_instructions" text,
-	"calculated_volume" numeric(10, 3) DEFAULT '0',
-	"calculated_weight" numeric(10, 2) DEFAULT '0',
-	"pricing_tier" uuid,
+	"delivery_window" jsonb,
+	"pickup_window" jsonb,
+	"calculated_totals" jsonb NOT NULL,
+	"tier" uuid,
 	"logistics_pricing" jsonb,
 	"platform_pricing" jsonb,
 	"final_pricing" jsonb,
-	"invoice_number" varchar(100),
+	"invoice_id" varchar(30),
 	"invoice_generated_at" timestamp,
-	"invoice_pdf_url" varchar(500),
 	"invoice_paid_at" timestamp,
-	"delivery_window_start" timestamp,
-	"delivery_window_end" timestamp,
-	"pickup_window_start" timestamp,
-	"pickup_window_end" timestamp,
-	"truck_photos" text[] DEFAULT ARRAY[]::text[],
-	"job_number" varchar(100),
-	"status" "order_status" DEFAULT 'DRAFT' NOT NULL,
+	"payment_method" varchar(50),
+	"payment_reference" varchar(100),
+	"order_status" "order_status" DEFAULT 'DRAFT' NOT NULL,
 	"financial_status" "financial_status" DEFAULT 'PENDING_QUOTE' NOT NULL,
+	"order_status_history" jsonb DEFAULT '[]',
+	"financial_status_history" jsonb DEFAULT '[]',
+	"scanning_data" jsonb DEFAULT '{}',
+	"delivery_photos" text[] DEFAULT ARRAY[]::text[],
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp NOT NULL,
 	"deleted_at" timestamp,
-	CONSTRAINT "orders_platform_id_unique" UNIQUE("platform","order_id")
+	CONSTRAINT "orders_platform_order_id_unique" UNIQUE("platform","order_id"),
+	CONSTRAINT "orders_platform_invoice_id_unique" UNIQUE("platform","invoice_id")
 );
 --> statement-breakpoint
 CREATE TABLE "platforms" (
@@ -243,14 +243,15 @@ CREATE TABLE "platforms" (
 CREATE TABLE "pricing_tiers" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"platform" uuid NOT NULL,
-	"country" varchar(100) NOT NULL,
-	"city" varchar(100) NOT NULL,
-	"volume_min" numeric(10, 3) NOT NULL,
-	"volume_max" numeric(10, 3) NOT NULL,
+	"country" varchar(50) NOT NULL,
+	"city" varchar(50) NOT NULL,
+	"volume_min" numeric(8, 3) NOT NULL,
+	"volume_max" numeric(8, 3),
 	"base_price" numeric(10, 2) NOT NULL,
 	"is_active" boolean DEFAULT true NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
-	"updated_at" timestamp NOT NULL
+	"updated_at" timestamp NOT NULL,
+	CONSTRAINT "pricing_tiers_unique" UNIQUE("platform","country","city","volume_min","volume_max")
 );
 --> statement-breakpoint
 CREATE TABLE "scan_events" (
@@ -259,7 +260,7 @@ CREATE TABLE "scan_events" (
 	"asset" uuid NOT NULL,
 	"scan_type" "scan_type" NOT NULL,
 	"quantity" integer NOT NULL,
-	"condition" "condition" NOT NULL,
+	"condition" "asset_condition" NOT NULL,
 	"notes" text,
 	"photos" text[] DEFAULT ARRAY[]::text[],
 	"discrepancy_reason" "discrepancy_reason",
@@ -279,19 +280,18 @@ CREATE TABLE "session" (
 	CONSTRAINT "session_token_unique" UNIQUE("token")
 );
 --> statement-breakpoint
-CREATE TABLE "user" (
-	"id" text PRIMARY KEY NOT NULL,
+CREATE TABLE "users" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"platform" uuid NOT NULL,
 	"company" uuid,
-	"name" text NOT NULL,
-	"email" text NOT NULL,
-	"email_verified" boolean DEFAULT false NOT NULL,
-	"image" text,
+	"name" varchar(100) NOT NULL,
+	"email" varchar(255) NOT NULL,
+	"password" varchar(255) NOT NULL,
 	"role" "user_role" DEFAULT 'CLIENT' NOT NULL,
 	"permissions" text[] DEFAULT ARRAY[]::text[] NOT NULL,
+	"permission_template" varchar(50),
 	"is_active" boolean DEFAULT true NOT NULL,
 	"last_login_at" timestamp,
-	"deleted_at" timestamp,
 	"created_at" timestamp NOT NULL,
 	"updated_at" timestamp NOT NULL
 );
@@ -308,11 +308,12 @@ CREATE TABLE "verification" (
 CREATE TABLE "warehouses" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"platform" uuid NOT NULL,
-	"name" varchar(255) NOT NULL,
-	"country" varchar(100) NOT NULL,
-	"city" varchar(100) NOT NULL,
+	"name" varchar(100) NOT NULL,
+	"country" varchar(50) NOT NULL,
+	"city" varchar(50) NOT NULL,
 	"address" text NOT NULL,
-	"archived_at" timestamp,
+	"coordinates" jsonb,
+	"is_active" boolean DEFAULT true NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp NOT NULL,
 	CONSTRAINT "warehouses_platform_name_unique" UNIQUE("platform","name")
@@ -323,27 +324,27 @@ CREATE TABLE "zones" (
 	"platform" uuid NOT NULL,
 	"warehouse" uuid NOT NULL,
 	"company" uuid NOT NULL,
-	"name" varchar(100) NOT NULL,
+	"name" varchar(50) NOT NULL,
 	"description" text,
-	"deleted_at" timestamp,
+	"capacity" integer,
+	"is_active" boolean DEFAULT true NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp NOT NULL,
 	CONSTRAINT "zones_warehouse_company_name_unique" UNIQUE("warehouse","company","name")
 );
 --> statement-breakpoint
-DROP TABLE "users" CASCADE;--> statement-breakpoint
-ALTER TABLE "account" ADD CONSTRAINT "account_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "account" ADD CONSTRAINT "account_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "asset_bookings" ADD CONSTRAINT "asset_bookings_asset_assets_id_fk" FOREIGN KEY ("asset") REFERENCES "public"."assets"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "asset_bookings" ADD CONSTRAINT "asset_bookings_order_orders_id_fk" FOREIGN KEY ("order") REFERENCES "public"."orders"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "asset_condition_history" ADD CONSTRAINT "asset_condition_history_platform_platforms_id_fk" FOREIGN KEY ("platform") REFERENCES "public"."platforms"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "asset_condition_history" ADD CONSTRAINT "asset_condition_history_asset_assets_id_fk" FOREIGN KEY ("asset") REFERENCES "public"."assets"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "asset_condition_history" ADD CONSTRAINT "asset_condition_history_updated_by_user_id_fk" FOREIGN KEY ("updated_by") REFERENCES "public"."user"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "asset_condition_history" ADD CONSTRAINT "asset_condition_history_updated_by_users_id_fk" FOREIGN KEY ("updated_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "assets" ADD CONSTRAINT "assets_platform_platforms_id_fk" FOREIGN KEY ("platform") REFERENCES "public"."platforms"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "assets" ADD CONSTRAINT "assets_company_companies_id_fk" FOREIGN KEY ("company") REFERENCES "public"."companies"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "assets" ADD CONSTRAINT "assets_brand_brands_id_fk" FOREIGN KEY ("brand") REFERENCES "public"."brands"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "assets" ADD CONSTRAINT "assets_warehouse_warehouses_id_fk" FOREIGN KEY ("warehouse") REFERENCES "public"."warehouses"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "assets" ADD CONSTRAINT "assets_zone_zones_id_fk" FOREIGN KEY ("zone") REFERENCES "public"."zones"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "assets" ADD CONSTRAINT "assets_last_scanned_by_user_id_fk" FOREIGN KEY ("last_scanned_by") REFERENCES "public"."user"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "assets" ADD CONSTRAINT "assets_brand_brands_id_fk" FOREIGN KEY ("brand") REFERENCES "public"."brands"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "assets" ADD CONSTRAINT "assets_last_scanned_by_users_id_fk" FOREIGN KEY ("last_scanned_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "brands" ADD CONSTRAINT "brands_platform_platforms_id_fk" FOREIGN KEY ("platform") REFERENCES "public"."platforms"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "brands" ADD CONSTRAINT "brands_company_companies_id_fk" FOREIGN KEY ("company") REFERENCES "public"."companies"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "collection_items" ADD CONSTRAINT "collection_items_collection_collections_id_fk" FOREIGN KEY ("collection") REFERENCES "public"."collections"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -362,19 +363,19 @@ ALTER TABLE "order_items" ADD CONSTRAINT "order_items_asset_assets_id_fk" FOREIG
 ALTER TABLE "order_items" ADD CONSTRAINT "order_items_from_collection_collections_id_fk" FOREIGN KEY ("from_collection") REFERENCES "public"."collections"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "order_status_history" ADD CONSTRAINT "order_status_history_platform_platforms_id_fk" FOREIGN KEY ("platform") REFERENCES "public"."platforms"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "order_status_history" ADD CONSTRAINT "order_status_history_order_orders_id_fk" FOREIGN KEY ("order") REFERENCES "public"."orders"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "order_status_history" ADD CONSTRAINT "order_status_history_updated_by_user_id_fk" FOREIGN KEY ("updated_by") REFERENCES "public"."user"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "order_status_history" ADD CONSTRAINT "order_status_history_updated_by_users_id_fk" FOREIGN KEY ("updated_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "orders" ADD CONSTRAINT "orders_platform_platforms_id_fk" FOREIGN KEY ("platform") REFERENCES "public"."platforms"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "orders" ADD CONSTRAINT "orders_company_companies_id_fk" FOREIGN KEY ("company") REFERENCES "public"."companies"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "orders" ADD CONSTRAINT "orders_brand_brands_id_fk" FOREIGN KEY ("brand") REFERENCES "public"."brands"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "orders" ADD CONSTRAINT "orders_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "orders" ADD CONSTRAINT "orders_pricing_tier_pricing_tiers_id_fk" FOREIGN KEY ("pricing_tier") REFERENCES "public"."pricing_tiers"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "orders" ADD CONSTRAINT "orders_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "orders" ADD CONSTRAINT "orders_tier_pricing_tiers_id_fk" FOREIGN KEY ("tier") REFERENCES "public"."pricing_tiers"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "pricing_tiers" ADD CONSTRAINT "pricing_tiers_platform_platforms_id_fk" FOREIGN KEY ("platform") REFERENCES "public"."platforms"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "scan_events" ADD CONSTRAINT "scan_events_order_orders_id_fk" FOREIGN KEY ("order") REFERENCES "public"."orders"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "scan_events" ADD CONSTRAINT "scan_events_asset_assets_id_fk" FOREIGN KEY ("asset") REFERENCES "public"."assets"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "scan_events" ADD CONSTRAINT "scan_events_scanned_by_user_id_fk" FOREIGN KEY ("scanned_by") REFERENCES "public"."user"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "session" ADD CONSTRAINT "session_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "user" ADD CONSTRAINT "user_platform_platforms_id_fk" FOREIGN KEY ("platform") REFERENCES "public"."platforms"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "user" ADD CONSTRAINT "user_company_companies_id_fk" FOREIGN KEY ("company") REFERENCES "public"."companies"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "scan_events" ADD CONSTRAINT "scan_events_scanned_by_users_id_fk" FOREIGN KEY ("scanned_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "session" ADD CONSTRAINT "session_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "users" ADD CONSTRAINT "users_platform_platforms_id_fk" FOREIGN KEY ("platform") REFERENCES "public"."platforms"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "users" ADD CONSTRAINT "users_company_companies_id_fk" FOREIGN KEY ("company") REFERENCES "public"."companies"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "warehouses" ADD CONSTRAINT "warehouses_platform_platforms_id_fk" FOREIGN KEY ("platform") REFERENCES "public"."platforms"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "zones" ADD CONSTRAINT "zones_platform_platforms_id_fk" FOREIGN KEY ("platform") REFERENCES "public"."platforms"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "zones" ADD CONSTRAINT "zones_warehouse_warehouses_id_fk" FOREIGN KEY ("warehouse") REFERENCES "public"."warehouses"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
@@ -391,13 +392,20 @@ CREATE INDEX "companies_platform_idx" ON "companies" USING btree ("platform");--
 CREATE INDEX "company_domains_hostname_idx" ON "company_domains" USING btree ("hostname");--> statement-breakpoint
 CREATE INDEX "notification_logs_order_idx" ON "notification_logs" USING btree ("order");--> statement-breakpoint
 CREATE INDEX "notification_logs_status_idx" ON "notification_logs" USING btree ("status");--> statement-breakpoint
+CREATE INDEX "order_items_order_idx" ON "order_items" USING btree ("order");--> statement-breakpoint
+CREATE INDEX "order_items_asset_idx" ON "order_items" USING btree ("asset");--> statement-breakpoint
+CREATE INDEX "order_items_platform_idx" ON "order_items" USING btree ("platform");--> statement-breakpoint
+CREATE INDEX "order_items_from_collection_idx" ON "order_items" USING btree ("from_collection");--> statement-breakpoint
 CREATE INDEX "order_status_history_order_idx" ON "order_status_history" USING btree ("order");--> statement-breakpoint
 CREATE INDEX "orders_platform_company_idx" ON "orders" USING btree ("platform","company");--> statement-breakpoint
-CREATE INDEX "orders_status_idx" ON "orders" USING btree ("status");--> statement-breakpoint
+CREATE INDEX "orders_status_idx" ON "orders" USING btree ("order_status");--> statement-breakpoint
+CREATE INDEX "orders_financial_status_idx" ON "orders" USING btree ("financial_status");--> statement-breakpoint
+CREATE INDEX "orders_event_date_idx" ON "orders" USING btree ("event_start_date");--> statement-breakpoint
+CREATE INDEX "orders_created_at_idx" ON "orders" USING btree ("created_at");--> statement-breakpoint
 CREATE INDEX "platforms_domain_idx" ON "platforms" USING btree ("domain");--> statement-breakpoint
 CREATE INDEX "pricing_tiers_platform_location_idx" ON "pricing_tiers" USING btree ("platform","country","city");--> statement-breakpoint
 CREATE INDEX "session_userId_idx" ON "session" USING btree ("user_id");--> statement-breakpoint
-CREATE INDEX "user_platform_idx" ON "user" USING btree ("platform");--> statement-breakpoint
-CREATE INDEX "user_company_idx" ON "user" USING btree ("company");--> statement-breakpoint
-CREATE UNIQUE INDEX "user_platform_email_unique" ON "user" USING btree ("platform","email");--> statement-breakpoint
+CREATE INDEX "user_platform_idx" ON "users" USING btree ("platform");--> statement-breakpoint
+CREATE INDEX "user_company_idx" ON "users" USING btree ("company");--> statement-breakpoint
+CREATE UNIQUE INDEX "user_platform_email_unique" ON "users" USING btree ("platform","email");--> statement-breakpoint
 CREATE INDEX "verification_identifier_idx" ON "verification" USING btree ("identifier");

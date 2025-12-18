@@ -277,6 +277,10 @@ export const brands = pgTable(
 )
 
 export const brandsRelations = relations(brands, ({ one, many }) => ({
+  platform: one(platforms, {
+    fields: [brands.platform],
+    references: [platforms.id],
+  }),
   company: one(companies, {
     fields: [brands.company],
     references: [companies.id],
@@ -351,6 +355,10 @@ export const zones = pgTable(
 )
 
 export const zonesRelations = relations(zones, ({ one, many }) => ({
+    platform: one(platforms, {
+        fields: [zones.platform],
+        references: [platforms.id],
+    }),
     warehouse: one(warehouses, {
         fields: [zones.warehouse],
         references: [warehouses.id],
@@ -460,6 +468,23 @@ export const collections = pgTable(
     index('collections_company_idx').on(table.company),
   ]
 )
+
+export const collectionRelations = relations(collections, ({ one, many }) => ({
+    platform: one(platforms, {
+        fields: [collections.platform],
+        references: [platforms.id],
+    }),
+    company: one(companies, {
+        fields: [collections.company],
+        references: [companies.id],
+    }),
+    brand: one(brands, {
+        fields: [collections.brand],
+        references: [brands.id],
+    }),
+  assets: many(collectionItems),
+    orders: many(orders),
+}))
 
 // ---------------------------------- COLLECTION ITEM --------------------------------------
 export const collectionItems = pgTable(
@@ -599,7 +624,8 @@ export const orders = pgTable(
 
 export const ordersRelations = relations(orders, ({ one, many }) => ({
     platform: one(platforms, { fields: [orders.platform], references: [platforms.id] }),
-    company: one(companies, { fields: [orders.company], references: [companies.id] }),
+  company: one(companies, { fields: [orders.company], references: [companies.id] }),
+    brand: one(brands, { fields: [orders.brand], references: [brands.id] }),
     user: one(users, { fields: [orders.userId], references: [users.id] }),
     pricingTier: one(pricingTiers, { fields: [orders.tier_id], references: [pricingTiers.id] }),
     items: many(orderItems),
@@ -647,9 +673,10 @@ export const orderItems = pgTable(
 );
 
 export const orderItemsRelations = relations(orderItems, ({ one }) => ({
+    platform: one(platforms, { fields: [orderItems.platform], references: [platforms.id] }),
     order: one(orders, { fields: [orderItems.order], references: [orders.id] }),
     asset: one(assets, { fields: [orderItems.asset], references: [assets.id] }),
-    collection: one(collections, { fields: [orderItems.fromCollection], references: [collections.id] }),
+    from_collection: one(collections, { fields: [orderItems.fromCollection], references: [collections.id] }),
 }))
 
 
@@ -665,7 +692,7 @@ export const session = pgTable(
     updatedAt: timestamp('updated_at').$onUpdate(() => new Date()).notNull(),
     ipAddress: text('ip_address'),
     userAgent: text('user_agent'),
-    userId: text('user_id')
+    userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
   },
@@ -679,7 +706,7 @@ export const account = pgTable(
     id: text('id').primaryKey(),
     accountId: text('account_id').notNull(),
     providerId: text('provider_id').notNull(),
-    userId: text('user_id')
+    userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     accessToken: text('access_token'),
@@ -731,36 +758,6 @@ export const assetBookings = pgTable(
   ]
 )
 
-// ---------------------------------- SCAN EVENTS ------------------------------------------
-export const scanEvents = pgTable(
-  'scan_events',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    order: uuid('order')
-      .notNull()
-      .references(() => orders.id, { onDelete: 'cascade' }),
-    asset: uuid('asset')
-      .notNull()
-      .references(() => assets.id),
-    scanType: scanTypeEnum('scan_type').notNull(),
-    quantity: integer('quantity').notNull(),
-    condition: assetConditionEnum('condition').notNull(),
-    notes: text('notes'),
-    photos: text('photos').array().default(sql`ARRAY[]::text[]`),
-    discrepancyReason: discrepancyReasonEnum('discrepancy_reason'),
-    scannedBy: text('scanned_by')
-      .notNull()
-      .references(() => users.id),
-    scannedAt: timestamp('scanned_at').notNull().defaultNow(),
-  }
-)
-
-export const scanEventsRelations = relations(scanEvents, ({ one }) => ({
-    order: one(orders, { fields: [scanEvents.order], references: [orders.id] }),
-    asset: one(assets, { fields: [scanEvents.asset], references: [assets.id] }),
-    scannedByUser: one(users, { fields: [scanEvents.scannedBy], references: [users.id] }),
-}))
-
 // ---------------------------------- ASSET CONDITION HISTORY ------------------------------
 export const assetConditionHistory = pgTable(
   'asset_condition_history',
@@ -781,7 +778,7 @@ export const assetConditionHistory = pgTable(
       .notNull()
       .default(sql`ARRAY[]::text[]`),
     
-    updatedBy: text('updated_by')
+    updatedBy: uuid('updated_by')
       .notNull()
       .references(() => users.id),
     timestamp: timestamp('timestamp').notNull().defaultNow(),
@@ -801,6 +798,36 @@ export const assetConditionHistoryRelations = relations(
   })
 )
 
+// ---------------------------------- SCAN EVENTS ------------------------------------------
+export const scanEvents = pgTable(
+  'scan_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    order: uuid('order')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+    asset: uuid('asset')
+      .notNull()
+      .references(() => assets.id),
+    scanType: scanTypeEnum('scan_type').notNull(),
+    quantity: integer('quantity').notNull(),
+    condition: assetConditionEnum('condition').notNull(),
+    notes: text('notes'),
+    photos: text('photos').array().default(sql`ARRAY[]::text[]`),
+    discrepancyReason: discrepancyReasonEnum('discrepancy_reason'),
+    scannedBy: uuid('scanned_by')
+      .notNull()
+      .references(() => users.id),
+    scannedAt: timestamp('scanned_at').notNull().defaultNow(),
+  }
+)
+
+export const scanEventsRelations = relations(scanEvents, ({ one }) => ({
+    order: one(orders, { fields: [scanEvents.order], references: [orders.id] }),
+    asset: one(assets, { fields: [scanEvents.asset], references: [assets.id] }),
+    scannedByUser: one(users, { fields: [scanEvents.scannedBy], references: [users.id] }),
+}))
+
 // ---------------------------------- ORDER STATUS HISTORY ---------------------------------
 // Purpose: Timeline of order lifecycle changes (Submitted -> Quoted -> Delivered)
 export const orderStatusHistory = pgTable(
@@ -817,7 +844,7 @@ export const orderStatusHistory = pgTable(
     status: orderStatusEnum('status').notNull(),
     notes: text('notes'),
     
-    updatedBy: text('updated_by')
+    updatedBy: uuid('updated_by')
       .notNull()
       .references(() => users.id),
     timestamp: timestamp('timestamp').notNull().defaultNow(),
