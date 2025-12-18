@@ -1,5 +1,6 @@
 import { Router } from "express";
 import payloadValidator from "../../middleware/payload-validator";
+import { CompanyControllers } from "./company.controllers";
 import { CompanySchemas } from "./company.schemas";
 
 const router = Router();
@@ -7,6 +8,7 @@ const router = Router();
 router.post(
   "/",
   payloadValidator(CompanySchemas.createCompany),
+  CompanyControllers.createCompany
 );
 
 

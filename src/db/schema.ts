@@ -32,6 +32,11 @@ export const assetCategoryEnum = pgEnum('asset_category', [
   'OTHER',
 ])
 
+export const hostnameTypeEnum = pgEnum('hostname_type', [
+  'VANITY',
+  'CUSTOM',
+])
+
 export const trackingMethodEnum = pgEnum('tracking_method', [
   'INDIVIDUAL',
   'BATCH',
@@ -169,7 +174,7 @@ export const companyDomains = pgTable(
       .notNull()
       .references(() => companies.id, { onDelete: 'cascade' }),
     hostname: text('hostname').notNull().unique(), // e.g., 'client.diageo.com' or 'diageo.pmg-platform.com'
-    type: varchar('type', { length: 30 }).notNull(), // 'vanity_subdomain' | 'custom_domain'
+    type: hostnameTypeEnum('type').notNull(),
     isVerified: boolean('is_verified').default(false),
     isActive: boolean('is_active').default(true),
     createdAt: timestamp('created_at').notNull().defaultNow(),

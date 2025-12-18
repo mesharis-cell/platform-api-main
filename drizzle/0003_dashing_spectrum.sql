@@ -1,0 +1,2 @@
+CREATE TYPE "public"."hostname_type" AS ENUM('VANITY', 'CUSTOM');--> statement-breakpoint
+ALTER TABLE "company_domains" ALTER COLUMN "type" SET DATA TYPE "public"."hostname_type" USING "type"::"public"."hostname_type";
