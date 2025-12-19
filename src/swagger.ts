@@ -1,5 +1,7 @@
 import swaggerJsdoc from "swagger-jsdoc";
 import config from "./app/config";
+import "./app/modules/auth/Auth.swagger";
+import "./app/modules/user/user.swagger";
 
 const swaggerDefinition = {
   openapi: "3.0.0",

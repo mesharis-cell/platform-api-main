@@ -462,3 +462,5 @@
  *       - BearerAuth: []
  */
 
+
+export const userSwagger = {};
