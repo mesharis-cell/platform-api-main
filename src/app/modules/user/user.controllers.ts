@@ -5,8 +5,7 @@ import { UserServices } from "./user.services";
 
 // ----------------------------------- CREATE USER ------------------------------------
 const createUser = catchAsync(async (req, res, next) => {
-  // Extract platform ID from header
-  const platformId = req.headers['x-platform'] as string;
+  const platformId = (req as any).platformId;
   
   // Merge platform ID with request body
   const userData = {
@@ -24,6 +23,22 @@ const createUser = catchAsync(async (req, res, next) => {
   });
 });
 
+// ----------------------------------- GET USERS --------------------------------------
+const getUsers = catchAsync(async (req, res, next) => {
+  const platformId = (req as any).platformId;
+  const { query } = req;
+
+  const result = await UserServices.getUsers(platformId, query);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Users fetched successfully",
+    data: result,
+  });
+});
+
 export const UserControllers = {
   createUser,
+  getUsers,
 };
