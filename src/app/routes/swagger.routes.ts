@@ -1,6 +1,6 @@
 import express from "express";
 import swaggerUi from "swagger-ui-express";
-import swaggerSpec from "../../swagger";
+import swaggerDocument from "../../swagger-output.json";
 
 const router = express.Router();
 
@@ -13,7 +13,7 @@ const options = {
   ],
 };
 
-router.use("/", swaggerUi.serve, swaggerUi.setup(swaggerSpec, options));
+router.use("/", swaggerUi.serve, swaggerUi.setup(swaggerDocument, options));
 
 const swaggerRoutes = router;
 

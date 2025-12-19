@@ -6,7 +6,8 @@
     "outDir": "dist",
     "strict": true,
     "esModuleInterop": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "resolveJsonModule": true
   },
   "include": ["src/**/*", "env.d.ts"],
   "exclude": ["node_modules", "dist", "drizzle.config.ts"]
