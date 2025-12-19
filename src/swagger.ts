@@ -22,6 +22,10 @@ const swaggerDefinition = {
       url: "http://52.64.200.190",
       description: "Remote Server",
     },
+    {
+      url: "https://pmg-backend.vercel.app",
+      description: "Vercel Deployment",
+    },
   ],
   components: {
     securitySchemes: {
