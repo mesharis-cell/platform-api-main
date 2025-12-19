@@ -62,13 +62,13 @@ const login = async (credential: LoginCredential, platformId: string) => {
   const accessToken = generateToken(
     jwtPayload,
     config.jwt_access_secret as Secret,
-    config.jwt_access_expiresin as string
+    config.jwt_access_expires_in as string
   );
 
   const refreshToken = generateToken(
     jwtPayload,
     config.jwt_refresh_secret as Secret,
-    config.jwt_refresh_expiresin as string
+    config.jwt_refresh_expires_in as string
   );
 
   return {
