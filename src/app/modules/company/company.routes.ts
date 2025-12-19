@@ -1,4 +1,5 @@
 import { Router } from "express";
+import auth from "../../middleware/auth";
 import payloadValidator from "../../middleware/payload-validator";
 import platformValidator from "../../middleware/platform-validator";
 import { CompanyControllers } from "./company.controllers";
@@ -10,6 +11,7 @@ const router = Router();
 router.post(
   "/",
   platformValidator,
+  auth('ADMIN'),
   payloadValidator(CompanySchemas.createCompany),
   CompanyControllers.createCompany
 );
@@ -17,6 +19,7 @@ router.post(
 router.get(
   "/",
   platformValidator,
+  auth('ADMIN', 'LOGISTICS'),
   CompanyControllers.getCompanies
 );
 
