@@ -1,10 +1,12 @@
+import { and, eq } from "drizzle-orm";
 import { NextFunction, Request, Response } from "express";
 import httpStatus from "http-status";
 import { JwtPayload } from "jsonwebtoken";
+import { db } from "../../db";
+import { users } from "../../db/schema";
 import config from "../config";
 import CustomizedError from "../error/customized-error";
 import { AuthUser } from "../interface/common";
-import { prisma } from "../shared/prisma";
 import { tokenVerifier } from "../utils/jwt-helpers";
 
 const auth = (...roles: string[]) => {
@@ -13,7 +15,8 @@ const auth = (...roles: string[]) => {
     res: Response,
     next: NextFunction
   ) => {
-    try {
+      try {
+      const platformId = (req as any).platformId;
       let token = req.headers.authorization;
       if (token?.startsWith("Bearer ")) {
         token = token.split("Bearer ")[1];
@@ -27,22 +30,21 @@ const auth = (...roles: string[]) => {
         config.jwt_access_secret
       ) as AuthUser;
 
-      const user = await prisma.user.findUniqueOrThrow({
-        where: {
-          id: verifiedUser?.id,
-          is_deleted: false,
-          status: "ACTIVE",
-        },
-      });
+      const [user] = await db
+        .select()
+        .from(users)
+        .where(
+            and(
+              eq(users.platform, platformId),
+            eq(users.id, verifiedUser?.id),
+            eq(users.isActive, true)
+          )
+        );
 
-      const passwordChangedTime = Math.floor(
-        new Date(user?.password_changed_at).getTime() / 1000
-      );
-
-      if (passwordChangedTime > verifiedUser.iat) {
+      if (!user) {
         throw new CustomizedError(
           httpStatus.UNAUTHORIZED,
-          "Password changed recently"
+          "User not found or inactive"
         );
       }
 

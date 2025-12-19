@@ -1,4 +1,5 @@
 import { Router } from "express";
+import auth from "../../middleware/auth";
 import payloadValidator from "../../middleware/payload-validator";
 import platformValidator from "../../middleware/platform-validator";
 import { UserControllers } from "./user.controllers";
@@ -16,6 +17,7 @@ router.post(
 router.get(
   "/",
   platformValidator,
+  auth('ADMIN'),
   UserControllers.getUsers
 );
 
