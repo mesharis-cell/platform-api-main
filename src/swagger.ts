@@ -1,5 +1,7 @@
 import swaggerJsdoc from "swagger-jsdoc";
 import config from "./app/config";
+import "./app/modules/auth/Auth.swagger";
+import "./app/modules/user/user.swagger";
 
 const swaggerDefinition = {
   openapi: "3.0.0",
@@ -22,6 +24,10 @@ const swaggerDefinition = {
       url: "http://52.64.200.190",
       description: "Remote Server",
     },
+    {
+      url: "https://pmg-backend.vercel.app",
+      description: "Vercel Deployment",
+    },
   ],
   components: {
     securitySchemes: {
@@ -40,6 +46,7 @@ const swaggerDefinition = {
         schema: {
           type: "string",
           format: "uuid",
+          example: "5ea04348-cf64-4bf5-9c65-a5823b65aa10",
         },
         description: "Platform UUID (required on all requests)",
       },
@@ -114,7 +121,7 @@ const swaggerDefinition = {
 
 const options = {
   swaggerDefinition,
-  apis: ["./src/app/**/*.swagger.ts"],
+  apis: ["./src/app/**/*.swagger.ts", "./dist/app/**/*.swagger.js"],
 };
 
 const swaggerSpec = swaggerJsdoc(options);

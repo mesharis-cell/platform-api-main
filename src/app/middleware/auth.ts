@@ -15,7 +15,7 @@ const auth = (...roles: string[]) => {
     res: Response,
     next: NextFunction
   ) => {
-      try {
+    try {
       const platformId = (req as any).platformId;
       let token = req.headers.authorization;
       if (token?.startsWith("Bearer ")) {
@@ -34,8 +34,8 @@ const auth = (...roles: string[]) => {
         .select()
         .from(users)
         .where(
-            and(
-              eq(users.platform, platformId),
+          and(
+            eq(users.platform, platformId),
             eq(users.id, verifiedUser?.id),
             eq(users.isActive, true)
           )

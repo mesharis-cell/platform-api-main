@@ -24,31 +24,31 @@
  *                 format: uuid
  *                 nullable: true
  *                 description: Company ID (required for CLIENT users, null for ADMIN/LOGISTICS)
- *                 example: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+ *                 example: "c7dbfc23-c782-4004-9492-755ceb0cc33a"
  *               name:
  *                 type: string
  *                 minLength: 1
  *                 maxLength: 100
  *                 description: User's full name
- *                 example: "John Doe"
+ *                 example: "fazly"
  *               email:
  *                 type: string
  *                 format: email
  *                 maxLength: 255
  *                 description: User's email address (unique per platform)
- *                 example: "john.doe@example.com"
+ *                 example: "fazlyalahi.ru@gmail.com"
  *               password:
  *                 type: string
  *                 minLength: 8
  *                 maxLength: 50
  *                 description: User's password (will be hashed before storage)
- *                 example: "SecurePassword123!"
+ *                 example: "Nahid@123"
  *               role:
  *                 type: string
  *                 enum: [ADMIN, LOGISTICS, CLIENT]
  *                 default: CLIENT
  *                 description: User role for access control
- *                 example: "CLIENT"
+ *                 example: "ADMIN"
  *               permissions:
  *                 type: array
  *                 items:
@@ -61,7 +61,7 @@
  *                 enum: [PLATFORM_ADMIN, LOGISTICS_STAFF, CLIENT_USER]
  *                 nullable: true
  *                 description: Permission template to apply
- *                 example: "CLIENT_USER"
+ *                 example: "PLATFORM_ADMIN"
  *               isActive:
  *                 type: boolean
  *                 default: true
@@ -462,3 +462,5 @@
  *       - BearerAuth: []
  */
 
+
+export const userSwagger = {};
