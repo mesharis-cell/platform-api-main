@@ -1,11 +1,6 @@
 import z from "zod";
-
-// User role enum matching the database
-const userRoleEnum = z.enum([
-  'ADMIN',
-  'LOGISTICS',
-  'CLIENT',
-]).default("CLIENT");
+import { userRoleEnum } from "../../../db/schema";
+import { enumMessageGenerator } from "../../utils/helper";
 
 // Permission template enum
 const permissionTemplateEnum = z.enum(
@@ -29,7 +24,7 @@ const createUser = z.object({
       .string({ error: "Password is required" })
       .min(8, "Password must be at least 8 characters")
       .max(50, "Password must be at most 50 characters"),
-    role: userRoleEnum.optional().default("CLIENT"),
+    role: z.enum(userRoleEnum.enumValues, { message: enumMessageGenerator("Role", userRoleEnum.enumValues) }).optional().default("CLIENT"),
     permissions: z
       .array(z.string(), {
         error: "Permissions must be an array of strings",
@@ -63,7 +58,7 @@ const updateUser = z.object({
       .min(8, "Password must be at least 8 characters")
       .max(255, "Password must be at most 255 characters")
       .optional(),
-    role: userRoleEnum.optional(),
+    role: z.enum(userRoleEnum.enumValues).optional(),
     permissions: z
       .array(z.string(), {
         error: "Permissions must be an array of strings",

@@ -2,10 +2,7 @@ import { z } from "zod";
 
 const brandSchema = z.object({
   body: z.object({
-      platform: z
-        .uuid({ message: "Invalid platform selection" })
-        .min(1, "Platform is required"),
-      company: z
+      company_id: z
         .uuid({ message: "Invalid company selection" })
         .min(1, "Company is required"),
       name: z
@@ -16,24 +13,16 @@ const brandSchema = z.object({
         .string()
         .optional()
         .or(z.literal("")),
-      logoUrl: z
+      logo_url: z
         .url("Invalid logo URL")
         .optional()
         .or(z.literal("")),
-      isActive: z.boolean().default(true),
+      is_active: z.boolean().default(true),
     })
 });
 
 const updateBrandSchema = z.object({
   body: z.object({
-      platform: z
-        .uuid({ message: "Invalid platform selection" })
-        .min(1, "Platform is required")
-        .optional(),
-      company: z
-        .uuid({ message: "Invalid company selection" })
-        .min(1, "Company is required")
-        .optional(),
       name: z
         .string({ message: "Name is required" })
         .min(1, "Name is required")
@@ -43,11 +32,11 @@ const updateBrandSchema = z.object({
         .string()
         .optional()
         .or(z.literal("")),
-      logoUrl: z
+      logo_url: z
         .url("Invalid logo URL")
         .optional()
         .or(z.literal("")),
-      isActive: z.boolean().optional(),
+      is_active: z.boolean().optional(),
     })
 })
 

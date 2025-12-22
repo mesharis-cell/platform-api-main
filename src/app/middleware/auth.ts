@@ -7,9 +7,10 @@ import { users } from "../../db/schema";
 import config from "../config";
 import CustomizedError from "../error/customized-error";
 import { AuthUser } from "../interface/common";
+import { UserRole } from "../modules/user/user.interfaces";
 import { tokenVerifier } from "../utils/jwt-helpers";
 
-const auth = (...roles: string[]) => {
+const auth = (...roles: UserRole[]) => {
   return async (
     req: Request & { user?: JwtPayload },
     res: Response,
