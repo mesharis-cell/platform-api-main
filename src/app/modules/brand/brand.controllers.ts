@@ -27,7 +27,9 @@ const createBrand = catchAsync(async (req, res) => {
 // ----------------------------------- GET BRANDS -------------------------------------
 const getBrands = catchAsync(async (req, res) => {
   const user = (req as any).user;
-  const result = await BrandServices.getBrands(req.query, user);
+  const platformId = (req as any).platformId;
+
+  const result = await BrandServices.getBrands(req.query, user, platformId);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
