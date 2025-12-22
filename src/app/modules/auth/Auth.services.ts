@@ -1,13 +1,13 @@
 import bcrypt from "bcrypt";
 import { and, eq } from "drizzle-orm";
 import httpStatus from "http-status";
-import jwt, { Secret } from "jsonwebtoken";
+import { Secret } from "jsonwebtoken";
 import { db } from "../../../db";
 import { users } from "../../../db/schema";
 import config from "../../config";
 import CustomizedError from "../../error/customized-error";
-import { LoginCredential } from "./Auth.interfaces";
 import { tokenGenerator } from "../../utils/jwt-helpers";
+import { LoginCredential } from "./Auth.interfaces";
 
 const login = async (credential: LoginCredential, platformId: string) => {
   const { email, password } = credential;
@@ -53,7 +53,7 @@ const login = async (credential: LoginCredential, platformId: string) => {
   const accessToken = tokenGenerator(
     jwtPayload,
     config.jwt_access_secret as Secret,
-    config.jwt_access_expires_in
+   config.jwt_access_expires_in
   );
 
   const refreshToken = tokenGenerator(
@@ -62,8 +62,17 @@ const login = async (credential: LoginCredential, platformId: string) => {
     config.jwt_refresh_expires_in
   );
 
+  if(accessToken && refreshToken){
+    await db.update(users)
+    .set({
+      last_login_at: new Date(),
+    })
+    .where(eq(users.id, user.id));
+  }
+
   return {
     ...userData,
+    last_login_at: new Date(),
     access_token: accessToken,
     refresh_token: refreshToken,
   };
