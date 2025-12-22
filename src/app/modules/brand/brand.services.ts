@@ -58,7 +58,7 @@ const createBrand = async (data: CreateBrandPayload) => {
 };
 
 // ----------------------------------- GET BRANDS -------------------------------------
-const getBrands = async (query: Record<string, any>, user: AuthUser) => {
+const getBrands = async (query: Record<string, any>, user: AuthUser, platformId: string) => {
   const {
     search_term,
     page,
@@ -84,7 +84,7 @@ const getBrands = async (query: Record<string, any>, user: AuthUser) => {
     });
 
   // Step 3: Build WHERE conditions
-  const conditions: any[] = [];
+  const conditions: any[] = [eq(brands.platform_id, platformId)];
 
   // Step 3a: Filter by user role (CLIENT users see only their company's brands)
   if (user.role === 'CLIENT') {
