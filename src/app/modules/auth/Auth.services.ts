@@ -7,16 +7,7 @@ import { users } from "../../../db/schema";
 import config from "../../config";
 import CustomizedError from "../../error/customized-error";
 import { LoginCredential } from "./Auth.interfaces";
-
-const generateToken = (
-  payload: Record<string, unknown>,
-  secret: Secret,
-  expiresIn: string
-) => {
-  return jwt.sign(payload, secret, {
-    expiresIn: expiresIn as any,
-  });
-};
+import { tokenGenerator } from "../../utils/jwt-helpers";
 
 const login = async (credential: LoginCredential, platformId: string) => {
   const { email, password } = credential;
@@ -59,22 +50,22 @@ const login = async (credential: LoginCredential, platformId: string) => {
     platform_id: user.platform_id
   };
 
-  const accessToken = generateToken(
+  const accessToken = tokenGenerator(
     jwtPayload,
     config.jwt_access_secret as Secret,
-    config.jwt_access_expires_in as string
+    config.jwt_access_expires_in
   );
 
-  const refreshToken = generateToken(
+  const refreshToken = tokenGenerator(
     jwtPayload,
     config.jwt_refresh_secret as Secret,
-    config.jwt_refresh_expires_in as string
+    config.jwt_refresh_expires_in
   );
 
   return {
     ...userData,
-    accessToken,
-    refreshToken,
+    access_token: accessToken,
+    refresh_token: refreshToken,
   };
 };
 

@@ -1,25 +1,12 @@
 import httpStatus from "http-status";
-import { z } from "zod";
-import CustomizedError from "../../error/customized-error";
 import catchAsync from "../../shared/catch-async";
 import sendResponse from "../../shared/send-response";
 import { AuthServices } from "./Auth.services";
 
 const login = catchAsync(async (req, res) => {
   // Extract platform ID from header - using lowercase as express lowercases headers
-  const platformId = req.headers['x-platform-id'] as string;
+  const platformId = (req as any).platformId;
 
-  if (!platformId) {
-    throw new CustomizedError(httpStatus.BAD_REQUEST, "x-platform-id header is required");
-  }
-
-  // Validate UUID format
-  const uuidSchema = z.string().uuid();
-  const validationResult = uuidSchema.safeParse(platformId);
-
-  if (!validationResult.success) {
-    throw new CustomizedError(httpStatus.BAD_REQUEST, "Invalid Platform ID format (must be UUID)");
-  }
 
   const result = await AuthServices.login(req.body, platformId);
 
