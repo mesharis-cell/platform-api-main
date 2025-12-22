@@ -9,6 +9,7 @@ import { CreateBrandPayload } from "./brand.interfaces";
 // ----------------------------------- CREATE BRAND -----------------------------------
 const createBrand = async (data: CreateBrandPayload) => {
   try {
+    // Step 1: Validate company exists and is not archived
     const [company] = await db
       .select()
       .from(companies)
@@ -23,13 +24,16 @@ const createBrand = async (data: CreateBrandPayload) => {
       throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found or is archived");
     }
 
+    // Step 2: Validate logo URL format if provided
     if (data.logo_url && !isValidUrl(data.logo_url)) {
       throw new CustomizedError(httpStatus.BAD_REQUEST, "Invalid logo URL format. Must start with http:// or https:// and be under 500 characters");
     }
 
+    // Step 3: Insert brand into database
     const [result] = await db.insert(brands).values(data).returning();
     return result;
   } catch (error: any) {
+    // Step 4: Handle database errors
     const pgError = error.cause || error;
 
     if (pgError.code === '23505') {
@@ -39,7 +43,6 @@ const createBrand = async (data: CreateBrandPayload) => {
           `Brand with name "${data.name}" already exists for this company`
         );
       }
-      // Generic unique constraint error
       throw new CustomizedError(
         httpStatus.CONFLICT,
         'A brand with these details already exists'
