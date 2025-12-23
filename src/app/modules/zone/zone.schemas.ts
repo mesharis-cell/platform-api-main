@@ -1,15 +1,15 @@
 import { z } from "zod";
 
-const createZoneSchema = z.object({
+const zoneSchema = z.object({
   body: z.object({
-    warehouse: z
+    warehouse_id: z
       .uuid({ message: "Invalid warehouse selection" })
       .min(1, "Warehouse is required"),
-    company: z
+    company_id: z
       .uuid({ message: "Invalid company selection" })
       .min(1, "Company is required"),
     name: z
-      .string()
+      .string({ message: "Name is required" })
       .min(1, "Name is required")
       .max(50, "Name must be under 50 characters"),
     description: z
@@ -19,23 +19,22 @@ const createZoneSchema = z.object({
     capacity: z
       .number({ message: "Capacity must be a number" })
       .int("Capacity must be an integer")
+      .positive("Capacity must be positive")
       .optional(),
-    isActive: z.boolean().default(true),
+    is_active: z.boolean().default(true),
   }),
 });
 
 const updateZoneSchema = z.object({
   body: z.object({
-    warehouse: z
+    warehouse_id: z
       .uuid({ message: "Invalid warehouse selection" })
-      .min(1, "Warehouse is required")
       .optional(),
-    company: z
+    company_id: z
       .uuid({ message: "Invalid company selection" })
-      .min(1, "Company is required")
       .optional(),
     name: z
-      .string()
+      .string({ message: "Name is required" })
       .min(1, "Name is required")
       .max(50, "Name must be under 50 characters")
       .optional(),
@@ -46,12 +45,13 @@ const updateZoneSchema = z.object({
     capacity: z
       .number({ message: "Capacity must be a number" })
       .int("Capacity must be an integer")
+      .positive("Capacity must be positive")
       .optional(),
-    isActive: z.boolean().optional(),
+    is_active: z.boolean().optional(),
   }),
 });
 
 export const zoneSchemas = {
-  createZoneSchema,
+  zoneSchema,
   updateZoneSchema,
 };
