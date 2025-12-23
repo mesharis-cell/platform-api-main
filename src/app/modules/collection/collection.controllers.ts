@@ -86,7 +86,6 @@ const deleteCollection = catchAsync(async (req, res) => {
 
 // ----------------------------------- ADD COLLECTION ITEM -----------------------------------
 const addCollectionItem = catchAsync(async (req, res) => {
-    const user = (req as any).user;
     const platformId = (req as any).platformId;
     const { id } = req.params;
 
@@ -107,7 +106,6 @@ const addCollectionItem = catchAsync(async (req, res) => {
 
 // ----------------------------------- UPDATE COLLECTION ITEM -----------------------------------
 const updateCollectionItem = catchAsync(async (req, res) => {
-    const user = (req as any).user;
     const platformId = (req as any).platformId;
     const { id, itemId } = req.params;
 
@@ -123,7 +121,6 @@ const updateCollectionItem = catchAsync(async (req, res) => {
 
 // ----------------------------------- DELETE COLLECTION ITEM -----------------------------------
 const deleteCollectionItem = catchAsync(async (req, res) => {
-    const user = (req as any).user;
     const platformId = (req as any).platformId;
     const { id, itemId } = req.params;
 
