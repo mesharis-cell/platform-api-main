@@ -1,59 +1,64 @@
-import z from "zod";
+import { z } from "zod";
 
-const createWarehouse = z.object({
+const warehouseSchema = z.object({
   body: z.object({
     name: z
-      .string()
-      .min(1, { message: "Name is required" })
-      .max(100, { message: "Name cannot exceed 100 characters" }),
+      .string({ message: "Name is required" })
+      .min(1, "Name is required")
+      .max(100, "Name must be under 100 characters"),
     country: z
-      .string()
-      .min(1, { message: "Country is required" })
-      .max(50, { message: "Country cannot exceed 50 characters" }),
+      .string({ message: "Country is required" })
+      .min(1, "Country is required")
+      .max(50, "Country must be under 50 characters"),
     city: z
-      .string()
-      .min(1, { message: "City is required" })
-      .max(50, { message: "City cannot exceed 50 characters" }),
-    address: z.string().min(1, { message: "Address is required" }),
+      .string({ message: "City is required" })
+      .min(1, "City is required")
+      .max(50, "City must be under 50 characters"),
+    address: z
+      .string({ message: "Address is required" })
+      .min(1, "Address is required"),
     coordinates: z
       .object({
         lat: z.number({ message: "Latitude must be a number" }),
         lng: z.number({ message: "Longitude must be a number" }),
       })
       .optional(),
-    isActive: z.boolean().optional().default(true),
+    is_active: z.boolean().default(true),
   }),
 });
 
-const updateWarehouse = z.object({
+const updateWarehouseSchema = z.object({
   body: z.object({
     name: z
-      .string()
-      .min(1, { message: "Name cannot be empty" })
-      .max(100, { message: "Name cannot exceed 100 characters" })
+      .string({ message: "Name is required" })
+      .min(1, "Name is required")
+      .max(100, "Name must be under 100 characters")
       .optional(),
     country: z
-      .string()
-      .min(1, { message: "Country cannot be empty" })
-      .max(50, { message: "Country cannot exceed 50 characters" })
+      .string({ message: "Country is required" })
+      .min(1, "Country is required")
+      .max(50, "Country must be under 50 characters")
       .optional(),
     city: z
-      .string()
-      .min(1, { message: "City cannot be empty" })
-      .max(50, { message: "City cannot exceed 50 characters" })
+      .string({ message: "City is required" })
+      .min(1, "City is required")
+      .max(50, "City must be under 50 characters")
       .optional(),
-    address: z.string().min(1, { message: "Address cannot be empty" }).optional(),
+    address: z
+      .string({ message: "Address is required" })
+      .min(1, "Address is required")
+      .optional(),
     coordinates: z
       .object({
-        lat: z.number({ message: "Latitude must be a number" }).optional(),
-        lng: z.number({ message: "Longitude must be a number" }).optional(),
+        lat: z.number({ message: "Latitude must be a number" }),
+        lng: z.number({ message: "Longitude must be a number" }),
       })
       .optional(),
-    isActive: z.boolean().optional(),
+    is_active: z.boolean().optional(),
   }),
 });
 
-export const WarehouseSchemas = {
-  createWarehouse,
-  updateWarehouse,
+export const warehouseSchemas = {
+  warehouseSchema,
+  updateWarehouseSchema,
 };

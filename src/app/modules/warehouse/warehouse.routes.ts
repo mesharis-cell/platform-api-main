@@ -1,23 +1,31 @@
 import { Router } from "express";
+import auth from "../../middleware/auth";
 import payloadValidator from "../../middleware/payload-validator";
-import { WarehouseSchemas } from "./warehouse.schemas";
+import platformValidator from "../../middleware/platform-validator";
+import { WarehouseControllers } from "./warehouse.controllers";
+import { warehouseSchemas } from "./warehouse.schemas";
 
 const router = Router();
 
+// Create warehouse
 router.post(
   "/",
-  payloadValidator(WarehouseSchemas.createWarehouse),
+  platformValidator,
+  auth('ADMIN', 'LOGISTICS'),
+  payloadValidator(warehouseSchemas.warehouseSchema),
+  WarehouseControllers.createWarehouse
 );
 
-router.get("/",);
+// Get all warehouses
+router.get("/", platformValidator, auth('ADMIN', 'LOGISTICS', 'CLIENT'), WarehouseControllers.getWarehouses);
 
-router.get("/:id");
+// Get warehouse by id
+router.get("/:id", platformValidator, auth('ADMIN', 'LOGISTICS', 'CLIENT'), WarehouseControllers.getWarehouseById);
 
-router.put(
-  "/:id",
-  payloadValidator(WarehouseSchemas.updateWarehouse),
-);
+// Update warehouse
+router.patch("/:id", platformValidator, auth('ADMIN', 'LOGISTICS'), payloadValidator(warehouseSchemas.updateWarehouseSchema), WarehouseControllers.updateWarehouse);
 
-router.delete("/:id");
+// Delete warehouse
+router.delete("/:id", platformValidator, auth('ADMIN'), WarehouseControllers.deleteWarehouse);
 
 export const WarehouseRoutes = router;

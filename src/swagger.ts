@@ -2,6 +2,7 @@ import swaggerJsdoc from "swagger-jsdoc";
 import config from "./app/config";
 import "./app/modules/auth/Auth.swagger";
 import "./app/modules/user/user.swagger";
+import "./app/modules/warehouse/warehouse.swagger";
 
 const swaggerDefinition = {
   openapi: "3.0.0",
@@ -115,6 +116,11 @@ const swaggerDefinition = {
       name: "Platform Management",
       description:
         "Platform configuration and feature flags (Platform Admin only)",
+    },
+    {
+      name: "Warehouse Management",
+      description:
+        "Warehouse CRUD operations with multi-tenant support",
     },
   ],
 };
