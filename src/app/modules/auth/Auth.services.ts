@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import httpStatus from "http-status";
 import { Secret } from "jsonwebtoken";
 import { db } from "../../../db";
-import { users } from "../../../db/schema";
+import { companyDomains, platforms, users } from "../../../db/schema";
 import config from "../../config";
 import CustomizedError from "../../error/customized-error";
 import { tokenGenerator } from "../../utils/jwt-helpers";
@@ -53,7 +53,7 @@ const login = async (credential: LoginCredential, platformId: string) => {
   const accessToken = tokenGenerator(
     jwtPayload,
     config.jwt_access_secret as Secret,
-   config.jwt_access_expires_in
+     config.jwt_access_expires_in
   );
 
   const refreshToken = tokenGenerator(
@@ -78,6 +78,21 @@ const login = async (credential: LoginCredential, platformId: string) => {
   };
 };
 
+const getPlatformByDomain = async (domain: string) => {
+  const result = await db
+    .select({
+      id: platforms.id,        
+      config: platforms.config,
+    })
+    .from(companyDomains)
+    .innerJoin(platforms, eq(companyDomains.platform_id, platforms.id))
+    .where(eq(companyDomains.hostname, domain))
+    .limit(1);
+
+  return result[0] || null;
+};
+
 export const AuthServices = {
   login,
+  getPlatformByDomain,
 };
