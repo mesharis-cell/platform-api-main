@@ -39,4 +39,7 @@ router.patch("/:id/items/:itemId", platformValidator, auth('ADMIN', 'LOGISTICS')
 // Delete collection item
 router.delete("/:id/items/:itemId", platformValidator, auth('ADMIN', 'LOGISTICS'), CollectionControllers.deleteCollectionItem);
 
+// Check collection availability
+router.get("/:id/availability", platformValidator, auth('ADMIN', 'LOGISTICS', 'CLIENT'), CollectionControllers.checkCollectionAvailability);
+
 export const CollectionRoutes = router;

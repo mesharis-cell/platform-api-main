@@ -134,6 +134,27 @@ const deleteCollectionItem = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- CHECK COLLECTION AVAILABILITY -----------------------------------
+const checkCollectionAvailability = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const { id } = req.params;
+
+    const result = await CollectionServices.checkCollectionAvailability(
+        id,
+        user,
+        platformId,
+        req.query
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Collection availability checked successfully",
+        data: result,
+    });
+});
+
 export const CollectionControllers = {
     createCollection,
     getCollections,
@@ -143,4 +164,5 @@ export const CollectionControllers = {
     addCollectionItem,
     updateCollectionItem,
     deleteCollectionItem,
+    checkCollectionAvailability,
 };

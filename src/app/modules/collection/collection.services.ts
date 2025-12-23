@@ -491,6 +491,91 @@ const deleteCollectionItem = async (collectionId: string, itemId: string, platfo
     return null;
 };
 
+// ----------------------------------- CHECK COLLECTION AVAILABILITY -----------------------------------
+const checkCollectionAvailability = async (
+    collectionId: string,
+    user: AuthUser,
+    platformId: string,
+    query: any
+) => {
+    const { event_start_date, event_end_date } = query;
+    // Validate required query parameters
+    if (!event_start_date || !event_end_date) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "event_start_date and event_end_date are required in query parameters");
+    }
+
+    // Step 1: Build WHERE conditions
+    const conditions: any[] = [
+        eq(collections.id, collectionId),
+        eq(collections.platform_id, platformId),
+        isNull(collections.deleted_at),
+    ];
+
+    // Step 2: Filter by user role (CLIENT users can only check their company's collections)
+    if (user.role === 'CLIENT') {
+        if (user.company_id) {
+            conditions.push(eq(collections.company_id, user.company_id));
+        } else {
+            throw new CustomizedError(httpStatus.UNAUTHORIZED, "Company not found");
+        }
+    }
+
+    // Step 3: Fetch collection with items and asset details
+    const collection = await db.query.collections.findFirst({
+        where: and(...conditions),
+        with: {
+            assets: {
+                with: {
+                    asset: {
+                        columns: {
+                            id: true,
+                            name: true,
+                            available_quantity: true,
+                            total_quantity: true,
+                            status: true,
+                            condition: true,
+                        },
+                    },
+                },
+                orderBy: (items, { asc }) => [asc(items.display_order)],
+            },
+        },
+    });
+
+    // Step 4: Handle not found
+    if (!collection) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Collection not found");
+    }
+
+    // Step 5: Check availability for each item
+    const availabilityItems = collection.assets.map((item) => {
+        const isAvailable = item.asset.available_quantity >= item.default_quantity;
+
+        return {
+            asset_id: item.asset.id,
+            asset_name: item.asset.name,
+            default_quantity: item.default_quantity,
+            available_quantity: item.asset.available_quantity,
+            total_quantity: item.asset.total_quantity,
+            status: item.asset.status,
+            condition: item.asset.condition,
+            is_available: isAvailable,
+        };
+    });
+
+    // Step 6: Determine if collection is fully available
+    const isFullyAvailable = availabilityItems.every((item) => item.is_available);
+
+    return {
+        collection_id: collectionId,
+        collection_name: collection.name,
+        event_start_date: event_start_date,
+        event_end_date: event_end_date,
+        is_fully_available: isFullyAvailable,
+        items: availabilityItems,
+    };
+};
+
 export const CollectionServices = {
     createCollection,
     getCollections,
@@ -500,4 +585,5 @@ export const CollectionServices = {
     addCollectionItem,
     updateCollectionItem,
     deleteCollectionItem,
+    checkCollectionAvailability,
 };
