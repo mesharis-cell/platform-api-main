@@ -1,6 +1,7 @@
 import swaggerJsdoc from "swagger-jsdoc";
 import config from "./app/config";
 import "./app/modules/auth/Auth.swagger";
+import "./app/modules/collection/collection.swagger";
 import "./app/modules/user/user.swagger";
 import "./app/modules/warehouse/warehouse.swagger";
 import "./app/modules/zone/zone.swagger";
@@ -127,6 +128,11 @@ const swaggerDefinition = {
       name: "Zone Management",
       description:
         "Zone CRUD operations within warehouses for company-specific storage areas",
+    },
+    {
+      name: "Collection Management",
+      description:
+        "Collection CRUD operations for managing asset collections and collection items",
     },
   ],
 };

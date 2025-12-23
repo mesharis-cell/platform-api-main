@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { BrandRoutes } from "../modules/brand/brand.routes";
+import { CollectionRoutes } from "../modules/collection/collection.routes";
 import { CompanyRoutes } from "../modules/company/company.routes";
 import { PlatformRoutes } from "../modules/platform/platform.routes";
 import { UserRoutes } from "../modules/user/user.routes";
@@ -32,6 +33,10 @@ const routes = [
   {
     path: "/zone",
     route: ZoneRoutes,
+  },
+  {
+    path: "/collection",
+    route: CollectionRoutes,
   },
 ];
 

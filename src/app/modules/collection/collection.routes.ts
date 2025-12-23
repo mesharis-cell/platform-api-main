@@ -1,34 +1,42 @@
 import { Router } from "express";
+import auth from "../../middleware/auth";
 import payloadValidator from "../../middleware/payload-validator";
+import platformValidator from "../../middleware/platform-validator";
+import { CollectionControllers } from "./collection.controllers";
 import { CollectionSchemas } from "./collection.schemas";
 
 const router = Router();
 
+// Create collection
 router.post(
   "/",
-  payloadValidator(CollectionSchemas.createCollection),
+  platformValidator,
+  auth('ADMIN', 'LOGISTICS'),
+  payloadValidator(CollectionSchemas.collectionSchema),
+  CollectionControllers.createCollection
 );
 
-router.get("/");
+// Get all collections
+router.get("/", platformValidator, auth('ADMIN', 'LOGISTICS', 'CLIENT'), CollectionControllers.getCollections);
 
-router.get("/:id");
+// Get collection by id
+router.get("/:id", platformValidator, auth('ADMIN', 'LOGISTICS', 'CLIENT'), CollectionControllers.getCollectionById);
 
-router.put(
-  "/:id",
-  payloadValidator(CollectionSchemas.updateCollection),
-);
+// Update collection
+router.patch("/:id", platformValidator, auth('ADMIN', 'LOGISTICS'), payloadValidator(CollectionSchemas.updateCollectionSchema), CollectionControllers.updateCollection);
 
-router.delete("/:id");
+// Delete collection
+router.delete("/:id", platformValidator, auth('ADMIN'), CollectionControllers.deleteCollection);
 
+// ----------------------------------- COLLECTION ITEMS -----------------------------------
 
-// collection items
-router.post("/:id/items", payloadValidator(CollectionSchemas.createCollectionItem));
+// Add item to collection
+router.post("/:id/items", platformValidator, auth('ADMIN', 'LOGISTICS'), payloadValidator(CollectionSchemas.collectionItemSchema), CollectionControllers.addCollectionItem);
 
-router.put("/:id/items/:itemId", payloadValidator(CollectionSchemas.updateCollectionItem));
+// Update collection item
+router.patch("/:id/items/:itemId", platformValidator, auth('ADMIN', 'LOGISTICS'), payloadValidator(CollectionSchemas.updateCollectionItemSchema), CollectionControllers.updateCollectionItem);
 
-router.delete("/:id/items/:itemId");
-
-router.get("/:id/availability");
-
+// Delete collection item
+router.delete("/:id/items/:itemId", platformValidator, auth('ADMIN', 'LOGISTICS'), CollectionControllers.deleteCollectionItem);
 
 export const CollectionRoutes = router;

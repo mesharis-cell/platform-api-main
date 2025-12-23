@@ -1,11 +1,14 @@
 import z from "zod";
 
-const createCollection = z.object({
+const collectionSchema = z.object({
   body: z.object({
-    company: z.uuid({ message: "Company ID must be a valid UUID" }),
-    brand: z.uuid({ message: "Brand ID must be a valid UUID" }).optional(),
+    company_id: z
+      .uuid({ message: "Company ID must be a valid UUID" }),
+    brand_id: z
+      .uuid({ message: "Brand ID must be a valid UUID" })
+      .optional(),
     name: z
-      .string()
+      .string({ message: "Name is required" })
       .min(1, { message: "Name is required" })
       .max(200, { message: "Name cannot exceed 200 characters" }),
     description: z.string().optional(),
@@ -14,15 +17,17 @@ const createCollection = z.object({
       .string()
       .max(50, { message: "Category cannot exceed 50 characters" })
       .optional(),
-    isActive: z.boolean().optional().default(true),
-  }),
+    is_active: z.boolean().optional().default(true),
+  }).strict(),
 });
 
-const updateCollection = z.object({
+const updateCollectionSchema = z.object({
   body: z.object({
-    brand: z.uuid({ message: "Brand ID must be a valid UUID" }).optional(),
+    brand_id: z
+      .uuid({ message: "Brand ID must be a valid UUID" })
+      .optional(),
     name: z
-      .string()
+      .string({ message: "Name cannot be empty" })
       .min(1, { message: "Name cannot be empty" })
       .max(200, { message: "Name cannot exceed 200 characters" })
       .optional(),
@@ -32,41 +37,38 @@ const updateCollection = z.object({
       .string()
       .max(50, { message: "Category cannot exceed 50 characters" })
       .optional(),
-    isActive: z.boolean().optional(),
-  }),
+    is_active: z.boolean().optional(),
+  }).strict(),
 });
 
-const createCollectionItem = z.object({
+const collectionItemSchema = z.object({
   body: z.object({
-    collection: z.uuid({ message: "Collection ID must be a valid UUID" }),
-    asset: z.uuid({ message: "Asset ID must be a valid UUID" }),
-    defaultQuantity: z
+    asset_id: z.uuid({ message: "Asset ID must be a valid UUID" }),
+    default_quantity: z
       .number()
       .int()
       .min(1, { message: "Quantity must be at least 1" })
       .default(1),
     notes: z.string().optional(),
-    displayOrder: z.number().int().optional(),
-  }),
+    display_order: z.number().int().optional(),
+  }).strict(),
 });
 
-const updateCollectionItem = z.object({
+const updateCollectionItemSchema = z.object({
   body: z.object({
-    collection: z.uuid({ message: "Collection ID must be a valid UUID" }).optional(),
-    asset: z.uuid({ message: "Asset ID must be a valid UUID" }).optional(),
-    defaultQuantity: z
+    default_quantity: z
       .number()
       .int()
       .min(1, { message: "Quantity must be at least 1" })
       .optional(),
     notes: z.string().optional(),
-    displayOrder: z.number().int().optional(),
-  }),
+    display_order: z.number().int().optional(),
+  }).strict(),
 });
 
 export const CollectionSchemas = {
-  createCollection,
-  updateCollection,
-  createCollectionItem,
-  updateCollectionItem,
+  collectionSchema,
+  updateCollectionSchema,
+  collectionItemSchema,
+  updateCollectionItemSchema,
 };
