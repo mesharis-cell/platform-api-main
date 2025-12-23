@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, ilike, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, or, sql } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
 import { pricingTiers } from "../../../db/schema";
@@ -8,15 +8,71 @@ import queryValidator from "../../utils/query-validator";
 import { CreatePricingTierPayload } from "./pricing-tier.interfaces";
 import { pricingTierQueryValidationConfig, pricingTierSortableFields } from "./pricing-tier.utils";
 
+// ----------------------------------- HELPER FUNCTIONS -----------------------------------
+async function checkVolumeOverlap(
+    country: string,
+    city: string,
+    volumeMin: number,
+    volumeMax: number | null | undefined,
+    platformId: string,
+    excludeId?: string
+): Promise<any | null> {
+    const conditions: any[] = [
+        eq(pricingTiers.country, country),
+        eq(pricingTiers.city, city),
+        eq(pricingTiers.platform_id, platformId),
+        eq(pricingTiers.is_active, true),
+    ];
+
+    if (excludeId) {
+        conditions.push(sql`${pricingTiers.id} != ${excludeId}`);
+    }
+
+    const existingTiers = await db
+        .select()
+        .from(pricingTiers)
+        .where(and(...conditions));
+
+    for (const tier of existingTiers) {
+        const tierMin = parseFloat(tier.volume_min);
+        const tierMax = tier.volume_max ? parseFloat(tier.volume_max) : Infinity;
+        const newMax = volumeMax !== null && volumeMax !== undefined ? volumeMax : Infinity;
+
+        // Check if ranges overlap: (start1 < end2) AND (start2 < end1)
+        if (volumeMin < tierMax && tierMin < newMax) {
+            return tier;
+        }
+    }
+
+    return null;
+}
+
 // ----------------------------------- CREATE PRICING TIER -----------------------------------
 const createPricingTier = async (data: CreatePricingTierPayload) => {
+    const { country, city, volume_min, volume_max, base_price, platform_id } = data;
     try {
+        const overlap = await checkVolumeOverlap(
+            country,
+            city,
+            volume_min,
+            volume_max,
+            platform_id
+        );
+
+        if (overlap) {
+            const overlapMax = overlap.volume_max || 'unlimited';
+            throw new CustomizedError(
+                httpStatus.CONFLICT,
+                `Volume range ${volume_min}-${volume_max || 'unlimited'} m³ overlaps with existing tier (${overlap.volume_min}-${overlapMax} m³) for ${city}, ${country}`
+            );
+        }
+
         // Step 1: Convert number fields to strings for database
         const dbData = {
             ...data,
-            volume_min: data.volume_min.toString(),
-            volume_max: data.volume_max !== null && data.volume_max !== undefined ? data.volume_max.toString() : null,
-            base_price: data.base_price.toString(),
+            volume_min: volume_min.toString(),
+            volume_max: volume_max !== null && volume_max !== undefined ? volume_max.toString() : null,
+            base_price: base_price.toString(),
         };
 
         // Step 2: Insert pricing tier into database
@@ -171,7 +227,35 @@ const updatePricingTier = async (id: string, data: any, platformId: string) => {
             throw new CustomizedError(httpStatus.NOT_FOUND, "Pricing tier not found");
         }
 
-        // Step 2: Convert number fields to strings for database
+        // Step 2: Check for volume overlap if volume fields are being updated
+        const updatedCountry = data.country || existingPricingTier.country;
+        const updatedCity = data.city || existingPricingTier.city;
+        const updatedVolumeMin = data.volume_min !== undefined ? data.volume_min : parseFloat(existingPricingTier.volume_min);
+        const updatedVolumeMax = data.volume_max !== undefined
+            ? (data.volume_max !== null ? data.volume_max : null)
+            : (existingPricingTier.volume_max ? parseFloat(existingPricingTier.volume_max) : null);
+
+        // Only check overlap if location or volume fields are being changed
+        if (data.country || data.city || data.volume_min !== undefined || data.volume_max !== undefined) {
+            const overlap = await checkVolumeOverlap(
+                updatedCountry,
+                updatedCity,
+                updatedVolumeMin,
+                updatedVolumeMax,
+                platformId,
+                id // Exclude current tier from overlap check
+            );
+
+            if (overlap) {
+                const overlapMax = overlap.volume_max || 'unlimited';
+                throw new CustomizedError(
+                    httpStatus.CONFLICT,
+                    `Volume range ${updatedVolumeMin}-${updatedVolumeMax || 'unlimited'} m³ overlaps with existing tier (${overlap.volume_min}-${overlapMax} m³) for ${updatedCity}, ${updatedCountry}`
+                );
+            }
+        }
+
+        // Step 3: Convert number fields to strings for database
         const dbData: any = { ...data };
         if (data.volume_min !== undefined) {
             dbData.volume_min = data.volume_min.toString();
@@ -185,7 +269,7 @@ const updatePricingTier = async (id: string, data: any, platformId: string) => {
             dbData.base_price = data.base_price.toString();
         }
 
-        // Step 3: Update pricing tier
+        // Step 4: Update pricing tier
         const [result] = await db
             .update(pricingTiers)
             .set(dbData)
@@ -194,7 +278,7 @@ const updatePricingTier = async (id: string, data: any, platformId: string) => {
 
         return result;
     } catch (error: any) {
-        // Step 4: Handle database errors
+        // Step 5: Handle database errors
         const pgError = error.cause || error;
 
         if (pgError.code === '23505') {

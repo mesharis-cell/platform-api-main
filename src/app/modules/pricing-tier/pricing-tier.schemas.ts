@@ -25,12 +25,12 @@ const pricingTierSchema = z.object({
     }).strict().refine(
         (data) => {
             if (data.volume_max !== null && data.volume_max !== undefined) {
-                return data.volume_max > data.volume_min;
+                return data.volume_max >= data.volume_min;
             }
             return true;
         },
         {
-            message: "Maximum volume must be greater than minimum volume",
+            message: "Maximum volume must be greater than or equal to minimum volume",
             path: ["volume_max"],
         }
     ),
