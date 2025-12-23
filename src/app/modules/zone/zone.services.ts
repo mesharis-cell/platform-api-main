@@ -144,6 +144,7 @@ const getZones = async (query: Record<string, any>, user: AuthUser, platformId: 
                         name: true,
                         country: true,
                         city: true,
+                        address: true
                     },
                 },
                 company: {

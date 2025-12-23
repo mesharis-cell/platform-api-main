@@ -23,7 +23,7 @@
  *                 type: string
  *                 format: uuid
  *                 description: Warehouse ID where this zone is located
- *                 example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *                 example: "7dd6bf58-d350-4ab9-9aa1-8aa3e461c849"
  *               company_id:
  *                 type: string
  *                 format: uuid
@@ -332,6 +332,9 @@
  *                           city:
  *                             type: string
  *                             example: "Dubai"
+ *                           address:
+ *                             type: string
+ *                             example: "123 Main St, Dubai"
  *                       company:
  *                         type: object
  *                         properties:
@@ -405,7 +408,7 @@
  *         schema:
  *           type: string
  *           format: uuid
- *           example: "f1e2d3c4-b5a6-7890-abcd-ef1234567890"
+ *           example: "82aee8fc-ced0-4413-961f-b64daaf3f3e0"
  *     responses:
  *       200:
  *         description: Zone retrieved successfully
