@@ -40,7 +40,58 @@ const getBrands = catchAsync(async (req, res) => {
   });
 });
 
+// ----------------------------------- GET BRAND BY ID --------------------------------
+const getBrandById = catchAsync(async (req, res) => {
+  const user = (req as any).user;
+  const platformId = (req as any).platformId;
+  const { id } = req.params;
+
+  const result = await BrandServices.getBrandById(id, user, platformId);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Brand fetched successfully",
+    data: result,
+  });
+});
+
+// ----------------------------------- UPDATE BRAND ---------------------------------------
+const updateBrand = catchAsync(async (req, res) => {
+  const user = (req as any).user;
+  const platformId = (req as any).platformId;
+  const { id } = req.params;
+
+  const result = await BrandServices.updateBrand(id, req.body, user, platformId);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Brand updated successfully",
+    data: result,
+  });
+});
+
+// ----------------------------------- DELETE BRAND ---------------------------------------
+const deleteBrand = catchAsync(async (req, res) => {
+  const user = (req as any).user;
+  const platformId = (req as any).platformId;
+  const { id } = req.params;
+
+  const result = await BrandServices.deleteBrand(id, user, platformId);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Brand deleted successfully",
+    data: result,
+  });
+});
+
 export const BrandControllers = {
   createBrand,
   getBrands,
+  getBrandById,
+  updateBrand,
+  deleteBrand,
 };

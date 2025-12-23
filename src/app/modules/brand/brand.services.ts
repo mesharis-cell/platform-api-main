@@ -155,7 +155,146 @@ const getBrands = async (query: Record<string, any>, user: AuthUser, platformId:
   };
 };
 
+// ----------------------------------- GET BRAND BY ID --------------------------------
+const getBrandById = async (id: string, user: AuthUser, platformId: string) => {
+  // Step 1: Build WHERE conditions
+  const conditions: any[] = [
+    eq(brands.id, id),
+    eq(brands.platform_id, platformId),
+  ];
+
+  // Step 2: Filter by user role (CLIENT users can only see their company's brands)
+  if (user.role === 'CLIENT') {
+    if (user.company_id) {
+      conditions.push(eq(brands.company_id, user.company_id));
+    } else {
+      throw new CustomizedError(httpStatus.UNAUTHORIZED, "Company not found");
+    }
+  }
+
+  // Step 3: Fetch brand with company information
+  const brand = await db.query.brands.findFirst({
+    where: and(...conditions),
+    with: {
+      company: {
+        columns: {
+          id: true,
+          name: true,
+          domain: true,
+        },
+      },
+    },
+  });
+
+  // Step 4: Handle not found
+  if (!brand) {
+    throw new CustomizedError(httpStatus.NOT_FOUND, "Brand not found");
+  }
+
+  return brand;
+};
+
+// ----------------------------------- UPDATE BRAND -----------------------------------
+const updateBrand = async (id: string, data: any, user: AuthUser, platformId: string) => {
+  try {
+    // Step 1: Verify brand exists and user has access
+    const conditions: any[] = [
+      eq(brands.id, id),
+      eq(brands.platform_id, platformId),
+    ];
+
+    // Step 1a: CLIENT users can only update their company's brands
+    if (user.role === 'CLIENT') {
+      if (user.company_id) {
+        conditions.push(eq(brands.company_id, user.company_id));
+      } else {
+        throw new CustomizedError(httpStatus.UNAUTHORIZED, "Company not found");
+      }
+    }
+
+    const [existingBrand] = await db
+      .select()
+      .from(brands)
+      .where(and(...conditions));
+
+    if (!existingBrand) {
+      throw new CustomizedError(httpStatus.NOT_FOUND, "Brand not found");
+    }
+
+    // Step 2: Validate logo URL format if provided
+    if (data.logo_url && !isValidUrl(data.logo_url)) {
+      throw new CustomizedError(
+        httpStatus.BAD_REQUEST,
+        "Invalid logo URL format. Must start with http:// or https:// and be under 500 characters"
+      );
+    }
+
+    // Step 3: Update brand
+    const [result] = await db
+      .update(brands)
+      .set({
+        ...data,
+        updated_at: new Date(),
+      })
+      .where(eq(brands.id, id))
+      .returning();
+
+    return result;
+  } catch (error: any) {
+    // Step 4: Handle database errors
+    const pgError = error.cause || error;
+
+    if (pgError.code === '23505') {
+      if (pgError.constraint === 'brands_company_name_unique') {
+        throw new CustomizedError(
+          httpStatus.CONFLICT,
+          `Brand with name "${data.name}" already exists for this company`
+        );
+      }
+      throw new CustomizedError(
+        httpStatus.CONFLICT,
+        'A brand with these details already exists'
+      );
+    }
+
+    throw error;
+  }
+};
+
+// ----------------------------------- DELETE BRAND -----------------------------------
+const deleteBrand = async (id: string, user: AuthUser, platformId: string) => {
+  // Step 1: Verify brand exists and user has access
+  const conditions: any[] = [
+    eq(brands.id, id),
+    eq(brands.platform_id, platformId),
+  ];
+
+  const [existingBrand] = await db
+    .select()
+    .from(brands)
+    .where(and(...conditions));
+
+  if (!existingBrand) {
+    throw new CustomizedError(httpStatus.NOT_FOUND, "Brand not found");
+  }
+
+  // Step 2: Mark brand as inactive (soft delete)
+  const [result] = await db
+    .update(brands)
+    .set({
+      is_active: false,
+      updated_at: new Date(),
+    })
+    .where(eq(brands.id, id))
+    .returning();
+
+  return result;
+};
+
 export const BrandServices = {
   createBrand,
-  getBrands
+  getBrands,
+  getBrandById,
+  updateBrand,
+  deleteBrand,
 };

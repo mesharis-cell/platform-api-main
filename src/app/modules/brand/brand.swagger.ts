@@ -367,3 +367,422 @@
  *     security:
  *       - BearerAuth: []
  */
+
+/**
+ * @swagger
+ * /api/operations/v1/brand/{id}:
+ *   get:
+ *     tags:
+ *       - Brand Management
+ *     summary: Get a single brand by ID
+ *     description: Retrieves detailed information about a specific brand including associated company information. CLIENT role users can only view brands from their own company.
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         description: Brand unique identifier (UUID)
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *           example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *     responses:
+ *       200:
+ *         description: Brand retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Brand fetched successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                       example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *                     platform_id:
+ *                       type: string
+ *                       format: uuid
+ *                       example: "593c027e-0774-4b0b-ae46-ec59c4f11304"
+ *                     company_id:
+ *                       type: string
+ *                       format: uuid
+ *                       example: "e9f0041c-84c0-4396-8b7e-72b804a4695d"
+ *                     name:
+ *                       type: string
+ *                       example: "Nike"
+ *                     description:
+ *                       type: string
+ *                       nullable: true
+ *                       example: "Leading sportswear and athletic brand"
+ *                     logo_url:
+ *                       type: string
+ *                       nullable: true
+ *                       example: "https://cdn.example.com/logos/nike.png"
+ *                     is_active:
+ *                       type: boolean
+ *                       example: true
+ *                     created_at:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2025-12-22T17:15:41.843Z"
+ *                     updated_at:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2025-12-22T17:15:41.843Z"
+ *                     company:
+ *                       type: object
+ *                       description: Associated company information
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                           format: uuid
+ *                           example: "e9f0041c-84c0-4396-8b7e-72b804a4695d"
+ *                         name:
+ *                           type: string
+ *                           example: "Diageo Events"
+ *                         domain:
+ *                           type: string
+ *                           example: "diageo"
+ *       401:
+ *         description: Unauthorized - Authentication required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "You are not authorized"
+ *       404:
+ *         description: Not Found - Brand not found or user doesn't have access
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Brand not found"
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Something went wrong!"
+ *     security:
+ *       - BearerAuth: []
+ *   patch:
+ *     tags:
+ *       - Brand Management
+ *     summary: Update a brand
+ *     description: Updates an existing brand's information. Only ADMIN users can update brands. All fields are optional - only provided fields will be updated.
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         description: Brand unique identifier (UUID)
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *           example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 minLength: 1
+ *                 maxLength: 100
+ *                 description: Brand name (must be unique within the company)
+ *                 example: "Nike Sports"
+ *               description:
+ *                 type: string
+ *                 description: Brand description
+ *                 example: "Updated brand description"
+ *               logo_url:
+ *                 type: string
+ *                 format: uri
+ *                 description: URL to brand logo (must start with http:// or https://)
+ *                 example: "https://cdn.example.com/logos/nike-updated.png"
+ *               is_active:
+ *                 type: boolean
+ *                 description: Brand active status
+ *                 example: true
+ *     responses:
+ *       200:
+ *         description: Brand updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Brand updated successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                       example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *                     platform_id:
+ *                       type: string
+ *                       format: uuid
+ *                       example: "593c027e-0774-4b0b-ae46-ec59c4f11304"
+ *                     company_id:
+ *                       type: string
+ *                       format: uuid
+ *                       example: "e9f0041c-84c0-4396-8b7e-72b804a4695d"
+ *                     name:
+ *                       type: string
+ *                       example: "Nike Sports"
+ *                     description:
+ *                       type: string
+ *                       nullable: true
+ *                       example: "Updated brand description"
+ *                     logo_url:
+ *                       type: string
+ *                       nullable: true
+ *                       example: "https://cdn.example.com/logos/nike-updated.png"
+ *                     is_active:
+ *                       type: boolean
+ *                       example: true
+ *                     created_at:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2025-12-22T17:15:41.843Z"
+ *                     updated_at:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2025-12-23T14:30:22.156Z"
+ *       400:
+ *         description: Bad request - Validation error or invalid logo URL
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Invalid logo URL format. Must start with http:// or https:// and be under 500 characters"
+ *       401:
+ *         description: Unauthorized - Authentication required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "You are not authorized"
+ *       403:
+ *         description: Forbidden - Insufficient permissions
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Only platform administrators can update brands"
+ *       404:
+ *         description: Not Found - Brand not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Brand not found"
+ *       409:
+ *         description: Conflict - Brand name already exists for this company
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Brand with name \"Nike Sports\" already exists for this company"
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Something went wrong!"
+ *     security:
+ *       - BearerAuth: []
+ *   delete:
+ *     tags:
+ *       - Brand Management
+ *     summary: Delete a brand
+ *     description: Deletes (deactivates) a brand by setting its is_active status to false. Only ADMIN users can delete brands. This is a soft delete operation.
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         description: Brand unique identifier (UUID)
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *           example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *     responses:
+ *       200:
+ *         description: Brand deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Brand deleted successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                       example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *                     platform_id:
+ *                       type: string
+ *                       format: uuid
+ *                       example: "593c027e-0774-4b0b-ae46-ec59c4f11304"
+ *                     company_id:
+ *                       type: string
+ *                       format: uuid
+ *                       example: "e9f0041c-84c0-4396-8b7e-72b804a4695d"
+ *                     name:
+ *                       type: string
+ *                       example: "Nike"
+ *                     description:
+ *                       type: string
+ *                       nullable: true
+ *                       example: "Leading sportswear and athletic brand"
+ *                     logo_url:
+ *                       type: string
+ *                       nullable: true
+ *                       example: "https://cdn.example.com/logos/nike.png"
+ *                     is_active:
+ *                       type: boolean
+ *                       example: false
+ *                     created_at:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2025-12-22T17:15:41.843Z"
+ *                     updated_at:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2025-12-23T14:35:10.892Z"
+ *       401:
+ *         description: Unauthorized - Authentication required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "You are not authorized"
+ *       403:
+ *         description: Forbidden - Insufficient permissions
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Only platform administrators can delete brands"
+ *       404:
+ *         description: Not Found - Brand not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Brand not found"
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Something went wrong!"
+ *     security:
+ *       - BearerAuth: []
+ */
+

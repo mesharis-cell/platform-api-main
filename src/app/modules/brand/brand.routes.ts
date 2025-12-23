@@ -19,15 +19,13 @@ router.post(
 // Get all brands
 router.get("/", platformValidator, auth('ADMIN', 'LOGISTICS', 'CLIENT'), BrandControllers.getBrands);
 
-// TODO: Implement these routes
-
 // Get brand by id
-// router.get("/:id", platformValidator, auth('ADMIN'), BrandControllers.getBrandById);
+router.get("/:id", platformValidator, auth('ADMIN', 'LOGISTICS', 'CLIENT'), BrandControllers.getBrandById);
 
 // Update brand
-// router.patch("/:id", platformValidator, auth('ADMIN'), payloadValidator(brandsSchemas.updateBrandSchema), BrandControllers.updateBrand);
+router.patch("/:id", platformValidator, auth('ADMIN'), payloadValidator(brandsSchemas.updateBrandSchema), BrandControllers.updateBrand);
 
 // Delete brand
-// router.delete("/:id", platformValidator, auth('ADMIN'), BrandControllers.deleteBrand);
+router.delete("/:id", platformValidator, auth('ADMIN'), BrandControllers.deleteBrand);
 
 export const BrandRoutes = router;
