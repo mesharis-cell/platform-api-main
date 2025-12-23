@@ -3,6 +3,7 @@ import config from "./app/config";
 import "./app/modules/auth/Auth.swagger";
 import "./app/modules/user/user.swagger";
 import "./app/modules/warehouse/warehouse.swagger";
+import "./app/modules/zone/zone.swagger";
 
 const swaggerDefinition = {
   openapi: "3.0.0",
@@ -121,6 +122,11 @@ const swaggerDefinition = {
       name: "Warehouse Management",
       description:
         "Warehouse CRUD operations with multi-tenant support",
+    },
+    {
+      name: "Zone Management",
+      description:
+        "Zone CRUD operations within warehouses for company-specific storage areas",
     },
   ],
 };
