@@ -16,17 +16,16 @@ router.post(
   CompanyControllers.createCompany
 );
 
-router.get(
-  "/",
-  platformValidator,
-  auth('ADMIN', 'LOGISTICS'),
-  CompanyControllers.getCompanies
-);
+// Get all companies
+router.get("/", platformValidator, auth('ADMIN', 'LOGISTICS'), CompanyControllers.getCompanies);
 
-// TODO: Implement these routes
-// router.post("/upload-logo");
-// router.get("/:id");
-// router.put("/:id", payloadValidator(CompanySchemas.updateCompany));
-// router.delete("/:id");
+// Get company by id
+router.get("/:id", platformValidator, auth('ADMIN', 'LOGISTICS', 'CLIENT'), CompanyControllers.getCompanyById);
+
+// Update company
+router.patch("/:id", platformValidator, auth('ADMIN'), payloadValidator(CompanySchemas.updateCompany), CompanyControllers.updateCompany);
+
+// Delete company
+router.delete("/:id", platformValidator, auth('ADMIN'), CompanyControllers.deleteCompany);
 
 export const CompanyRoutes = router;
