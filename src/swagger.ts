@@ -143,16 +143,27 @@ const swaggerDefinition = {
   ],
 };
 
+// Detect if we're running from the dist folder (production) or src folder (development)
+// This is more reliable than NODE_ENV which might not be set in all deployment platforms
+const isProduction = __dirname.includes('dist');
+
+console.log('Swagger Configuration:');
+console.log('- __dirname:', __dirname);
+console.log('- isProduction:', isProduction);
+console.log('- APIs path:', isProduction ? "./dist/app/**/*.swagger.js" : "./src/app/**/*.swagger.ts");
+
 const options = {
   swaggerDefinition,
   // Use different paths for dev vs production
   // In production, only compiled .js files exist in dist folder
   // In development, we use .ts files from src folder
-  apis: process.env.NODE_ENV === 'production'
+  apis: isProduction
     ? ["./dist/app/**/*.swagger.js"]
     : ["./src/app/**/*.swagger.ts"],
 };
 
 const swaggerSpec = swaggerJsdoc(options);
+
+console.log('Swagger spec generated with', Object.keys((swaggerSpec as any).paths || {}).length, 'endpoints');
 
 export default swaggerSpec;
