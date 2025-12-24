@@ -146,6 +146,11 @@ const swaggerDefinition = {
       description:
         "Pricing tier CRUD operations for managing location-based and volume-based pricing",
     },
+    {
+      name: "Asset Management",
+      description:
+        "Asset CRUD operations for inventory management with condition tracking and QR code generation",
+    },
   ],
 };
 
