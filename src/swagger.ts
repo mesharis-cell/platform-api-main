@@ -145,7 +145,9 @@ const swaggerDefinition = {
 
 const options = {
   swaggerDefinition,
-  apis: ["./src/app/**/*.swagger.ts", "./dist/app/**/*.swagger.js"],
+  apis: process.env.NODE_ENV === 'production'
+    ? ["./dist/app/**/*.swagger.js"]
+    : ["./src/app/**/*.swagger.ts"],
 };
 
 const swaggerSpec = swaggerJsdoc(options);
