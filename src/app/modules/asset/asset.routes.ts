@@ -11,7 +11,7 @@ const router = Router();
 router.post(
   "/",
   platformValidator,
-  auth('ADMIN'),
+  auth('ADMIN', 'LOGISTICS'),
   payloadValidator(AssetSchemas.createAssetSchema),
   AssetControllers.createAsset
 );

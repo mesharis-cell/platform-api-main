@@ -357,6 +357,7 @@ const getAssetById = async (id: string, user: AuthUser, platformId: string) => {
     const conditions: any[] = [
         eq(assets.id, id),
         eq(assets.platform_id, platformId),
+        isNull(assets.deleted_at),
     ];
 
     // Step 2: Filter by user role (CLIENT users can only see their company's assets)
@@ -391,7 +392,6 @@ const getAssetById = async (id: string, user: AuthUser, platformId: string) => {
                 columns: {
                     id: true,
                     name: true,
-                    description: true,
                 },
             },
             brand: {
@@ -409,7 +409,41 @@ const getAssetById = async (id: string, user: AuthUser, platformId: string) => {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found");
     }
 
-    return asset;
+    // Step 5: Extract latest condition notes from condition_history JSONB
+    let latestConditionNotes: string | undefined = undefined;
+    if (asset.condition_history && Array.isArray(asset.condition_history) && asset.condition_history.length > 0) {
+        // Assuming condition_history is sorted by timestamp desc, get the first entry
+        const latestHistory = asset.condition_history[0];
+        if (latestHistory && typeof latestHistory === 'object' && 'notes' in latestHistory) {
+            latestConditionNotes = (latestHistory as any).notes;
+        }
+    }
+
+    // Step 6: Return asset with enhanced details
+    return {
+        ...asset,
+        latest_condition_notes: latestConditionNotes,
+        company_details: {
+            id: asset.company.id,
+            name: asset.company.name,
+            domain: asset.company.domain,
+        },
+        warehouse_details: {
+            id: asset.warehouse.id,
+            name: asset.warehouse.name,
+            city: asset.warehouse.city,
+            country: asset.warehouse.country,
+        },
+        zone_details: {
+            id: asset.zone.id,
+            name: asset.zone.name,
+        },
+        brand_details: asset.brand ? {
+            id: asset.brand.id,
+            name: asset.brand.name,
+            logo_url: asset.brand.logo_url,
+        } : null,
+    };
 };
 
 // ----------------------------------- UPDATE ASSET -----------------------------------
