@@ -202,7 +202,17 @@ const updateAssetSchema = z.object({
   }),
 });
 
+// ----------------------------------- BATCH AVAILABILITY SCHEMA --------------------------
+const batchAvailabilitySchema = z.object({
+  body: z.object({
+    asset_ids: z
+      .array(z.string().uuid("Invalid asset ID format"))
+      .min(1, "At least one asset ID is required"),
+  }),
+});
+
 export const AssetSchemas = {
   createAssetSchema,
   updateAssetSchema,
+  batchAvailabilitySchema,
 };
