@@ -1,6 +1,7 @@
 import path from "path";
 import swaggerJsdoc from "swagger-jsdoc";
 import config from "./app/config";
+import "./app/modules/asset/assets.swagger";
 import "./app/modules/auth/Auth.swagger";
 import "./app/modules/brand/brand.swagger";
 import "./app/modules/collection/collection.swagger";
@@ -10,6 +11,7 @@ import "./app/modules/pricing-tier/pricing-tier.swagger";
 import "./app/modules/user/user.swagger";
 import "./app/modules/warehouse/warehouse.swagger";
 import "./app/modules/zone/zone.swagger";
+
 
 const swaggerDefinition = {
   openapi: "3.0.0",

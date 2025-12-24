@@ -1,55 +1,58 @@
-import { z } from "zod";
+import z from "zod";
+import { assetCategoryEnum, assetConditionEnum, assetStatusEnum, trackingMethodEnum } from "../../../db/schema";
+import { enumMessageGenerator } from "../../utils/helper";
 
 const createAssetSchema = z.object({
   body: z.object({
-    company: z
-      .uuid({ message: "Invalid company selection" })
-      .min(1, "Company is required"),
-    warehouse: z
-      .uuid({ message: "Invalid warehouse selection" })
-      .min(1, "Warehouse is required"),
-    zone: z
-      .uuid({ message: "Invalid zone selection" })
-      .min(1, "Zone is required"),
-    brand: z
-      .uuid({ message: "Invalid brand selection" })
+    company_id: z
+      .string({ message: "Company ID is required" })
+      .uuid("Invalid company ID format"),
+    warehouse_id: z
+      .string({ message: "Warehouse ID is required" })
+      .uuid("Invalid warehouse ID format"),
+    zone_id: z
+      .string({ message: "Zone ID is required" })
+      .uuid("Invalid zone ID format"),
+    brand_id: z
+      .string()
+      .uuid("Invalid brand ID format")
       .optional(),
     name: z
-      .string()
+      .string({ message: "Name is required" })
       .min(1, "Name is required")
       .max(200, "Name must be under 200 characters"),
     description: z
       .string()
       .optional(),
-    category: z.enum(["FURNITURE", "GLASSWARE", "INSTALLATION", "DECOR", "OTHER"], {
-      message: "Category is required",
+    category: z.enum(assetCategoryEnum.enumValues, {
+      message: enumMessageGenerator('Category', assetCategoryEnum.enumValues),
     }),
     images: z
-      .array(z.url("Invalid image URL"))
+      .array(z.string().url("Invalid image URL"))
       .optional()
       .default([]),
-    trackingMethod: z.enum(["INDIVIDUAL", "BATCH"], {
-      message: "Tracking method is required",
+    tracking_method: z.enum(trackingMethodEnum.enumValues, {
+      message: enumMessageGenerator('Tracking method', trackingMethodEnum.enumValues),
     }),
-    totalQuantity: z
+    total_quantity: z
       .number({ message: "Total quantity must be a number" })
       .int("Total quantity must be an integer")
       .min(1, "Total quantity must be at least 1")
       .default(1),
-    availableQuantity: z
+    available_quantity: z
       .number({ message: "Available quantity must be a number" })
       .int("Available quantity must be an integer")
       .min(0, "Available quantity cannot be negative")
       .default(1),
-    qrCode: z
-      .string()
+    qr_code: z
+      .string({ message: "QR code is required" })
       .min(1, "QR code is required")
       .max(100, "QR code must be under 100 characters"),
     packaging: z
       .string()
       .max(100, "Packaging must be under 100 characters")
       .optional(),
-    weightPerUnit: z
+    weight_per_unit: z
       .number({ message: "Weight per unit must be a number" })
       .positive("Weight per unit must be positive"),
     dimensions: z
@@ -58,96 +61,108 @@ const createAssetSchema = z.object({
         width: z.number().positive().optional(),
         height: z.number().positive().optional(),
       })
-      .optional(),
-    volumePerUnit: z
+      .optional()
+      .default({}),
+    volume_per_unit: z
       .number({ message: "Volume per unit must be a number" })
       .positive("Volume per unit must be positive"),
     condition: z
-      .enum(["GREEN", "ORANGE", "RED"])
+      .enum(assetConditionEnum.enumValues, {
+        message: enumMessageGenerator('Condition', assetConditionEnum.enumValues),
+      })
+      .optional()
       .default("GREEN"),
-    conditionNotes: z
+    condition_notes: z
       .string()
       .optional(),
-    refurbDaysEstimate: z
+    refurb_days_estimate: z
       .number({ message: "Refurbishment days must be a number" })
       .int("Refurbishment days must be an integer")
       .min(0, "Refurbishment days cannot be negative")
       .optional(),
-    conditionHistory: z
-      .array(z.string())
-      .optional()
-      .default([]),
-    handlingTags: z
+    handling_tags: z
       .array(z.string())
       .optional()
       .default([]),
     status: z
-      .enum(["AVAILABLE", "BOOKED", "OUT", "MAINTENANCE"])
+      .enum(assetStatusEnum.enumValues, {
+        message: enumMessageGenerator('Status', assetStatusEnum.enumValues),
+      })
+      .optional()
       .default("AVAILABLE"),
-  }),
+  }).refine(
+    (data) => data.available_quantity <= data.total_quantity,
+    {
+      message: "Available quantity cannot exceed total quantity",
+      path: ["available_quantity"],
+    }
+  ).refine(
+    (data) => data.tracking_method === "BATCH" && !data.packaging,
+    {
+      message: "Packaging description is required for BATCH tracking method",
+      path: ["packaging"],
+    }
+  ),
 });
 
 const updateAssetSchema = z.object({
   body: z.object({
-    company: z
-      .uuid({ message: "Invalid company selection" })
-      .min(1, "Company is required")
+    company_id: z
+      .string()
+      .uuid("Invalid company ID format")
       .optional(),
-    warehouse: z
-      .uuid({ message: "Invalid warehouse selection" })
-      .min(1, "Warehouse is required")
+    warehouse_id: z
+      .string()
+      .uuid("Invalid warehouse ID format")
       .optional(),
-    zone: z
-      .uuid({ message: "Invalid zone selection" })
-      .min(1, "Zone is required")
+    zone_id: z
+      .string()
+      .uuid("Invalid zone ID format")
       .optional(),
-    brand: z
-      .uuid({ message: "Invalid brand selection" })
-      .optional(),
+    brand_id: z
+      .string()
+      .uuid("Invalid brand ID format")
+      .optional()
+      .nullable(),
     name: z
       .string()
-      .min(1, "Name is required")
+      .min(1, "Name cannot be empty")
       .max(200, "Name must be under 200 characters")
       .optional(),
     description: z
       .string()
       .optional()
-      .or(z.literal("")),
+      .nullable(),
     category: z
-      .enum(["FURNITURE", "GLASSWARE", "INSTALLATION", "DECOR", "OTHER"], {
-        message: "Invalid category",
+      .enum(assetCategoryEnum.enumValues, {
+        message: enumMessageGenerator('Category', assetCategoryEnum.enumValues),
       })
       .optional(),
     images: z
-      .array(z.url("Invalid image URL"))
+      .array(z.string().url("Invalid image URL"))
       .optional(),
-    trackingMethod: z
-      .enum(["INDIVIDUAL", "BATCH"], {
-        message: "Invalid tracking method",
+    tracking_method: z
+      .enum(trackingMethodEnum.enumValues, {
+        message: enumMessageGenerator('Tracking method', trackingMethodEnum.enumValues),
       })
       .optional(),
-    totalQuantity: z
-      .number({ message: "Total quantity must be a number" })
+    total_quantity: z
+      .number()
       .int("Total quantity must be an integer")
       .min(1, "Total quantity must be at least 1")
       .optional(),
-    availableQuantity: z
-      .number({ message: "Available quantity must be a number" })
+    available_quantity: z
+      .number()
       .int("Available quantity must be an integer")
       .min(0, "Available quantity cannot be negative")
-      .optional(),
-    qrCode: z
-      .string()
-      .min(1, "QR code is required")
-      .max(100, "QR code must be under 100 characters")
       .optional(),
     packaging: z
       .string()
       .max(100, "Packaging must be under 100 characters")
       .optional()
-      .or(z.literal("")),
-    weightPerUnit: z
-      .number({ message: "Weight per unit must be a number" })
+      .nullable(),
+    weight_per_unit: z
+      .number()
       .positive("Weight per unit must be positive")
       .optional(),
     dimensions: z
@@ -157,32 +172,37 @@ const updateAssetSchema = z.object({
         height: z.number().positive().optional(),
       })
       .optional(),
-    volumePerUnit: z
-      .number({ message: "Volume per unit must be a number" })
+    volume_per_unit: z
+      .number()
       .positive("Volume per unit must be positive")
       .optional(),
     condition: z
-      .enum(["GREEN", "ORANGE", "RED"])
+      .enum(assetConditionEnum.enumValues, {
+        message: enumMessageGenerator('Condition', assetConditionEnum.enumValues),
+      })
       .optional(),
-    conditionNotes: z
+    condition_notes: z
       .string()
       .optional()
-      .or(z.literal("")),
-    refurbDaysEstimate: z
-      .number({ message: "Refurbishment days must be a number" })
+      .nullable(),
+    refurb_days_estimate: z
+      .number()
       .int("Refurbishment days must be an integer")
       .min(0, "Refurbishment days cannot be negative")
-      .optional(),
-    handlingTags: z
+      .optional()
+      .nullable(),
+    handling_tags: z
       .array(z.string())
       .optional(),
     status: z
-      .enum(["AVAILABLE", "BOOKED", "OUT", "MAINTENANCE"])
+      .enum(assetStatusEnum.enumValues, {
+        message: enumMessageGenerator('Status', assetStatusEnum.enumValues),
+      })
       .optional(),
   }),
 });
 
-export const assetSchemas = {
+export const AssetSchemas = {
   createAssetSchema,
   updateAssetSchema,
 };
