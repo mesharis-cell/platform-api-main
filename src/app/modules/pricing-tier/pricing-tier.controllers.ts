@@ -52,7 +52,7 @@ const getPricingTierById = catchAsync(async (req, res) => {
     });
 });
 
-// ----------------------------------- UPDATE PRICING TIER ---------------------------------------
+// ----------------------------------- UPDATE PRICING TIER -----------------------------------
 const updatePricingTier = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const { id } = req.params;
@@ -67,7 +67,7 @@ const updatePricingTier = catchAsync(async (req, res) => {
     });
 });
 
-// ----------------------------------- DELETE PRICING TIER ---------------------------------------
+// ----------------------------------- DELETE PRICING TIER -----------------------------------
 const deletePricingTier = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const { id } = req.params;
@@ -82,7 +82,7 @@ const deletePricingTier = catchAsync(async (req, res) => {
     });
 });
 
-// ----------------------------------- GET PRICING TIER LOCATIONS --------------------------------
+// ----------------------------------- GET PRICING TIER LOCATIONS ----------------------------
 const getPricingTierLocations = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
 
@@ -96,6 +96,21 @@ const getPricingTierLocations = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- CALCULATE PRICING -------------------------------------
+const calculatePricing = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+
+    const result = await PricingTierServices.calculatePricing(platformId, user, req.query);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Pricing calculated successfully",
+        data: result,
+    });
+});
+
 export const PricingTierControllers = {
     createPricingTier,
     getPricingTiers,
@@ -103,4 +118,5 @@ export const PricingTierControllers = {
     updatePricingTier,
     deletePricingTier,
     getPricingTierLocations,
+    calculatePricing,
 };

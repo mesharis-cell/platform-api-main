@@ -19,6 +19,9 @@ router.post(
 // Get pricing tier locations (countries and cities)
 router.get("/locations", platformValidator, auth('ADMIN', 'LOGISTICS'), PricingTierControllers.getPricingTierLocations);
 
+// Calculate pricing for given volume and location
+router.get("/calculate", platformValidator, auth('ADMIN', 'LOGISTICS', 'CLIENT'), PricingTierControllers.calculatePricing);
+
 // Get all pricing tiers
 router.get("/", platformValidator, auth('ADMIN', 'LOGISTICS'), PricingTierControllers.getPricingTiers);
 

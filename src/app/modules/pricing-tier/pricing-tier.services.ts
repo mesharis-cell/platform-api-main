@@ -1,8 +1,9 @@
 import { and, asc, count, desc, eq, ilike, or, sql } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { orders, pricingTiers } from "../../../db/schema";
+import { companies, orders, pricingTiers } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
+import { AuthUser } from "../../interface/common";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
 import { CreatePricingTierPayload } from "./pricing-tier.interfaces";
@@ -60,7 +61,7 @@ const createPricingTier = async (data: CreatePricingTierPayload) => {
     }
 };
 
-// ----------------------------------- GET PRICING TIER LOCATIONS -----------------------------------
+// ----------------------------------- GET PRICING TIER LOCATIONS ----------------------------
 const getPricingTierLocations = async (platformId: string) => {
     // Step 1: Fetch only active pricing tier locations (no pricing details)
     const tiers = await db
@@ -340,6 +341,77 @@ const deletePricingTier = async (id: string, platformId: string) => {
     return null;
 };
 
+// ----------------------------------- CALCULATE PRICING -------------------------------------
+const calculatePricing = async (
+    platformId: string,
+    user: AuthUser,
+    query: Record<string, any>
+) => {
+    const { country, city, volume } = query;
+
+    // Step 1: Validate query parameters
+    if (!country || typeof country !== 'string' || country.trim().length === 0) {
+        throw new Error('country is required');
+    }
+
+    if (!city || typeof city !== 'string' || city.trim().length === 0) {
+        throw new Error('city is required');
+    }
+
+    if (!volume || typeof volume !== 'string') {
+        throw new Error('volume is required');
+    }
+
+    const volumeNumber = parseFloat(volume);
+    if (isNaN(volumeNumber) || volumeNumber < 0) {
+        throw new Error('volume must be a positive number');
+    }
+
+    // Step 2: Find matching pricing tier
+    const matchingTier = await findMatchingTier(country, city, volumeNumber, platformId);
+
+    if (!matchingTier) {
+        throw new CustomizedError(
+            httpStatus.NOT_FOUND,
+            `No active pricing tier found for ${city}, ${country} with volume ${volumeNumber}m³`
+        );
+    }
+
+    // Step 3: Get company's platform margin
+    let platformMarginPercent = 25.0; // Default margin
+
+    if (user.company_id) {
+        const [company] = await db
+            .select()
+            .from(companies)
+            .where(eq(companies.id, user.company_id));
+
+        if (company) {
+            platformMarginPercent = parseFloat(company.platform_margin_percent);
+        }
+    }
+
+    // Step 4: Calculate estimated total (base price + margin)
+    const a2BasePrice = matchingTier.base_price;
+    const platformMarginAmount = a2BasePrice * (platformMarginPercent / 100);
+    const estimatedTotal = a2BasePrice + platformMarginAmount;
+
+    // Step 5: Return calculation result
+    return {
+        pricing_tier_id: matchingTier.id,
+        country: matchingTier.country,
+        city: matchingTier.city,
+        volume_min: matchingTier.volume_min,
+        volume_max: matchingTier.volume_max,
+        base_price: parseFloat(a2BasePrice.toFixed(2)), // A2 flat rate for this tier
+        platform_margin_percent: parseFloat(platformMarginPercent.toFixed(2)),
+        platform_margin_amount: parseFloat(platformMarginAmount.toFixed(2)),
+        estimated_total: parseFloat(estimatedTotal.toFixed(2)), // Final estimate with margin
+        matched_volume: volume,
+        note: 'This is a flat rate for the volume range, not a per-m³ rate',
+    };
+};
+
 // ----------------------------------- HELPER FUNCTIONS --------------------------------------
 const checkVolumeOverlap = async (
     country: string,
@@ -389,6 +461,43 @@ const transformPricingTierResponse = (tier: any) => {
     };
 };
 
+// Helper function to find matching pricing tier
+const findMatchingTier = async (
+    country: string,
+    city: string,
+    volume: number,
+    platformId: string
+): Promise<any | null> => {
+    // Find active tiers where volumeMin <= volume < volumeMax
+    // Order by smallest range first to get most specific tier
+    const matchingTiers = await db
+        .select()
+        .from(pricingTiers)
+        .where(
+            and(
+                eq(pricingTiers.country, country),
+                eq(pricingTiers.city, city),
+                eq(pricingTiers.platform_id, platformId),
+                eq(pricingTiers.is_active, true),
+                sql`CAST(${pricingTiers.volume_min} AS DECIMAL) <= ${volume}`,
+                or(
+                    sql`${pricingTiers.volume_max} IS NULL`,
+                    sql`CAST(${pricingTiers.volume_max} AS DECIMAL) > ${volume}`
+                )
+            )
+        )
+        .orderBy(
+            asc(
+                sql`CASE WHEN ${pricingTiers.volume_max} IS NULL THEN 999999999 ELSE CAST(${pricingTiers.volume_max} AS DECIMAL) - CAST(${pricingTiers.volume_min} AS DECIMAL) END`
+            )
+        )
+        .limit(1);
+
+    return matchingTiers.length > 0
+        ? transformPricingTierResponse(matchingTiers[0])
+        : null;
+};
+
 export const PricingTierServices = {
     createPricingTier,
     getPricingTiers,
@@ -396,4 +505,5 @@ export const PricingTierServices = {
     updatePricingTier,
     deletePricingTier,
     getPricingTierLocations,
+    calculatePricing,
 };
