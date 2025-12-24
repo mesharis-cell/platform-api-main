@@ -16,10 +16,12 @@ const login = catchAsync(async (req, res) => {
   const { access_token, refresh_token, ...userData } = result;
 
   // Cookie options for access token (synced with JWT expiry from config)
+  // Using sameSite: "none" for cross-origin requests (when frontend/backend are on different domains)
+  // Note: secure must be true when sameSite is "none"
   const accessTokenCookieOptions = {
     httpOnly: false,
     secure: config.node_env === "production",
-    sameSite: "strict" as const,
+    sameSite: config.node_env === "production" ? "none" as const : "lax" as const,
     maxAge: expiryToMs(config.jwt_access_expires_in),
   };
 
@@ -27,7 +29,7 @@ const login = catchAsync(async (req, res) => {
   const refreshTokenCookieOptions = {
     httpOnly: false,
     secure: config.node_env === "production",
-    sameSite: "strict" as const,
+    sameSite: config.node_env === "production" ? "none" as const : "lax" as const,
     maxAge: expiryToMs(config.jwt_refresh_expires_in),
   };
 
