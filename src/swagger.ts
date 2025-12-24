@@ -147,19 +147,26 @@ const swaggerDefinition = {
 // This is more reliable than NODE_ENV which might not be set in all deployment platforms
 const isProduction = __dirname.includes('dist');
 
+// Use absolute paths for better reliability in production
+const path = require('path');
+const rootDir = isProduction
+  ? path.join(__dirname, '..') // In production, __dirname is /path/to/dist, so go up one level
+  : path.join(__dirname, '..'); // In dev, __dirname is /path/to/src, so go up one level
+
+const apiPath = isProduction
+  ? path.join(rootDir, 'dist', 'app', '**', '*.swagger.js')
+  : path.join(rootDir, 'src', 'app', '**', '*.swagger.ts');
+
 console.log('Swagger Configuration:');
 console.log('- __dirname:', __dirname);
+console.log('- rootDir:', rootDir);
 console.log('- isProduction:', isProduction);
-console.log('- APIs path:', isProduction ? "./dist/app/**/*.swagger.js" : "./src/app/**/*.swagger.ts");
+console.log('- API path:', apiPath);
 
 const options = {
   swaggerDefinition,
-  // Use different paths for dev vs production
-  // In production, only compiled .js files exist in dist folder
-  // In development, we use .ts files from src folder
-  apis: isProduction
-    ? ["./dist/app/**/*.swagger.js"]
-    : ["./src/app/**/*.swagger.ts"],
+  // Use absolute paths for better reliability
+  apis: [apiPath],
 };
 
 const swaggerSpec = swaggerJsdoc(options);
