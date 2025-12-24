@@ -4,6 +4,7 @@ import { sortOrderType } from "../../constants/common";
 export const companySortableFields: Record<string, any> = {
   name: companies.name,
   domain: companies.domain,
+  platform_margin_percent: companies.platform_margin_percent,
   created_at: companies.created_at,
   updated_at: companies.updated_at,
 };

@@ -55,6 +55,24 @@
  *                         type: string
  *                         description: Secondary brand color (hex code)
  *                         example: "#ffffff"
+ *               platform_margin_percent:
+ *                 type: number
+ *                 format: decimal
+ *                 minimum: 0
+ *                 maximum: 100
+ *                 description: Platform margin percentage (defaults to 25.00 if not provided)
+ *                 example: 25.00
+ *               contact_email:
+ *                 type: string
+ *                 format: email
+ *                 maxLength: 255
+ *                 description: Company contact email address
+ *                 example: "contact@diageo.com"
+ *               contact_phone:
+ *                 type: string
+ *                 maxLength: 50
+ *                 description: Company contact phone number
+ *                 example: "+971-4-1234567"
  *               is_active:
  *                 type: boolean
  *                 default: true
@@ -112,6 +130,20 @@
  *                             secondary_color:
  *                               type: string
  *                               example: "#ffffff"
+ *                     platform_margin_percent:
+ *                       type: string
+ *                       description: Platform margin percentage
+ *                       example: "25.00"
+ *                     contact_email:
+ *                       type: string
+ *                       nullable: true
+ *                       description: Company contact email
+ *                       example: "contact@diageo.com"
+ *                     contact_phone:
+ *                       type: string
+ *                       nullable: true
+ *                       description: Company contact phone
+ *                       example: "+971-4-1234567"
  *                     is_active:
  *                       type: boolean
  *                       example: true
@@ -292,7 +324,7 @@
  *         required: false
  *         schema:
  *           type: string
- *           enum: [name, domain, created_at, updated_at]
+ *           enum: [name, domain, platform_margin_percent, created_at, updated_at]
  *           default: created_at
  *           example: "name"
  *       - name: sort_order
@@ -371,6 +403,20 @@
  *                                   secondary_color:
  *                                     type: string
  *                                     example: "#ffffff"
+ *                           platform_margin_percent:
+ *                             type: string
+ *                             description: Platform margin percentage
+ *                             example: "25.00"
+ *                           contact_email:
+ *                             type: string
+ *                             nullable: true
+ *                             description: Company contact email
+ *                             example: "contact@diageo.com"
+ *                           contact_phone:
+ *                             type: string
+ *                             nullable: true
+ *                             description: Company contact phone
+ *                             example: "+971-4-1234567"
  *                           is_active:
  *                             type: boolean
  *                             example: true
@@ -676,6 +722,24 @@
  *                       secondary_color:
  *                         type: string
  *                         example: "#00FF00"
+ *               platform_margin_percent:
+ *                 type: number
+ *                 format: decimal
+ *                 minimum: 0
+ *                 maximum: 100
+ *                 description: Platform margin percentage
+ *                 example: 30.00
+ *               contact_email:
+ *                 type: string
+ *                 format: email
+ *                 maxLength: 255
+ *                 description: Company contact email address
+ *                 example: "updated@diageo.com"
+ *               contact_phone:
+ *                 type: string
+ *                 maxLength: 50
+ *                 description: Company contact phone number
+ *                 example: "+971-4-7654321"
  *               is_active:
  *                 type: boolean
  *                 description: Company active status

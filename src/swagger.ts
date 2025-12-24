@@ -2,6 +2,7 @@ import swaggerJsdoc from "swagger-jsdoc";
 import config from "./app/config";
 import "./app/modules/auth/Auth.swagger";
 import "./app/modules/collection/collection.swagger";
+import "./app/modules/pricing-tier/pricing-tier.swagger";
 import "./app/modules/user/user.swagger";
 import "./app/modules/warehouse/warehouse.swagger";
 import "./app/modules/zone/zone.swagger";
@@ -133,6 +134,11 @@ const swaggerDefinition = {
       name: "Collection Management",
       description:
         "Collection CRUD operations for managing asset collections and collection items",
+    },
+    {
+      name: "Pricing Tier Management",
+      description:
+        "Pricing tier CRUD operations for managing location-based and volume-based pricing",
     },
   ],
 };
