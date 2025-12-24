@@ -1,11 +1,121 @@
 /**
  * @swagger
+ * /api/auth/context:
+ *   get:
+ *     tags:
+ *       - Authentication
+ *     summary: Get platform context by hostname
+ *     description: Retrieves platform information based on the hostname. This endpoint is used to identify which platform a frontend application belongs to before login.
+ *     parameters:
+ *       - in: query
+ *         name: hostname
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The hostname of the platform domain
+ *         example: "demo.pmg-platform.com"
+ *     responses:
+ *       200:
+ *         description: Platform context retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Platform fetched successfully"
+ *                 data:
+ *                   type: object
+ *                   nullable: true
+ *                   description: Returns null if hostname is not found
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                       description: Platform unique identifier
+ *                       example: "593c027e-0774-4b0b-ae46-ec59c4f11304"
+ *                     config:
+ *                       type: object
+ *                       description: Platform configuration settings
+ *                       properties:
+ *                         logo_url:
+ *                           type: string
+ *                           nullable: true
+ *                           description: URL to the platform logo
+ *                           example: "https://example.com/logo.png"
+ *                         primary_color:
+ *                           type: string
+ *                           nullable: true
+ *                           description: Primary theme color (hex)
+ *                           example: "#3B82F6"
+ *                         secondary_color:
+ *                           type: string
+ *                           nullable: true
+ *                           description: Secondary/fallback theme color (hex)
+ *                           example: "#10B981"
+ *                         logistics_partner_name:
+ *                           type: string
+ *                           nullable: true
+ *                           description: Name of the logistics partner
+ *                           example: "A2 Logistics"
+ *                         support_email:
+ *                           type: string
+ *                           format: email
+ *                           nullable: true
+ *                           description: Support email address
+ *                           example: "support@platform.com"
+ *                         currency:
+ *                           type: string
+ *                           nullable: true
+ *                           description: Default currency code
+ *                           example: "AED"
+ *       400:
+ *         description: Bad request - Hostname is required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "BAD_REQUEST"
+ *                     message:
+ *                       type: string
+ *                       example: "Hostname is required"
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+
+/**
+ * @swagger
  * /api/auth/login:
  *   post:
  *     tags:
  *       - Authentication
  *     summary: User login
- *     description: Authenticates a user with email and password. Returns user data along with access and refresh tokens. The platform ID is required in the X-Platform header to identify which platform the user belongs to.
+ *     description: |
+ *       Authenticates a user with email and password. On successful login, sets HTTP-only cookies for access_token and refresh_token.
+ *       The platform ID is required in the X-Platform header to identify which platform the user belongs to.
+ *       
+ *       **Cookie Details:**
+ *       - `access_token`: Short-lived JWT for API authentication
+ *       - `refresh_token`: Long-lived JWT for obtaining new access tokens
+ *       
+ *       Both cookies are HTTP-only and have their expiry synced with the JWT expiration.
  *     parameters:
  *       - $ref: '#/components/parameters/PlatformHeader'
  *     requestBody:
@@ -30,7 +140,14 @@
  *                 example: "SecurePass@123"
  *     responses:
  *       200:
- *         description: Login successful
+ *         description: Login successful. Tokens are set as HTTP-only cookies.
+ *         headers:
+ *           Set-Cookie:
+ *             description: |
+ *               Sets access_token and refresh_token cookies
+ *             schema:
+ *               type: string
+ *               example: "access_token=eyJhbG...; HttpOnly; Secure; SameSite=Strict; Max-Age=86400"
  *         content:
  *           application/json:
  *             schema:
@@ -106,13 +223,6 @@
  *                       format: date-time
  *                       description: Account last update timestamp
  *                       example: "2025-12-22T10:30:00.000Z"
- *                     access_token:
- *                       type: string
- *                       description: JWT access token for API authentication
- *                       example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
- *                     refresh_token:
- *                       description: JWT refresh token for obtaining new access tokens
- *                       example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
  *       400:
  *         description: Bad request - Validation error or missing X-Platform header
  *         content:
@@ -208,4 +318,46 @@
  *               $ref: '#/components/schemas/Error'
  */
 
+/**
+ * @swagger
+ * /api/auth/logout:
+ *   post:
+ *     tags:
+ *       - Authentication
+ *     summary: User logout
+ *     description: |
+ *       Logs out the current user by clearing the access_token and refresh_token cookies.
+ *       This endpoint does not require authentication as it simply clears the cookies.
+ *     responses:
+ *       200:
+ *         description: Logout successful. Cookies are cleared.
+ *         headers:
+ *           Set-Cookie:
+ *             description: Clears access_token and refresh_token cookies
+ *             schema:
+ *               type: string
+ *               example: "access_token=; HttpOnly; Secure; SameSite=Strict; Max-Age=0"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "User logged out successfully"
+ *                 data:
+ *                   type: "null"
+ *                   example: null
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+
 export const authSwagger = {};
+
