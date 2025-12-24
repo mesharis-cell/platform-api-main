@@ -25,6 +25,15 @@ router.post(
   AssetControllers.getBatchAvailability
 );
 
+// Check availability with date range
+router.post(
+  "/check-availability",
+  platformValidator,
+  auth('ADMIN', 'LOGISTICS', 'CLIENT'),
+  payloadValidator(AssetSchemas.checkAvailabilitySchema),
+  AssetControllers.checkAssetAvailability
+);
+
 // Get all assets
 router.get("/", platformValidator, auth('ADMIN', 'LOGISTICS', 'CLIENT'), AssetControllers.getAssets);
 

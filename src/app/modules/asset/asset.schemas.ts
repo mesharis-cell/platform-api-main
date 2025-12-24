@@ -211,8 +211,28 @@ const batchAvailabilitySchema = z.object({
   }),
 });
 
+// ----------------------------------- CHECK AVAILABILITY SCHEMA --------------------------
+const checkAvailabilitySchema = z.object({
+  body: z.object({
+    start_date: z.string({ message: "Start date is required" }),
+    end_date: z.string({ message: "End date is required" }),
+    asset_id: z.string().uuid("Invalid asset ID format").optional(),
+    asset_ids: z.array(z.string().uuid("Invalid asset ID format")).optional(),
+    items: z.array(z.object({
+      asset_id: z.string().uuid("Invalid asset ID format"),
+      quantity: z.number().int().min(1, "Quantity must be at least 1"),
+    })).optional(),
+  }).refine(
+    (data) => data.asset_id || data.asset_ids || data.items,
+    {
+      message: "Either asset_id, asset_ids, or items array is required",
+    }
+  ),
+});
+
 export const AssetSchemas = {
   createAssetSchema,
   updateAssetSchema,
   batchAvailabilitySchema,
+  checkAvailabilitySchema,
 };

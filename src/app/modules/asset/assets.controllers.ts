@@ -135,6 +135,21 @@ const getBatchAvailability = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- CHECK ASSET AVAILABILITY -----------------------
+const checkAssetAvailability = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+
+    const result = await AssetServices.checkAssetAvailability(req.body, user, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Availability checked successfully",
+        data: result,
+    });
+});
+
 export const AssetControllers = {
     createAsset,
     getAssets,
@@ -144,4 +159,5 @@ export const AssetControllers = {
     getAssetAvailabilityStats,
     getAssetScanHistory,
     getBatchAvailability,
+    checkAssetAvailability,
 };
