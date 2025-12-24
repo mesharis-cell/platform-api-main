@@ -14,7 +14,17 @@ const createCompany = async (data: CreateCompanyPayload) => {
   try {
     const result = await db.transaction(async (tx) => {
       // Step 1: Create company
-      const [company] = await tx.insert(companies).values(data).returning();
+      // Convert number fields to strings for database (decimal types)
+      const dbData: any = {
+        ...data,
+      };
+
+      // Convert platform_margin_percent to string if provided
+      if (data.platform_margin_percent !== undefined) {
+        dbData.platform_margin_percent = data.platform_margin_percent.toString();
+      }
+
+      const [company] = await tx.insert(companies).values(dbData).returning();
 
       // Step 2: Create company domain
       const [domain] = await tx
@@ -191,11 +201,16 @@ const updateCompany = async (id: string, data: any, platformId: string) => {
     }
 
     // Step 2: Update company
+    // Convert number fields to strings for database (decimal types)
+    const dbData: any = { ...data };
+
+    if (data.platform_margin_percent !== undefined) {
+      dbData.platform_margin_percent = data.platform_margin_percent.toString();
+    }
+
     const [result] = await db
       .update(companies)
-      .set({
-        ...data,
-      })
+      .set(dbData)
       .where(eq(companies.id, id))
       .returning();
 
