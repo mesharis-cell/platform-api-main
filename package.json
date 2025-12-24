@@ -5,8 +5,7 @@
   "scripts": {
     "start": "node dist/server.js",
     "dev": "ts-node-dev --respawn --transpile-only --watch ./src/app ./src/server.ts",
-    "generate:swagger": "tsx generate-swagger.ts",
-    "build": "npm run generate:swagger && tsc",
+    "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
