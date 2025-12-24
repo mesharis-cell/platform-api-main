@@ -143,37 +143,13 @@ const swaggerDefinition = {
   ],
 };
 
-// Detect if we're running compiled JavaScript (production) or TypeScript (development)
-// Check the file extension of the current module instead of the directory path
-// This works with Vercel and other platforms that may run from different directories
-const fs = require('fs');
-const path = require('path');
-
-// Check if this file exists as .js (compiled) or .ts (source)
-const isProduction = __filename.endsWith('.js');
-
-// Use absolute paths for better reliability in production
-const rootDir = path.join(__dirname, '..');
-
-const apiPath = isProduction
-  ? path.join(rootDir, 'dist', 'app', '**', '*.swagger.js')
-  : path.join(rootDir, 'src', 'app', '**', '*.swagger.ts');
-
-console.log('Swagger Configuration:');
-console.log('- __filename:', __filename);
-console.log('- __dirname:', __dirname);
-console.log('- rootDir:', rootDir);
-console.log('- isProduction:', isProduction);
-console.log('- API path:', apiPath);
-
 const options = {
   swaggerDefinition,
-  // Use absolute paths for better reliability
-  apis: [apiPath],
+  apis: process.env.NODE_ENV === 'production'
+    ? ["./dist/app/**/*.swagger.js"]
+    : ["./src/app/**/*.swagger.ts"],
 };
 
 const swaggerSpec = swaggerJsdoc(options);
-
-console.log('Swagger spec generated with', Object.keys((swaggerSpec as any).paths || {}).length, 'endpoints');
 
 export default swaggerSpec;
