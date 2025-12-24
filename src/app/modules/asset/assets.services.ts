@@ -804,6 +804,69 @@ const getAssetAvailabilityStats = async (id: string, user: AuthUser, platformId:
     };
 };
 
+// ----------------------------------- GET ASSET SCAN HISTORY -----------------------------
+const getAssetScanHistory = async (id: string, user: AuthUser, platformId: string) => {
+    // Step 1: Verify asset exists and user has access
+    const conditions: any[] = [
+        eq(assets.id, id),
+        eq(assets.platform_id, platformId),
+        isNull(assets.deleted_at),
+    ];
+
+    // CLIENT users can only see their company's assets
+    if (user.role === 'CLIENT') {
+        if (user.company_id) {
+            conditions.push(eq(assets.company_id, user.company_id));
+        } else {
+            throw new CustomizedError(httpStatus.UNAUTHORIZED, "Company not found");
+        }
+    }
+
+    const asset = await db.query.assets.findFirst({
+        where: and(...conditions),
+    });
+
+    if (!asset) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found");
+    }
+
+    // Step 2: Get scan history for the asset
+    const events = await db.query.scanEvents.findMany({
+        where: eq(scanEvents.asset_id, id),
+        with: {
+            asset: {
+                columns: {
+                    id: true,
+                    name: true,
+                    qr_code: true,
+                    tracking_method: true,
+                }
+            },
+            scanned_by_user: {
+                columns: {
+                    id: true,
+                    name: true,
+                }
+            },
+            order: {
+                columns: {
+                    id: true,
+                    order_id: true,
+                }
+            },
+        },
+        orderBy: (scanEvents, { desc }) => [desc(scanEvents.scanned_at)],
+    });
+
+    // Step 3: Return scan history
+    return {
+        asset_id: id,
+        asset_name: asset.name,
+        qr_code: asset.qr_code,
+        scan_history: events,
+    };
+};
+
 export const AssetServices = {
     createAsset,
     getAssets,
@@ -811,4 +874,5 @@ export const AssetServices = {
     updateAsset,
     deleteAsset,
     getAssetAvailabilityStats,
+    getAssetScanHistory,
 };

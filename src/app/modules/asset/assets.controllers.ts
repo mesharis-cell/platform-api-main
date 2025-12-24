@@ -103,6 +103,22 @@ const getAssetAvailabilityStats = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- GET ASSET SCAN HISTORY -------------------------
+const getAssetScanHistory = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+    const { id } = req.params;
+
+    const result = await AssetServices.getAssetScanHistory(id, user, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Asset scan history fetched successfully",
+        data: result,
+    });
+});
+
 export const AssetControllers = {
     createAsset,
     getAssets,
@@ -110,4 +126,5 @@ export const AssetControllers = {
     updateAsset,
     deleteAsset,
     getAssetAvailabilityStats,
+    getAssetScanHistory,
 };

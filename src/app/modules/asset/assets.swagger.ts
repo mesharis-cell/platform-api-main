@@ -573,6 +573,173 @@
 
 /**
  * @swagger
+ * /api/operations/v1/asset/{id}/scan-history:
+ *   get:
+ *     tags:
+ *       - Asset Management
+ *     summary: Get asset scan history
+ *     description: Retrieves complete scan history for a specific asset including scan events with asset, user, and order details. Only ADMIN and LOGISTICS users can access scan history.
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Scan history retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Asset scan history fetched successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     asset_id:
+ *                       type: string
+ *                       format: uuid
+ *                     asset_name:
+ *                       type: string
+ *                       example: "Conference Table #1"
+ *                     qr_code:
+ *                       type: string
+ *                       example: "ASSET-CONF-TABLE-001"
+ *                     scan_history:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                             format: uuid
+ *                           order_id:
+ *                             type: string
+ *                             format: uuid
+ *                           asset_id:
+ *                             type: string
+ *                             format: uuid
+ *                           scan_type:
+ *                             type: string
+ *                             enum: [OUTBOUND, INBOUND]
+ *                           quantity:
+ *                             type: integer
+ *                             example: 1
+ *                           condition:
+ *                             type: string
+ *                             enum: [GREEN, ORANGE, RED]
+ *                           notes:
+ *                             type: string
+ *                             nullable: true
+ *                           photos:
+ *                             type: array
+ *                             items:
+ *                               type: string
+ *                           discrepancy_reason:
+ *                             type: string
+ *                             nullable: true
+ *                           scanned_by:
+ *                             type: string
+ *                             format: uuid
+ *                           scanned_at:
+ *                             type: string
+ *                             format: date-time
+ *                           asset:
+ *                             type: object
+ *                             properties:
+ *                               id:
+ *                                 type: string
+ *                                 format: uuid
+ *                               name:
+ *                                 type: string
+ *                               qr_code:
+ *                                 type: string
+ *                               tracking_method:
+ *                                 type: string
+ *                                 enum: [INDIVIDUAL, BATCH]
+ *                           scanned_by_user:
+ *                             type: object
+ *                             properties:
+ *                               id:
+ *                                 type: string
+ *                                 format: uuid
+ *                               name:
+ *                                 type: string
+ *                           order:
+ *                             type: object
+ *                             properties:
+ *                               id:
+ *                                 type: string
+ *                                 format: uuid
+ *                               order_id:
+ *                                 type: string
+ *                                 example: "ORD-20241225-001"
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "You are not authorized"
+ *       403:
+ *         description: Forbidden
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Access denied"
+ *       404:
+ *         description: Not Found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Asset not found"
+ *       500:
+ *         description: Internal Server Error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Something went wrong!"
+ *     security:
+ *       - BearerAuth: []
+ */
+
+/**
+ * @swagger
  * /api/operations/v1/asset/{id}:
  *   patch:
  *     tags:

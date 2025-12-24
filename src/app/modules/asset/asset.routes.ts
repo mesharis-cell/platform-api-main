@@ -25,6 +25,9 @@ router.get("/:id", platformValidator, auth('ADMIN', 'LOGISTICS', 'CLIENT'), Asse
 // Get asset availability stats
 router.get("/:id/availability-stats", platformValidator, auth('ADMIN', 'LOGISTICS', 'CLIENT'), AssetControllers.getAssetAvailabilityStats);
 
+// Get asset scan history
+router.get("/:id/scan-history", platformValidator, auth('ADMIN', 'LOGISTICS'), AssetControllers.getAssetScanHistory);
+
 // Update asset
 router.patch("/:id", platformValidator, auth('ADMIN', 'LOGISTICS'), payloadValidator(AssetSchemas.updateAssetSchema), AssetControllers.updateAsset);
 
