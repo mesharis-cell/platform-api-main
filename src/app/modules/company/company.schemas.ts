@@ -25,6 +25,20 @@ const createCompany = z.object({
           "Domain must be lowercase and contain only alphanumeric characters and hyphens",
       }),
     settings: settingsSchema,
+    platform_margin_percent: z
+      .number()
+      .min(0, { message: "Platform margin percent must be at least 0" })
+      .max(100, { message: "Platform margin percent cannot exceed 100" })
+      .optional(),
+    contact_email: z
+      .string()
+      .email({ message: "Invalid email format" })
+      .max(255, { message: "Email cannot exceed 255 characters" })
+      .optional(),
+    contact_phone: z
+      .string()
+      .max(50, { message: "Phone number cannot exceed 50 characters" })
+      .optional(),
     is_active: z.boolean().optional().default(true),
   }),
 });
@@ -47,6 +61,20 @@ const updateCompany = z.object({
       })
       .optional(),
     settings: settingsSchema.optional(),
+    platform_margin_percent: z
+      .number()
+      .min(0, { message: "Platform margin percent must be at least 0" })
+      .max(100, { message: "Platform margin percent cannot exceed 100" })
+      .optional(),
+    contact_email: z
+      .string()
+      .email({ message: "Invalid email format" })
+      .max(255, { message: "Email cannot exceed 255 characters" })
+      .optional(),
+    contact_phone: z
+      .string()
+      .max(50, { message: "Phone number cannot exceed 50 characters" })
+      .optional(),
     is_active: z.boolean().optional(),
   }),
 });
