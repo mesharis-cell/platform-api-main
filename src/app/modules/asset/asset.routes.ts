@@ -22,6 +22,9 @@ router.get("/", platformValidator, auth('ADMIN', 'LOGISTICS', 'CLIENT'), AssetCo
 // Get asset by id
 router.get("/:id", platformValidator, auth('ADMIN', 'LOGISTICS', 'CLIENT'), AssetControllers.getAssetById);
 
+// Get asset availability stats
+router.get("/:id/availability-stats", platformValidator, auth('ADMIN', 'LOGISTICS', 'CLIENT'), AssetControllers.getAssetAvailabilityStats);
+
 // Update asset
 router.patch("/:id", platformValidator, auth('ADMIN', 'LOGISTICS'), payloadValidator(AssetSchemas.updateAssetSchema), AssetControllers.updateAsset);
 

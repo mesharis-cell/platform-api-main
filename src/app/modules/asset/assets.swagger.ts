@@ -463,6 +463,117 @@
  *                   example: "Something went wrong!"
  *     security:
  *       - BearerAuth: []
+ */
+
+/**
+ * @swagger
+ * /api/operations/v1/asset/{id}/availability-stats:
+ *   get:
+ *     tags:
+ *       - Asset Management
+ *     summary: Get asset availability statistics
+ *     description: Calculates real-time availability statistics for an asset including available, booked, out, and in-maintenance quantities. CLIENT users can only view their company's assets.
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Availability statistics retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Asset availability stats fetched successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     asset_id:
+ *                       type: string
+ *                       format: uuid
+ *                     total_quantity:
+ *                       type: integer
+ *                       example: 10
+ *                     available_quantity:
+ *                       type: integer
+ *                       example: 5
+ *                     booked_quantity:
+ *                       type: integer
+ *                       example: 3
+ *                     out_quantity:
+ *                       type: integer
+ *                       example: 1
+ *                     in_maintenance_quantity:
+ *                       type: integer
+ *                       example: 1
+ *                     breakdown:
+ *                       type: object
+ *                       properties:
+ *                         active_bookings_count:
+ *                           type: integer
+ *                           example: 2
+ *                         outbound_scans_total:
+ *                           type: integer
+ *                           example: 5
+ *                         inbound_scans_total:
+ *                           type: integer
+ *                           example: 4
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "You are not authorized"
+ *       404:
+ *         description: Not Found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Asset not found"
+ *       500:
+ *         description: Internal Server Error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Something went wrong!"
+ *     security:
+ *       - BearerAuth: []
+ */
+
+/**
+ * @swagger
+ * /api/operations/v1/asset/{id}:
  *   patch:
  *     tags:
  *       - Asset Management

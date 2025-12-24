@@ -1,7 +1,7 @@
-import { and, asc, count, desc, eq, ilike, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, isNull } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { assets, brands, companies, warehouses, zones } from "../../../db/schema";
+import { assetBookings, assets, brands, companies, orders, scanEvents, warehouses, zones } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import paginationMaker from "../../utils/pagination-maker";
@@ -693,10 +693,122 @@ const deleteAsset = async (id: string, user: AuthUser, platformId: string) => {
     return null;
 };
 
+// ----------------------------------- GET ASSET AVAILABILITY STATS -----------------------
+const getAssetAvailabilityStats = async (id: string, user: AuthUser, platformId: string) => {
+    // Step 1: Get asset with access control
+    const conditions: any[] = [
+        eq(assets.id, id),
+        eq(assets.platform_id, platformId),
+        isNull(assets.deleted_at),
+    ];
+
+    // CLIENT users can only see their company's assets
+    if (user.role === 'CLIENT') {
+        if (user.company_id) {
+            conditions.push(eq(assets.company_id, user.company_id));
+        } else {
+            throw new CustomizedError(httpStatus.UNAUTHORIZED, "Company not found");
+        }
+    }
+
+    const asset = await db.query.assets.findFirst({
+        where: and(...conditions),
+    });
+
+    if (!asset) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found");
+    }
+
+    const totalQuantity = asset.total_quantity;
+
+    // Step 2: Calculate BOOKED quantity from active bookings
+    const activeBookings = await db
+        .select({
+            quantity: assetBookings.quantity,
+        })
+        .from(assetBookings)
+        .innerJoin(orders, eq(assetBookings.order, orders.id))
+        .where(
+            and(
+                eq(assetBookings.asset, id),
+                inArray(orders.order_status, [
+                    'CONFIRMED',
+                    'IN_PREPARATION',
+                    'READY_FOR_DELIVERY',
+                    'IN_TRANSIT',
+                    'DELIVERED',
+                    'IN_USE',
+                    'AWAITING_RETURN',
+                ])
+            )
+        );
+
+    const bookedQuantity = activeBookings.reduce(
+        (sum, booking) => sum + booking.quantity,
+        0
+    );
+
+    // Step 3: Calculate OUT quantity from scan events
+    const outboundScans = await db
+        .select({
+            quantity: scanEvents.quantity,
+        })
+        .from(scanEvents)
+        .where(
+            and(
+                eq(scanEvents.asset_id, id),
+                eq(scanEvents.scan_type, 'OUTBOUND')
+            )
+        );
+
+    const inboundScans = await db
+        .select({
+            quantity: scanEvents.quantity,
+        })
+        .from(scanEvents)
+        .where(
+            and(
+                eq(scanEvents.asset_id, id),
+                eq(scanEvents.scan_type, 'INBOUND')
+            )
+        );
+
+    const totalOutbound = outboundScans.reduce((sum, scan) => sum + scan.quantity, 0);
+    const totalInbound = inboundScans.reduce((sum, scan) => sum + scan.quantity, 0);
+    const outQuantity = Math.max(0, totalOutbound - totalInbound);
+
+    // Step 4: Calculate IN_MAINTENANCE quantity
+    let inMaintenanceQuantity = 0;
+    if (asset.condition === 'RED') {
+        inMaintenanceQuantity = totalQuantity;
+    }
+
+    // Step 5: Calculate AVAILABLE quantity
+    const availableQuantity = Math.max(
+        0,
+        totalQuantity - bookedQuantity - outQuantity - inMaintenanceQuantity
+    );
+
+    return {
+        asset_id: id,
+        total_quantity: totalQuantity,
+        available_quantity: availableQuantity,
+        booked_quantity: bookedQuantity,
+        out_quantity: outQuantity,
+        in_maintenance_quantity: inMaintenanceQuantity,
+        breakdown: {
+            active_bookings_count: activeBookings.length,
+            outbound_scans_total: totalOutbound,
+            inbound_scans_total: totalInbound,
+        },
+    };
+};
+
 export const AssetServices = {
     createAsset,
     getAssets,
     getAssetById,
     updateAsset,
     deleteAsset,
+    getAssetAvailabilityStats,
 };
