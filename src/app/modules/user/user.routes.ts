@@ -23,4 +23,12 @@ router.get(
   UserControllers.getUsers
 );
 
+// Get single user by ID
+router.get(
+  "/:id",
+  platformValidator,
+  auth('ADMIN', 'LOGISTICS'),
+  UserControllers.getUserById
+);
+
 export const UserRoutes = router;

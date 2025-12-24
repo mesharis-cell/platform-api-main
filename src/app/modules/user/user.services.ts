@@ -173,7 +173,29 @@ const getUsers = async (platformId: string, query: Record<string, any>) => {
   };
 };
 
+// ----------------------------------- GET USER BY ID ---------------------------------
+const getUserById = async (id: string, platformId: string) => {
+  // Step 1: Build WHERE conditions
+  const conditions: any[] = [
+    eq(users.id, id),
+    eq(users.platform_id, platformId),
+  ];
+
+  // Step 2: Fetch user
+  const user = await db.query.users.findFirst({
+    where: and(...conditions),
+  });
+
+  // Step 3: Handle not found
+  if (!user) {
+    throw new CustomizedError(httpStatus.NOT_FOUND, "User not found");
+  }
+
+  return user;
+};
+
 export const UserServices = {
   createUser,
   getUsers,
+  getUserById,
 };
