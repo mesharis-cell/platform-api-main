@@ -143,21 +143,24 @@ const swaggerDefinition = {
   ],
 };
 
-// Detect if we're running from the dist folder (production) or src folder (development)
-// This is more reliable than NODE_ENV which might not be set in all deployment platforms
-const isProduction = __dirname.includes('dist');
+// Detect if we're running compiled JavaScript (production) or TypeScript (development)
+// Check the file extension of the current module instead of the directory path
+// This works with Vercel and other platforms that may run from different directories
+const fs = require('fs');
+const path = require('path');
+
+// Check if this file exists as .js (compiled) or .ts (source)
+const isProduction = __filename.endsWith('.js');
 
 // Use absolute paths for better reliability in production
-const path = require('path');
-const rootDir = isProduction
-  ? path.join(__dirname, '..') // In production, __dirname is /path/to/dist, so go up one level
-  : path.join(__dirname, '..'); // In dev, __dirname is /path/to/src, so go up one level
+const rootDir = path.join(__dirname, '..');
 
 const apiPath = isProduction
   ? path.join(rootDir, 'dist', 'app', '**', '*.swagger.js')
   : path.join(rootDir, 'src', 'app', '**', '*.swagger.ts');
 
 console.log('Swagger Configuration:');
+console.log('- __filename:', __filename);
 console.log('- __dirname:', __dirname);
 console.log('- rootDir:', rootDir);
 console.log('- isProduction:', isProduction);
