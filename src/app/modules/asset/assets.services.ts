@@ -12,7 +12,8 @@ import queryValidator from "../../utils/query-validator";
 import {
     AddConditionHistoryPayload,
     CompleteMaintenancePayload,
-    CreateAssetPayload
+    CreateAssetPayload,
+    GenerateQRCodePayload
 } from "./assets.interfaces";
 import { ASSET_ALL_COLUMNS, ASSET_REQUIRED_COLUMNS, assetQueryValidationConfig, assetSortableFields } from "./assets.utils";
 
@@ -1093,7 +1094,7 @@ const getAssetAvailabilitySummary = async (
 };
 
 // : Promise<BulkUploadResponse>
-// ----------------------------------- BULK UPLOAD ASSETS -------------------------------------
+// ----------------------------------- BULK UPLOAD ASSETS ---------------------------------
 const bulkUploadAssets = async (file: Express.Multer.File, user: AuthUser, platformId: string) => {
     // Step 1: Parse CSV file
     const parseResult = await CSVFileParser(file);
@@ -1129,7 +1130,7 @@ const bulkUploadAssets = async (file: Express.Multer.File, user: AuthUser, platf
     };
 };
 
-// ----------------------------------- ADD CONDITION HISTORY ----------------------------------
+// ----------------------------------- ADD CONDITION HISTORY ------------------------------
 const addConditionHistory = async (data: AddConditionHistoryPayload, user: AuthUser, platformId: string) => {
     // Step 1: Fetch asset (verify exists, platform scope, not deleted)
     const asset = await db.query.assets.findFirst({
@@ -1179,8 +1180,8 @@ const addConditionHistory = async (data: AddConditionHistoryPayload, user: AuthU
     return result;
 };
 
-// ----------------------------------- GENERATE QR CODE ---------------------------------------
-const generateQRCode = async (data: { qr_code: string }) => {
+// ----------------------------------- GENERATE QR CODE -----------------------------------
+const generateQRCode = async (data: GenerateQRCodePayload) => {
     // Generate QR code as base64 PNG
     const qrCodeImage = await QRCode.toDataURL(data.qr_code, {
         errorCorrectionLevel: 'H',
@@ -1194,7 +1195,7 @@ const generateQRCode = async (data: { qr_code: string }) => {
     };
 };
 
-// ----------------------------------- COMPLETE MAINTENANCE -----------------------------------
+// ----------------------------------- COMPLETE MAINTENANCE -------------------------------
 const completeMaintenance = async (data: CompleteMaintenancePayload, user: AuthUser, platformId: string) => {
     // Step 1: Fetch asset to verify it exists and is in RED condition
     const asset = await db.query.assets.findFirst({
