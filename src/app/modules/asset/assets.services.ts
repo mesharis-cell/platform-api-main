@@ -1,12 +1,21 @@
 import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, sql } from "drizzle-orm";
 import httpStatus from "http-status";
+import Papa from "papaparse";
 import { db } from "../../../db";
 import { assetBookings, assets, brands, companies, orders, scanEvents, warehouses, zones } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
-import { CreateAssetPayload } from "./assets.interfaces";
+import {
+    BulkUploadResponse,
+    CreateAssetPayload,
+    ForeignKeyCache,
+    ParsedCSVRow,
+    RowValidationError,
+    ValidatedAssetData,
+    ValidationResult
+} from "./assets.interfaces";
 import { assetQueryValidationConfig, assetSortableFields } from "./assets.utils";
 
 // ----------------------------------- CREATE ASSET ---------------------------------------
@@ -1113,6 +1122,451 @@ const generateUniqueQRCode = async (baseQRCode: string, platformId: string): Pro
     }
 };
 
+// ----------------------------------- BULK UPLOAD ASSETS -------------------------------------
+const bulkUploadAssets = async (file: Express.Multer.File, user: AuthUser, platformId: string): Promise<BulkUploadResponse> => {
+    try {
+        // Step 1: Parse CSV file
+        const parseResult = await parseCSVFile(file);
+
+        if (parseResult.errors.length > 0) {
+            return {
+                success: false,
+                error: 'CSV parsing failed',
+                details: {
+                    fileErrors: parseResult.errors,
+                    rowErrors: [],
+                    totalErrors: parseResult.errors.length,
+                    totalRows: 0,
+                },
+            };
+        }
+
+        const rows = parseResult.data;
+
+        // Step 2: Validate CSV structure
+        const structureValidation = validateCSVStructure(rows);
+        if (!structureValidation.valid) {
+            return {
+                success: false,
+                error: 'Invalid CSV structure',
+                details: {
+                    fileErrors: structureValidation.errors,
+                    rowErrors: [],
+                    totalErrors: structureValidation.errors.length,
+                    totalRows: rows.length,
+                },
+            };
+        }
+
+        // Step 3: Validate all rows
+        const validationResult = await validateBulkAssetRows(rows, platformId);
+
+        if (!validationResult.isValid) {
+            return {
+                success: false,
+                error: 'Validation failed',
+                details: {
+                    fileErrors: validationResult.fileErrors,
+                    rowErrors: validationResult.rowErrors,
+                    totalErrors: validationResult.totalErrors,
+                    totalRows: validationResult.totalRows,
+                },
+            };
+        }
+
+        // Step 4: Create assets in bulk with transaction
+        const createdAssets = await createBulkAssets(validationResult.validRows, user);
+
+        // Step 5: Prepare success response
+        return {
+            success: true,
+            data: {
+                created: createdAssets.length,
+                assets: createdAssets.map((asset) => ({
+                    id: asset.id,
+                    name: asset.name,
+                    qr_code: asset.qr_code,
+                })),
+            },
+        };
+    } catch (error) {
+        console.error('Error in bulk asset upload:', error);
+        throw error;
+    }
+};
+
+// ----------------------------------- HELPER: PARSE CSV FILE ---------------------------------
+const parseCSVFile = async (file: Express.Multer.File): Promise<{
+    data: ParsedCSVRow[];
+    errors: string[];
+}> => {
+    return new Promise((resolve) => {
+        const fileContent = file.buffer.toString('utf-8');
+
+        Papa.parse(fileContent, {
+            header: true,
+            skipEmptyLines: true,
+            transformHeader: (header) => header.trim(),
+            transform: (value) => value.trim(),
+            complete: (results: any) => {
+                const errors: string[] = [];
+
+                // Check for parsing errors
+                if (results.errors.length > 0) {
+                    errors.push(
+                        ...results.errors.map((e: any) => `Parse error at row ${e.row}: ${e.message}`)
+                    );
+                }
+
+                // Add row numbers to data
+                const parsedData: ParsedCSVRow[] = (results.data as any[]).map(
+                    (row, index) => ({
+                        ...row,
+                        rowNumber: index + 2, // +2 because index is 0-based and CSV has header row
+                    })
+                );
+
+                resolve({
+                    data: parsedData,
+                    errors,
+                });
+            },
+            error: (error: any) => {
+                resolve({
+                    data: [],
+                    errors: [error.message],
+                });
+            },
+        });
+    });
+};
+
+// ----------------------------------- HELPER: VALIDATE CSV STRUCTURE -------------------------
+const validateCSVStructure = (rows: ParsedCSVRow[]): { valid: boolean; errors: string[] } => {
+    const errors: string[] = [];
+
+    const REQUIRED_COLUMNS = [
+        'company',
+        'warehouse',
+        'zone',
+        'name',
+        'category',
+        'trackingMethod',
+        'weight',
+        'dimensionLength',
+        'dimensionWidth',
+        'dimensionHeight',
+        'volume',
+        'totalQuantity',
+    ];
+
+    if (rows.length === 0) {
+        errors.push('CSV file is empty');
+        return { valid: false, errors };
+    }
+
+    // Check if first row has all required fields
+    const firstRow = rows[0];
+    const missingFields: string[] = [];
+
+    REQUIRED_COLUMNS.forEach((col) => {
+        if (!(col in firstRow)) {
+            missingFields.push(col);
+        }
+    });
+
+    if (missingFields.length > 0) {
+        errors.push(`Missing required columns: ${missingFields.join(', ')}`);
+    }
+
+    return {
+        valid: errors.length === 0,
+        errors,
+    };
+};
+
+// ----------------------------------- HELPER: BUILD FOREIGN KEY CACHE ------------------------
+const buildForeignKeyCache = async (rows: ParsedCSVRow[], platformId: string): Promise<ForeignKeyCache> => {
+    // Extract unique values
+    const companyNames = [...new Set(rows.map(r => r.company).filter(Boolean))];
+    const warehouseNames = [...new Set(rows.map(r => r.warehouse).filter(Boolean))];
+    const zoneNames = [...new Set(rows.map(r => r.zone).filter(Boolean))];
+    const brandNames = [...new Set(rows.map(r => r.brand).filter(Boolean))];
+
+    // Fetch all in parallel
+    const [companiesData, warehousesData, zonesData, brandsData] = await Promise.all([
+        db.select().from(companies).where(
+            and(
+                eq(companies.platform_id, platformId),
+                isNull(companies.deleted_at),
+                inArray(companies.name, companyNames.length > 0 ? companyNames : ['__NONE__'])
+            )
+        ),
+        db.select().from(warehouses).where(
+            and(
+                eq(warehouses.platform_id, platformId),
+                inArray(warehouses.name, warehouseNames.length > 0 ? warehouseNames : ['__NONE__'])
+            )
+        ),
+        db.select().from(zones).where(
+            inArray(zones.name, zoneNames.length > 0 ? zoneNames : ['__NONE__'])
+        ),
+        brandNames.length > 0
+            ? db.select().from(brands).where(
+                and(
+                    eq(brands.platform_id, platformId),
+                    eq(brands.is_active, true),
+                    inArray(brands.name, brandNames as string[])
+                )
+            )
+            : Promise.resolve([]),
+    ]);
+
+    // Build maps
+    const cache: ForeignKeyCache = {
+        companies: new Map(companiesData.map(c => [c.name, { id: c.id, name: c.name }])),
+        warehouses: new Map(warehousesData.map(w => [w.name, { id: w.id, name: w.name }])),
+        zones: new Map(zonesData.map(z => [z.name, { id: z.id, name: z.name, warehouse_id: z.warehouse_id, company_id: z.company_id }])),
+        brands: new Map(brandsData.map(b => [b.name, { id: b.id, name: b.name, company_id: b.company_id }])),
+    };
+
+    return cache;
+};
+
+// ----------------------------------- HELPER: VALIDATE BULK ASSET ROWS -----------------------
+const validateBulkAssetRows = async (rows: ParsedCSVRow[], platformId: string): Promise<ValidationResult> => {
+    const fileErrors: string[] = [];
+    const rowErrors: RowValidationError[] = [];
+
+    // Build foreign key cache
+    const cache = await buildForeignKeyCache(rows, platformId);
+
+    // Validate each row
+    const validatedRows: ValidatedAssetData[] = [];
+
+    for (const row of rows) {
+        const errors = validateAssetRow(row, cache, platformId);
+        if (errors.length > 0) {
+            rowErrors.push({
+                row: row.rowNumber,
+                errors,
+            });
+        } else {
+            // Transform to validated data
+            validatedRows.push(transformCSVRowToAssetData(row, cache, platformId));
+        }
+    }
+
+    const totalErrors = fileErrors.length + rowErrors.length;
+    const isValid = totalErrors === 0;
+
+    return {
+        isValid,
+        fileErrors,
+        rowErrors,
+        validRows: isValid ? validatedRows : [],
+        totalErrors,
+        totalRows: rows.length,
+    };
+};
+
+// ----------------------------------- HELPER: VALIDATE ASSET ROW ----------------------------
+const validateAssetRow = (row: ParsedCSVRow, cache: ForeignKeyCache, platformId: string): string[] => {
+    const errors: string[] = [];
+
+    // Validate company
+    if (!row.company || row.company.trim() === '') {
+        errors.push('Company is required');
+    } else if (!cache.companies.has(row.company)) {
+        errors.push(`Company "${row.company}" not found`);
+    }
+
+    // Validate warehouse
+    if (!row.warehouse || row.warehouse.trim() === '') {
+        errors.push('Warehouse is required');
+    } else if (!cache.warehouses.has(row.warehouse)) {
+        errors.push(`Warehouse "${row.warehouse}" not found`);
+    }
+
+    // Validate zone
+    if (!row.zone || row.zone.trim() === '') {
+        errors.push('Zone is required');
+    } else if (!cache.zones.has(row.zone)) {
+        errors.push(`Zone "${row.zone}" not found`);
+    } else {
+        // Validate zone belongs to warehouse and company
+        const zone = cache.zones.get(row.zone)!;
+        const company = cache.companies.get(row.company);
+        const warehouse = cache.warehouses.get(row.warehouse);
+
+        if (company && zone.company_id !== company.id) {
+            errors.push(`Zone "${row.zone}" does not belong to company "${row.company}"`);
+        }
+        if (warehouse && zone.warehouse_id !== warehouse.id) {
+            errors.push(`Zone "${row.zone}" does not belong to warehouse "${row.warehouse}"`);
+        }
+    }
+
+    // Validate brand (optional)
+    if (row.brand && row.brand.trim() !== '') {
+        if (!cache.brands.has(row.brand)) {
+            errors.push(`Brand "${row.brand}" not found`);
+        } else {
+            const brand = cache.brands.get(row.brand)!;
+            const company = cache.companies.get(row.company);
+            if (company && brand.company_id !== company.id) {
+                errors.push(`Brand "${row.brand}" does not belong to company "${row.company}"`);
+            }
+        }
+    }
+
+    // Validate name
+    if (!row.name || row.name.trim() === '') {
+        errors.push('Name is required');
+    } else if (row.name.length > 200) {
+        errors.push('Name must be under 200 characters');
+    }
+
+    // Validate category
+    const validCategories = ['FURNITURE', 'GLASSWARE', 'INSTALLATION', 'DECOR', 'OTHER'];
+    if (!row.category || !validCategories.includes(row.category.toUpperCase())) {
+        errors.push(`Category must be one of: ${validCategories.join(', ')}`);
+    }
+
+    // Validate tracking method
+    const validTrackingMethods = ['INDIVIDUAL', 'BATCH'];
+    if (!row.trackingMethod || !validTrackingMethods.includes(row.trackingMethod.toUpperCase())) {
+        errors.push(`Tracking method must be one of: ${validTrackingMethods.join(', ')}`);
+    }
+
+    // Validate numeric fields
+    if (!row.weight || isNaN(parseFloat(row.weight)) || parseFloat(row.weight) <= 0) {
+        errors.push('Weight must be a positive number');
+    }
+
+    if (!row.dimensionLength || isNaN(parseFloat(row.dimensionLength)) || parseFloat(row.dimensionLength) <= 0) {
+        errors.push('Dimension length must be a positive number');
+    }
+
+    if (!row.dimensionWidth || isNaN(parseFloat(row.dimensionWidth)) || parseFloat(row.dimensionWidth) <= 0) {
+        errors.push('Dimension width must be a positive number');
+    }
+
+    if (!row.dimensionHeight || isNaN(parseFloat(row.dimensionHeight)) || parseFloat(row.dimensionHeight) <= 0) {
+        errors.push('Dimension height must be a positive number');
+    }
+
+    if (!row.volume || isNaN(parseFloat(row.volume)) || parseFloat(row.volume) <= 0) {
+        errors.push('Volume must be a positive number');
+    }
+
+    if (!row.totalQuantity || isNaN(parseInt(row.totalQuantity)) || parseInt(row.totalQuantity) < 1) {
+        errors.push('Total quantity must be a positive integer');
+    }
+
+    // Validate condition (optional)
+    if (row.condition && row.condition.trim() !== '') {
+        const validConditions = ['GREEN', 'ORANGE', 'RED'];
+        if (!validConditions.includes(row.condition.toUpperCase())) {
+            errors.push(`Condition must be one of: ${validConditions.join(', ')}`);
+        }
+    }
+
+    return errors;
+};
+
+// ----------------------------------- HELPER: TRANSFORM CSV ROW TO ASSET DATA ----------------
+const transformCSVRowToAssetData = (row: ParsedCSVRow, cache: ForeignKeyCache, platformId: string): ValidatedAssetData => {
+    const company = cache.companies.get(row.company)!;
+    const warehouse = cache.warehouses.get(row.warehouse)!;
+    const zone = cache.zones.get(row.zone)!;
+    const brand = row.brand && row.brand.trim() !== '' ? cache.brands.get(row.brand) : undefined;
+
+    // Parse array fields (comma-separated strings)
+    const parseArrayField = (field: string | undefined): string[] => {
+        if (!field || field.trim() === '') return [];
+        return field.split(',').map(item => item.trim()).filter(item => item !== '');
+    };
+
+    return {
+        platform_id: platformId,
+        company_id: company.id,
+        warehouse_id: warehouse.id,
+        zone_id: zone.id,
+        name: row.name.trim(),
+        category: row.category.toUpperCase() as any,
+        tracking_method: row.trackingMethod.toUpperCase() as 'INDIVIDUAL' | 'BATCH',
+        weight_per_unit: parseFloat(row.weight),
+        dimensions: {
+            length: parseFloat(row.dimensionLength),
+            width: parseFloat(row.dimensionWidth),
+            height: parseFloat(row.dimensionHeight),
+        },
+        volume_per_unit: parseFloat(row.volume),
+        total_quantity: parseInt(row.totalQuantity),
+        packaging: row.packaging && row.packaging.trim() !== '' ? row.packaging.trim() : null,
+        brand_id: brand ? brand.id : null,
+        description: row.description && row.description.trim() !== '' ? row.description.trim() : null,
+        handling_tags: parseArrayField(row.handlingTags),
+        images: parseArrayField(row.images),
+        condition: row.condition && row.condition.trim() !== ''
+            ? (row.condition.toUpperCase() as 'GREEN' | 'ORANGE' | 'RED')
+            : 'GREEN',
+    };
+};
+
+// ----------------------------------- HELPER: CREATE BULK ASSETS -----------------------------
+const createBulkAssets = async (validatedRows: ValidatedAssetData[], user: AuthUser): Promise<any[]> => {
+    // Use transaction for all-or-nothing guarantee
+    return await db.transaction(async (tx) => {
+        const allCreatedAssets: any[] = [];
+
+        // Process in batches of 100 for performance
+        const batchSize = 100;
+        for (let i = 0; i < validatedRows.length; i += batchSize) {
+            const batch = validatedRows.slice(i, i + batchSize);
+
+            // Generate QR codes and prepare insert data
+            const insertData = await Promise.all(
+                batch.map(async (row) => {
+                    // Generate unique QR code
+                    const baseQRCode = `${row.name.replace(/\s+/g, '-').toUpperCase()}-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+                    const qrCode = await generateUniqueQRCode(baseQRCode, row.platform_id);
+
+                    return {
+                        platform_id: row.platform_id,
+                        company_id: row.company_id,
+                        warehouse_id: row.warehouse_id,
+                        zone_id: row.zone_id,
+                        brand_id: row.brand_id,
+                        name: row.name,
+                        description: row.description,
+                        category: row.category as 'FURNITURE' | 'GLASSWARE' | 'INSTALLATION' | 'DECOR' | 'OTHER',
+                        images: row.images,
+                        tracking_method: row.tracking_method,
+                        total_quantity: row.total_quantity,
+                        available_quantity: row.total_quantity, // Initially all available
+                        qr_code: qrCode,
+                        packaging: row.packaging,
+                        weight_per_unit: row.weight_per_unit.toString(),
+                        dimensions: row.dimensions,
+                        volume_per_unit: row.volume_per_unit.toString(),
+                        condition: row.condition,
+                        status: 'AVAILABLE' as const,
+                        handling_tags: row.handling_tags,
+                    };
+                })
+            );
+
+            // Insert batch
+            const batchAssets = await tx.insert(assets).values(insertData as any).returning();
+            allCreatedAssets.push(...batchAssets);
+        }
+
+        return allCreatedAssets;
+    });
+};
+
 export const AssetServices = {
     createAsset,
     getAssets,
@@ -1123,4 +1577,5 @@ export const AssetServices = {
     getAssetScanHistory,
     getBatchAvailability,
     checkAssetAvailability,
+    bulkUploadAssets,
 };

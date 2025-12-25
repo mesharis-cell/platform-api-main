@@ -241,6 +241,169 @@
 
 /**
  * @swagger
+ * /api/operations/v1/asset/bulk-upload:
+ *   post:
+ *     tags:
+ *       - Asset Management
+ *     summary: Upload assets in bulk via CSV
+ *     description: |
+ *       Allows ADMIN and LOGISTICS users to upload multiple assets at once using a CSV file. 
+ *       The CSV file must contain the following required columns:
+ *       - company (name of the company)
+ *       - warehouse (name of the warehouse)
+ *       - zone (name of the zone)
+ *       - name (asset name)
+ *       - category (FURNITURE, GLASSWARE, INSTALLATION, DECOR, OTHER)
+ *       - trackingMethod (INDIVIDUAL or BATCH)
+ *       - weight (numeric value)
+ *       - dimensionLength (numeric value)
+ *       - dimensionWidth (numeric value)
+ *       - dimensionHeight (numeric value)
+ *       - volume (numeric value)
+ *       - totalQuantity (integer value)
+ *       
+ *       Optional columns:
+ *       - packaging (string)
+ *       - brand (brand name)
+ *       - description (string)
+ *       - handlingTags (comma-separated values)
+ *       - images (comma-separated URLs)
+ *       - condition (GREEN, ORANGE, or RED)
+ *       
+ *       The endpoint validates all rows, checks foreign key references, and creates assets in a transaction.
+ *       If any validation fails, no assets are created and detailed error information is returned.
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - file
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *                 description: CSV file containing asset data (max 5MB)
+ *     responses:
+ *       201:
+ *         description: Assets created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Assets uploaded successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     created:
+ *                       type: integer
+ *                       example: 25
+ *                     assets:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                             format: uuid
+ *                           name:
+ *                             type: string
+ *                           qr_code:
+ *                             type: string
+ *       400:
+ *         description: Bad Request - Invalid file
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "File must be a CSV (.csv)"
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "You are not authorized"
+ *       422:
+ *         description: Validation failed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Validation failed"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     fileErrors:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                       example: ["Missing required columns: brand, category"]
+ *                     rowErrors:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           row:
+ *                             type: integer
+ *                             example: 5
+ *                           errors:
+ *                             type: array
+ *                             items:
+ *                               type: string
+ *                             example: ["Company \"ABC Corp\" not found", "Weight must be a positive number"]
+ *                     totalErrors:
+ *                       type: integer
+ *                       example: 3
+ *                     totalRows:
+ *                       type: integer
+ *                       example: 50
+ *       500:
+ *         description: Internal Server Error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Something went wrong!"
+ *     security:
+ *       - BearerAuth: []
+ */
+
+/**
+ * @swagger
  * /api/operations/v1/asset/batch-availability:
  *   post:
  *     tags:
