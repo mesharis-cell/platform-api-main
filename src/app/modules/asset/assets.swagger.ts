@@ -398,6 +398,141 @@
 
 /**
  * @swagger
+ * /api/operations/v1/asset/condition/add:
+ *   post:
+ *     tags:
+ *       - Asset Management
+ *     summary: Add maintenance notes to an asset
+ *     description: |
+ *       Allows ADMIN and LOGISTICS users to add maintenance notes to an asset.
+ *       This creates a condition history record with the asset's current condition and the provided notes.
+ *       Useful for tracking maintenance activities, repairs, or observations without changing the asset's condition.
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - asset_id
+ *               - notes
+ *             properties:
+ *               asset_id:
+ *                 type: string
+ *                 format: uuid
+ *                 description: ID of the asset to add notes to
+ *                 example: "550e8400-e29b-41d4-a716-446655440000"
+ *               notes:
+ *                 type: string
+ *                 minLength: 1
+ *                 maxLength: 5000
+ *                 description: Maintenance notes or observations
+ *                 example: "Cleaned and inspected. All components in good condition."
+ *               photos:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: uri
+ *                 description: Optional array of photo URLs
+ *                 example: ["https://example.com/photo1.jpg", "https://example.com/photo2.jpg"]
+ *     responses:
+ *       201:
+ *         description: Maintenance notes added successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Maintenance notes added successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     success:
+ *                       type: boolean
+ *                       example: true
+ *                     condition_history:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                           format: uuid
+ *                           example: "660e8400-e29b-41d4-a716-446655440000"
+ *                         condition:
+ *                           type: string
+ *                           enum: [GREEN, ORANGE, RED]
+ *                           example: "GREEN"
+ *                         notes:
+ *                           type: string
+ *                           example: "Cleaned and inspected. All components in good condition."
+ *                         timestamp:
+ *                           type: string
+ *                           format: date-time
+ *                           example: "2025-12-25T15:30:00.000Z"
+ *       400:
+ *         description: Bad Request - Invalid input
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Notes cannot be empty"
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "You are not authorized"
+ *       404:
+ *         description: Asset not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Asset not found"
+ *       500:
+ *         description: Internal Server Error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Something went wrong!"
+ *     security:
+ *       - BearerAuth: []
+ */
+
+/**
+ * @swagger
  * /api/operations/v1/asset/batch-availability:
  *   post:
  *     tags:

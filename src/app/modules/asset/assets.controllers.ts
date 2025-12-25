@@ -185,6 +185,25 @@ const bulkUploadAssets = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- ADD MAINTENANCE NOTES ------------------------------
+const addConditionHistory = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+
+    const result = await AssetServices.addConditionHistory(
+        req.body,
+        user,
+        platformId
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.CREATED,
+        success: true,
+        message: "Condition history added successfully",
+        data: result,
+    });
+});
+
 export const AssetControllers = {
     createAsset,
     getAssets,
@@ -196,4 +215,5 @@ export const AssetControllers = {
     getBatchAvailability,
     checkAssetAvailability,
     bulkUploadAssets,
+    addConditionHistory,
 };

@@ -229,9 +229,32 @@ const checkAvailabilitySchema = z.object({
   ),
 });
 
+// ----------------------------------- ADD CONDITION HISTORY SCHEMA ---------------------------
+const addConditionHistorySchema = z.object({
+  body: z.object({
+    asset_id: z
+      .string({ message: "Asset ID is required" })
+      .uuid("Invalid asset ID format"),
+    condition: z
+      .enum(assetConditionEnum.enumValues, {
+        message: enumMessageGenerator('Condition', assetConditionEnum.enumValues),
+      })
+      .optional(),
+    notes: z
+      .string({ message: "Notes are required" })
+      .min(1, "Notes cannot be empty")
+      .max(1000, "Notes must be under 1000 characters"),
+    photos: z
+      .array(z.string().url("Invalid photo URL"))
+      .optional()
+      .default([]),
+  }),
+});
+
 export const AssetSchemas = {
   createAssetSchema,
   updateAssetSchema,
   batchAvailabilitySchema,
   checkAvailabilitySchema,
+  addConditionHistorySchema,
 };

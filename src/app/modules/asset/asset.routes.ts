@@ -26,6 +26,15 @@ router.post(
   AssetControllers.bulkUploadAssets
 );
 
+// Add condition history
+router.post(
+  "/condition/add",
+  platformValidator,
+  auth('ADMIN', 'LOGISTICS'),
+  payloadValidator(AssetSchemas.addConditionHistorySchema),
+  AssetControllers.addConditionHistory
+);
+
 // Batch availability check
 router.post(
   "/batch-availability",

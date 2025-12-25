@@ -7,6 +7,9 @@ export type CreateAssetPayload = z.infer<typeof AssetSchemas.createAssetSchema>[
 
 export type UpdateAssetPayload = z.infer<typeof AssetSchemas.updateAssetSchema>["body"];
 
+export type AddConditionHistoryPayload = z.infer<typeof AssetSchemas.addConditionHistorySchema>["body"];
+
+
 // ----------------------------------- BULK UPLOAD INTERFACES ---------------------------------
 
 // CSV row structure (as received from CSV file)

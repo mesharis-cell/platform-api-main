@@ -9,6 +9,7 @@ import paginationMaker from "../../utils/pagination-maker";
 import { qrCodeGenerator } from "../../utils/qr-code-generator";
 import queryValidator from "../../utils/query-validator";
 import {
+    AddConditionHistoryPayload,
     CreateAssetPayload
 } from "./assets.interfaces";
 import { ASSET_ALL_COLUMNS, ASSET_REQUIRED_COLUMNS, assetQueryValidationConfig, assetSortableFields } from "./assets.utils";
@@ -580,6 +581,7 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
             const newHistoryEntry = {
                 condition: data.condition,
                 notes: data.condition_notes || null,
+                photos: [],
                 updated_by: user.id,
                 timestamp: new Date().toISOString(),
             };
@@ -1125,6 +1127,46 @@ const bulkUploadAssets = async (file: Express.Multer.File, user: AuthUser, platf
     };
 };
 
+// ----------------------------------- ADD MAINTENANCE NOTES ----------------------------------
+const addConditionHistory = async (data: AddConditionHistoryPayload, user: AuthUser, platformId: string) => {
+    // Step 1: Fetch asset to get current condition
+    const asset = await db.query.assets.findFirst({
+        where: and(
+            eq(assets.id, data.asset_id),
+            eq(assets.platform_id, platformId),
+            isNull(assets.deleted_at)
+        ),
+    });
+
+    if (!asset) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, 'Asset not found');
+    }
+
+    const existingHistory = Array.isArray(asset.condition_history)
+        ? asset.condition_history
+        : [];
+
+    const newHistory = {
+        condition: data.condition || asset.condition,
+        notes: data.notes,
+        photos: [],
+        updated_by: user.id,
+        timestamp: new Date().toISOString(),
+    }
+
+    const condition_history = [newHistory, ...existingHistory];
+
+    const [result] = await db
+        .update(assets)
+        .set({
+            condition_history
+        })
+        .where(eq(assets.id, data.asset_id))
+        .returning();
+
+    return result;
+};
+
 export const AssetServices = {
     createAsset,
     getAssets,
@@ -1136,4 +1178,5 @@ export const AssetServices = {
     getBatchAvailability,
     checkAssetAvailability,
     bulkUploadAssets,
+    addConditionHistory,
 };
