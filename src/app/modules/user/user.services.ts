@@ -157,13 +157,18 @@ const getUsers = async (platformId: string, query: Record<string, any>) => {
 
   // Step 6: Execute queries in parallel
   const [result, total] = await Promise.all([
-    db
-      .select()
-      .from(users)
-      .where(and(...conditions))
-      .orderBy(orderDirection)
-      .limit(limitNumber)
-      .offset(skip),
+    db.query.users.findMany({
+      where: and(...conditions),
+      with: {
+        company: true,
+      },
+      columns: {
+        company_id: false,
+      },
+      orderBy: orderDirection,
+      limit: limitNumber,
+      offset: skip,
+    }),
 
     db
       .select({
@@ -194,6 +199,12 @@ const getUserById = async (id: string, platformId: string) => {
   // Step 2: Fetch user
   const user = await db.query.users.findFirst({
     where: and(...conditions),
+    with: {
+      company: true,
+    },
+    columns: {
+      company_id: false,
+    },
   });
 
   // Step 3: Handle not found

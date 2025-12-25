@@ -347,11 +347,32 @@
  *                             type: string
  *                             format: uuid
  *                             example: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
- *                           company_id:
- *                             type: string
- *                             format: uuid
+ *                           company:
+ *                             type: object
  *                             nullable: true
- *                             example: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+ *                             description: Company details if the user belongs to a company
+ *                             properties:
+ *                               id:
+ *                                 type: string
+ *                                 format: uuid
+ *                               name:
+ *                                 type: string
+ *                               domain:
+ *                                 type: string
+ *                               platform_margin_percent:
+ *                                 type: string
+ *                               contact_email:
+ *                                 type: string
+ *                               contact_phone:
+ *                                 type: string
+ *                               is_active:
+ *                                 type: boolean
+ *                               created_at:
+ *                                 type: string
+ *                                 format: date-time
+ *                               updated_at:
+ *                                 type: string
+ *                                 format: date-time
  *                           name:
  *                             type: string
  *                             example: "John Doe"
@@ -498,11 +519,32 @@
  *                       type: string
  *                       format: uuid
  *                       example: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
- *                     company_id:
- *                       type: string
- *                       format: uuid
+ *                     company:
+ *                       type: object
  *                       nullable: true
- *                       example: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+ *                       description: Company details if the user belongs to a company
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                           format: uuid
+ *                         name:
+ *                           type: string
+ *                         domain:
+ *                           type: string
+ *                         platform_margin_percent:
+ *                           type: string
+ *                         contact_email:
+ *                           type: string
+ *                         contact_phone:
+ *                           type: string
+ *                         is_active:
+ *                           type: boolean
+ *                         created_at:
+ *                           type: string
+ *                           format: date-time
+ *                         updated_at:
+ *                           type: string
+ *                           format: date-time
  *                     name:
  *                       type: string
  *                       example: "John Doe"
