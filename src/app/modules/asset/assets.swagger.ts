@@ -402,11 +402,12 @@
  *   post:
  *     tags:
  *       - Asset Management
- *     summary: Add maintenance notes to an asset
+ *     summary: Add condition history to an asset
  *     description: |
- *       Allows ADMIN and LOGISTICS users to add maintenance notes to an asset.
- *       This creates a condition history record with the asset's current condition and the provided notes.
- *       Useful for tracking maintenance activities, repairs, or observations without changing the asset's condition.
+ *       Allows ADMIN and LOGISTICS users to add condition history to an asset.
+ *       This updates the asset's condition_history array with a new entry containing the condition, notes, and metadata.
+ *       The condition field is optional - if not provided, it uses the asset's current condition.
+ *       Useful for tracking maintenance activities, condition changes, repairs, or observations.
  *     parameters:
  *       - $ref: '#/components/parameters/PlatformHeader'
  *     requestBody:
@@ -422,13 +423,18 @@
  *               asset_id:
  *                 type: string
  *                 format: uuid
- *                 description: ID of the asset to add notes to
+ *                 description: ID of the asset to add condition history to
  *                 example: "550e8400-e29b-41d4-a716-446655440000"
+ *               condition:
+ *                 type: string
+ *                 enum: [GREEN, ORANGE, RED]
+ *                 description: Optional condition status. If not provided, uses asset's current condition
+ *                 example: "GREEN"
  *               notes:
  *                 type: string
  *                 minLength: 1
- *                 maxLength: 5000
- *                 description: Maintenance notes or observations
+ *                 maxLength: 1000
+ *                 description: Condition notes or observations (max 1000 characters)
  *                 example: "Cleaned and inspected. All components in good condition."
  *               photos:
  *                 type: array
@@ -439,7 +445,7 @@
  *                 example: ["https://example.com/photo1.jpg", "https://example.com/photo2.jpg"]
  *     responses:
  *       201:
- *         description: Maintenance notes added successfully
+ *         description: Condition history added successfully
  *         content:
  *           application/json:
  *             schema:
@@ -450,31 +456,40 @@
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: "Maintenance notes added successfully"
+ *                   example: "Condition history added successfully"
  *                 data:
  *                   type: object
+ *                   description: Updated asset object with new condition history
  *                   properties:
- *                     success:
- *                       type: boolean
- *                       example: true
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                     name:
+ *                       type: string
+ *                     condition:
+ *                       type: string
+ *                       enum: [GREEN, ORANGE, RED]
  *                     condition_history:
- *                       type: object
- *                       properties:
- *                         id:
- *                           type: string
- *                           format: uuid
- *                           example: "660e8400-e29b-41d4-a716-446655440000"
- *                         condition:
- *                           type: string
- *                           enum: [GREEN, ORANGE, RED]
- *                           example: "GREEN"
- *                         notes:
- *                           type: string
- *                           example: "Cleaned and inspected. All components in good condition."
- *                         timestamp:
- *                           type: string
- *                           format: date-time
- *                           example: "2025-12-25T15:30:00.000Z"
+ *                       type: array
+ *                       description: Array of condition history entries (newest first)
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           condition:
+ *                             type: string
+ *                             enum: [GREEN, ORANGE, RED]
+ *                           notes:
+ *                             type: string
+ *                           photos:
+ *                             type: array
+ *                             items:
+ *                               type: string
+ *                           updated_by:
+ *                             type: string
+ *                             format: uuid
+ *                           timestamp:
+ *                             type: string
+ *                             format: date-time
  *       400:
  *         description: Bad Request - Invalid input
  *         content:
