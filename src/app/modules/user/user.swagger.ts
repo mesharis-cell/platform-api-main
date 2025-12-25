@@ -455,5 +455,235 @@
  *       - BearerAuth: []
  */
 
+/**
+ * @swagger
+ * /api/operations/v1/user/{id}:
+ *   get:
+ *     tags:
+ *       - User Management
+ *     summary: Get user by ID
+ *     description: Retrieves details of a specific user. Requires ADMIN or LOGISTICS permissions.
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: id
+ *         in: path
+ *         description: ID of the user to retrieve
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *           example: "550e8400-e29b-41d4-a716-446655440000"
+ *     responses:
+ *       200:
+ *         description: User retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "User fetched successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                       example: "550e8400-e29b-41d4-a716-446655440000"
+ *                     platform_id:
+ *                       type: string
+ *                       format: uuid
+ *                       example: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+ *                     company_id:
+ *                       type: string
+ *                       format: uuid
+ *                       nullable: true
+ *                       example: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+ *                     name:
+ *                       type: string
+ *                       example: "John Doe"
+ *                     email:
+ *                       type: string
+ *                       format: email
+ *                       example: "john.doe@example.com"
+ *                     role:
+ *                       type: string
+ *                       enum: [ADMIN, LOGISTICS, CLIENT]
+ *                       example: "CLIENT"
+ *                     permissions:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                       example: ["orders.create", "orders.view"]
+ *                     permission_template:
+ *                       type: string
+ *                       nullable: true
+ *                       example: "CLIENT_USER"
+ *                     is_active:
+ *                       type: boolean
+ *                       example: true
+ *                     last_login_at:
+ *                       type: string
+ *                       format: date-time
+ *                       nullable: true
+ *                       example: "2025-12-18T10:30:00.000Z"
+ *                     created_at:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2025-12-19T02:30:00.000Z"
+ *                     updated_at:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2025-12-19T02:30:00.000Z"
+ *       404:
+ *         description: User not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "You are not authorized"
+ *       403:
+ *         description: Forbidden
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "You are not authorized"
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *     security:
+ *       - BearerAuth: []
+ *   patch:
+ *     tags:
+ *       - User Management
+ *     summary: Update a user
+ *     description: Updates an existing user's information. Only ADMIN users can update users.
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: id
+ *         in: path
+ *         description: User unique identifier
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 description: User's full name
+ *                 example: "John Due"
+
+ *               permissions:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["orders.view"]
+ *               permission_template:
+ *                 type: string
+ *                 nullable: true
+ *                 example: "CLIENT_USER"
+ *               is_active:
+ *                 type: boolean
+ *                 description: Activate or deactivate the user
+ *                 example: true
+
+ *     responses:
+ *       200:
+ *         description: User updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "User updated successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                     platform_id:
+ *                       type: string
+ *                       format: uuid
+ *                     company_id:
+ *                       type: string
+ *                       format: uuid
+ *                       nullable: true
+ *                     name:
+ *                       type: string
+ *                     email:
+ *                       type: string
+ *                     role:
+ *                       type: string
+ *                     permissions:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                     permission_template:
+ *                       type: string
+ *                       nullable: true
+ *                     is_active:
+ *                       type: boolean
+ *                     updated_at:
+ *                       type: string
+ *                       format: date-time
+ *       400:
+ *         description: Bad request
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: User not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Internal server error
+ *     security:
+ *       - BearerAuth: []
+ */
 
 export const userSwagger = {};
