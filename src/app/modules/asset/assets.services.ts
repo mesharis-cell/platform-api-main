@@ -83,8 +83,8 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
             }
         }
 
-        // Step 3: Handle INDIVIDUAL tracking with quantity > 1 - Create N separate assets
-        if (data.tracking_method === 'INDIVIDUAL' && data.total_quantity > 1) {
+        // Step 3: Handle BATCH tracking with quantity > 1 - Create N separate assets
+        if (data.tracking_method === 'BATCH' && data.total_quantity > 1) {
             const createdAssets: any[] = [];
 
             for (let i = 0; i < data.total_quantity; i++) {
