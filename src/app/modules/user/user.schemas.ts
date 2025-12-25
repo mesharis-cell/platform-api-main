@@ -38,6 +38,10 @@ const createUser = z.object({
 
 const updateUser = z.object({
   body: z.object({
+    company_id: z
+      .uuid("Company ID must be a valid UUID")
+      .optional()
+      .nullable(),
     name: z
       .string()
       .min(1, "Name cannot be empty")

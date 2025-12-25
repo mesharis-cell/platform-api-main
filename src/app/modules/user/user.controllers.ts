@@ -34,7 +34,8 @@ const getUsers = catchAsync(async (req, res, next) => {
     statusCode: httpStatus.OK,
     success: true,
     message: "Users fetched successfully",
-    data: result,
+    meta: result.meta,
+    data: result.data,
   });
 });
 
