@@ -2,12 +2,15 @@ import { Router } from "express";
 import auth from "../../middleware/auth";
 import { CatalogControllers } from "./catalog.controllers";
 
+import platformValidator from "../../middleware/platform-validator";
+
 const router = Router();
 
 // Browse catalog
 router.get(
   "/",
-  auth("ADMIN", "LOGISTICS", "CLIENT"),
+  platformValidator,
+  auth("CLIENT"),
   CatalogControllers.getCatalog
 );
 

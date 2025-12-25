@@ -1,7 +1,6 @@
 import { Router } from "express";
 import { AssetRoutes } from "../modules/asset/asset.routes";
 import { BrandRoutes } from "../modules/brand/brand.routes";
-import { CatalogRoutes } from "../modules/catalog/catalog.routes";
 import { CollectionRoutes } from "../modules/collection/collection.routes";
 import { CompanyRoutes } from "../modules/company/company.routes";
 import { PlatformRoutes } from "../modules/platform/platform.routes";
@@ -49,10 +48,6 @@ const routes = [
   {
     path: "/asset",
     route: AssetRoutes,
-  },
-  {
-    path: "/catalog",
-    route: CatalogRoutes,
   },
 ];
 

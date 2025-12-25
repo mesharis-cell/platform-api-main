@@ -7,7 +7,7 @@
 
 /**
  * @swagger
- * /api/operations/v1/catalog:
+ * /api/client/v1/catalog:
  *   get:
  *     tags:
  *       - Catalog
