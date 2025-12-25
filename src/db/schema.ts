@@ -24,14 +24,6 @@ export const userRoleEnum = pgEnum('user_role', [
   'CLIENT', // Client User (Company User)
 ])
 
-export const assetCategoryEnum = pgEnum('asset_category', [
-  'FURNITURE',
-  'GLASSWARE',
-  'INSTALLATION',
-  'DECOR',
-  'OTHER',
-])
-
 export const hostnameTypeEnum = pgEnum('hostname_type', [
   'VANITY',
   'CUSTOM',
@@ -48,6 +40,13 @@ export const assetStatusEnum = pgEnum('asset_status', [
   'OUT',
   'MAINTENANCE',
 ])
+// export const assetCategoryEnum = pgEnum('asset_category', [
+//   'FURNITURE',
+//   'GLASSWARE',
+//   'INSTALLATION',
+//   'DECOR',
+//   'OTHER',
+// ])
 export const orderStatusEnum = pgEnum('order_status', [
   'DRAFT',
   'SUBMITTED',
@@ -388,22 +387,22 @@ export const assets = pgTable(
   'assets',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    platform_id: uuid('platform')
+    platform_id: uuid('platform_id')
       .notNull()
       .references(() => platforms.id, { onDelete: 'cascade' }),
-    company_id: uuid('company')
+    company_id: uuid('company_id')
       .notNull()
       .references(() => companies.id, { onDelete: 'cascade' }),
-    warehouse_id: uuid('warehouse')
+    warehouse_id: uuid('warehouse_id')
       .notNull()
       .references(() => warehouses.id),
-    zone_id: uuid('zone')
+    zone_id: uuid('zone_id')
       .notNull()
       .references(() => zones.id),
-    brand_id: uuid('brand').references(() => brands.id),
+    brand_id: uuid('brand_id').references(() => brands.id),
     name: varchar('name', { length: 200 }).notNull(),
     description: text('description'),
-    category: assetCategoryEnum('category').notNull(),
+    category: varchar('category', { length: 100 }).notNull(),
     images: text('images')
       .array()
       .notNull()

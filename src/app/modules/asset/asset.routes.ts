@@ -2,6 +2,7 @@ import { Router } from "express";
 import auth from "../../middleware/auth";
 import payloadValidator from "../../middleware/payload-validator";
 import platformValidator from "../../middleware/platform-validator";
+import { fileUploader } from "../../middleware/upload";
 import { AssetSchemas } from "./asset.schemas";
 import { AssetControllers } from "./assets.controllers";
 
@@ -14,6 +15,15 @@ router.post(
   auth('ADMIN', 'LOGISTICS'),
   payloadValidator(AssetSchemas.createAssetSchema),
   AssetControllers.createAsset
+);
+
+// Bulk upload assets
+router.post(
+  "/bulk-upload",
+  platformValidator,
+  auth('ADMIN', 'LOGISTICS'),
+  fileUploader.singleUpload.single('file'),
+  AssetControllers.bulkUploadAssets
 );
 
 // Batch availability check

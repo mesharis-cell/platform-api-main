@@ -1,4 +1,5 @@
 import httpStatus from "http-status";
+import CustomizedError from "../../error/customized-error";
 import catchAsync from "../../shared/catch-async";
 import sendResponse from "../../shared/send-response";
 import { AssetServices } from "./assets.services";
@@ -150,6 +151,40 @@ const checkAssetAvailability = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- BULK UPLOAD ASSETS ---------------------------------
+const bulkUploadAssets = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+    const file = (req as any).file as Express.Multer.File;
+
+    // Validate file
+    if (!file) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "File is required");
+    }
+
+    if (!file.originalname.endsWith('.csv')) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "File must be a CSV (.csv)");
+    }
+
+    if (file.size === 0) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "File is empty");
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "File size must be less than 5MB");
+    }
+
+    // Call service to process the file
+    const result = await AssetServices.bulkUploadAssets(file, user, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.CREATED,
+        success: true,
+        message: "Assets uploaded successfully",
+        data: result,
+    });
+});
+
 export const AssetControllers = {
     createAsset,
     getAssets,
@@ -160,4 +195,5 @@ export const AssetControllers = {
     getAssetScanHistory,
     getBatchAvailability,
     checkAssetAvailability,
+    bulkUploadAssets,
 };

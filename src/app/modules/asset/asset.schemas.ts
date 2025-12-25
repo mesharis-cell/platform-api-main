@@ -1,5 +1,5 @@
 import z from "zod";
-import { assetCategoryEnum, assetConditionEnum, assetStatusEnum, trackingMethodEnum } from "../../../db/schema";
+import { assetConditionEnum, assetStatusEnum, trackingMethodEnum } from "../../../db/schema";
 import { enumMessageGenerator } from "../../utils/helper";
 
 const createAssetSchema = z.object({
@@ -24,9 +24,7 @@ const createAssetSchema = z.object({
     description: z
       .string()
       .optional(),
-    category: z.enum(assetCategoryEnum.enumValues, {
-      message: enumMessageGenerator('Category', assetCategoryEnum.enumValues),
-    }),
+    category: z.string().min(1, "Category is required").max(100, "Category must be under 100 characters"),
     images: z
       .array(z.string().url("Invalid image URL"))
       .optional()
@@ -44,10 +42,6 @@ const createAssetSchema = z.object({
       .int("Available quantity must be an integer")
       .min(0, "Available quantity cannot be negative")
       .default(1),
-    qr_code: z
-      .string({ message: "QR code is required" })
-      .min(1, "QR code is required")
-      .max(100, "QR code must be under 100 characters"),
     packaging: z
       .string()
       .max(100, "Packaging must be under 100 characters")
@@ -97,7 +91,14 @@ const createAssetSchema = z.object({
       path: ["available_quantity"],
     }
   ).refine(
-    (data) => data.tracking_method === "BATCH" && !data.packaging,
+    (data) => {
+      if (data.tracking_method === 'BATCH') {
+        if (!data.packaging) return false;
+        return true;
+      } else {
+        return true;
+      }
+    },
     {
       message: "Packaging description is required for BATCH tracking method",
       path: ["packaging"],
@@ -134,9 +135,7 @@ const updateAssetSchema = z.object({
       .optional()
       .nullable(),
     category: z
-      .enum(assetCategoryEnum.enumValues, {
-        message: enumMessageGenerator('Category', assetCategoryEnum.enumValues),
-      })
+      .string()
       .optional(),
     images: z
       .array(z.string().url("Invalid image URL"))
