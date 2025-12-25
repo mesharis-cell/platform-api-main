@@ -9,7 +9,6 @@ import paginationMaker from "../../utils/pagination-maker";
 import { qrCodeGenerator } from "../../utils/qr-code-generator";
 import queryValidator from "../../utils/query-validator";
 import {
-    BulkUploadResponse,
     CreateAssetPayload,
     ForeignKeyCache,
     ParsedCSVRow,
@@ -1094,77 +1093,68 @@ const getAssetAvailabilitySummary = async (
     };
 };
 
+// : Promise<BulkUploadResponse>
 // ----------------------------------- BULK UPLOAD ASSETS -------------------------------------
-const bulkUploadAssets = async (file: Express.Multer.File, user: AuthUser, platformId: string): Promise<BulkUploadResponse> => {
-    try {
-        // Step 1: Parse CSV file
-        const parseResult = await parseCSVFile(file);
+const bulkUploadAssets = async (file: Express.Multer.File, user: AuthUser, platformId: string) => {
+    // Step 1: Parse CSV file
+    const parseResult = await parseCSVFile(file);
 
-        if (parseResult.errors.length > 0) {
-            return {
-                success: false,
-                error: 'CSV parsing failed',
-                details: {
-                    fileErrors: parseResult.errors,
-                    rowErrors: [],
-                    totalErrors: parseResult.errors.length,
-                    totalRows: 0,
-                },
-            };
-        }
-
-        const rows = parseResult.data;
-
-        // Step 2: Validate CSV structure
-        const structureValidation = validateCSVStructure(rows);
-        if (!structureValidation.valid) {
-            return {
-                success: false,
-                error: 'Invalid CSV structure',
-                details: {
-                    fileErrors: structureValidation.errors,
-                    rowErrors: [],
-                    totalErrors: structureValidation.errors.length,
-                    totalRows: rows.length,
-                },
-            };
-        }
-
-        // Step 3: Validate all rows
-        const validationResult = await validateBulkAssetRows(rows, platformId);
-
-        if (!validationResult.isValid) {
-            return {
-                success: false,
-                error: 'Validation failed',
-                details: {
-                    fileErrors: validationResult.fileErrors,
-                    rowErrors: validationResult.rowErrors,
-                    totalErrors: validationResult.totalErrors,
-                    totalRows: validationResult.totalRows,
-                },
-            };
-        }
-
-        // Step 4: Create assets in bulk with transaction
-        const createdAssets = await createBulkAssets(validationResult.validRows, user);
-
-        // Step 5: Prepare success response
-        return {
-            success: true,
-            data: {
-                created: createdAssets.length,
-                assets: createdAssets.map((asset) => ({
-                    id: asset.id,
-                    name: asset.name,
-                    qr_code: asset.qr_code,
-                })),
-            },
-        };
-    } catch (error) {
-        console.error('Error in bulk asset upload:', error);
-        throw error;
+    if (parseResult.errors.length > 0) {
+        throw new CustomizedError(httpStatus.INTERNAL_SERVER_ERROR, "Failed to parse CSV file");
     }
+
+    const rows = parseResult.data;
+
+    console.log("rows: ", rows);
+
+    // Step 2: Validate CSV structure
+    // const structureValidation = validateCSVStructure(rows);
+    // if (!structureValidation.valid) {
+    //     return {
+    //         success: false,
+    //         error: 'Invalid CSV structure',
+    //         details: {
+    //             fileErrors: structureValidation.errors,
+    //             rowErrors: [],
+    //             totalErrors: structureValidation.errors.length,
+    //             totalRows: rows.length,
+    //         },
+    //     };
+    // }
+
+    // // Step 3: Validate all rows
+    // const validationResult = await validateBulkAssetRows(rows, platformId);
+
+    // if (!validationResult.isValid) {
+    //     return {
+    //         success: false,
+    //         error: 'Validation failed',
+    //         details: {
+    //             fileErrors: validationResult.fileErrors,
+    //             rowErrors: validationResult.rowErrors,
+    //             totalErrors: validationResult.totalErrors,
+    //             totalRows: validationResult.totalRows,
+    //         },
+    //     };
+    // }
+
+    // // Step 4: Create assets in bulk with transaction
+    // const createdAssets = await createBulkAssets(validationResult.validRows, user);
+
+    // // Step 5: Prepare success response
+    // return {
+    //     success: true,
+    //     data: {
+    //         created: createdAssets.length,
+    //         assets: createdAssets.map((asset) => ({
+    //             id: asset.id,
+    //             name: asset.name,
+    //             qr_code: asset.qr_code,
+    //         })),
+    //     },
+    // };
+
+    return null;
 };
 
 // ----------------------------------- HELPER: PARSE CSV FILE ---------------------------------
@@ -1214,16 +1204,15 @@ const parseCSVFile = async (file: Express.Multer.File): Promise<{
 };
 
 // ----------------------------------- HELPER: VALIDATE CSV STRUCTURE -------------------------
-const validateCSVStructure = (rows: ParsedCSVRow[]): { valid: boolean; errors: string[] } => {
-    const errors: string[] = [];
-
+const validateCSVStructure = (rows: ParsedCSVRow[]): boolean => {
     const REQUIRED_COLUMNS = [
-        'company',
-        'warehouse',
-        'zone',
+        'platform_id',
+        'company_id',
+        'warehouse_id',
+        'zone_id',
         'name',
         'category',
-        'trackingMethod',
+        'tracking_method',
         'weight',
         'dimensionLength',
         'dimensionWidth',
@@ -1233,28 +1222,26 @@ const validateCSVStructure = (rows: ParsedCSVRow[]): { valid: boolean; errors: s
     ];
 
     if (rows.length === 0) {
-        errors.push('CSV file is empty');
-        return { valid: false, errors };
+        throw new CustomizedError(httpStatus.BAD_REQUEST, 'CSV file is empty');
     }
 
-    // Check if first row has all required fields
-    const firstRow = rows[0];
-    const missingFields: string[] = [];
+    for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const missingFields: string[] = [];
 
-    REQUIRED_COLUMNS.forEach((col) => {
-        if (!(col in firstRow)) {
-            missingFields.push(col);
+        REQUIRED_COLUMNS.forEach((col) => {
+            if (!(col in row)) {
+                missingFields.push(col);
+            }
+        });
+
+        if (missingFields.length > 0) {
+            throw new CustomizedError(httpStatus.BAD_REQUEST, `Missing required columns: ${missingFields.join(', ')}`);
         }
-    });
 
-    if (missingFields.length > 0) {
-        errors.push(`Missing required columns: ${missingFields.join(', ')}`);
     }
 
-    return {
-        valid: errors.length === 0,
-        errors,
-    };
+    return true;
 };
 
 // ----------------------------------- HELPER: BUILD FOREIGN KEY CACHE ------------------------
