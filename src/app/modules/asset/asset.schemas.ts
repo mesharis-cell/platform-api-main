@@ -91,7 +91,14 @@ const createAssetSchema = z.object({
       path: ["available_quantity"],
     }
   ).refine(
-    (data) => data.tracking_method === "BATCH" && !data.packaging,
+    (data) => {
+      if (data.tracking_method === 'BATCH') {
+        if (!data.packaging) return false;
+        return true;
+      } else {
+        return true;
+      }
+    },
     {
       message: "Packaging description is required for BATCH tracking method",
       path: ["packaging"],
