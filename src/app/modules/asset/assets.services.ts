@@ -1163,10 +1163,16 @@ const addConditionHistory = async (data: AddConditionHistoryPayload, user: AuthU
     const [result] = await db
         .update(assets)
         .set({
-            condition_history
+            condition_history,
+            condition: data.condition || asset.condition,
         })
         .where(eq(assets.id, data.asset_id))
-        .returning();
+        .returning({
+            id: assets.id,
+            name: assets.name,
+            condition: assets.condition,
+            condition_history: assets.condition_history,
+        });
 
     return result;
 };
