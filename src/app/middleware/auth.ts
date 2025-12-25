@@ -18,7 +18,7 @@ const auth = (...roles: UserRole[]) => {
   ) => {
     try {
       const platformId = (req as any).platformId;
-      console.log('platformId......', platformId);
+
 
       let token = req.headers.authorization;
       if (token?.startsWith("Bearer ")) {
@@ -32,7 +32,6 @@ const auth = (...roles: UserRole[]) => {
         token,
         config.jwt_access_secret
       ) as AuthUser;
-      console.log('verifiedUser......', verifiedUser);
 
       const [user] = await db
         .select()
@@ -44,7 +43,7 @@ const auth = (...roles: UserRole[]) => {
             eq(users.is_active, true)
           )
         );
-      console.log('user......', user);
+
 
       if (!user) {
         throw new CustomizedError(
@@ -57,7 +56,7 @@ const auth = (...roles: UserRole[]) => {
         throw new CustomizedError(httpStatus.UNAUTHORIZED, "You are not authorized");
       }
 
-      req.user = verifiedUser;
+      req.user = user;
 
       next();
     } catch (error: any) {

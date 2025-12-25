@@ -1,18 +1,51 @@
-import { and, count, desc, eq, ilike, or } from "drizzle-orm";
+import { and, count, desc, eq, ilike, isNull, or } from "drizzle-orm";
+import httpStatus from "http-status";
 import { db } from "../../../db";
-import { assets, collections } from "../../../db/schema";
-import { CatalogFilters, CatalogResult } from "./catalog.interfaces";
+import { assets, collections, companies } from "../../../db/schema";
+import CustomizedError from "../../error/customized-error";
+import paginationMaker from "../../utils/pagination-maker";
+import { CatalogResult } from "./catalog.interfaces";
 
-const getCatalog = async (filters: CatalogFilters): Promise<CatalogResult> => {
-  const {
-    company_id,
-    brand_id,
-    category,
-    search,
-    type = "all",
-    limit = 50,
-    offset = 0,
-  } = filters;
+const getCatalog = async (
+  query: Record<string, unknown>,
+  user: any,
+  platformId: string
+): Promise<CatalogResult> => {
+  const brand_id = (query.brand as string) || undefined;
+  const category = (query.category as string) || undefined;
+  const search_term = (query.search_term as string) || undefined;
+  const type = (query.type as string) || "all";
+
+  const { pageNumber, limitNumber, skip } = paginationMaker({
+    page: Number(query.page) || undefined,
+    limit: Number(query.limit) || undefined,
+  });
+
+  const limit = limitNumber;
+  const offset = skip;
+
+  const finalCompanyId = user.company_id;
+
+  // Ensure company_id is provided
+  if (!finalCompanyId) {
+    throw new CustomizedError(httpStatus.BAD_REQUEST, "User is not associated with any company");
+  }
+
+  // Verify company exists and belongs to platform
+  const [company] = await db
+    .select()
+    .from(companies)
+    .where(
+      and(
+        eq(companies.id, finalCompanyId),
+        eq(companies.platform_id, platformId),
+        isNull(companies.deleted_at)
+      )
+    );
+
+  if (!company) {
+    throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found or invalid for this platform");
+  }
 
   const result: CatalogResult = {
     assets: [],
@@ -20,54 +53,46 @@ const getCatalog = async (filters: CatalogFilters): Promise<CatalogResult> => {
     meta: {
       total_assets: 0,
       total_collections: 0,
+      page: pageNumber,
+      limit: limitNumber,
     },
   };
 
   // Build Asset Conditions
   const assetConditions: any[] = [];
-  if (company_id) assetConditions.push(eq(assets.company_id, company_id));
-  if (brand_id) assetConditions.push(eq(assets.brand_id, brand_id));
-  if (category) assetConditions.push(eq(assets.category, category as any)); // Enum cast handling if needed
-  if (search) {
+  if (finalCompanyId) assetConditions.push(eq(assets.company_id, finalCompanyId as string));
+  if (brand_id) assetConditions.push(eq(assets.brand_id, brand_id as string));
+  if (category) assetConditions.push(eq(assets.category, category as string));
+  if (search_term) {
+    const searchTerm = search_term.trim();
     assetConditions.push(
       or(
-        ilike(assets.name, `%${search.trim()}%`),
-        ilike(assets.description, `%${search.trim()}%`),
-        ilike(assets.qr_code, `%${search.trim()}%`)
+        ilike(assets.name, `%${searchTerm}%`),
+        ilike(assets.description, `%${searchTerm}%`),
+        ilike(assets.qr_code, `%${searchTerm}%`)
       )
     );
   }
-  // Only available assets? The prompt says "Browse client-facing catalog". 
-  // Usually this implies active/available items. Let's filter by active/not deleted.
+
   assetConditions.push(eq(assets.status, "AVAILABLE"));
-  // Wait, schema has deleted_at, let's verify schema...
-  // assets has deleted_at and status.
-  // collections has is_active and deleted_at.
-
-  // Re-verify schema usage:
-  // assets: deleted_at column exists.
-  // collections: is_active and deleted_at columns exist.
-
-  // Let's add basic availability checks
-  // For assets, maybe we don't strictly enforce 'AVAILABLE' status if we just want to see the catalog, 
-  // but usually 'Browse' implies things you can pick. I'll stick to not deleted for now to be safe, 
-  // and maybe 'is_active' equivalent. Assets has no is_active, but has status.
-  // I will check if deleted_at is null.
+  assetConditions.push(isNull(assets.deleted_at));
 
   // Build Collection Conditions
   const collectionConditions: any[] = [];
-  if (company_id) collectionConditions.push(eq(collections.company_id, company_id));
-  if (brand_id) collectionConditions.push(eq(collections.brand_id, brand_id));
-  if (category) collectionConditions.push(eq(collections.category, category));
-  if (search) {
+  if (finalCompanyId) collectionConditions.push(eq(collections.company_id, finalCompanyId as string));
+  if (brand_id) collectionConditions.push(eq(collections.brand_id, brand_id as string));
+  if (category) collectionConditions.push(eq(collections.category, category as string));
+  if (search_term) {
+    const searchTerm = search_term.trim();
     collectionConditions.push(
       or(
-        ilike(collections.name, `%${search.trim()}%`),
-        ilike(collections.description, `%${search.trim()}%`)
+        ilike(collections.name, `%${searchTerm}%`),
+        ilike(collections.description, `%${searchTerm}%`)
       )
     );
   }
   collectionConditions.push(eq(collections.is_active, true));
+  collectionConditions.push(isNull(collections.deleted_at));
 
   // Execute Queries based on type
   if (type === "asset" || type === "all") {

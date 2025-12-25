@@ -14,5 +14,7 @@ export type CatalogResult = {
   meta?: {
     total_assets?: number;
     total_collections?: number;
+    page?: number;
+    limit?: number;
   };
 };

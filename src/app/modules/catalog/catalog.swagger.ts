@@ -15,13 +15,7 @@
  *     description: Retrieve a list of assets and collections with filtering options. Accessible by ADMIN, LOGISTICS, and CLIENT users.
  *     parameters:
  *       - $ref: '#/components/parameters/PlatformHeader'
- *       - name: company
- *         in: query
- *         description: Filter by Company ID
- *         required: false
- *         schema:
- *           type: string
- *           format: uuid
+
  *       - name: brand
  *         in: query
  *         description: Filter by Brand ID
@@ -35,7 +29,7 @@
  *         required: false
  *         schema:
  *           type: string
- *       - name: search
+ *       - name: search_term
  *         in: query
  *         description: Search term for name, description, or QR code
  *         required: false
@@ -56,13 +50,13 @@
  *         schema:
  *           type: integer
  *           default: 50
- *       - name: offset
+ *       - name: page
  *         in: query
- *         description: Number of items to skip
+ *         description: Page number
  *         required: false
  *         schema:
  *           type: integer
- *           default: 0
+ *           default: 1
  *     responses:
  *       200:
  *         description: Catalog retrieved successfully
