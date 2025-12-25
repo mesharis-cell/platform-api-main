@@ -1173,9 +1173,10 @@
  *           enum: [INDIVIDUAL, BATCH]
  *       - name: condition
  *         in: query
+ *         description: Filter by condition. Supports single value (e.g., GREEN) or multiple comma-separated values (e.g., GREEN,ORANGE)
  *         schema:
  *           type: string
- *           enum: [GREEN, ORANGE, RED]
+ *         example: "GREEN,ORANGE"
  *       - name: status
  *         in: query
  *         schema:

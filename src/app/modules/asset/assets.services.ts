@@ -276,9 +276,17 @@ const getAssets = async (query: Record<string, any>, user: AuthUser, platformId:
         conditions.push(eq(assets.tracking_method, tracking_method));
     }
 
-    // Step 3i: Filter by condition
+    // Step 3i: Filter by condition (supports multiple values: GREEN,ORANGE,RED)
     if (condition) {
-        conditions.push(eq(assets.condition, condition));
+        // Check if condition contains comma (multiple values)
+        if (condition.includes(',')) {
+            // Split by comma and trim whitespace
+            const conditionArray = condition.split(',').map((c: string) => c.trim());
+            conditions.push(inArray(assets.condition, conditionArray));
+        } else {
+            // Single condition value
+            conditions.push(eq(assets.condition, condition));
+        }
     }
 
     // Step 3j: Filter by status
