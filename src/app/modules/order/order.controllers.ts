@@ -24,29 +24,6 @@ const submitOrder = catchAsync(async (req, res) => {
         req.body
     );
 
-    // Send email notifications (don't block on errors)
-    // try {
-    //     const emailData = {
-    //         orderId: result.orderId,
-    //         companyName: result.companyName,
-    //         eventStartDate: req.body.eventStartDate,
-    //         eventEndDate: req.body.eventEndDate,
-    //         venueCity: req.body.venueCity,
-    //         totalVolume: result.calculatedVolume,
-    //         itemCount: result.itemCount,
-    //         viewOrderUrl: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/orders/${result.orderId}`,
-    //     };
-
-    //     await OrderServices.sendOrderSubmittedNotifications(emailData);
-    //     await OrderServices.sendOrderSubmittedConfirmationToClient(
-    //         req.body.contactEmail,
-    //         req.body.contactName,
-    //         emailData
-    //     );
-    // } catch (emailError) {
-    //     console.error("Error sending email notifications:", emailError);
-    // }
-
     sendResponse(res, {
         statusCode: httpStatus.CREATED,
         success: true,

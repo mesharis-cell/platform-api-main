@@ -20,24 +20,23 @@ import { OrderItem, OrderSubmittedEmailData, SubmitOrderPayload } from "./order.
 import { checkMultipleAssetsAvailability } from "../asset/assets.services";
 import { orderIdGenerator, renderOrderSubmittedEmail } from "./order.utils";
 
-// Promise < {
-//     orderId: string;
-//     status: string;
-//     companyName: string;
-//     calculatedVolume: string;
-//     itemCount: number;
-// }
-
 // ----------------------------------- SUBMIT ORDER FROM CART ---------------------------------
 const submitOrderFromCart = async (
     user: AuthUser,
     companyId: string,
     platformId: string,
     payload: SubmitOrderPayload
-): Promise<null> => {
+): Promise<{
+    order_id: string;
+    status: string;
+    company_name: string;
+    calculated_volume: string;
+    item_count: number;
+}> => {
+    // Extract all required fields from the payload
     const { items, brand_id, event_start_date, event_end_date, venue_name, venue_country, venue_city, venue_address, contact_name, contact_email, contact_phone, venue_access_notes, special_instructions } = payload;
 
-    // Step 2: Validate dates first (needed for availability check)
+    // Step 1: Validate event dates
     const eventStart = new Date(event_start_date);
     const eventEnd = new Date(event_end_date);
     const today = new Date();
@@ -51,7 +50,7 @@ const submitOrderFromCart = async (
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Event end date must be on or after start date");
     }
 
-    // Step 3: Validate all assets belong to company and are available
+    // Step 2: Verify all assets exist and belong to the company
     const assetIds = items.map((item: OrderItem) => item.asset_id);
     const foundAssets = await db
         .select()
@@ -72,7 +71,7 @@ const submitOrderFromCart = async (
         );
     }
 
-    // Step 4: Validate all assets are AVAILABLE (status check)
+    // Step 3: Check asset status - all must be AVAILABLE
     const unavailableAssets = foundAssets.filter((a) => a.status !== "AVAILABLE");
     if (unavailableAssets.length > 0) {
         throw new CustomizedError(
@@ -81,6 +80,7 @@ const submitOrderFromCart = async (
         );
     }
 
+    // Step 4: Check date-based availability for requested quantities
     const itemsForAvailabilityCheck = payload.items.map((item: OrderItem) => ({
         asset_id: item.asset_id,
         quantity: item.quantity,
@@ -105,7 +105,7 @@ const submitOrderFromCart = async (
         );
     }
 
-    // Step 8: Create order items data with totals
+    // Step 5: Calculate order totals (volume and weight)
     const orderItemsData = [];
     let totalVolume = 0;
     let totalWeight = 0;
@@ -118,7 +118,6 @@ const submitOrderFromCart = async (
         totalVolume += itemVolume;
         totalWeight += itemWeight;
 
-        // Get collection name if from collection
         let collectionName: string | null = null;
         if (item.from_collection_id) {
             const [collection] = await db
@@ -147,7 +146,7 @@ const submitOrderFromCart = async (
     const calculatedVolume = totalVolume.toFixed(3);
     const calculatedWeight = totalWeight.toFixed(2);
 
-    // Step 9: Find matching pricing tier
+    // Step 6: Find matching pricing tier based on location and volume
     const volume = parseFloat(calculatedVolume);
     const matchingTiers = await db
         .select()
@@ -169,8 +168,9 @@ const submitOrderFromCart = async (
 
     const pricingTier = matchingTiers[0] || null;
 
-    // Step 10: Create order directly as PRICING_REVIEW (A2 staff reviews immediately)
+    // Step 7: Create the order record
     const orderId = await orderIdGenerator();
+
     const [order] = await db
         .insert(orders)
         .values({
@@ -202,7 +202,7 @@ const submitOrderFromCart = async (
         })
         .returning();
 
-    // Step 11: Add order items
+    // Step 8: Insert order items with snapshot data
     const itemsToInsert = orderItemsData.map((item) => ({
         ...item,
         order_id: order.id
@@ -210,7 +210,7 @@ const submitOrderFromCart = async (
 
     await db.insert(orderItems).values(itemsToInsert);
 
-    // Step 13: Get company name for response
+    // Step 9: Prepare email notification data
     const [company] = await db.select().from(companies).where(eq(companies.id, companyId));
 
     const emailData = {
@@ -224,27 +224,28 @@ const submitOrderFromCart = async (
         viewOrderUrl: `http://localhost:3000/orders/${order.order_id}`,
     };
 
+    // Step 10: Send email notifications
     await sendOrderSubmittedNotifications(emailData);
+
     await sendOrderSubmittedConfirmationToClient(
         contact_email,
         emailData
     );
 
-    // return {
-    //     orderId: order.order_id,
-    //     status: "PRICING_REVIEW",
-    //     companyName: company?.name || "",
-    //     calculatedVolume,
-    //     itemCount: items.length,
-    // };
-
-    return null;
+    // Step 11: Return order details to client
+    return {
+        order_id: order.order_id,
+        status: order.order_status,
+        company_name: company?.name || "",
+        calculated_volume: calculatedVolume,
+        item_count: items.length,
+    };
 };
 
-// ----------------------------------- SEND ORDER SUBMITTED NOTIFICATIONS ---------------------
+// ----------------------------------- HELPER: SEND ORDER SUBMITTED NOTIFICATIONS -------------
 const sendOrderSubmittedNotifications = async (data: OrderSubmittedEmailData): Promise<void> => {
     try {
-        // Find Platform Admins (permission_template = 'PLATFORM_ADMIN' OR 'orders:receive_notifications' in permissions)
+        // Step 1: Find all platform admins who should receive notifications
         const platformAdmins = await db
             .select({ email: users.email, name: users.name })
             .from(users)
@@ -255,7 +256,7 @@ const sendOrderSubmittedNotifications = async (data: OrderSubmittedEmailData): P
                 ) AND ${users.email} NOT LIKE '%@system.internal'`
             );
 
-        // Find Logistics (permission_template = 'LOGISTICS_STAFF' OR 'orders:receive_notifications' in permissions)
+        // Step 2: Find all logistics staff who should receive notifications
         const logisticsStaff = await db
             .select({ email: users.email, name: users.name })
             .from(users)
@@ -266,7 +267,7 @@ const sendOrderSubmittedNotifications = async (data: OrderSubmittedEmailData): P
                 ) AND ${users.email} NOT LIKE '%@system.internal'`
             );
 
-        // Send emails to Platform Admins
+        // Step 3: Prepare email promises for platform admins
         const platformAdminPromises = platformAdmins.map(async (admin) => {
             const html = renderOrderSubmittedEmail("PLATFORM_ADMIN", data);
             return sendEmail({
@@ -276,7 +277,7 @@ const sendOrderSubmittedNotifications = async (data: OrderSubmittedEmailData): P
             });
         });
 
-        // Send emails to Logistics Staff
+        // Step 4: Prepare email promises for logistics staff
         const logisticsStaffPromises = logisticsStaff.map(async (staff) => {
             const html = renderOrderSubmittedEmail("LOGISTICS_STAFF", data);
             return sendEmail({
@@ -286,24 +287,25 @@ const sendOrderSubmittedNotifications = async (data: OrderSubmittedEmailData): P
             });
         });
 
-        // Send all emails concurrently
+        // Step 5: Send all emails concurrently for better performance
         await Promise.all([...logisticsStaffPromises, ...platformAdminPromises]);
 
         console.log(`Order submission notifications sent for order ${data.orderId}`);
     } catch (error) {
-        // Log error but don't throw - email failures shouldn't block order submission
         console.error("Error sending order submission notifications:", error);
     }
 };
 
-// ----------------------------------- SEND ORDER CONFIRMATION TO CLIENT ----------------------
+// ----------------------------------- HELPER: SEND ORDER CONFIRMATION TO CLIENT --------------
 const sendOrderSubmittedConfirmationToClient = async (
     clientEmail: string,
     data: OrderSubmittedEmailData
 ): Promise<void> => {
     try {
+        // Step 1: Generate HTML email using CLIENT_USER template
         const html = renderOrderSubmittedEmail("CLIENT_USER", data);
 
+        // Step 2: Send confirmation email to client
         await sendEmail({
             to: clientEmail,
             subject: `Order Confirmation: ${data.orderId}`,
@@ -312,7 +314,6 @@ const sendOrderSubmittedConfirmationToClient = async (
 
         console.log(`Order confirmation sent to client: ${clientEmail}`);
     } catch (error) {
-        // Log error but don't throw - email failures shouldn't block order submission
         console.error("Error sending order confirmation to client:", error);
     }
 };
