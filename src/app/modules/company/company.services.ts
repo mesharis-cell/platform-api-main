@@ -288,11 +288,13 @@ const updateCompany = async (id: string, data: any, platformId: string) => {
 
 // ----------------------------------- DELETE COMPANY -----------------------------------
 const deleteCompany = async (id: string, platformId: string) => {
+  console.log("id....", id);
+  console.log("platformId....", platformId);
+
   // Step 1: Verify company exists and is not already deleted
   const conditions: any[] = [
     eq(companies.id, id),
     eq(companies.platform_id, platformId),
-    isNull(companies.deleted_at),
   ];
 
   const [existingCompany] = await db
@@ -304,16 +306,18 @@ const deleteCompany = async (id: string, platformId: string) => {
     throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found");
   }
 
-  // Step 2: Soft delete company (set deleted_at timestamp)
-  await db
+  // Step 2: If already have deleted_at set null otherwise set new Date()
+  const [result] = await db
     .update(companies)
     .set({
-      deleted_at: new Date(),
+      deleted_at: existingCompany.deleted_at ? null : new Date(),
     })
     .where(eq(companies.id, id))
     .returning();
 
-  return null;
+  console.log("result....", result);
+
+  return result;
 };
 
 export const CompanyServices = {
