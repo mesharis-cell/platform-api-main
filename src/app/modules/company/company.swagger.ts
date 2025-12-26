@@ -233,7 +233,7 @@
  *                             example: "domain"
  *                           message:
  *                             type: string
- *                             example: "Domain must be lowercase and contain only alphanumeric characters and hyphens"
+ *                             example: "Contain only alphanumeric characters and hyphens"
  *       401:
  *         description: Unauthorized - Authentication required
  *         content:

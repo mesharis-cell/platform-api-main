@@ -268,11 +268,11 @@ const deleteBrand = async (id: string, user: AuthUser, platformId: string) => {
     throw new CustomizedError(httpStatus.NOT_FOUND, "Brand not found");
   }
 
-  // Step 2: Mark brand as inactive (soft delete)
+  // Step 2: Mark brand as active/inactive
   await db
     .update(brands)
     .set({
-      is_active: false,
+      is_active: existingBrand.is_active ? false : true,
       updated_at: new Date(),
     })
     .where(eq(brands.id, id))
