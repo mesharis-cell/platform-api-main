@@ -398,7 +398,7 @@
 
 /**
  * @swagger
- * /api/operations/v1/asset/condition/add:
+ * /api/operations/v1/asset/add-condition-history:
  *   post:
  *     tags:
  *       - Asset Management

@@ -28,7 +28,7 @@ router.post(
 
 // Add condition history
 router.post(
-  "/condition/add",
+  "/add-condition-history",
   platformValidator,
   auth('ADMIN', 'LOGISTICS'),
   payloadValidator(AssetSchemas.addConditionHistorySchema),
