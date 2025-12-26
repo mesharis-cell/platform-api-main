@@ -204,6 +204,39 @@ const addConditionHistory = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- GENERATE QR CODE -----------------------------------
+const generateQRCode = catchAsync(async (req, res) => {
+    const { qr_code } = req.body;
+
+    const result = await AssetServices.generateQRCode({ qr_code });
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "QR code generated successfully",
+        data: result,
+    });
+});
+
+// ----------------------------------- COMPLETE MAINTENANCE -------------------------------
+const completeMaintenance = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+
+    const result = await AssetServices.completeMaintenance(
+        req.body,
+        user,
+        platformId
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Maintenance completed successfully",
+        data: result,
+    });
+});
+
 export const AssetControllers = {
     createAsset,
     getAssets,
@@ -216,4 +249,6 @@ export const AssetControllers = {
     checkAssetAvailability,
     bulkUploadAssets,
     addConditionHistory,
+    generateQRCode,
+    completeMaintenance,
 };

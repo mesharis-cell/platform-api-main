@@ -1,5 +1,6 @@
 import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, sql } from "drizzle-orm";
 import httpStatus from "http-status";
+import QRCode from 'qrcode';
 import { db } from "../../../db";
 import { assetBookings, assets, brands, companies, orders, scanEvents, warehouses, zones } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
@@ -10,7 +11,11 @@ import { qrCodeGenerator } from "../../utils/qr-code-generator";
 import queryValidator from "../../utils/query-validator";
 import {
     AddConditionHistoryPayload,
-    CreateAssetPayload
+    CompleteMaintenancePayload,
+    CreateAssetPayload,
+    GenerateQRCodePayload,
+    SingleAssetAvailabilityResponse,
+    UnavailableItem
 } from "./assets.interfaces";
 import { ASSET_ALL_COLUMNS, ASSET_REQUIRED_COLUMNS, assetQueryValidationConfig, assetSortableFields } from "./assets.utils";
 
@@ -149,7 +154,7 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
             initialConditionHistory.push({
                 condition: data.condition || 'GREEN',
                 notes: data.condition_notes || 'Initial condition',
-                updated_by: user.id,
+                updated_by: user.email,
                 timestamp: new Date().toISOString(),
             });
         }
@@ -273,9 +278,17 @@ const getAssets = async (query: Record<string, any>, user: AuthUser, platformId:
         conditions.push(eq(assets.tracking_method, tracking_method));
     }
 
-    // Step 3i: Filter by condition
+    // Step 3i: Filter by condition (supports multiple values: GREEN,ORANGE,RED)
     if (condition) {
-        conditions.push(eq(assets.condition, condition));
+        // Check if condition contains comma (multiple values)
+        if (condition.includes(',')) {
+            // Split by comma and trim whitespace
+            const conditionArray = condition.split(',').map((c: string) => c.trim());
+            conditions.push(inArray(assets.condition, conditionArray));
+        } else {
+            // Single condition value
+            conditions.push(eq(assets.condition, condition));
+        }
     }
 
     // Step 3j: Filter by status
@@ -582,7 +595,7 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
                 condition: data.condition,
                 notes: data.condition_notes || null,
                 photos: [],
-                updated_by: user.id,
+                updated_by: user.email,
                 timestamp: new Date().toISOString(),
             };
 
@@ -704,10 +717,10 @@ const getAssetAvailabilityStats = async (id: string, user: AuthUser, platformId:
             quantity: assetBookings.quantity,
         })
         .from(assetBookings)
-        .innerJoin(orders, eq(assetBookings.order, orders.id))
+        .innerJoin(orders, eq(assetBookings.order_id, orders.id))
         .where(
             and(
-                eq(assetBookings.asset, id),
+                eq(assetBookings.asset_id, id),
                 inArray(orders.order_status, [
                     'CONFIRMED',
                     'IN_PREPARATION',
@@ -928,7 +941,7 @@ const getSingleAssetAvailability = async (
     endDate: Date,
     user: AuthUser,
     platformId: string
-) => {
+): Promise<SingleAssetAvailabilityResponse> => {
     // Verify asset exists and user has access
     const conditions: any[] = [
         eq(assets.id, assetId),
@@ -956,7 +969,7 @@ const getSingleAssetAvailability = async (
     // Get overlapping bookings
     const overlappingBookings = await db.query.assetBookings.findMany({
         where: and(
-            eq(assetBookings.asset, assetId),
+            eq(assetBookings.asset_id, assetId),
             sql`${assetBookings.blocked_from} <= ${endDate}`,
             sql`${assetBookings.blocked_until} >= ${startDate}`
         ),
@@ -974,6 +987,7 @@ const getSingleAssetAvailability = async (
     const availableQuantity = Math.max(0, asset.total_quantity - bookedQuantity);
 
     return {
+        asset_name: asset.name,
         total_quantity: asset.total_quantity,
         available_quantity: availableQuantity,
         booked_quantity: bookedQuantity,
@@ -987,20 +1001,14 @@ const getSingleAssetAvailability = async (
 };
 
 // ----------------------------------- HELPER: CHECK MULTIPLE ASSET AVAILABILITY ----------
-const checkMultipleAssetsAvailability = async (
+export const checkMultipleAssetsAvailability = async (
     items: Array<{ asset_id: string; quantity: number }>,
     startDate: Date,
     endDate: Date,
     user: AuthUser,
     platformId: string
-) => {
-    const unavailableItems: Array<{
-        asset_id: string;
-        asset_name: string;
-        requested: number;
-        available: number;
-        next_available_date?: Date;
-    }> = [];
+): Promise<{ all_available: boolean; unavailable_items: Array<UnavailableItem> }> => {
+    const unavailableItems: Array<UnavailableItem> = [];
 
     for (const item of items) {
         const availability = await getSingleAssetAvailability(
@@ -1012,12 +1020,6 @@ const checkMultipleAssetsAvailability = async (
         );
 
         if (availability.available_quantity < item.quantity) {
-            // Get asset name
-            const asset = await db.query.assets.findFirst({
-                where: eq(assets.id, item.asset_id),
-                columns: { name: true },
-            });
-
             // Find next available date
             let nextAvailableDate: Date | undefined;
             if (availability.bookings.length > 0) {
@@ -1030,7 +1032,7 @@ const checkMultipleAssetsAvailability = async (
 
             unavailableItems.push({
                 asset_id: item.asset_id,
-                asset_name: asset?.name || "Unknown",
+                asset_name: availability.asset_name,
                 requested: item.quantity,
                 available: availability.available_quantity,
                 next_available_date: nextAvailableDate,
@@ -1061,7 +1063,7 @@ const getAssetAvailabilitySummary = async (
         // Fully booked - find when it becomes available
         const futureBookings = await db.query.assetBookings.findMany({
             where: and(
-                eq(assetBookings.asset, assetId),
+                eq(assetBookings.asset_id, assetId),
                 gte(assetBookings.blocked_from, startDate)
             ),
             orderBy: (bookings, { asc }) => [asc(bookings.blocked_until)],
@@ -1091,7 +1093,7 @@ const getAssetAvailabilitySummary = async (
 };
 
 // : Promise<BulkUploadResponse>
-// ----------------------------------- BULK UPLOAD ASSETS -------------------------------------
+// ----------------------------------- BULK UPLOAD ASSETS ---------------------------------
 const bulkUploadAssets = async (file: Express.Multer.File, user: AuthUser, platformId: string) => {
     // Step 1: Parse CSV file
     const parseResult = await CSVFileParser(file);
@@ -1127,7 +1129,7 @@ const bulkUploadAssets = async (file: Express.Multer.File, user: AuthUser, platf
     };
 };
 
-// ----------------------------------- ADD CONDITION HISTORY ----------------------------------
+// ----------------------------------- ADD CONDITION HISTORY ------------------------------
 const addConditionHistory = async (data: AddConditionHistoryPayload, user: AuthUser, platformId: string) => {
     // Step 1: Fetch asset (verify exists, platform scope, not deleted)
     const asset = await db.query.assets.findFirst({
@@ -1142,6 +1144,19 @@ const addConditionHistory = async (data: AddConditionHistoryPayload, user: AuthU
         throw new CustomizedError(httpStatus.NOT_FOUND, 'Asset not found');
     }
 
+    // Validate notes requirement
+    if (data.condition && (data.condition === "ORANGE" || data.condition === "RED") && !data.notes) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, 'Notes are required when marking items as Orange or Red');
+    }
+
+    // Validate photos requirement
+    if (
+        data.condition && data.condition === "RED" &&
+        (!data.photos || data.photos.length === 0)
+    ) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, 'At least one damage photo is required when marking items as Red');
+    }
+
     // Step 2: Get existing history or initialize empty array
     const existingHistory = Array.isArray(asset.condition_history)
         ? asset.condition_history
@@ -1150,8 +1165,8 @@ const addConditionHistory = async (data: AddConditionHistoryPayload, user: AuthU
     // Step 3: Create new history entry
     const newHistory = {
         condition: data.condition || asset.condition,
-        notes: data.notes,
-        photos: [],
+        notes: data.notes || "",
+        photos: data.photos || [],
         updated_by: user.id,
         timestamp: new Date().toISOString(),
     }
@@ -1159,19 +1174,108 @@ const addConditionHistory = async (data: AddConditionHistoryPayload, user: AuthU
     // Step 4: Prepend new entry (newest first)
     const condition_history = [newHistory, ...existingHistory];
 
-    // Step 5: Update asset with new history
+    // Step 5: Prepare update data with conditional refurb_days_estimate
+    const updatedData: {
+        condition_history: any[];
+        condition: string;
+        refurb_days_estimate?: number | null;
+    } = {
+        condition_history,
+        condition: data.condition || asset.condition,
+    };
+
+    if (data.condition && data.condition === 'GREEN') {
+        updatedData.refurb_days_estimate = null;
+    } else if (data.refurb_days_estimate) {
+        updatedData.refurb_days_estimate = data.refurb_days_estimate;
+    }
+
+    // Step 6: Update asset with new history
     const [result] = await db
         .update(assets)
-        .set({
-            condition_history,
-            condition: data.condition || asset.condition,
-        })
+        .set(updatedData as any)
         .where(eq(assets.id, data.asset_id))
         .returning({
             id: assets.id,
             name: assets.name,
             condition: assets.condition,
             condition_history: assets.condition_history,
+        });
+
+    return result;
+};
+
+// ----------------------------------- GENERATE QR CODE -----------------------------------
+const generateQRCode = async (data: GenerateQRCodePayload) => {
+    // Generate QR code as base64 PNG
+    const qrCodeImage = await QRCode.toDataURL(data.qr_code, {
+        errorCorrectionLevel: 'H',
+        type: 'image/png',
+        width: 300,
+        margin: 2,
+    });
+
+    return {
+        qr_code_image: qrCodeImage,
+    };
+};
+
+// ----------------------------------- COMPLETE MAINTENANCE -------------------------------
+const completeMaintenance = async (data: CompleteMaintenancePayload, user: AuthUser, platformId: string) => {
+    // Step 1: Fetch asset to verify it exists and is in RED condition
+    const asset = await db.query.assets.findFirst({
+        where: and(
+            eq(assets.id, data.asset_id),
+            eq(assets.platform_id, platformId),
+            isNull(assets.deleted_at)
+        ),
+    });
+
+    if (!asset) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, 'Asset not found');
+    }
+
+    // Step 2: Validate asset is in RED condition
+    if (asset.condition !== 'RED') {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            'Only RED condition assets can have maintenance completed'
+        );
+    }
+
+    // Step 3: Get existing history or initialize empty array
+    const existingHistory = Array.isArray(asset.condition_history)
+        ? asset.condition_history
+        : [];
+
+    // Step 4: Create new history entry for maintenance completion
+    const newHistory = {
+        condition: 'GREEN' as const,
+        notes: data.maintenance_notes,
+        photos: [],
+        updated_by: user.id,
+        timestamp: new Date().toISOString(),
+    };
+
+    // Step 5: Prepend new entry (newest first)
+    const condition_history = [newHistory, ...existingHistory];
+
+    // Step 6: Update asset - set to GREEN and AVAILABLE
+    const [result] = await db
+        .update(assets)
+        .set({
+            condition: 'GREEN',
+            status: 'AVAILABLE',
+            condition_history,
+        })
+        .where(eq(assets.id, data.asset_id))
+        .returning({
+            id: assets.id,
+            name: assets.name,
+            condition: assets.condition,
+            status: assets.status,
+            condition_history: assets.condition_history,
+            updated_at: assets.updated_at,
         });
 
     return result;
@@ -1189,4 +1293,6 @@ export const AssetServices = {
     checkAssetAvailability,
     bulkUploadAssets,
     addConditionHistory,
+    generateQRCode,
+    completeMaintenance,
 };

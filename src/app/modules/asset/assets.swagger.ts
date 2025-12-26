@@ -398,7 +398,7 @@
 
 /**
  * @swagger
- * /api/operations/v1/asset/condition/add:
+ * /api/operations/v1/asset/add-condition-history:
  *   post:
  *     tags:
  *       - Asset Management
@@ -503,6 +503,247 @@
  *                 message:
  *                   type: string
  *                   example: "Notes cannot be empty"
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "You are not authorized"
+ *       404:
+ *         description: Asset not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Asset not found"
+ *       500:
+ *         description: Internal Server Error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Something went wrong!"
+ *     security:
+ *       - BearerAuth: []
+ */
+
+/**
+ * @swagger
+ * /api/operations/v1/asset/generate-qr-code:
+ *   post:
+ *     tags:
+ *       - Asset Management
+ *     summary: Generate QR code image
+ *     description: |
+ *       Allows ADMIN and LOGISTICS users to generate a QR code image from a text string.
+ *       Returns a base64-encoded PNG image that can be directly used in img src attributes.
+ *       The QR code is generated with high error correction level (H) for better scanning reliability.
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - qr_code
+ *             properties:
+ *               qr_code:
+ *                 type: string
+ *                 minLength: 1
+ *                 maxLength: 500
+ *                 description: Text string to encode in the QR code
+ *                 example: "ASSET-ABC-1234567890-XYZ"
+ *     responses:
+ *       200:
+ *         description: QR code generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "QR code generated successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     qr_code_image:
+ *                       type: string
+ *                       description: Base64-encoded PNG image (data URL format)
+ *                       example: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."
+ *       400:
+ *         description: Bad Request - Invalid input
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "QR code string cannot be empty"
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "You are not authorized"
+ *       500:
+ *         description: Internal Server Error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Something went wrong!"
+ *     security:
+ *       - BearerAuth: []
+ */
+
+/**
+ * @swagger
+ * /api/operations/v1/asset/complete-maintenance:
+ *   post:
+ *     tags:
+ *       - Asset Management
+ *     summary: Complete maintenance on a RED condition asset
+ *     description: |
+ *       Allows ADMIN and LOGISTICS users to mark maintenance as complete on a RED condition asset.
+ *       This endpoint:
+ *       - Validates the asset is in RED condition
+ *       - Updates asset condition to GREEN
+ *       - Updates asset status to AVAILABLE
+ *       - Adds a condition history entry with maintenance notes
+ *       Only assets with RED condition can have maintenance completed.
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - asset_id
+ *               - maintenance_notes
+ *             properties:
+ *               asset_id:
+ *                 type: string
+ *                 format: uuid
+ *                 description: ID of the asset to complete maintenance for
+ *                 example: "550e8400-e29b-41d4-a716-446655440000"
+ *               maintenance_notes:
+ *                 type: string
+ *                 minLength: 1
+ *                 maxLength: 1000
+ *                 description: Notes describing the maintenance work completed
+ *                 example: "Replaced broken parts and tested functionality. Asset is now fully operational."
+ *     responses:
+ *       200:
+ *         description: Maintenance completed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Maintenance completed successfully"
+ *                 data:
+ *                   type: object
+ *                   description: Updated asset object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                     name:
+ *                       type: string
+ *                     condition:
+ *                       type: string
+ *                       enum: [GREEN]
+ *                       example: "GREEN"
+ *                     status:
+ *                       type: string
+ *                       enum: [AVAILABLE]
+ *                       example: "AVAILABLE"
+ *                     condition_history:
+ *                       type: array
+ *                       description: Updated condition history with maintenance completion entry
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           condition:
+ *                             type: string
+ *                             enum: [GREEN, ORANGE, RED]
+ *                           notes:
+ *                             type: string
+ *                           photos:
+ *                             type: array
+ *                             items:
+ *                               type: string
+ *                           updated_by:
+ *                             type: string
+ *                             format: uuid
+ *                           timestamp:
+ *                             type: string
+ *                             format: date-time
+ *                     updated_at:
+ *                       type: string
+ *                       format: date-time
+ *       400:
+ *         description: Bad Request - Asset not in RED condition
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Only RED condition assets can have maintenance completed"
  *       401:
  *         description: Unauthorized
  *         content:
@@ -932,9 +1173,10 @@
  *           enum: [INDIVIDUAL, BATCH]
  *       - name: condition
  *         in: query
+ *         description: Filter by condition. Supports single value (e.g., GREEN) or multiple comma-separated values (e.g., GREEN,ORANGE)
  *         schema:
  *           type: string
- *           enum: [GREEN, ORANGE, RED]
+ *         example: "GREEN,ORANGE"
  *       - name: status
  *         in: query
  *         schema:

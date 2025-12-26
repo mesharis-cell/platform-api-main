@@ -241,13 +241,40 @@ const addConditionHistorySchema = z.object({
       })
       .optional(),
     notes: z
-      .string({ message: "Notes are required" })
-      .min(1, "Notes cannot be empty")
-      .max(1000, "Notes must be under 1000 characters"),
+      .string()
+      .max(1000, "Notes must be under 1000 characters").optional(),
     photos: z
       .array(z.string().url("Invalid photo URL"))
       .optional()
       .default([]),
+    refurb_days_estimate: z
+      .number({ message: "Refurbishment days must be a number" })
+      .int("Refurbishment days must be an integer")
+      .min(0, "Refurbishment days cannot be negative")
+      .optional(),
+  }),
+});
+
+// ----------------------------------- GENERATE QR CODE SCHEMA --------------------------------
+const generateQRCodeSchema = z.object({
+  body: z.object({
+    qr_code: z
+      .string({ message: "QR code string is required" })
+      .min(1, "QR code string cannot be empty")
+      .max(500, "QR code string must be under 500 characters"),
+  }),
+});
+
+// ----------------------------------- COMPLETE MAINTENANCE SCHEMA ----------------------------
+const completeMaintenanceSchema = z.object({
+  body: z.object({
+    asset_id: z
+      .string({ message: "Asset ID is required" })
+      .uuid("Invalid asset ID format"),
+    maintenance_notes: z
+      .string({ message: "Maintenance notes are required" })
+      .min(1, "Maintenance notes cannot be empty")
+      .max(1000, "Maintenance notes must be under 1000 characters"),
   }),
 });
 
@@ -257,4 +284,6 @@ export const AssetSchemas = {
   batchAvailabilitySchema,
   checkAvailabilitySchema,
   addConditionHistorySchema,
+  generateQRCodeSchema,
+  completeMaintenanceSchema,
 };
