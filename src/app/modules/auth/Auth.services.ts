@@ -89,7 +89,7 @@ const getPlatformByDomain = async (domain: string) => {
     .where(eq(companyDomains.hostname, domain))
     .limit(1);
 
-  return result[0] || null;
+  return result[0] || null; 
 };
 
 export const AuthServices = {

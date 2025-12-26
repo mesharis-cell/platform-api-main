@@ -1152,7 +1152,7 @@ const addConditionHistory = async (data: AddConditionHistoryPayload, user: AuthU
         condition: data.condition || asset.condition,
         notes: data.notes,
         photos: [],
-        updated_by: user.id,
+        updated_by: user.email,
         timestamp: new Date().toISOString(),
     }
 
