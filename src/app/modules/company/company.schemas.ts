@@ -19,11 +19,7 @@ const createCompany = z.object({
     domain: z
       .string()
       .min(1, { message: "Domain is required" })
-      .max(50, { message: "Domain cannot exceed 50 characters" })
-      .regex(/^[a-z0-9-]+$/, {
-        message:
-          "Domain must be lowercase and contain only alphanumeric characters and hyphens",
-      }),
+      .max(50, { message: "Domain cannot exceed 50 characters" }),
     settings: settingsSchema,
     platform_margin_percent: z
       .number()
@@ -55,10 +51,6 @@ const updateCompany = z.object({
       .string()
       .min(1, { message: "Domain is required" })
       .max(50, { message: "Domain cannot exceed 50 characters" })
-      .regex(/^[a-z0-9-]+$/, {
-        message:
-          "Domain must be lowercase and contain only alphanumeric characters and hyphens",
-      })
       .optional(),
     settings: settingsSchema.optional(),
     platform_margin_percent: z
