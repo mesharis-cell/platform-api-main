@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, ilike, isNull, or } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { companies, companyDomains } from "../../../db/schema";
+import { companies, companyDomains, platforms } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import paginationMaker from "../../utils/pagination-maker";
@@ -13,10 +13,50 @@ import { companyQueryValidationConfig, companySortableFields } from "./company.u
 const createCompany = async (data: CreateCompanyPayload) => {
   try {
     const result = await db.transaction(async (tx) => {
+      // Fetch platform to get the base domain for vanity URLs
+      const [platform] = await tx
+        .select()
+        .from(platforms)
+        .where(eq(platforms.id, data.platform_id));
+
+      if (!platform) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Platform not found");
+      }
+
+      let companyDomain = data.domain;
+      let hostnames: { hostname: string; type: "VANITY" | "CUSTOM" }[] = [];
+
+      // Logic to handle domain scenarios
+      if (!data.domain.includes(".")) {
+        // Case 1: Subdomain (e.g., "richard")
+        companyDomain = data.domain;
+        hostnames.push({
+          hostname: `${data.domain}.${platform.domain}`,
+          type: "VANITY",
+        });
+      } else {
+        // Case 2: Custom Domain (e.g., "custom.com" or "sub.custom.com")
+        hostnames.push({
+          hostname: data.domain,
+          type: "CUSTOM",
+        });
+
+        const parts = data.domain.split(".");
+        if (parts.length > 2) {
+          // Case 3: Subdomain of custom domain (e.g., "sub.custom.com")
+          // company domain = "custom.com" (root domain)
+          companyDomain = parts.slice(-2).join(".");
+        } else {
+          // Case 2: Custom domain (e.g., "custom.com")
+          // company domain = "custom.com"
+          companyDomain = data.domain;
+        }
+      }
+
       // Step 1: Create company
-      // Convert number fields to strings for database (decimal types)
       const dbData: any = {
         ...data,
+        domain: companyDomain,
       };
 
       // Convert platform_margin_percent to string if provided
@@ -26,21 +66,25 @@ const createCompany = async (data: CreateCompanyPayload) => {
 
       const [company] = await tx.insert(companies).values(dbData).returning();
 
-      // Step 2: Create company domain
-      const [domain] = await tx
-        .insert(companyDomains)
-        .values({
-          platform_id: data.platform_id,
-          type: "VANITY",
-          company_id: company.id,
-          hostname: data.domain,
-        })
-        .returning();
+      // Step 2: Create company domain(s)
+      const createdDomains = [];
+      for (const h of hostnames) {
+        const [domain] = await tx
+          .insert(companyDomains)
+          .values({
+            platform_id: data.platform_id,
+            type: h.type,
+            company_id: company.id,
+            hostname: h.hostname,
+          })
+          .returning();
+        createdDomains.push(domain);
+      }
 
       // Step 3: Return company with domain information
       return {
         ...company,
-        domains: [domain],
+        domains: createdDomains,
       };
     });
 
@@ -54,6 +98,12 @@ const createCompany = async (data: CreateCompanyPayload) => {
         throw new CustomizedError(
           httpStatus.CONFLICT,
           `Company with domain "${data.domain}" already exists for this platform`
+        );
+      }
+      if (pgError.constraint === "company_domains_hostname_key") {
+        throw new CustomizedError(
+          httpStatus.CONFLICT,
+          `Hostname "${data.domain}" is already taken`
         );
       }
       throw new CustomizedError(
