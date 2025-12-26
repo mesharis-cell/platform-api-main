@@ -7,6 +7,7 @@ import "./app/modules/brand/brand.swagger";
 import "./app/modules/catalog/catalog.swagger";
 import "./app/modules/collection/collection.swagger";
 import "./app/modules/company/company.swagger";
+import "./app/modules/order/order.swagger";
 import "./app/modules/platform/platform.swagger";
 import "./app/modules/pricing-tier/pricing-tier.swagger";
 import "./app/modules/user/user.swagger";
