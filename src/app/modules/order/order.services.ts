@@ -227,7 +227,6 @@ const submitOrderFromCart = async (
     await sendOrderSubmittedNotifications(emailData);
     await sendOrderSubmittedConfirmationToClient(
         contact_email,
-        contact_name,
         emailData
     );
 
@@ -300,7 +299,6 @@ const sendOrderSubmittedNotifications = async (data: OrderSubmittedEmailData): P
 // ----------------------------------- SEND ORDER CONFIRMATION TO CLIENT ----------------------
 const sendOrderSubmittedConfirmationToClient = async (
     clientEmail: string,
-    clientName: string,
     data: OrderSubmittedEmailData
 ): Promise<void> => {
     try {
