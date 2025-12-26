@@ -9,7 +9,7 @@ const router = Router();
 
 // Submit order
 router.post(
-    "/",
+    "/submit-from-cart",
     platformValidator,
     auth("CLIENT"),
     payloadValidator(orderSchemas.submitOrderSchema),

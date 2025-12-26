@@ -1,6 +1,6 @@
 /**
  * @swagger
- * /api/clients/v1/order:
+ * /api/clients/v1/order/submit-from-cart:
  *   post:
  *     tags:
  *       - Order Management
@@ -181,14 +181,26 @@
  *                 data:
  *                   type: object
  *                   properties:
- *                     orderId:
+ *                     order_id:
  *                       type: string
- *                       description: Human-readable order ID
+ *                       description: Human-readable order ID in format ORD-YYYYMMDD-XXX
  *                       example: "ORD-20251226-001"
  *                     status:
  *                       type: string
- *                       description: Order status
+ *                       description: Order status (always PRICING_REVIEW for new orders)
  *                       example: "PRICING_REVIEW"
+ *                     company_name:
+ *                       type: string
+ *                       description: Name of the company that placed the order
+ *                       example: "Diageo Events"
+ *                     calculated_volume:
+ *                       type: string
+ *                       description: Total calculated volume in cubic meters (m³)
+ *                       example: "12.500"
+ *                     item_count:
+ *                       type: integer
+ *                       description: Total number of items in the order
+ *                       example: 3
  *       400:
  *         description: Bad request - Validation errors or business rule violations
  *         content:
