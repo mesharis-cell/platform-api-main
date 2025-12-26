@@ -15,7 +15,7 @@ const routes = [
     route: AuthRoutes,
   },
   {
-    path: "/clients/v1",
+    path: "/client/v1",
     route: ClientRoutes,
   }
 ];

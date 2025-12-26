@@ -1,6 +1,6 @@
 /**
  * @swagger
- * /api/clients/v1/order/submit-from-cart:
+ * /api/client/v1/order/submit-from-cart:
  *   post:
  *     tags:
  *       - Order Management
