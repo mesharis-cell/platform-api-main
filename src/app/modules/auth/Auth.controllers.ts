@@ -22,11 +22,11 @@ const login = catchAsync(async (req, res) => {
 const getPlatformByDomain = catchAsync(async (req, res) => {
   const hostname = req.query.hostname as string;
 
-  if(!hostname){
+  if (!hostname) {
     throw new CustomizedError(httpStatus.BAD_REQUEST, "Hostname is required");
   }
 
-  const result = await AuthServices.getPlatformByDomain(hostname);
+  const result = await AuthServices.getConfigByHostname(hostname);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
