@@ -50,8 +50,8 @@ const updateWarehouseSchema = z.object({
       .optional(),
     coordinates: z
       .object({
-        lat: z.number({ message: "Latitude must be a number" }),
-        lng: z.number({ message: "Longitude must be a number" }),
+        lat: z.number({ message: "Latitude must be a number" }).optional(),
+        lng: z.number({ message: "Longitude must be a number" }).optional(),
       })
       .optional(),
     is_active: z.boolean().optional(),

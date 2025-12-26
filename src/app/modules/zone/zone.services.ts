@@ -342,7 +342,7 @@ const deleteZone = async (id: string, user: AuthUser, platformId: string) => {
     await db
         .update(zones)
         .set({
-            is_active: false,
+            is_active: existingZone.is_active ? false : true,
         })
         .where(eq(zones.id, id))
         .returning();

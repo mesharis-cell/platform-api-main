@@ -210,11 +210,11 @@ const deleteWarehouse = async (id: string, platformId: string) => {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Warehouse not found");
     }
 
-    // Step 2: Mark warehouse as inactive (soft delete)
+    // Step 2: Mark warehouse as active/inactive 
     await db
         .update(warehouses)
         .set({
-            is_active: false,
+            is_active: existingWarehouse.is_active ? false : true,
         })
         .where(eq(warehouses.id, id))
         .returning();
