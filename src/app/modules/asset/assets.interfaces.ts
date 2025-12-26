@@ -9,6 +9,20 @@ export type UpdateAssetPayload = z.infer<typeof AssetSchemas.updateAssetSchema>[
 
 export type AddConditionHistoryPayload = z.infer<typeof AssetSchemas.addConditionHistorySchema>["body"];
 
+export type GenerateQRCodePayload = z.infer<typeof AssetSchemas.generateQRCodeSchema>["body"];
+
+export type CompleteMaintenancePayload = z.infer<typeof AssetSchemas.completeMaintenanceSchema>["body"];
+
+export type SingleAssetAvailabilityResponse = { asset_name: string; total_quantity: number; available_quantity: number; booked_quantity: number; bookings: { order_id: string; quantity: number; blocked_from: Date; blocked_until: Date; }[] }
+
+export type UnavailableItem = {
+    asset_id: string;
+    asset_name: string;
+    requested: number;
+    available: number;
+    next_available_date?: Date;
+}
+
 
 // ----------------------------------- BULK UPLOAD INTERFACES ---------------------------------
 

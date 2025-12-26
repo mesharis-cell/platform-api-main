@@ -28,11 +28,29 @@ router.post(
 
 // Add condition history
 router.post(
-  "/condition/add",
+  "/add-condition-history",
   platformValidator,
   auth('ADMIN', 'LOGISTICS'),
   payloadValidator(AssetSchemas.addConditionHistorySchema),
   AssetControllers.addConditionHistory
+);
+
+// Generate QR code
+router.post(
+  "/generate-qr-code",
+  platformValidator,
+  auth('ADMIN', 'LOGISTICS'),
+  payloadValidator(AssetSchemas.generateQRCodeSchema),
+  AssetControllers.generateQRCode
+);
+
+// Complete maintenance
+router.post(
+  "/complete-maintenance",
+  platformValidator,
+  auth('ADMIN', 'LOGISTICS'),
+  payloadValidator(AssetSchemas.completeMaintenanceSchema),
+  AssetControllers.completeMaintenance
 );
 
 // Batch availability check

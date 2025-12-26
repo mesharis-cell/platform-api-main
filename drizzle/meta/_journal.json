@@ -29,6 +29,13 @@
       "when": 1766660810352,
       "tag": "0003_thin_guardsmen",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1766733691944,
+      "tag": "0004_freezing_eternals",
+      "breakpoints": true
     }
   ]
 }

@@ -753,10 +753,10 @@ export const assetBookings = pgTable(
   'asset_bookings',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    asset: uuid('asset')
+    asset_id: uuid('asset_id')
       .notNull()
       .references(() => assets.id, { onDelete: 'cascade' }),
-    order: uuid('order')
+    order_id: uuid('order_id')
       .notNull()
       .references(() => orders.id, { onDelete: 'cascade' }),
     quantity: integer('quantity').notNull(),
@@ -769,6 +769,11 @@ export const assetBookings = pgTable(
     index('asset_bookings_dates_idx').on(table.blocked_from, table.blocked_until),
   ]
 )
+
+export const assetBookingsRelations = relations(assetBookings, ({ one }) => ({
+  asset: one(assets, { fields: [assetBookings.asset_id], references: [assets.id] }),
+  order: one(orders, { fields: [assetBookings.order_id], references: [orders.id] }),
+}))
 
 // ---------------------------------- ASSET CONDITION HISTORY ------------------------------
 export const assetConditionHistory = pgTable(
