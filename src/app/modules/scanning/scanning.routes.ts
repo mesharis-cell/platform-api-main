@@ -16,4 +16,12 @@ router.post(
   ScanningControllers.inboundScan
 );
 
+// scanning progress
+// router.get(
+//   "/inbound/:order_id/progress",
+//   platformValidator,
+//   auth('ADMIN', 'LOGISTICS'),
+//   ScanningControllers.inboundScanProgress
+// )
+
 export const ScanningRoutes = router;

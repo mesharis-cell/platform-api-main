@@ -163,14 +163,12 @@ const inboundScan = async (
             .where(eq(assets.id, asset.id));
     }
 
-    // Step 10: Update asset quantities (move from OUT back to AVAILABLE)
-    // All items go to AVAILABLE regardless of condition
+    // Step 10: Update asset quantities (move items back to AVAILABLE)
     const newStatus: 'AVAILABLE' | 'BOOKED' | 'OUT' | 'MAINTENANCE' = 'AVAILABLE';
 
     await db
         .update(assets)
         .set({
-            out_quantity: sql`GREATEST(0, ${assets.out_quantity} - ${scanQuantity})`,
             available_quantity: sql`${assets.available_quantity} + ${scanQuantity}`,
             status: newStatus,
         })

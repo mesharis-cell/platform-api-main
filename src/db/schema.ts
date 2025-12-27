@@ -410,7 +410,6 @@ export const assets = pgTable(
     tracking_method: trackingMethodEnum('tracking_method').notNull(),
     total_quantity: integer('total_quantity').notNull().default(1),
     available_quantity: integer('available_quantity').notNull().default(1),
-    out_quantity: integer('out_quantity').notNull().default(0),
     qr_code: varchar('qr_code', { length: 100 }).notNull().unique(),
     packaging: varchar('packaging', { length: 100 }),
     weight_per_unit: decimal('weight_per_unit', { precision: 8, scale: 2 }).notNull(), // in kilograms
