@@ -709,9 +709,48 @@ const getOrderById = async (orderId: string, user: AuthUser, platformId: string)
     };
 };
 
+// ----------------------------------- UPDATE JOB NUMBER --------------------------------------
+const updateJobNumber = async (
+    orderId: string,
+    jobNumber: string | null,
+    user: AuthUser,
+    platformId: string
+) => {
+    // Step 1: Verify order exists
+    const [order] = await db
+        .select()
+        .from(orders)
+        .where(and(
+            eq(orders.id, orderId),
+            eq(orders.platform_id, platformId)
+        ));
+
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    }
+
+    // Step 4: Update job number
+    const [updatedOrder] = await db
+        .update(orders)
+        .set({
+            job_number: jobNumber,
+            updated_at: new Date()
+        })
+        .where(eq(orders.id, orderId))
+        .returning();
+
+    return {
+        id: updatedOrder.id,
+        order_id: updatedOrder.order_id,
+        job_number: updatedOrder.job_number,
+        updated_at: updatedOrder.updated_at,
+    };
+};
+
 export const OrderServices = {
     submitOrderFromCart,
     getOrders,
     getMyOrders,
     getOrderById,
+    updateJobNumber,
 };

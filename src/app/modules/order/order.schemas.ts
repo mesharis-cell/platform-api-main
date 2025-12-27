@@ -33,6 +33,16 @@ const submitOrderSchema = z.object({
     }),
 });
 
+const updateJobNumberSchema = z.object({
+    body: z.object({
+        job_number: z
+            .string()
+            .max(100, "Job number must be at most 100 characters")
+            .regex(/^[a-zA-Z0-9\-_]+$/, "Job number must be alphanumeric (letters, numbers, hyphens, underscores only)")
+    }),
+});
+
 export const orderSchemas = {
     submitOrderSchema,
+    updateJobNumberSchema,
 };

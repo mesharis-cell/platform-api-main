@@ -747,6 +747,111 @@
 
 /**
  * @swagger
+ * /api/client/v1/order/{id}/job-number:
+ *   patch:
+ *     tags:
+ *       - Order Management
+ *     summary: Update order job number (ADMIN/LOGISTICS only)
+ *     description: |
+ *       Updates the job number for a specific order.
+ *       This endpoint is restricted to ADMIN and LOGISTICS users only.
+ *       
+ *       **Validation Rules:**
+ *       - Job number is required (cannot be null or empty)
+ *       - Must be alphanumeric (letters, numbers, hyphens, underscores only)
+ *       - Maximum 100 characters
+ *       
+ *       **Access Control:**
+ *       - ADMIN and LOGISTICS users can update job numbers
+ *       - CLIENT users will receive a 403 Forbidden error
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         description: Order ID (UUID)
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *           example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - job_number
+ *             properties:
+ *               job_number:
+ *                 type: string
+ *                 maxLength: 100
+ *                 pattern: '^[a-zA-Z0-9\-_]+$'
+ *                 description: Job number (alphanumeric, hyphens, underscores only)
+ *                 example: "JOB-2025-001"
+ *           examples:
+ *             updateJobNumber:
+ *               summary: Update job number
+ *               value:
+ *                 job_number: "JOB-2025-001"
+ *     responses:
+ *       200:
+ *         description: Job number updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Job number updated successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                     order_id:
+ *                       type: string
+ *                       example: "ORD-20251227-001"
+ *                     job_number:
+ *                       type: string
+ *                       example: "JOB-2025-001"
+ *                     updated_at:
+ *                       type: string
+ *                       format: date-time
+ *       400:
+ *         description: Bad Request - Invalid job number format
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   examples:
+ *                     - "Job number must be alphanumeric (letters, numbers, hyphens, underscores only)"
+ *                     - "Job number must be at most 100 characters"
+ *       401:
+ *         description: Unauthorized - Authentication required
+ *       403:
+ *         description: Forbidden - Only ADMIN and LOGISTICS users can update job numbers
+ *       404:
+ *         description: Order not found
+ *       500:
+ *         description: Internal server error
+ *     security:
+ *       - BearerAuth: []
+ */
+
+/**
+ * @swagger
  * /api/client/v1/order/submit-from-cart:
  *   post:
  *     tags:

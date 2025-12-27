@@ -156,12 +156,30 @@ const getOrderById = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- UPDATE JOB NUMBER ----------------------------------
+const updateJobNumber = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const { id } = req.params;
+    const { job_number } = req.body;
+
+    const result = await OrderServices.updateJobNumber(id, job_number, user, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Job number updated successfully",
+        data: result,
+    });
+});
+
 export const OrderControllers = {
     submitOrder,
     getOrders,
     getMyOrders,
     exportOrders,
     getOrderById,
+    updateJobNumber,
 };
 
 
