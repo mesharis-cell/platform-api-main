@@ -8,6 +8,7 @@ import { PricingTierRoutes } from "../modules/pricing-tier/pricing-tier.routes";
 import { UserRoutes } from "../modules/user/user.routes";
 import { WarehouseRoutes } from "../modules/warehouse/warehouse.routes";
 import { ZoneRoutes } from "../modules/zone/zone.routes";
+import { ScanningRoutes } from "../modules/scanning/scanning.routes";
 
 
 const router = Router();
@@ -49,6 +50,10 @@ const routes = [
     path: "/asset",
     route: AssetRoutes,
   },
+  {
+    path: "/scanning",
+    route: ScanningRoutes,
+  }
 ];
 
 
