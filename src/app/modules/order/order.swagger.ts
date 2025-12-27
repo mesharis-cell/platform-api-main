@@ -104,9 +104,6 @@
  *                     total:
  *                       type: integer
  *                       example: 50
- *                     total_pages:
- *                       type: integer
- *                       example: 5
  *                 data:
  *                   type: array
  *                   items:

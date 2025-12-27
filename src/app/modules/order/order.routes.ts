@@ -15,6 +15,14 @@ router.get(
     OrderControllers.getOrders
 );
 
+// Get my orders
+router.get(
+    "/my",
+    platformValidator,
+    auth("CLIENT"),
+    OrderControllers.getMyOrders
+);
+
 // Submit order
 router.post(
     "/submit-from-cart",

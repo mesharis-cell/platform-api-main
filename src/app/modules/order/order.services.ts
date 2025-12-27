@@ -502,7 +502,138 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
             page: pageNumber,
             limit: limitNumber,
             total: countResult.count,
-            total_pages: Math.ceil(countResult.count / limitNumber),
+        },
+    };
+};
+
+// ----------------------------------- GET MY ORDERS -----------------------------------------
+const getMyOrders = async (query: Record<string, any>, user: AuthUser, platformId: string) => {
+    const {
+        search_term,
+        page,
+        limit,
+        sort_by,
+        sort_order,
+        brand_id,
+        order_status,
+        financial_status,
+        date_from,
+        date_to,
+    } = query;
+
+    // Step 1: Validate query parameters
+    if (sort_by) queryValidator(orderQueryValidationConfig, "sort_by", sort_by);
+    if (sort_order) queryValidator(orderQueryValidationConfig, "sort_order", sort_order);
+
+    // Step 2: Setup pagination
+    const { pageNumber, limitNumber, skip, sortWith, sortSequence } =
+        paginationMaker({
+            page,
+            limit,
+            sort_by,
+            sort_order,
+        });
+
+    // Step 3: Build WHERE conditions
+    const conditions: any[] = [eq(orders.platform_id, platformId), eq(orders.user_id, user.id)];
+
+    // Step 3a: Filter by user role (CLIENT users see only their company's orders)
+    if (user.role === 'CLIENT') {
+        if (user.company_id) {
+            conditions.push(eq(orders.company_id, user.company_id));
+        } else {
+            throw new CustomizedError(httpStatus.UNAUTHORIZED, "Company not found");
+        }
+    }
+
+    if (brand_id) {
+        conditions.push(eq(orders.brand_id, brand_id));
+    }
+
+    if (order_status) {
+        queryValidator(orderQueryValidationConfig, 'order_status', order_status);
+        conditions.push(eq(orders.order_status, order_status));
+    }
+
+    if (financial_status) {
+        queryValidator(orderQueryValidationConfig, 'financial_status', financial_status);
+        conditions.push(eq(orders.financial_status, financial_status));
+    }
+
+    if (date_from) {
+        const fromDate = new Date(date_from);
+        if (isNaN(fromDate.getTime())) {
+            throw new CustomizedError(httpStatus.BAD_REQUEST, "Invalid date_from format");
+        }
+        conditions.push(gte(orders.created_at, fromDate));
+    }
+
+    if (date_to) {
+        const toDate = new Date(date_to);
+        if (isNaN(toDate.getTime())) {
+            throw new CustomizedError(httpStatus.BAD_REQUEST, "Invalid date_to format");
+        }
+        conditions.push(lte(orders.created_at, toDate));
+    }
+
+    // Step 3c: Search functionality
+    if (search_term) {
+        const searchConditions = [
+            ilike(orders.order_id, `%${search_term}%`),
+            ilike(orders.contact_name, `%${search_term}%`),
+            ilike(orders.venue_name, `%${search_term}%`),
+            // Subquery for asset names in orderItems
+            sql`EXISTS (
+				SELECT 1 FROM ${orderItems}
+				WHERE ${orderItems.order_id} = ${orders.id}
+				AND ${orderItems.asset_name} ILIKE ${`%${search_term}%`}
+			)`,
+        ];
+        conditions.push(sql`(${sql.join(searchConditions, sql` OR `)})`);
+    }
+
+    // Step 4: Determine sort field
+    const sortField = orderSortableFields[sortWith] || orders.created_at;
+
+    // Step 5: Fetch orders with company and brand information
+    const results = await db
+        .select({
+            order: orders,
+            company: {
+                id: companies.id,
+                name: companies.name,
+            },
+            brand: {
+                id: brands.id,
+                name: brands.name,
+            },
+        })
+        .from(orders)
+        .leftJoin(companies, eq(orders.company_id, companies.id))
+        .leftJoin(brands, eq(orders.brand_id, brands.id))
+        .where(and(...conditions))
+        .orderBy(sortSequence === "asc" ? asc(sortField) : desc(sortField))
+        .limit(limitNumber)
+        .offset(skip);
+
+    // Step 6: Get total count
+    const [countResult] = await db
+        .select({ count: count() })
+        .from(orders)
+        .where(and(...conditions));
+
+    const formattedData = results.map((r) => ({
+        ...r.order,
+        company: r.company,
+        brand: r.brand,
+    }))
+
+    return {
+        data: formattedData,
+        meta: {
+            page: pageNumber,
+            limit: limitNumber,
+            total: countResult.count,
         },
     };
 };
@@ -510,4 +641,5 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
 export const OrderServices = {
     submitOrderFromCart,
     getOrders,
+    getMyOrders
 };

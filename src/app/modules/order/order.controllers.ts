@@ -48,9 +48,26 @@ const getOrders = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- GET ORDERS -----------------------------------------
+const getMyOrders = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+
+    const result = await OrderServices.getMyOrders(req.query, user, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Orders fetched successfully",
+        meta: result.meta,
+        data: result.data,
+    });
+});
+
 export const OrderControllers = {
     submitOrder,
     getOrders,
+    getMyOrders,
 };
 
 
