@@ -1,5 +1,211 @@
 /**
  * @swagger
+ * /api/clients/v1/order:
+ *   get:
+ *     tags:
+ *       - Order Management
+ *     summary: Get orders
+ *     description: |
+ *       Retrieves a list of orders with filtering and pagination options.
+ *       - CLIENT users can only see their company's orders
+ *       - ADMIN and LOGISTICS users can see all orders
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: page
+ *         in: query
+ *         description: Page number for pagination
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - name: limit
+ *         in: query
+ *         description: Number of items per page
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - name: search_term
+ *         in: query
+ *         description: Search by order ID, contact name, or venue name
+ *         schema:
+ *           type: string
+ *       - name: company_id
+ *         in: query
+ *         description: Filter by company ID
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - name: brand_id
+ *         in: query
+ *         description: Filter by brand ID
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - name: order_status
+ *         in: query
+ *         description: Filter by order status
+ *         schema:
+ *           type: string
+ *           enum: [DRAFT, SUBMITTED, PRICING_REVIEW, PENDING_APPROVAL, QUOTED, DECLINED, CONFIRMED, IN_PREPARATION, READY_FOR_DELIVERY, IN_TRANSIT, DELIVERED, IN_USE, AWAITING_RETURN, CLOSED]
+ *       - name: financial_status
+ *         in: query
+ *         description: Filter by financial status
+ *         schema:
+ *           type: string
+ *           enum: [PENDING_QUOTE, QUOTE_SENT, QUOTE_ACCEPTED, PENDING_INVOICE, INVOICED, PAID]
+ *       - name: date_from
+ *         in: query
+ *         description: Filter orders created from this date (ISO 8601)
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *       - name: date_to
+ *         in: query
+ *         description: Filter orders created until this date (ISO 8601)
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *       - name: sort_by
+ *         in: query
+ *         description: Field to sort by
+ *         schema:
+ *           type: string
+ *           enum: [order_id, order_status, financial_status, event_start_date, created_at, updated_at]
+ *           default: created_at
+ *       - name: sort_order
+ *         in: query
+ *         description: Sort order
+ *         schema:
+ *           type: string
+ *           enum: [asc, desc]
+ *           default: desc
+ *     responses:
+ *       200:
+ *         description: Orders fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Orders fetched successfully"
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     page:
+ *                       type: integer
+ *                       example: 1
+ *                     limit:
+ *                       type: integer
+ *                       example: 10
+ *                     total:
+ *                       type: integer
+ *                       example: 50
+ *                     total_pages:
+ *                       type: integer
+ *                       example: 5
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                         format: uuid
+ *                       order_id:
+ *                         type: string
+ *                         example: "ORD-20251227-001"
+ *                       company:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                             format: uuid
+ *                           name:
+ *                             type: string
+ *                       brand:
+ *                         type: object
+ *                         nullable: true
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                             format: uuid
+ *                           name:
+ *                             type: string
+ *                       user_id:
+ *                         type: string
+ *                         format: uuid
+ *                       job_number:
+ *                         type: string
+ *                         nullable: true
+ *                       contact_name:
+ *                         type: string
+ *                       contact_email:
+ *                         type: string
+ *                       contact_phone:
+ *                         type: string
+ *                       event_start_date:
+ *                         type: string
+ *                         format: date-time
+ *                       event_end_date:
+ *                         type: string
+ *                         format: date-time
+ *                       venue_name:
+ *                         type: string
+ *                       venue_location:
+ *                         type: object
+ *                         properties:
+ *                           country:
+ *                             type: string
+ *                           city:
+ *                             type: string
+ *                           address:
+ *                             type: string
+ *                           access_notes:
+ *                             type: string
+ *                             nullable: true
+ *                       calculated_totals:
+ *                         type: object
+ *                         properties:
+ *                           volume:
+ *                             type: string
+ *                           weight:
+ *                             type: string
+ *                       order_status:
+ *                         type: string
+ *                       financial_status:
+ *                         type: string
+ *                       tier_id:
+ *                         type: string
+ *                         format: uuid
+ *                         nullable: true
+ *                       created_at:
+ *                         type: string
+ *                         format: date-time
+ *                       updated_at:
+ *                         type: string
+ *                         format: date-time
+ *                       item_count:
+ *                         type: integer
+ *                         description: Total number of items in the order
+ *                       item_preview:
+ *                         type: array
+ *                         description: Preview of first 3 asset names
+ *                         items:
+ *                           type: string
+ *       401:
+ *         description: Unauthorized - Authentication required
+ *       500:
+ *         description: Internal server error
+ *     security:
+ *       - BearerAuth: []
+ */
+
+/**
+ * @swagger
  * /api/clients/v1/order/submit-from-cart:
  *   post:
  *     tags:
