@@ -140,11 +140,28 @@ const exportOrders = catchAsync(async (req, res) => {
     res.status(httpStatus.OK).send(csvContent);
 });
 
+// ----------------------------------- GET ORDER BY ID ------------------------------------
+const getOrderById = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const { id } = req.params;
+
+    const result = await OrderServices.getOrderById(id, user, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Order fetched successfully",
+        data: result,
+    });
+});
+
 export const OrderControllers = {
     submitOrder,
     getOrders,
     getMyOrders,
     exportOrders,
+    getOrderById,
 };
 
 

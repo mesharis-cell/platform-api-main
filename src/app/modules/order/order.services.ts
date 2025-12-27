@@ -638,8 +638,80 @@ const getMyOrders = async (query: Record<string, any>, user: AuthUser, platformI
     };
 };
 
+// ----------------------------------- GET ORDER BY ID ----------------------------------------
+const getOrderById = async (orderId: string, user: AuthUser, platformId: string) => {
+    // Step 1: Fetch order with relations
+    const result = await db
+        .select({
+            order: orders,
+            company: {
+                id: companies.id,
+                name: companies.name,
+            },
+            brand: {
+                id: brands.id,
+                name: brands.name,
+            },
+            user: {
+                id: users.id,
+                name: users.name,
+                email: users.email,
+            },
+        })
+        .from(orders)
+        .leftJoin(companies, eq(orders.company_id, companies.id))
+        .leftJoin(brands, eq(orders.brand_id, brands.id))
+        .leftJoin(users, eq(orders.user_id, users.id))
+        .where(and(
+            eq(orders.id, orderId),
+            eq(orders.platform_id, platformId)
+        ))
+        .limit(1);
+
+    if (result.length === 0) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    }
+
+    const orderData = result[0];
+
+    // Check access based on user role
+    if (user.role === 'CLIENT') {
+        if (user.company_id !== orderData.order.company_id) {
+            throw new CustomizedError(httpStatus.FORBIDDEN, "You don't have access to this order");
+        }
+    }
+
+    // Step 2: Fetch order items with asset details
+    const itemResults = await db
+        .select({
+            order_item: orderItems,
+            asset: {
+                id: assets.id,
+                name: assets.name,
+                condition: assets.condition,
+            },
+            collection: {
+                id: collections.id,
+                name: collections.name,
+            },
+        })
+        .from(orderItems)
+        .leftJoin(assets, eq(orderItems.asset_id, assets.id))
+        .leftJoin(collections, eq(orderItems.from_collection, collections.id))
+        .where(eq(orderItems.order_id, orderId));
+
+    return {
+        ...orderData.order,
+        company: orderData.company,
+        brand: orderData.brand,
+        user: orderData.user,
+        items: itemResults,
+    };
+};
+
 export const OrderServices = {
     submitOrderFromCart,
     getOrders,
-    getMyOrders
+    getMyOrders,
+    getOrderById,
 };

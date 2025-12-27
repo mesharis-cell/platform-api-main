@@ -31,6 +31,14 @@ router.get(
     OrderControllers.exportOrders
 );
 
+// Get order by ID
+router.get(
+    "/:id",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    OrderControllers.getOrderById
+);
+
 // Submit order
 router.post(
     "/submit-from-cart",
