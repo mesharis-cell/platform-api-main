@@ -19,14 +19,6 @@ const login = catchAsync(async (req, res) => {
 });
 
 const getPlatformByDomain = catchAsync(async (req, res) => {
-  const hostname = req.query.hostname as string;
-
-  console.log(req.headers)
-
-  // if (!hostname) {
-  //   throw new CustomizedError(httpStatus.BAD_REQUEST, "Hostname is required");
-  // }
-
   const result = await AuthServices.getConfigByHostname(req.headers.origin as string);
 
   sendResponse(res, {
