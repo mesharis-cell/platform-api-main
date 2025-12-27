@@ -44,3 +44,27 @@ export interface CompleteInboundScanResponse {
     order_id: string;
     new_status: string;
 }
+
+// ====================== OUTBOUND SCANNING INTERFACES ======================
+
+export interface OutboundScanPayload {
+    qr_code: string;
+    quantity?: number; // Required for BATCH assets
+}
+
+export interface OutboundScanResponse {
+    success: boolean;
+    asset: {
+        asset_id: string;
+        asset_name: string;
+        tracking_method: 'INDIVIDUAL' | 'BATCH';
+        scanned_quantity: number;
+        required_quantity: number;
+        remaining_quantity: number;
+    };
+    progress: {
+        total_items: number;
+        items_scanned: number;
+        percent_complete: number;
+    };
+}

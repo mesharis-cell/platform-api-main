@@ -70,8 +70,33 @@ const completeInboundScan = catchAsync(async (req, res) => {
     });
 });
 
+// ================================= OUTBOUND SCANNING =================================
+
+// ----------------------------------- OUTBOUND SCAN --------------------------------------
+const outboundScan = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+
+    const user = (req as any).user;
+    const { order_id } = req.params;
+
+    const result = await ScanningServices.outboundScan(
+        order_id,
+        req.body,
+        user,
+        platformId
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Item scanned out successfully",
+        data: result,
+    });
+});
+
 export const ScanningControllers = {
     inboundScan,
     getInboundProgress,
     completeInboundScan,
+    outboundScan,
 };

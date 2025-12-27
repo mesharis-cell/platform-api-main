@@ -12,6 +12,14 @@ export const inboundScanSchema = z.object({
   }),
 });
 
+export const outboundScanSchema = z.object({
+  body: z.object({
+    qr_code: z.string().min(1, { message: "QR code is required" }),
+    quantity: z.number().int().positive().optional(),
+  }),
+});
+
 export const ScanningSchemas = {
   inboundScanSchema,
+  outboundScanSchema,
 };

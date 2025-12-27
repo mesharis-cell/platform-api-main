@@ -4,7 +4,7 @@ import { db } from "../../../db";
 import { assetBookings, assetConditionHistory, assets, orderStatusHistory, orders, scanEvents } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
-import { CompleteInboundScanResponse, InboundScanPayload, InboundScanResponse, OrderProgressResponse } from "./scanning.interfaces";
+import { CompleteInboundScanResponse, InboundScanPayload, InboundScanResponse, OrderProgressResponse, OutboundScanPayload, OutboundScanResponse } from "./scanning.interfaces";
 
 // ----------------------------------- INBOUND SCAN ---------------------------------------
 const inboundScan = async (
@@ -352,8 +352,173 @@ const completeInboundScan = async (
     };
 };
 
+// ================================= OUTBOUND SCANNING =================================
+
+// ----------------------------------- OUTBOUND SCAN ---------------------------------------
+const outboundScan = async (
+    orderId: string,
+    data: OutboundScanPayload,
+    user: AuthUser,
+    platformId: string
+): Promise<OutboundScanResponse> => {
+    const { qr_code, quantity } = data;
+
+    // Step 1: Get order with items
+    const order = await db.query.orders.findFirst({
+        where: and(
+            eq(orders.id, orderId),
+            eq(orders.platform_id, platformId)
+        ),
+        with: {
+            items: true,
+        },
+    });
+
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    }
+
+    // Step 2: Validate order status
+    if (order.order_status !== 'IN_PREPARATION') {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Order must be in IN_PREPARATION status. Current status: ${order.order_status}`
+        );
+    }
+
+    // Step 3: Find asset by QR code
+    const asset = await db.query.assets.findFirst({
+        where: and(
+            eq(assets.qr_code, qr_code),
+            eq(assets.platform_id, platformId)
+        ),
+    });
+
+    if (!asset) {
+        throw new CustomizedError(
+            httpStatus.NOT_FOUND,
+            `Asset not found with QR code: ${qr_code}`
+        );
+    }
+
+    // Step 4: Check if asset is in this order
+    const orderItem = order.items.find((item) => item.asset_id === asset.id);
+
+    if (!orderItem) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Asset is not in this order"
+        );
+    }
+
+    // Step 5: Determine quantity to scan
+    let scanQuantity = 1;
+    if (asset.tracking_method === 'BATCH') {
+        if (!quantity || quantity < 1) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Quantity required for BATCH assets"
+            );
+        }
+        scanQuantity = quantity;
+    }
+
+    // Step 6: Get existing outbound scans for this asset
+    const existingScans = await db.query.scanEvents.findMany({
+        where: and(
+            eq(scanEvents.order_id, orderId),
+            eq(scanEvents.asset_id, asset.id),
+            eq(scanEvents.scan_type, 'OUTBOUND')
+        ),
+    });
+
+    const alreadyScanned = existingScans.reduce(
+        (sum, scan) => sum + scan.quantity,
+        0
+    );
+
+    // Step 7: Validate not over-scanning
+    if (alreadyScanned >= orderItem.quantity) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "All units of this asset have already been scanned"
+        );
+    }
+
+    if (alreadyScanned + scanQuantity > orderItem.quantity) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Cannot scan ${scanQuantity} units. Already scanned: ${alreadyScanned}, Required: ${orderItem.quantity}`
+        );
+    }
+
+    // Step 8: Create scan event
+    await db.insert(scanEvents).values({
+        order_id: orderId,
+        asset_id: asset.id,
+        scan_type: 'OUTBOUND',
+        quantity: scanQuantity,
+        condition: 'GREEN', // Default for outbound
+        notes: null,
+        photos: [],
+        discrepancy_reason: null,
+        scanned_by: user.id,
+        scanned_at: new Date(),
+    });
+
+    // Step 9: Update asset quantities
+    // When items go out: decrease available_quantity
+    await db
+        .update(assets)
+        .set({
+            available_quantity: sql`${assets.available_quantity} - ${scanQuantity}`,
+            status: 'OUT',
+            last_scanned_at: new Date(),
+            last_scanned_by: user.id,
+        })
+        .where(eq(assets.id, asset.id));
+
+    // Step 10: Calculate progress
+    const newScannedTotal = alreadyScanned + scanQuantity;
+
+    const allOutboundScans = await db.query.scanEvents.findMany({
+        where: and(
+            eq(scanEvents.order_id, orderId),
+            eq(scanEvents.scan_type, 'OUTBOUND')
+        ),
+    });
+
+    const totalScanned = allOutboundScans.reduce(
+        (sum, scan) => sum + scan.quantity,
+        0
+    );
+    const totalRequired = order.items.reduce(
+        (sum, item) => sum + item.quantity,
+        0
+    );
+    const percentComplete = Math.round((totalScanned / totalRequired) * 100);
+
+    return {
+        success: true,
+        asset: {
+            asset_id: asset.id,
+            asset_name: asset.name,
+            tracking_method: asset.tracking_method,
+            scanned_quantity: newScannedTotal,
+            required_quantity: orderItem.quantity,
+            remaining_quantity: orderItem.quantity - newScannedTotal,
+        },
+        progress: {
+            total_items: totalRequired,
+            items_scanned: totalScanned,
+            percent_complete: percentComplete,
+        },
+    };
+};
+
 export const ScanningServices = {
     inboundScan,
     getInboundProgress,
     completeInboundScan,
+    outboundScan,
 };

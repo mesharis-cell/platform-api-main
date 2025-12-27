@@ -32,4 +32,15 @@ router.post(
   ScanningControllers.completeInboundScan
 );
 
+// ================================= OUTBOUND SCANNING =================================
+
+// Scan item outbound
+router.post(
+  "/outbound/:order_id/scan",
+  platformValidator,
+  auth('ADMIN', 'LOGISTICS'),
+  payloadValidator(ScanningSchemas.outboundScanSchema),
+  ScanningControllers.outboundScan
+);
+
 export const ScanningRoutes = router;
