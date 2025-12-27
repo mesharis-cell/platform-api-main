@@ -27,6 +27,27 @@ const inboundScan = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- GET INBOUND PROGRESS -------------------------------
+const getInboundProgress = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+    const { order_id } = req.params;
+
+    const result = await ScanningServices.getInboundProgress(
+        order_id,
+        user,
+        platformId
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Scan progress retrieved successfully",
+        data: result,
+    });
+});
+
 export const ScanningControllers = {
     inboundScan,
+    getInboundProgress,
 };

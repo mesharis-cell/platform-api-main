@@ -280,3 +280,180 @@
  *     security:
  *       - BearerAuth: []
  */
+
+/**
+ * @swagger
+ * /api/operations/v1/scanning/inbound/{order_id}/progress:
+ *   get:
+ *     tags:
+ *       - Scanning
+ *     summary: Get inbound scanning progress for an order
+ *     description: |
+ *       Retrieves detailed scanning progress for a specific order, showing how many items
+ *       have been scanned back into the warehouse versus the total required.
+ *       
+ *       **Features:**
+ *       - Overall progress percentage
+ *       - Per-asset breakdown of scanned vs required quantities
+ *       - Completion status for each asset
+ *       - Asset tracking method visibility
+ *       
+ *       **Permissions Required**: Only ADMIN and LOGISTICS roles can view progress
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - in: path
+ *         name: order_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Order ID
+ *         example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *     responses:
+ *       200:
+ *         description: Progress retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Scan progress retrieved successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     order_id:
+ *                       type: string
+ *                       description: Human-readable order ID
+ *                       example: "ORD-20251227-001"
+ *                     order_status:
+ *                       type: string
+ *                       description: Current order status
+ *                       example: "IN_USE"
+ *                     total_items:
+ *                       type: integer
+ *                       description: Total items in the order
+ *                       example: 100
+ *                     items_scanned:
+ *                       type: integer
+ *                       description: Total items scanned back in
+ *                       example: 75
+ *                     percent_complete:
+ *                       type: integer
+ *                       description: Percentage of items scanned
+ *                       example: 75
+ *                     assets:
+ *                       type: array
+ *                       description: Per-asset scanning progress
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           asset_id:
+ *                             type: string
+ *                             format: uuid
+ *                           asset_name:
+ *                             type: string
+ *                             example: "Banquet Chair - Gold"
+ *                           qr_code:
+ *                             type: string
+ *                             example: "ASSET-CHAIR-001"
+ *                           tracking_method:
+ *                             type: string
+ *                             enum: [INDIVIDUAL, BATCH]
+ *                             example: "BATCH"
+ *                           required_quantity:
+ *                             type: integer
+ *                             description: Quantity sent out with order
+ *                             example: 50
+ *                           scanned_quantity:
+ *                             type: integer
+ *                             description: Quantity scanned back in
+ *                             example: 45
+ *                           is_complete:
+ *                             type: boolean
+ *                             description: Whether all units have been scanned
+ *                             example: false
+ *             example:
+ *               success: true
+ *               message: "Scan progress retrieved successfully"
+ *               data:
+ *                 order_id: "ORD-20251227-001"
+ *                 order_status: "IN_USE"
+ *                 total_items: 100
+ *                 items_scanned: 75
+ *                 percent_complete: 75
+ *                 assets:
+ *                   - asset_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *                     asset_name: "Banquet Chair - Gold"
+ *                     qr_code: "ASSET-CHAIR-001"
+ *                     tracking_method: "BATCH"
+ *                     required_quantity: 50
+ *                     scanned_quantity: 45
+ *                     is_complete: false
+ *                   - asset_id: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+ *                     asset_name: "Display Stand - Premium"
+ *                     qr_code: "ASSET-STAND-001"
+ *                     tracking_method: "INDIVIDUAL"
+ *                     required_quantity: 25
+ *                     scanned_quantity: 25
+ *                     is_complete: true
+ *       401:
+ *         description: Unauthorized - Authentication required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "You are not authorized"
+ *       403:
+ *         description: Forbidden - Only warehouse staff can view progress
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Only warehouse staff can view scan progress"
+ *       404:
+ *         description: Order not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Order not found"
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Something went wrong!"
+ *     security:
+ *       - BearerAuth: []
+ */
+

@@ -19,3 +19,22 @@ export interface InboundScanResponse {
     asset: any;
     progress: ScanProgressResponse;
 }
+
+export interface AssetProgress {
+    asset_id: string;
+    asset_name: string;
+    qr_code: string;
+    tracking_method: 'INDIVIDUAL' | 'BATCH';
+    required_quantity: number;
+    scanned_quantity: number;
+    is_complete: boolean;
+}
+
+export interface OrderProgressResponse {
+    order_id: string;
+    order_status: string;
+    total_items: number;
+    items_scanned: number;
+    percent_complete: number;
+    assets: AssetProgress[];
+}
