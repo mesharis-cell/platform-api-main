@@ -23,6 +23,14 @@ router.get(
     OrderControllers.getMyOrders
 );
 
+// Export orders to CSV
+router.get(
+    "/export",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    OrderControllers.exportOrders
+);
+
 // Submit order
 router.post(
     "/submit-from-cart",

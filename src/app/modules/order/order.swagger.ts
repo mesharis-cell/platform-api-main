@@ -385,6 +385,85 @@
 
 /**
  * @swagger
+ * /api/client/v1/order/export:
+ *   get:
+ *     tags:
+ *       - Order Management
+ *     summary: Export orders to CSV (ADMIN/LOGISTICS only)
+ *     description: |
+ *       Exports orders to a CSV file with all order details.
+ *       This endpoint uses the same filtering options as the GET orders endpoint.
+ *       Maximum 10,000 records can be exported at once.
+ *       Only ADMIN and LOGISTICS users can export orders.
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: search_term
+ *         in: query
+ *         description: Search by order ID, contact name, venue name, or asset name
+ *         schema:
+ *           type: string
+ *       - name: company_id
+ *         in: query
+ *         description: Filter by company ID
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - name: brand_id
+ *         in: query
+ *         description: Filter by brand ID
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - name: order_status
+ *         in: query
+ *         description: Filter by order status
+ *         schema:
+ *           type: string
+ *           enum: [DRAFT, SUBMITTED, PRICING_REVIEW, PENDING_APPROVAL, QUOTED, DECLINED, CONFIRMED, IN_PREPARATION, READY_FOR_DELIVERY, IN_TRANSIT, DELIVERED, IN_USE, AWAITING_RETURN, CLOSED]
+ *       - name: financial_status
+ *         in: query
+ *         description: Filter by financial status
+ *         schema:
+ *           type: string
+ *           enum: [PENDING_QUOTE, QUOTE_SENT, QUOTE_ACCEPTED, PENDING_INVOICE, INVOICED, PAID]
+ *       - name: date_from
+ *         in: query
+ *         description: Filter orders created from this date (ISO 8601)
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *       - name: date_to
+ *         in: query
+ *         description: Filter orders created until this date (ISO 8601)
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *     responses:
+ *       200:
+ *         description: CSV file download
+ *         content:
+ *           text/csv:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *         headers:
+ *           Content-Disposition:
+ *             description: Attachment filename
+ *             schema:
+ *               type: string
+ *               example: 'attachment; filename="orders-export-2025-12-27T11-48-00.csv"'
+ *       401:
+ *         description: Unauthorized - Authentication required
+ *       403:
+ *         description: Forbidden - Only ADMIN and LOGISTICS users can export
+ *       500:
+ *         description: Internal server error
+ *     security:
+ *       - BearerAuth: []
+ */
+
+/**
+ * @swagger
  * /api/client/v1/order/submit-from-cart:
  *   post:
  *     tags:
