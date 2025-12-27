@@ -77,21 +77,80 @@ const login = async (credential: LoginCredential, platformId: string) => {
   };
 };
 
-const getConfigByHostname = async (hostname: string) => {
+const getConfigByHostname = async (origin: string) => {
+  const url = new URL(origin)
+  const hostname = url.hostname;
   const subdomain = hostname.split(".")[0];
 
-  // Step 1: Check if sub domain is admin or warehouse
-  if (subdomain === "admin" || subdomain === "warehouse") {
-    const rootDomain = hostname.split(".").slice(1).join(".");
+  // Production environment
+  if(config.node_env === "production") {
+      // Step 1: Check if sub domain is admin or warehouse
+    if (subdomain === "admin" || subdomain === "warehouse") {
+      const rootDomain = hostname.split(".").slice(1).join(".");
 
-    // Step 2: Return platform config
+      // Step 2: Return platform config
+      const [platform] = await db
+        .select({
+          id: platforms.id,
+          config: platforms.config,
+        })
+        .from(platforms)
+        .where(eq(platforms.domain, rootDomain))
+        .limit(1);
+
+      if (platform) {
+        const config = platform.config as any;
+        return {
+          platform_id: platform.id,
+          company_id: null,
+          company_name: null,
+          logo_url: config?.logo_url || null,
+          primary_color: config?.primary_color || null,
+          secondary_color: config?.secondary_color || null,
+          currency: config?.currency || null,
+        };
+      }
+      return null;
+    }
+
+    // Step 3: If it's not admin or warehouse, it's a company domain
+    const [result] = await db
+      .select({
+        platform_id: companyDomains.platform_id,
+        company_id: companyDomains.company_id,
+        company_name: companies.name,
+        settings: companies.settings,
+      })
+      .from(companyDomains)
+      .innerJoin(companies, eq(companyDomains.company_id, companies.id))
+      .where(eq(companyDomains.hostname, hostname))
+      .limit(1);
+
+    if (result) {
+      const settings = result.settings as any;
+      const branding = settings?.branding || {};
+
+      return {
+        platform_id: result.platform_id,
+        company_id: result.company_id,
+        company_name: result.company_name,
+        logo_url: branding?.logo_url || null,
+        primary_color: branding?.primary_color || null,
+        secondary_color: branding?.secondary_color || null,
+        currency: null,
+      };
+    }
+
+    return null;
+  }else{
+    // Check if it in platform if yes return platform if not than check in company domain and return
     const [platform] = await db
       .select({
         id: platforms.id,
         config: platforms.config,
       })
       .from(platforms)
-      .where(eq(platforms.domain, rootDomain))
+      .where(eq(platforms.domain, url.host))
       .limit(1);
 
     if (platform) {
@@ -106,38 +165,36 @@ const getConfigByHostname = async (hostname: string) => {
         currency: config?.currency || null,
       };
     }
+
+    const [result] = await db
+      .select({
+        platform_id: companyDomains.platform_id,
+        company_id: companyDomains.company_id,
+        company_name: companies.name,
+        settings: companies.settings,
+      })
+      .from(companyDomains)
+      .innerJoin(companies, eq(companyDomains.company_id, companies.id))
+      .where(eq(companyDomains.hostname, url.host))
+      .limit(1);
+
+    if (result) {
+      const settings = result.settings as any;
+      const branding = settings?.branding || {};
+
+      return {
+        platform_id: result.platform_id,
+        company_id: result.company_id,
+        company_name: result.company_name,
+        logo_url: branding?.logo_url || null,
+        primary_color: branding?.primary_color || null,
+        secondary_color: branding?.secondary_color || null,
+        currency: null,
+      };
+    }
+
     return null;
   }
-
-  // Step 3: If it's not admin or warehouse, it's a company domain
-  const [result] = await db
-    .select({
-      platform_id: companyDomains.platform_id,
-      company_id: companyDomains.company_id,
-      company_name: companies.name,
-      settings: companies.settings,
-    })
-    .from(companyDomains)
-    .innerJoin(companies, eq(companyDomains.company_id, companies.id))
-    .where(eq(companyDomains.hostname, hostname))
-    .limit(1);
-
-  if (result) {
-    const settings = result.settings as any;
-    const branding = settings?.branding || {};
-
-    return {
-      platform_id: result.platform_id,
-      company_id: result.company_id,
-      company_name: result.company_name,
-      logo_url: branding?.logo_url || null,
-      primary_color: branding?.primary_color || null,
-      secondary_color: branding?.secondary_color || null,
-      currency: null,
-    };
-  }
-
-  return null;
 };
 
 export const AuthServices = {
