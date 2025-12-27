@@ -516,9 +516,80 @@ const outboundScan = async (
     };
 };
 
+// ----------------------------------- GET OUTBOUND PROGRESS -----------------------------------
+const getOutboundProgress = async (
+    orderId: string,
+    user: AuthUser,
+    platformId: string
+): Promise<OrderProgressResponse> => {
+    // Step 1: Get order with items
+    const order = await db.query.orders.findFirst({
+        where: and(
+            eq(orders.id, orderId),
+            eq(orders.platform_id, platformId)
+        ),
+        with: {
+            company: true,
+            items: {
+                with: {
+                    asset: true,
+                },
+            },
+        },
+    });
+
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    }
+
+    // Step 2: Get all outbound scan events for this order
+    const outboundScans = await db.query.scanEvents.findMany({
+        where: and(
+            eq(scanEvents.order_id, orderId),
+            eq(scanEvents.scan_type, 'OUTBOUND')
+        ),
+    });
+
+    // Step 3: Calculate progress for each asset
+    const assetsProgress = order.items.map((item) => {
+        const scannedQuantity = outboundScans
+            .filter((scan) => scan.asset_id === item.asset_id)
+            .reduce((sum, scan) => sum + scan.quantity, 0);
+
+        return {
+            asset_id: item.asset_id,
+            asset_name: item.asset_name,
+            qr_code: (item.asset as any).qr_code,
+            tracking_method: (item.asset as any).tracking_method,
+            required_quantity: item.quantity,
+            scanned_quantity: scannedQuantity,
+            is_complete: scannedQuantity >= item.quantity,
+        };
+    });
+
+    // Step 4: Calculate overall progress
+    const totalItems = order.items.reduce((sum, item) => sum + item.quantity, 0);
+    const scannedItems = assetsProgress.reduce(
+        (sum, asset) => sum + asset.scanned_quantity,
+        0
+    );
+    const percentComplete =
+        totalItems > 0 ? Math.round((scannedItems / totalItems) * 100) : 0;
+
+    return {
+        order_id: order.order_id,
+        order_status: order.order_status,
+        total_items: totalItems,
+        items_scanned: scannedItems,
+        percent_complete: percentComplete,
+        assets: assetsProgress,
+    };
+};
+
 export const ScanningServices = {
     inboundScan,
     getInboundProgress,
     completeInboundScan,
     outboundScan,
+    getOutboundProgress,
 };
