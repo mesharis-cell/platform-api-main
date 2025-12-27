@@ -43,14 +43,12 @@ const inboundScan = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
     }
 
-    // Step 2: Check company access for CLIENT users
-    if (user.role === 'CLIENT') {
-        if (!user.company_id || user.company_id !== order.company_id) {
-            throw new CustomizedError(
-                httpStatus.FORBIDDEN,
-                "You do not have access to this order"
-            );
-        }
+    // Step 2: Check user has scanning permission
+    if (user.role !== 'ADMIN' && user.role !== 'LOGISTICS') {
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            "Only warehouse staff can scan items"
+        );
     }
 
     // Step 3: Find asset by QR code
@@ -172,6 +170,7 @@ const inboundScan = async (
     await db
         .update(assets)
         .set({
+            out_quantity: sql`GREATEST(0, ${assets.out_quantity} - ${scanQuantity})`,
             available_quantity: sql`${assets.available_quantity} + ${scanQuantity}`,
             status: newStatus,
         })
