@@ -856,18 +856,17 @@
  *   get:
  *     tags:
  *       - Order Management
- *     summary: Get order scan events
+ *     summary: Get order scan events (ADMIN/LOGISTICS only)
  *     description: |
  *       Retrieves all scan events for a specific order including:
- *       - Scan type (IN/OUT)
+ *       - Complete scan event data
  *       - Asset details (name, QR code, tracking method)
  *       - Scanned by user information
- *       - Quantity, condition, notes, photos
- *       - Discrepancy information if applicable
+ *       - Order information
  *       
  *       **Access Control:**
- *       - CLIENT users can only access scan events for their own company's orders
- *       - ADMIN and LOGISTICS users can access all order scan events
+ *       - Only ADMIN and LOGISTICS users can access scan events
+ *       - CLIENT users will receive a 403 Forbidden error
  *     parameters:
  *       - $ref: '#/components/parameters/PlatformHeader'
  *       - name: orderId
@@ -898,6 +897,9 @@
  *                     type: object
  *                     properties:
  *                       id:
+ *                         type: string
+ *                         format: uuid
+ *                       platform_id:
  *                         type: string
  *                         format: uuid
  *                       order_id:
@@ -938,14 +940,17 @@
  *                         type: string
  *                         format: date-time
  *                         description: Timestamp when scan was performed
- *                       asset_details:
+ *                       created_at:
+ *                         type: string
+ *                         format: date-time
+ *                       asset:
  *                         type: object
  *                         nullable: true
  *                         properties:
- *                           asset_id:
+ *                           id:
  *                             type: string
  *                             format: uuid
- *                           asset_name:
+ *                           name:
  *                             type: string
  *                           qr_code:
  *                             type: string
@@ -956,15 +961,24 @@
  *                         type: object
  *                         nullable: true
  *                         properties:
- *                           user_id:
+ *                           id:
  *                             type: string
  *                             format: uuid
  *                           name:
  *                             type: string
+ *                       order:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                             format: uuid
+ *                           order_id:
+ *                             type: string
+ *                             example: "ORD-20251227-001"
  *       401:
  *         description: Unauthorized - Authentication required
  *       403:
- *         description: Forbidden - You don't have access to this order
+ *         description: Forbidden - Only ADMIN and LOGISTICS users can access scan events
  *       404:
  *         description: Order not found
  *       500:
