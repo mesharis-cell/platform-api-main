@@ -24,29 +24,6 @@ const submitOrder = catchAsync(async (req, res) => {
         req.body
     );
 
-    // Send email notifications (don't block on errors)
-    // try {
-    //     const emailData = {
-    //         orderId: result.orderId,
-    //         companyName: result.companyName,
-    //         eventStartDate: req.body.eventStartDate,
-    //         eventEndDate: req.body.eventEndDate,
-    //         venueCity: req.body.venueCity,
-    //         totalVolume: result.calculatedVolume,
-    //         itemCount: result.itemCount,
-    //         viewOrderUrl: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/orders/${result.orderId}`,
-    //     };
-
-    //     await OrderServices.sendOrderSubmittedNotifications(emailData);
-    //     await OrderServices.sendOrderSubmittedConfirmationToClient(
-    //         req.body.contactEmail,
-    //         req.body.contactName,
-    //         emailData
-    //     );
-    // } catch (emailError) {
-    //     console.error("Error sending email notifications:", emailError);
-    // }
-
     sendResponse(res, {
         statusCode: httpStatus.CREATED,
         success: true,
@@ -55,8 +32,25 @@ const submitOrder = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- GET ORDERS -----------------------------------------
+const getOrders = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+
+    const result = await OrderServices.getOrders(req.query, user, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Orders fetched successfully",
+        meta: result.meta,
+        data: result.data,
+    });
+});
+
 export const OrderControllers = {
     submitOrder,
+    getOrders,
 };
 
 

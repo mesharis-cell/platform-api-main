@@ -7,9 +7,17 @@ import { orderSchemas } from "./order.schemas";
 
 const router = Router();
 
+// Get orders
+router.get(
+    "/",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    OrderControllers.getOrders
+);
+
 // Submit order
 router.post(
-    "/",
+    "/submit-from-cart",
     platformValidator,
     auth("CLIENT"),
     payloadValidator(orderSchemas.submitOrderSchema),

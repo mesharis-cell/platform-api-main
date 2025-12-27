@@ -1,19 +1,48 @@
-// Placeholder email service - Replace with actual email provider integration (e.g., Resend, SendGrid)
-// This is a mock implementation that logs emails instead of sending them
+import nodemailer from 'nodemailer';
+import config from '../config';
 
 interface EmailOptions {
     to: string;
     subject: string;
     html: string;
+    from?: string;
 }
 
-export const sendEmail = async (options: EmailOptions): Promise<void> => {
-    // TODO: Replace with actual email service integration
-    console.log('📧 Email would be sent:');
-    console.log('To:', options.to);
-    console.log('Subject:', options.subject);
-    console.log('HTML length:', options.html.length);
+// Create reusable transporter
+const createTransporter = () => {
+    return nodemailer.createTransport({
+        host: config.smtp_host,
+        port: config.smtp_port,
+        secure: config.smtp_port === 465, // true for 465, false for other ports
+        auth: {
+            user: config.smtp_user,
+            pass: config.smtp_pass,
+        },
+    });
+};
 
-    // Simulate async operation
-    return Promise.resolve();
+
+export const sendEmail = async (options: EmailOptions): Promise<void> => {
+    try {
+        const { to, subject, html, from = config.email_from } = options;
+
+        const transporter = createTransporter();
+
+        // Send email
+        const info = await transporter.sendMail({
+            from: from || `"${config.app_name}" <${config.email_from}>`,
+            to,
+            subject,
+            html,
+        });
+
+        console.log('✅ Email sent successfully:', {
+            messageId: info.messageId,
+            to,
+            subject,
+        });
+    } catch (error) {
+        console.error('❌ Error sending email:', error);
+        throw error;
+    }
 };
