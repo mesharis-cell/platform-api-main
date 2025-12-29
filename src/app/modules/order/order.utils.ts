@@ -1,6 +1,7 @@
-import { desc, sql } from "drizzle-orm";
+import dayjs from "dayjs";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../../../db";
-import { financialStatusEnum, orders, orderStatusEnum } from "../../../db/schema";
+import { financialStatusEnum, orderItems, orders, orderStatusEnum, scanEvents } from "../../../db/schema";
 import { sortOrderType } from "../../constants/common";
 import { AuthUser } from "../../interface/common";
 import { OrderSubmittedEmailData, RecipientRole } from "./order.interfaces";
@@ -48,9 +49,6 @@ export const orderIdGenerator = async (): Promise<string> => {
 	const sequenceStr = sequence.toString().padStart(3, '0')
 	return `${prefix}${sequenceStr}`
 }
-
-// Buffer days for asset availability (for delivery/pickup logistics)
-export const AVAILABILITY_BUFFER_DAYS = 3;
 
 // ----------------------------------- RENDER ORDER SUBMITTED EMAIL ---------------------------
 export const renderOrderSubmittedEmail = (
@@ -232,4 +230,106 @@ export function validateRoleBasedTransition(
 	}
 
 	return false;
+}
+
+/**
+ * Calculate blocked period for an order including all buffers
+ * Feedback #5: Adds 5-day prep + 3-day return buffers
+ * Feedback #2: Adds refurb days if item needs refurbishment
+ */
+
+// Preparation buffer days (time needed before event to prepare assets)
+export const PREP_BUFFER_DAYS = 5;
+
+// Return buffer days (time needed after event for return and processing)
+export const RETURN_BUFFER_DAYS = 3;
+
+export function calculateBlockedPeriod(
+	eventStartDate: Date,
+	eventEndDate: Date,
+	refurbDays: number = 0
+): { blockedFrom: Date; blockedUntil: Date } {
+	// Total prep time = prep buffer + refurb time
+	const totalPrepDays = PREP_BUFFER_DAYS + refurbDays
+
+	const blockedFrom = dayjs(eventStartDate).subtract(totalPrepDays, 'day').toDate()
+	const blockedUntil = dayjs(eventEndDate).add(RETURN_BUFFER_DAYS, 'day').toDate()
+
+	return { blockedFrom, blockedUntil }
+}
+
+// ----------------------------------- VALIDATE INBOUND SCANNING COMPLETE ----------------------
+/**
+ * Validates that all order items have been scanned in (inbound)
+ * Returns true if all items scanned, false otherwise
+ */
+export async function validateInboundScanningComplete(
+	orderId: string
+): Promise<boolean> {
+	// Get all order items
+	const items = await db.query.orderItems.findMany({
+		where: eq(orderItems.order_id, orderId),
+	});
+
+	if (items.length === 0) {
+		return true; // No items to scan
+	}
+
+	// Get all inbound scan events for this order
+	const inboundScans = await db.query.scanEvents.findMany({
+		where: and(
+			eq(scanEvents.order_id, orderId),
+			eq(scanEvents.scan_type, 'INBOUND')
+		),
+	});
+
+	// Check if each item has been fully scanned in
+	for (const item of items) {
+		const scannedQuantity = inboundScans
+			.filter((scan) => scan.asset_id === item.asset_id)
+			.reduce((sum, scan) => sum + scan.quantity, 0);
+
+		if (scannedQuantity < item.quantity) {
+			console.log(
+				`❌ Item ${item.asset_name} not fully scanned: ${scannedQuantity}/${item.quantity}`
+			);
+			return false;
+		}
+	}
+
+	console.log(`✅ All items scanned in for order ${orderId}`);
+	return true;
+}
+
+// ----------------------------------- GET NOTIFICATION TYPE FOR TRANSITION --------------------
+/**
+ * Maps status transitions to notification types
+ */
+export function getNotificationTypeForTransition(
+	fromStatus: string,
+	toStatus: string
+): string | null {
+	// Map status transitions to notification types
+	const transitionMap: Record<string, string> = {
+		'DRAFT->SUBMITTED': 'ORDER_SUBMITTED',
+		'SUBMITTED->PRICING_REVIEW': '', // No notification needed
+		'PRICING_REVIEW->QUOTED': 'QUOTE_SENT', // A2 approved standard pricing, goes direct to client
+		'PRICING_REVIEW->PENDING_APPROVAL': 'A2_ADJUSTED_PRICING', // A2 adjusted price, needs PMG review
+		'PENDING_APPROVAL->QUOTED': 'QUOTE_SENT', // PMG approved, send to client
+		'QUOTED->CONFIRMED': 'QUOTE_APPROVED', // Direct to CONFIRMED
+		'QUOTED->DECLINED': 'QUOTE_DECLINED',
+		'CONFIRMED->IN_PREPARATION': 'ORDER_CONFIRMED',
+		'IN_PREPARATION->READY_FOR_DELIVERY': 'READY_FOR_DELIVERY',
+		'READY_FOR_DELIVERY->IN_TRANSIT': 'IN_TRANSIT',
+		'IN_TRANSIT->DELIVERED': 'DELIVERED',
+		'DELIVERED->IN_USE': '', // No notification needed
+		'IN_USE->AWAITING_RETURN': '', // No notification needed (PICKUP_REMINDER sent via cron 48h before)
+		'AWAITING_RETURN->CLOSED': 'ORDER_CLOSED',
+	};
+
+	const key = `${fromStatus}->${toStatus}`;
+	const notificationType = transitionMap[key];
+
+	// Return null if empty string (no notification) or undefined (not in map)
+	return notificationType && notificationType !== '' ? notificationType : null;
 }

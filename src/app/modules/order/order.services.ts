@@ -3,12 +3,14 @@ import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, lte, sql } from
 import httpStatus from "http-status";
 import { db } from "../../../db";
 import {
+    assetBookings,
     assets,
     brands,
     collections,
     companies,
     orderItems,
     orders,
+    orderStatusHistory,
     pricingTiers,
     scanEvents,
     users
@@ -19,18 +21,11 @@ import { sendEmail } from "../../services/email.service";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
 import { OrderItem, OrderSubmittedEmailData, SubmitOrderPayload } from "./order.interfaces";
-import { isValidTransition, orderQueryValidationConfig, orderSortableFields, validateRoleBasedTransition } from "./order.utils";
+import { calculateBlockedPeriod, getNotificationTypeForTransition, isValidTransition, orderQueryValidationConfig, orderSortableFields, validateInboundScanningComplete, validateRoleBasedTransition } from "./order.utils";
 
 // Import asset availability checker
-import { checkMultipleAssetsAvailability } from "../asset/assets.services";
+import { checkMultipleAssetsAvailability, getAssetAvailabilitySummary } from "../asset/assets.services";
 import { orderIdGenerator, renderOrderSubmittedEmail } from "./order.utils";
-// Import helper functions
-import {
-    createStatusHistoryEntry,
-    getNotificationTypeForTransition,
-    releaseAssetsForOrder,
-    validateInboundScanningComplete
-} from './order.helpers';
 
 // ----------------------------------- SUBMIT ORDER FROM CART ---------------------------------
 const submitOrderFromCart = async (
@@ -814,29 +809,35 @@ const progressOrderStatus = async (
 ) => {
     const { new_status, notes } = payload;
 
-    // Step 1: Get order with company details
-    const result = await db
-        .select({
-            order: orders,
-            company: {
-                id: companies.id,
-                name: companies.name,
-            },
-        })
-        .from(orders)
-        .leftJoin(companies, eq(orders.company_id, companies.id))
-        .where(and(
+    // Step 1: Get order with company details and items
+    const order = await db.query.orders.findFirst({
+        where: and(
             eq(orders.id, orderId),
             eq(orders.platform_id, platformId)
-        ))
-        .limit(1);
+        ),
+        with: {
+            company: {
+                columns: {
+                    id: true,
+                    name: true,
+                },
+            },
+            items: {
+                with: {
+                    asset: {
+                        columns: {
+                            id: true,
+                            refurb_days_estimate: true,
+                        },
+                    },
+                },
+            },
+        },
+    });
 
-    if (result.length === 0) {
+    if (!order) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
     }
-
-    const orderData = result[0];
-    const order = orderData.order;
 
     // Step 2: Check company access for CLIENT users
     if (user.role === 'CLIENT') {
@@ -847,6 +848,7 @@ const progressOrderStatus = async (
             );
         }
     }
+
 
     // Step 3: Validate state transition
     const currentStatus = order.order_status;
@@ -875,15 +877,16 @@ const progressOrderStatus = async (
 
         // Create booking for each item
         for (const item of order.items) {
-            const refurbDays = item.asset.refurbDaysEstimate || 0
-
+            const refurbDays = item.asset.refurb_days_estimate || 0
             await createBooking(
                 item.asset.id,
                 orderId,
                 item.quantity,
                 order.event_start_date,
                 order.event_end_date,
-                refurbDays
+                refurbDays,
+                user,
+                platformId
             )
         }
     }
@@ -900,7 +903,9 @@ const progressOrderStatus = async (
         }
 
         // Release assets
-        await releaseAssetsForOrder(orderId, platformId);
+        await db
+            .delete(assetBookings)
+            .where(eq(assetBookings.order_id, orderId));
     }
 
     // Step 6: Update order status
@@ -913,7 +918,13 @@ const progressOrderStatus = async (
         .where(eq(orders.id, orderId));
 
     // Step 7: Create status history entry
-    await createStatusHistoryEntry(orderId, new_status, user.id, platformId, notes);
+    await db.insert(orderStatusHistory).values({
+        platform_id: platformId,
+        order_id: orderId,
+        status: new_status as any,
+        notes: notes || null,
+        updated_by: user.id,
+    });
 
     // Step 8: Get updated order
     const [updatedOrder] = await db
@@ -936,6 +947,48 @@ const progressOrderStatus = async (
         updated_at: updatedOrder.updated_at,
     };
 };
+
+export async function createBooking(
+    assetId: string,
+    orderId: string,
+    quantity: number,
+    eventStartDate: Date,
+    eventEndDate: Date,
+    refurbDays: number = 0,
+    user: AuthUser,
+    platformId: string
+): Promise<void> {
+    // Calculate blocked period with buffers
+    const { blockedFrom, blockedUntil } = calculateBlockedPeriod(
+        eventStartDate,
+        eventEndDate,
+        refurbDays
+    )
+
+    // Check availability first
+    const availability = await getAssetAvailabilitySummary(
+        assetId,
+        blockedFrom,
+        blockedUntil,
+        user,
+        platformId
+    )
+
+    if (availability.available_quantity < quantity) {
+        throw new Error(
+            `Insufficient availability for asset. Available: ${availability.available_quantity}, Requested: ${quantity}`
+        )
+    }
+
+    // Create booking
+    await db.insert(assetBookings).values({
+        asset_id: assetId,
+        order_id: orderId,
+        quantity,
+        blocked_from: blockedFrom,
+        blocked_until: blockedUntil,
+    })
+}
 
 export const OrderServices = {
     submitOrderFromCart,

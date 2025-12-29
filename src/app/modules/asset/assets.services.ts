@@ -1047,7 +1047,7 @@ export const checkMultipleAssetsAvailability = async (
 };
 
 // ----------------------------------- HELPER: GET ASSET AVAILABILITY SUMMARY -------------
-const getAssetAvailabilitySummary = async (
+export const getAssetAvailabilitySummary = async (
     assetId: string,
     startDate: Date,
     endDate: Date,
