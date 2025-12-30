@@ -1,5 +1,4 @@
 import httpStatus from "http-status";
-import config from "../../config";
 import CustomizedError from "../../error/customized-error";
 import catchAsync from "../../shared/catch-async";
 import sendResponse from "../../shared/send-response";
@@ -20,13 +19,7 @@ const login = catchAsync(async (req, res) => {
 });
 
 const getPlatformByDomain = catchAsync(async (req, res) => {
-  const hostname = req.query.hostname as string;
-
-  if (!hostname) {
-    throw new CustomizedError(httpStatus.BAD_REQUEST, "Hostname is required");
-  }
-
-  const result = await AuthServices.getConfigByHostname(hostname);
+  const result = await AuthServices.getConfigByHostname(req.headers.origin as string);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,

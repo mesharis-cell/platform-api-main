@@ -10,6 +10,7 @@ import "./app/modules/company/company.swagger";
 import "./app/modules/order/order.swagger";
 import "./app/modules/platform/platform.swagger";
 import "./app/modules/pricing-tier/pricing-tier.swagger";
+import "./app/modules/scanning/scanning.swagger";
 import "./app/modules/user/user.swagger";
 import "./app/modules/warehouse/warehouse.swagger";
 import "./app/modules/zone/zone.swagger";
@@ -152,6 +153,11 @@ const swaggerDefinition = {
       name: "Asset Management",
       description:
         "Asset CRUD operations for inventory management with condition tracking and QR code generation",
+    },
+    {
+      name: "Scanning",
+      description:
+        "Warehouse scanning operations for inbound and outbound asset tracking with QR code validation",
     },
   ],
 };

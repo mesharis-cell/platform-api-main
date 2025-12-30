@@ -1,18 +1,18 @@
 import { relations, sql } from 'drizzle-orm'
 import {
-    boolean,
-    decimal,
-    index,
-    integer,
-    jsonb,
-    pgEnum,
-    pgTable,
-    text,
-    timestamp,
-    unique,
-    uniqueIndex,
-    uuid,
-    varchar,
+  boolean,
+  decimal,
+  index,
+  integer,
+  jsonb,
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  uniqueIndex,
+  uuid,
+  varchar,
 } from 'drizzle-orm/pg-core'
 
 // ============================================================
