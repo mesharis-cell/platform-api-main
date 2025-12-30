@@ -57,6 +57,14 @@ router.patch(
     OrderControllers.updateJobNumber
 );
 
+// Get order status history
+router.get(
+    "/:id/status-history",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    OrderControllers.getOrderStatusHistory
+);
+
 // Get order scan events
 router.get(
     "/:orderId/scan-events",

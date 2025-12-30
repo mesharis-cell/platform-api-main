@@ -995,6 +995,58 @@ export async function createBooking(
     })
 }
 
+// ----------------------------------- GET ORDER STATUS HISTORY -------------------------------
+const getOrderStatusHistory = async (orderId: string, user: AuthUser, platformId: string) => {
+    // Step 1: Verify order exists and user has access
+    const [order] = await db
+        .select({
+            id: orders.id,
+            order_id: orders.order_id,
+            order_status: orders.order_status,
+            company_id: orders.company_id,
+        })
+        .from(orders)
+        .where(and(
+            eq(orders.id, orderId),
+            eq(orders.platform_id, platformId)
+        ));
+
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    }
+
+    // Step 2: Check company access (clients can only see own company)
+    if (user.role === 'CLIENT') {
+        if (user.company_id !== order.company_id) {
+            throw new CustomizedError(httpStatus.FORBIDDEN, "You do not have access to this order");
+        }
+    }
+
+    // Step 3: Fetch status history
+    const history = await db
+        .select({
+            id: orderStatusHistory.id,
+            status: orderStatusHistory.status,
+            notes: orderStatusHistory.notes,
+            timestamp: orderStatusHistory.timestamp,
+            updated_by_user: {
+                id: users.id,
+                name: users.name,
+                email: users.email,
+            },
+        })
+        .from(orderStatusHistory)
+        .leftJoin(users, eq(orderStatusHistory.updated_by, users.id))
+        .where(eq(orderStatusHistory.order_id, order.id))
+        .orderBy(desc(orderStatusHistory.timestamp));
+
+    return {
+        order_id: order.order_id,
+        current_status: order.order_status,
+        history: history,
+    };
+};
+
 export const OrderServices = {
     submitOrderFromCart,
     getOrders,
@@ -1003,5 +1055,6 @@ export const OrderServices = {
     updateJobNumber,
     getOrderScanEvents,
     progressOrderStatus,
+    getOrderStatusHistory,
 };
 
