@@ -832,6 +832,92 @@
 
 /**
  * @swagger
+ * /api/client/v1/order/{id}/status-history:
+ *   get:
+ *     tags:
+ *       - Order Management
+ *     summary: Get order status history
+ *     description: |
+ *       Retrieves the status history of a specific order.
+ *       
+ *       **Access Control:**
+ *       - ADMIN and LOGISTICS users can view history for all orders
+ *       - CLIENT users can only view history for their company's orders
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         description: Order ID (UUID)
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *           example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *     responses:
+ *       200:
+ *         description: Status history fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Order status history fetched successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     order_id:
+ *                       type: string
+ *                       example: "ORD-20251227-001"
+ *                     current_status:
+ *                       type: string
+ *                       example: "CONFIRMED"
+ *                     history:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                             format: uuid
+ *                           status:
+ *                             type: string
+ *                             example: "CONFIRMED"
+ *                           notes:
+ *                             type: string
+ *                             nullable: true
+ *                             example: "Order validated and confirmed."
+ *                           timestamp:
+ *                             type: string
+ *                             format: date-time
+ *                           updated_by_user:
+ *                             type: object
+ *                             properties:
+ *                               id:
+ *                                 type: string
+ *                                 format: uuid
+ *                               name:
+ *                                 type: string
+ *                               email:
+ *                                 type: string
+ *       401:
+ *         description: Unauthorized - Authentication required
+ *       403:
+ *         description: Forbidden - Insufficient permissions or no access to order
+ *       404:
+ *         description: Order not found
+ *       500:
+ *         description: Internal server error
+ *     security:
+ *       - BearerAuth: []
+ */
+
+/**
+ * @swagger
  * /api/client/v1/order/{id}/job-number:
  *   patch:
  *     tags:

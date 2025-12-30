@@ -229,6 +229,22 @@ const getClientDashboardSummary = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- GET ORDER STATUS HISTORY ---------------------------
+const getOrderStatusHistory = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const { id } = req.params;
+
+    const result = await OrderServices.getOrderStatusHistory(id, user, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Order status history fetched successfully",
+        data: result,
+    });
+});
+
 
 export const OrderControllers = {
     submitOrder,
@@ -240,6 +256,7 @@ export const OrderControllers = {
     getOrderScanEvents,
     progressOrderStatus,
     getClientDashboardSummary,
+    getOrderStatusHistory,
 };
 
 
