@@ -918,6 +918,111 @@
 
 /**
  * @swagger
+ * /api/client/v1/order/{id}/time-windows:
+ *   patch:
+ *     tags:
+ *       - Order Management
+ *     summary: Update order time windows (ADMIN/LOGISTICS only)
+ *     description: |
+ *       Updates the delivery and pickup time windows for a specific order.
+ *       Cannot update time windows if order is IN_TRANSIT, DELIVERED, IN_USE, AWAITING_RETURN, or CLOSED.
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         description: Order ID (UUID)
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *           example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - delivery_window_start
+ *               - delivery_window_end
+ *               - pickup_window_start
+ *               - pickup_window_end
+ *             properties:
+ *               delivery_window_start:
+ *                 type: string
+ *                 format: date-time
+ *                 example: "2025-01-15T09:00:00Z"
+ *               delivery_window_end:
+ *                 type: string
+ *                 format: date-time
+ *                 example: "2025-01-15T11:00:00Z"
+ *               pickup_window_start:
+ *                 type: string
+ *                 format: date-time
+ *                 example: "2025-01-16T14:00:00Z"
+ *               pickup_window_end:
+ *                 type: string
+ *                 format: date-time
+ *                 example: "2025-01-16T16:00:00Z"
+ *     responses:
+ *       200:
+ *         description: Time windows updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Time windows updated successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                     order_id:
+ *                       type: string
+ *                     delivery_window:
+ *                       type: object
+ *                       properties:
+ *                         start:
+ *                           type: string
+ *                           format: date-time
+ *                         end:
+ *                           type: string
+ *                           format: date-time
+ *                     pickup_window:
+ *                       type: object
+ *                       properties:
+ *                         start:
+ *                           type: string
+ *                           format: date-time
+ *                         end:
+ *                           type: string
+ *                           format: date-time
+ *                     updated_at:
+ *                       type: string
+ *                       format: date-time
+ *       400:
+ *         description: Invalid dates or bad request
+ *       401:
+ *         description: Unauthorized - Authentication required
+ *       403:
+ *         description: Forbidden - Insufficient permissions
+ *       404:
+ *         description: Order not found
+ *       500:
+ *         description: Internal server error
+ *     security:
+ *       - BearerAuth: []
+ */
+
+/**
+ * @swagger
  * /api/client/v1/order/{id}/job-number:
  *   patch:
  *     tags:

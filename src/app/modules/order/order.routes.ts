@@ -57,6 +57,15 @@ router.patch(
     OrderControllers.updateJobNumber
 );
 
+// Update time windows
+router.patch(
+    "/:id/time-windows",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    payloadValidator(orderSchemas.updateTimeWindowsSchema),
+    OrderControllers.updateTimeWindows
+);
+
 // Get order status history
 router.get(
     "/:id/status-history",

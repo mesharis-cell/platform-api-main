@@ -51,8 +51,44 @@ const progressStatusSchema = z.object({
     }).strict(),
 });
 
+const updateTimeWindowsSchema = z.object({
+    body: z.object({
+        delivery_window_start: z.string("Delivery window start date is required").refine(
+            (date) => !isNaN(Date.parse(date)),
+            "Invalid delivery window start date format"
+        ),
+        delivery_window_end: z.string("Delivery window end date is required").refine(
+            (date) => !isNaN(Date.parse(date)),
+            "Invalid delivery window end date format"
+        ),
+        pickup_window_start: z.string("Pickup window start date is required").refine(
+            (date) => !isNaN(Date.parse(date)),
+            "Invalid pickup window start date format"
+        ),
+        pickup_window_end: z.string("Pickup window end date is required").refine(
+            (date) => !isNaN(Date.parse(date)),
+            "Invalid pickup window end date format"
+        ),
+    }).strict().refine((data) => {
+        const deliveryStart = new Date(data.delivery_window_start);
+        const deliveryEnd = new Date(data.delivery_window_end);
+        return deliveryEnd >= deliveryStart;
+    }, {
+        message: "Delivery window end must be after start",
+        path: ["delivery_window_end"],
+    }).refine((data) => {
+        const pickupStart = new Date(data.pickup_window_start);
+        const pickupEnd = new Date(data.pickup_window_end);
+        return pickupEnd >= pickupStart;
+    }, {
+        message: "Pickup window end must be after start",
+        path: ["pickup_window_end"],
+    }),
+});
+
 export const orderSchemas = {
     submitOrderSchema,
     updateJobNumberSchema,
     progressStatusSchema,
+    updateTimeWindowsSchema,
 };

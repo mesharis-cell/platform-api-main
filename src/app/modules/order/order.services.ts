@@ -1047,6 +1047,66 @@ const getOrderStatusHistory = async (orderId: string, user: AuthUser, platformId
     };
 };
 
+// ----------------------------------- UPDATE ORDER TIME WINDOWS ------------------------------
+const updateOrderTimeWindows = async (
+    orderId: string,
+    payload: {
+        delivery_window_start: string;
+        delivery_window_end: string;
+        pickup_window_start: string;
+        pickup_window_end: string;
+    },
+    user: AuthUser,
+    platformId: string
+) => {
+    console.log(payload);
+    // Step 1: Verify order exists
+    const [order] = await db
+        .select()
+        .from(orders)
+        .where(and(
+            eq(orders.id, orderId),
+            eq(orders.platform_id, platformId)
+        ));
+
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    }
+
+    // Step 2: Validate order status (immutable statuses)
+    const immutableStatuses = ["IN_TRANSIT", "DELIVERED", "IN_USE", "AWAITING_RETURN", "CLOSED"];
+    if (immutableStatuses.includes(order.order_status)) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Cannot update time windows after order is in transit");
+    }
+
+    // Step 3: Update order
+    const deliveryStart = new Date(payload.delivery_window_start);
+    const deliveryEnd = new Date(payload.delivery_window_end);
+    const pickupStart = new Date(payload.pickup_window_start);
+    const pickupEnd = new Date(payload.pickup_window_end);
+
+    const [updatedOrder] = await db
+        .update(orders)
+        .set({
+            delivery_window: { start: deliveryStart, end: deliveryEnd },
+            pickup_window: { start: pickupStart, end: pickupEnd },
+            updated_at: new Date(),
+        })
+        .where(eq(orders.id, orderId))
+        .returning();
+
+    // Step 4: Send notification (Asynchronous)
+    await NotificationLogServices.sendNotification(platformId, "TIME_WINDOWS_UPDATED", updatedOrder);
+
+    return {
+        id: updatedOrder.id,
+        order_id: updatedOrder.order_id,
+        delivery_window: updatedOrder.delivery_window,
+        pickup_window: updatedOrder.pickup_window,
+        updated_at: updatedOrder.updated_at,
+    };
+};
+
 export const OrderServices = {
     submitOrderFromCart,
     getOrders,
@@ -1056,5 +1116,6 @@ export const OrderServices = {
     getOrderScanEvents,
     progressOrderStatus,
     getOrderStatusHistory,
+    updateOrderTimeWindows,
 };
 

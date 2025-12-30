@@ -224,6 +224,27 @@ const getOrderStatusHistory = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- UPDATE TIME WINDOWS --------------------------------
+const updateTimeWindows = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const { id } = req.params;
+
+    const result = await OrderServices.updateOrderTimeWindows(
+        id,
+        req.body,
+        user,
+        platformId
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Time windows updated successfully",
+        data: result,
+    });
+});
+
 export const OrderControllers = {
     submitOrder,
     getOrders,
@@ -234,6 +255,7 @@ export const OrderControllers = {
     getOrderScanEvents,
     progressOrderStatus,
     getOrderStatusHistory,
+    updateTimeWindows,
 };
 
 

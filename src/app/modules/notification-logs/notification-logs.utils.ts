@@ -152,15 +152,15 @@ export async function sendEmailWithLogging(
     html: string
 ): Promise<string> {
     // In development, log email instead of sending
-    if (config.node_env === 'development') {
-        console.log('='.repeat(80))
-        console.log('EMAIL (Development Mode - Not Sent)')
-        console.log('='.repeat(80))
-        console.log('To:', to)
-        console.log('Subject:', subject)
-        console.log('='.repeat(80))
-        return 'dev-message-id-' + Date.now()
-    }
+    // if (config.node_env === 'development') {
+    //     console.log('='.repeat(80))
+    //     console.log('EMAIL (Development Mode - Not Sent)')
+    //     console.log('='.repeat(80))
+    //     console.log('To:', to)
+    //     console.log('Subject:', subject)
+    //     console.log('='.repeat(80))
+    //     return 'dev-message-id-' + Date.now()
+    // }
 
     // In production, send via Nodemailer
     const messageId = await sendEmail({
