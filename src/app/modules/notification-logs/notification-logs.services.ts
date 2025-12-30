@@ -14,7 +14,7 @@ const sendNotification = async (
     // Step 1: Determine recipients (use override or fetch based on notification type)
     const recipients =
         overrideRecipients ||
-        (await getRecipientsForNotification(notificationType, order));
+        (await getRecipientsForNotification(platformId, notificationType, order));
 
     // Step 2: Build notification data from order details
     const data = await buildNotificationData(order);
@@ -43,13 +43,16 @@ const sendNotification = async (
         return
     }
 
+    let messageId = ''
     // Step 6: Send email to all primary recipients
     for (const toEmail of recipients.to) {
-        await sendEmailWithLogging(
+        const messageIdRes = await sendEmailWithLogging(
             toEmail,
             subject,
             html
         )
+
+        messageId = messageIdRes
     }
 
     // Step 7: Update notification log status to SENT
@@ -58,6 +61,7 @@ const sendNotification = async (
         .set({
             status: 'SENT',
             sent_at: new Date(),
+            message_id: messageId,
         })
         .where(eq(notificationLogs.id, logEntry.id))
 

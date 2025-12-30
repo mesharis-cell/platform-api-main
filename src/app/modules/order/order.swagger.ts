@@ -747,6 +747,91 @@
 
 /**
  * @swagger
+ * /api/client/v1/order/{id}/status:
+ *   patch:
+ *     tags:
+ *       - Order Management
+ *     summary: Progress order status (ADMIN/LOGISTICS only)
+ *     description: |
+ *       Updates the status of a specific order.
+ *       This endpoint is restricted to ADMIN and LOGISTICS users only.
+ *       
+ *       **Access Control:**
+ *       - ADMIN and LOGISTICS users can update order status
+ *       - CLIENT users will receive a 403 Forbidden error
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         description: Order ID (UUID)
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *           example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - new_status
+ *             properties:
+ *               new_status:
+ *                 type: string
+ *                 enum: [DRAFT, SUBMITTED, PRICING_REVIEW, PENDING_APPROVAL, QUOTED, DECLINED, CONFIRMED, IN_PREPARATION, READY_FOR_DELIVERY, IN_TRANSIT, DELIVERED, IN_USE, AWAITING_RETURN, CLOSED]
+ *                 description: The new status to transition to
+ *                 example: "CONFIRMED"
+ *               notes:
+ *                 type: string
+ *                 description: Optional notes for the status change
+ *                 example: "Order validated and confirmed."
+ *     responses:
+ *       200:
+ *         description: Order status updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Order status updated successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                     order_id:
+ *                       type: string
+ *                       example: "ORD-20251227-001"
+ *                     order_status:
+ *                       type: string
+ *                       example: "CONFIRMED"
+ *                     updated_at:
+ *                       type: string
+ *                       format: date-time
+ *       400:
+ *         description: Invalid status transition or bad request
+ *       401:
+ *         description: Unauthorized - Authentication required
+ *       403:
+ *         description: Forbidden - Insufficient permissions
+ *       404:
+ *         description: Order not found
+ *       500:
+ *         description: Internal server error
+ *     security:
+ *       - BearerAuth: []
+ */
+
+/**
+ * @swagger
  * /api/client/v1/order/{id}/job-number:
  *   patch:
  *     tags:

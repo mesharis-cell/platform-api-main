@@ -6,10 +6,7 @@ import { sendEmail } from "../../services/email.service"
 import { formatDateForEmail, formatTimeWindow } from "../../utils/date-time"
 import { NotificationData, NotificationRecipients, NotificationType } from "./notification-logs.interfaces"
 
-// ----------------------------------- GET NOTIFICATION TYPE FOR TRANSITION --------------------
-/**
- * Maps status transitions to notification types
- */
+// ----------------------------------- GET NOTIFICATION TYPE FOR TRANSITION -----------------------
 export function getNotificationTypeForTransition(
     fromStatus: string,
     toStatus: string
@@ -39,7 +36,9 @@ export function getNotificationTypeForTransition(
     return notificationType && notificationType !== '' ? notificationType : null;
 }
 
+// ----------------------------------- GET RECIPIENTS FOR NOTIFICATION ----------------------------
 export const getRecipientsForNotification = async (
+    platformId: string,
     notificationType: NotificationType,
     order: any
 ): Promise<NotificationRecipients> => {
@@ -49,6 +48,7 @@ export const getRecipientsForNotification = async (
         .from(users)
         .where(
             and(
+                eq(users.platform_id, platformId),
                 eq(users.role, 'ADMIN'),
                 sql`${users.email} NOT LIKE '%@system.internal'`
             )
@@ -65,6 +65,7 @@ export const getRecipientsForNotification = async (
         .from(users)
         .where(
             and(
+                eq(users.platform_id, platformId),
                 eq(users.role, 'LOGISTICS'),
                 sql`${users.email} NOT LIKE '%@system.internal'`
             )
@@ -103,6 +104,7 @@ export const getRecipientsForNotification = async (
     return matrix[notificationType]
 }
 
+// ----------------------------------- BUILD NOTIFICATION DATA ------------------------------------
 export const buildNotificationData = async (order: any): Promise<NotificationData> => {
     const baseUrl = config.frontend_url || 'http://localhost:3000'
 
@@ -143,11 +145,12 @@ export const buildNotificationData = async (order: any): Promise<NotificationDat
     }
 }
 
+// ----------------------------------- SEND EMAIL WITH LOGGING ------------------------------------
 export async function sendEmailWithLogging(
     to: string,
     subject: string,
     html: string
-) {
+): Promise<string> {
     // In development, log email instead of sending
     if (config.node_env === 'development') {
         console.log('='.repeat(80))
@@ -159,10 +162,12 @@ export async function sendEmailWithLogging(
         return 'dev-message-id-' + Date.now()
     }
 
-    // In production, send via Resend
-    await sendEmail({
+    // In production, send via Nodemailer
+    const messageId = await sendEmail({
         to,
         subject,
         html,
     })
+
+    return messageId
 }

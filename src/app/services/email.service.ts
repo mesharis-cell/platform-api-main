@@ -22,7 +22,7 @@ const createTransporter = () => {
 };
 
 
-export const sendEmail = async (options: EmailOptions): Promise<void> => {
+export const sendEmail = async (options: EmailOptions): Promise<string> => {
     try {
         const { to, subject, html, from = config.email_from } = options;
 
@@ -41,6 +41,8 @@ export const sendEmail = async (options: EmailOptions): Promise<void> => {
             to,
             subject,
         });
+
+        return info.messageId
     } catch (error) {
         console.error('❌ Error sending email:', error);
         throw error;

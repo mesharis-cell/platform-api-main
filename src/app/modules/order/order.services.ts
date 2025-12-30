@@ -937,10 +937,11 @@ const progressOrderStatus = async (
 
     // Step 9: Trigger notification if applicable (asynchronously, don't block response)
     const notificationType = getNotificationTypeForTransition(currentStatus, new_status);
+
     if (notificationType) {
         // TODO: Send notification asynchronously
         await NotificationLogServices.sendNotification(platformId, notificationType as NotificationType, updatedOrder);
-        console.log(`📧 Notification type: ${notificationType} for order ${order.order_id}`);
+        console.log(`📧 Notification sent: ${notificationType} for order ${order.order_id}`);
     }
 
     return {
