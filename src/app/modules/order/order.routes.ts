@@ -39,6 +39,15 @@ router.get(
     OrderControllers.getOrderById
 );
 
+// Progress order status
+router.patch(
+    "/:id/status",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    payloadValidator(orderSchemas.progressStatusSchema),
+    OrderControllers.progressOrderStatus
+);
+
 // Update job number
 router.patch(
     "/:id/job-number",

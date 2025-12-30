@@ -351,12 +351,27 @@ const getAssets = async (query: Record<string, any>, user: AuthUser, platformId:
             .where(and(...conditions)),
     ]);
 
+    	// Get summary counts
+	const [redCount] = await db
+		.select({ count: sql<number>`count(*)` })
+		.from(assets)
+		.where(and(eq(assets.platform_id, platformId), eq(assets.condition, 'RED'), isNull(assets.deleted_at)))
+
+	const [orangeCount] = await db
+		.select({ count: sql<number>`count(*)` })
+		.from(assets)
+		.where(and(eq(assets.platform_id, platformId), eq(assets.condition, 'ORANGE'), isNull(assets.deleted_at)))
+
     // Step 6: Return paginated response
     return {
         meta: {
             page: pageNumber,
             limit: limitNumber,
             total: total[0].count,
+            summary: {
+                red_count: redCount.count,
+                orange_count: orangeCount.count,
+            },
         },
         data: result,
     };
@@ -1047,7 +1062,7 @@ export const checkMultipleAssetsAvailability = async (
 };
 
 // ----------------------------------- HELPER: GET ASSET AVAILABILITY SUMMARY -------------
-const getAssetAvailabilitySummary = async (
+export const getAssetAvailabilitySummary = async (
     assetId: string,
     startDate: Date,
     endDate: Date,

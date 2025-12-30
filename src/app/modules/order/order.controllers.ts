@@ -187,6 +187,27 @@ const getOrderScanEvents = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- PROGRESS ORDER STATUS ------------------------------
+const progressOrderStatus = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const { id } = req.params;
+
+    const result = await OrderServices.progressOrderStatus(
+        id,
+        req.body,
+        user,
+        platformId
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: `Order status updated to ${req.body.new_status}`,
+        data: result,
+    });
+});
+
 export const OrderControllers = {
     submitOrder,
     getOrders,
@@ -195,6 +216,7 @@ export const OrderControllers = {
     getOrderById,
     updateJobNumber,
     getOrderScanEvents,
+    progressOrderStatus,
 };
 
 

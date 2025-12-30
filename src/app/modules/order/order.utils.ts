@@ -1,7 +1,9 @@
-import { desc, sql } from "drizzle-orm";
+import dayjs from "dayjs";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../../../db";
-import { financialStatusEnum, orders, orderStatusEnum } from "../../../db/schema";
+import { financialStatusEnum, orderItems, orders, orderStatusEnum, scanEvents } from "../../../db/schema";
 import { sortOrderType } from "../../constants/common";
+import { AuthUser } from "../../interface/common";
 import { OrderSubmittedEmailData, RecipientRole } from "./order.interfaces";
 
 // Sortable fields for order queries
@@ -47,9 +49,6 @@ export const orderIdGenerator = async (): Promise<string> => {
 	const sequenceStr = sequence.toString().padStart(3, '0')
 	return `${prefix}${sequenceStr}`
 }
-
-// Buffer days for asset availability (for delivery/pickup logistics)
-export const AVAILABILITY_BUFFER_DAYS = 3;
 
 // ----------------------------------- RENDER ORDER SUBMITTED EMAIL ---------------------------
 export const renderOrderSubmittedEmail = (
@@ -167,3 +166,137 @@ export const renderOrderSubmittedEmail = (
 </body>
 	`.trim();
 };
+
+// ----------------------------------- STATUS TRANSITIONS -------------------------------------
+export const VALID_STATE_TRANSITIONS: Record<string, string[]> = {
+	DRAFT: ['SUBMITTED'],
+	SUBMITTED: ['PRICING_REVIEW'],
+	PRICING_REVIEW: ['QUOTED', 'PENDING_APPROVAL'],
+	PENDING_APPROVAL: ['QUOTED'],
+	QUOTED: ['CONFIRMED', 'DECLINED'],
+	DECLINED: [],
+	CONFIRMED: ['IN_PREPARATION'],
+	IN_PREPARATION: ['READY_FOR_DELIVERY'],
+	READY_FOR_DELIVERY: ['IN_TRANSIT'],
+	IN_TRANSIT: ['DELIVERED'],
+	DELIVERED: ['IN_USE'],
+	IN_USE: ['AWAITING_RETURN'],
+	AWAITING_RETURN: ['CLOSED'],
+	CLOSED: [],
+};
+
+export function isValidTransition(fromStatus: string, toStatus: string): boolean {
+	const allowedTransitions = VALID_STATE_TRANSITIONS[fromStatus];
+	if (!allowedTransitions) {
+		return false;
+	}
+	return allowedTransitions.includes(toStatus);
+}
+
+// ----------------------------------- VALIDATE ROLE-BASED TRANSITION --------------------------
+export function validateRoleBasedTransition(
+	user: AuthUser,
+	fromStatus: string,
+	toStatus: string
+): boolean {
+	// ADMIN can force any valid transition
+	if (user.role === 'ADMIN') {
+		return true;
+	}
+
+	// CLIENT can only approve/decline quotes
+	if (user.role === 'CLIENT') {
+		if (
+			fromStatus === 'QUOTED' &&
+			(toStatus === 'CONFIRMED' || toStatus === 'DECLINED')
+		) {
+			return true;
+		}
+		return false;
+	}
+
+	// LOGISTICS can progress fulfillment stages
+	if (user.role === 'LOGISTICS') {
+		const allowedLogisticsTransitions = [
+			'CONFIRMED->IN_PREPARATION',
+			'IN_PREPARATION->READY_FOR_DELIVERY',
+			'READY_FOR_DELIVERY->IN_TRANSIT',
+			'IN_TRANSIT->DELIVERED',
+			'AWAITING_RETURN->CLOSED',
+		];
+
+		const transitionKey = `${fromStatus}->${toStatus}`;
+		return allowedLogisticsTransitions.includes(transitionKey);
+	}
+
+	return false;
+}
+
+/**
+ * Calculate blocked period for an order including all buffers
+ * Feedback #5: Adds 5-day prep + 3-day return buffers
+ * Feedback #2: Adds refurb days if item needs refurbishment
+ */
+
+// Preparation buffer days (time needed before event to prepare assets)
+export const PREP_BUFFER_DAYS = 5;
+
+// Return buffer days (time needed after event for return and processing)
+export const RETURN_BUFFER_DAYS = 3;
+
+export function calculateBlockedPeriod(
+	eventStartDate: Date,
+	eventEndDate: Date,
+	refurbDays: number = 0
+): { blockedFrom: Date; blockedUntil: Date } {
+	// Total prep time = prep buffer + refurb time
+	const totalPrepDays = PREP_BUFFER_DAYS + refurbDays
+
+	const blockedFrom = dayjs(eventStartDate).subtract(totalPrepDays, 'day').toDate()
+	const blockedUntil = dayjs(eventEndDate).add(RETURN_BUFFER_DAYS, 'day').toDate()
+
+	return { blockedFrom, blockedUntil }
+}
+
+// ----------------------------------- VALIDATE INBOUND SCANNING COMPLETE ----------------------
+/**
+ * Validates that all order items have been scanned in (inbound)
+ * Returns true if all items scanned, false otherwise
+ */
+export async function validateInboundScanningComplete(
+	orderId: string
+): Promise<boolean> {
+	// Get all order items
+	const items = await db.query.orderItems.findMany({
+		where: eq(orderItems.order_id, orderId),
+	});
+
+	if (items.length === 0) {
+		return true; // No items to scan
+	}
+
+	// Get all inbound scan events for this order
+	const inboundScans = await db.query.scanEvents.findMany({
+		where: and(
+			eq(scanEvents.order_id, orderId),
+			eq(scanEvents.scan_type, 'INBOUND')
+		),
+	});
+
+	// Check if each item has been fully scanned in
+	for (const item of items) {
+		const scannedQuantity = inboundScans
+			.filter((scan) => scan.asset_id === item.asset_id)
+			.reduce((sum, scan) => sum + scan.quantity, 0);
+
+		if (scannedQuantity < item.quantity) {
+			console.log(
+				`❌ Item ${item.asset_name} not fully scanned: ${scannedQuantity}/${item.quantity}`
+			);
+			return false;
+		}
+	}
+
+	console.log(`✅ All items scanned in for order ${orderId}`);
+	return true;
+}

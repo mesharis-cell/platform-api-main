@@ -20,3 +20,9 @@ export interface OrderSubmittedEmailData {
 
 // Email recipient role type
 export type RecipientRole = 'PLATFORM_ADMIN' | 'LOGISTICS_STAFF' | 'CLIENT_USER';
+
+// Progress status payload interface
+export interface ProgressStatusPayload {
+    new_status: string;
+    notes?: string;
+}

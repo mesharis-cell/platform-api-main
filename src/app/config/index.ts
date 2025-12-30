@@ -19,4 +19,5 @@ export default {
   smtp_pass: process.env.SMTP_PASS,
   email_from: process.env.EMAIL_FROM,
   app_name: process.env.APP_NAME || "Asset Fulfillment System",
+  frontend_url: process.env.FRONTEND_URL,
 };

@@ -137,7 +137,7 @@ const getPricingTiers = async (query: Record<string, any>, platformId: string) =
         conditions.push(
             or(
                 ilike(pricingTiers.country, `%${search_term.trim()}%`),
-                ilike(pricingTiers.city, `%${search_term.trim()}%`)
+                ilike(pricingTiers.city, `%${search_term.trim()}%`),
             )
         );
     }
@@ -153,8 +153,8 @@ const getPricingTiers = async (query: Record<string, any>, platformId: string) =
     }
 
     // Step 3d: Filter by active status (default: only active pricing tiers)
-    if (include_inactive !== 'true') {
-        conditions.push(eq(pricingTiers.is_active, true));
+    if (include_inactive !== undefined) {
+        conditions.push(eq(pricingTiers.is_active, include_inactive));
     }
 
     // Step 4: Determine sort order
