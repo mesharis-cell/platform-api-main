@@ -1162,11 +1162,24 @@ const adjustLogisticsPricing = async (
         },
     });
 
+    const finalLogisticsPricing = updatedOrder!.logistics_pricing as any;
+
+    const adjustedByUser = await db.query.users.findFirst({
+        where: eq(users.id, finalLogisticsPricing?.adjusted_by),
+    });
+
     return {
         id: updatedOrder!.id,
         order_id: updatedOrder!.order_id,
         order_status: updatedOrder!.order_status,
-        logistics_pricing: updatedOrder!.logistics_pricing,
+        base_price: finalLogisticsPricing?.base_price,
+        adjusted_price: finalLogisticsPricing?.adjusted_price,
+        adjustment_reason: finalLogisticsPricing?.adjustment_reason,
+        adjusted_at: finalLogisticsPricing?.adjusted_at,
+        adjusted_by: {
+            id: finalLogisticsPricing?.adjusted_by,
+            name: adjustedByUser?.name,
+        },
         company: {
             id: updatedOrder!.company.id,
             name: updatedOrder!.company.name,
