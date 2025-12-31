@@ -261,6 +261,22 @@ const getPricingReviewOrders = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- GET ORDER PRICING DETAILS ------------------------------
+const getOrderPricingDetails = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const { id } = req.params;
+
+    const result = await OrderServices.getOrderPricingDetails(id, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Order pricing details fetched successfully",
+        data: result,
+    });
+});
+
+
 export const OrderControllers = {
     submitOrder,
     getOrders,
@@ -273,6 +289,7 @@ export const OrderControllers = {
     getOrderStatusHistory,
     updateTimeWindows,
     getPricingReviewOrders,
+    getOrderPricingDetails,
 };
 
 
