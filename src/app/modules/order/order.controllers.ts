@@ -208,6 +208,27 @@ const progressOrderStatus = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- GET CLIENT DASHBOARD SUMMARY ----------------------------
+const getClientDashboardSummary = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+
+    // Get company ID from user
+    const companyId = user.company_id;
+    if (!companyId) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Company ID is required");
+    }
+
+    const result = await OrderServices.getClientDashboardSummary(companyId, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Dashboard summary fetched successfully",
+        data: result,
+    });
+});
+
 // ----------------------------------- GET ORDER STATUS HISTORY ---------------------------
 const getOrderStatusHistory = catchAsync(async (req, res) => {
     const user = (req as any).user;
@@ -286,6 +307,7 @@ export const OrderControllers = {
     updateJobNumber,
     getOrderScanEvents,
     progressOrderStatus,
+    getClientDashboardSummary,
     getOrderStatusHistory,
     updateTimeWindows,
     getPricingReviewOrders,

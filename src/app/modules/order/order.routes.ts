@@ -31,6 +31,14 @@ router.get(
     OrderControllers.exportOrders
 );
 
+// Get client dashboard summary
+router.get(
+    "/dashboard-summary",
+    platformValidator,
+    auth("CLIENT"),
+    OrderControllers.getClientDashboardSummary
+);
+
 // Get pricing review orders
 router.get(
     "/pricing-review",

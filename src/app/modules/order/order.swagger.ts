@@ -1981,3 +1981,78 @@
  *     security:
  *       - BearerAuth: []
  */
+
+/**
+ * @swagger
+ * /api/client/v1/order/dashboard-summary:
+ *   get:
+ *     tags:
+ *       - Order Management
+ *     summary: Get client dashboard summary
+ *     description: Retrieves a summary of dashboard data for the client user.
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *     responses:
+ *       200:
+ *         description: Dashboard summary fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Dashboard summary fetched successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     summary:
+ *                       type: object
+ *                       properties:
+ *                         active_orders:
+ *                           type: integer
+ *                           example: 5
+ *                         pending_quotes:
+ *                           type: integer
+ *                           example: 2
+ *                         upcoming_events:
+ *                           type: integer
+ *                           example: 3
+ *                         awaiting_return:
+ *                           type: integer
+ *                           example: 1
+ *                     recent_orders:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                             format: uuid
+ *                           order_id:
+ *                             type: string
+ *                             example: "ORD-20251227-001"
+ *                           venue_name:
+ *                             type: string
+ *                             example: "Dubai World Trade Centre"
+ *                           event_start_date:
+ *                             type: string
+ *                             format: date-time
+ *                           order_status:
+ *                             type: string
+ *                             example: "CONFIRMED"
+ *                           created_at:
+ *                             type: string
+ *                             format: date-time
+ *       401:
+ *         description: Unauthorized - Authentication required
+ *       403:
+ *         description: Forbidden - Only CLIENT users can access this endpoint
+ *       500:
+ *         description: Internal server error
+ *     security:
+ *       - BearerAuth: []
+ */
