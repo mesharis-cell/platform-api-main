@@ -464,6 +464,201 @@
 
 /**
  * @swagger
+ * /api/client/v1/order/pricing-review:
+ *   get:
+ *     tags:
+ *       - Order Management
+ *     summary: Get orders pending pricing review (ADMIN only)
+ *     description: |
+ *       Retrieves a list of orders that are in the PRICING_REVIEW status.
+ *       Includes suggested pricing information based on volume and location matching with pricing tiers.
+ *       
+ *       **Access Control:**
+ *       - ADMIN users only
+ *       
+ *       **Search Functionality:**
+ *       - Searches across order ID, contact name, venue name, and asset names
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: page
+ *         in: query
+ *         description: Page number
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - name: limit
+ *         in: query
+ *         description: Number of items per page
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - name: search_term
+ *         in: query
+ *         description: Search by Order ID, contact name, venue name, or asset name
+ *         schema:
+ *           type: string
+ *       - name: company_id
+ *         in: query
+ *         description: Filter by Company ID
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - name: date_from
+ *         in: query
+ *         description: Filter orders created from this date
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *       - name: date_to
+ *         in: query
+ *         description: Filter orders created until this date
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *       - name: sort_by
+ *         in: query
+ *         description: Sort field
+ *         schema:
+ *           type: string
+ *           enum: [created_at, updated_at, event_start_date, event_end_date, order_status, financial_status]
+ *           default: created_at
+ *       - name: sort_order
+ *         in: query
+ *         description: Sort order
+ *         schema:
+ *           type: string
+ *           enum: [asc, desc]
+ *           default: desc
+ *     responses:
+ *       200:
+ *         description: Pricing review orders fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Pricing review orders fetched successfully"
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     page:
+ *                       type: integer
+ *                       example: 1
+ *                     limit:
+ *                       type: integer
+ *                       example: 10
+ *                     total:
+ *                       type: integer
+ *                       example: 25
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                         format: uuid
+ *                         description: Order internal UUID
+ *                         example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *                       order_id:
+ *                         type: string
+ *                         description: Human-readable order ID
+ *                         example: "ORD-20251227-001"
+ *                       company:
+ *                         type: object
+ *                         nullable: true
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                             format: uuid
+ *                           name:
+ *                             type: string
+ *                             example: "Diageo"
+ *                       contact_name:
+ *                         type: string
+ *                         example: "John Doe"
+ *                       event_start_date:
+ *                         type: string
+ *                         format: date-time
+ *                         example: "2025-01-15T00:00:00Z"
+ *                       venue_name:
+ *                         type: string
+ *                         example: "Dubai World Trade Centre"
+ *                       venue_location:
+ *                         type: object
+ *                         nullable: true
+ *                         properties:
+ *                           country:
+ *                             type: string
+ *                             example: "UAE"
+ *                           city:
+ *                             type: string
+ *                             example: "Dubai"
+ *                           address:
+ *                             type: string
+ *                             example: "Sheikh Zayed Road, Trade Centre 1"
+ *                           access_notes:
+ *                             type: string
+ *                             nullable: true
+ *                       calculated_volume:
+ *                         type: string
+ *                         nullable: true
+ *                         description: Total calculated volume in cubic meters (m³)
+ *                         example: "12.500"
+ *                       calculated_weight:
+ *                         type: string
+ *                         nullable: true
+ *                         description: Total calculated weight in kilograms (kg)
+ *                         example: "450.250"
+ *                       status:
+ *                         type: string
+ *                         description: Order status (always PRICING_REVIEW for this endpoint)
+ *                         example: "PRICING_REVIEW"
+ *                       createdAt:
+ *                         type: string
+ *                         format: date-time
+ *                         description: Order creation timestamp
+ *                         example: "2025-12-27T10:30:00Z"
+ *                       standard_pricing:
+ *                         type: object
+ *                         nullable: true
+ *                         description: Suggested pricing based on matching tier (null if no tier found)
+ *                         properties:
+ *                           basePrice:
+ *                             type: number
+ *                             format: float
+ *                             example: 5000.00
+ *                             description: Flat rate from pricing tier (NOT per-m³ multiplication)
+ *                           tierInfo:
+ *                             type: object
+ *                             properties:
+ *                               country:
+ *                                 type: string
+ *                                 example: "UAE"
+ *                               city:
+ *                                 type: string
+ *                                 example: "Dubai"
+ *                               volume_range:
+ *                                 type: string
+ *                                 example: "0-10 m³"
+ *                                 description: Volume range that this tier applies to
+ *       401:
+ *         description: Unauthorized - Authentication required
+ *       403:
+ *         description: Forbidden - Insufficient permissions (ADMIN only)
+ *       500:
+ *         description: Internal server error
+ *     security:
+ *       - BearerAuth: []
+ */
+
+/**
+ * @swagger
  * /api/client/v1/order/{id}:
  *   get:
  *     tags:

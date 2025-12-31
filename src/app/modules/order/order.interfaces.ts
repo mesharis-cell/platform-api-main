@@ -6,6 +6,8 @@ export type SubmitOrderPayload = z.infer<typeof orderSchemas.submitOrderSchema>[
 
 export type OrderItem = z.infer<typeof orderItemSchema>;
 
+export type UpdateOrderTimeWindowsPayload = z.infer<typeof orderSchemas.updateTimeWindowsSchema>["body"];
+
 // Email data interface for order notifications
 export interface OrderSubmittedEmailData {
     orderId: string;

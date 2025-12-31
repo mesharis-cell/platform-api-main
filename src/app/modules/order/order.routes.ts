@@ -39,6 +39,14 @@ router.get(
     OrderControllers.getClientDashboardSummary
 );
 
+// Get pricing review orders
+router.get(
+    "/pricing-review",
+    platformValidator,
+    auth("ADMIN"),
+    OrderControllers.getPricingReviewOrders
+);
+
 // Get order by ID
 router.get(
     "/:id",

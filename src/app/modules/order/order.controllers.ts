@@ -247,14 +247,12 @@ const getOrderStatusHistory = catchAsync(async (req, res) => {
 
 // ----------------------------------- UPDATE TIME WINDOWS --------------------------------
 const updateTimeWindows = catchAsync(async (req, res) => {
-    const user = (req as any).user;
     const platformId = (req as any).platformId;
     const { id } = req.params;
 
     const result = await OrderServices.updateOrderTimeWindows(
         id,
         req.body,
-        user,
         platformId
     );
 
@@ -263,6 +261,24 @@ const updateTimeWindows = catchAsync(async (req, res) => {
         success: true,
         message: "Time windows updated successfully",
         data: result,
+    });
+});
+
+// ----------------------------------- GET PRICING REVIEW ORDERS --------------------------
+const getPricingReviewOrders = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+
+    const result = await OrderServices.getPricingReviewOrders(
+        req.query,
+        platformId
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Pricing review orders fetched successfully",
+        meta: result.meta,
+        data: result.data,
     });
 });
 
@@ -278,6 +294,7 @@ export const OrderControllers = {
     getClientDashboardSummary,
     getOrderStatusHistory,
     updateTimeWindows,
+    getPricingReviewOrders,
 };
 
 

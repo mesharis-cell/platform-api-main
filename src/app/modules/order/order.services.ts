@@ -20,7 +20,7 @@ import { AuthUser } from "../../interface/common";
 import { sendEmail } from "../../services/email.service";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
-import { OrderItem, OrderSubmittedEmailData, SubmitOrderPayload } from "./order.interfaces";
+import { OrderItem, OrderSubmittedEmailData, SubmitOrderPayload, UpdateOrderTimeWindowsPayload } from "./order.interfaces";
 import { calculateBlockedPeriod, isValidTransition, orderQueryValidationConfig, orderSortableFields, validateInboundScanningComplete, validateRoleBasedTransition } from "./order.utils";
 
 // Import asset availability checker
@@ -1148,13 +1148,7 @@ const getOrderStatusHistory = async (orderId: string, user: AuthUser, platformId
 // ----------------------------------- UPDATE ORDER TIME WINDOWS ------------------------------
 const updateOrderTimeWindows = async (
     orderId: string,
-    payload: {
-        delivery_window_start: string;
-        delivery_window_end: string;
-        pickup_window_start: string;
-        pickup_window_end: string;
-    },
-    user: AuthUser,
+    payload: UpdateOrderTimeWindowsPayload,
     platformId: string
 ) => {
     console.log(payload);
@@ -1205,6 +1199,186 @@ const updateOrderTimeWindows = async (
     };
 };
 
+// ----------------------------------- GET PRICING REVIEW ORDERS ------------------------------
+const getPricingReviewOrders = async (
+    query: any,
+    platformId: string
+) => {
+    const {
+        search_term,
+        page,
+        limit,
+        sort_by,
+        sort_order,
+        company_id,
+        date_from,
+        date_to,
+    } = query;
+
+    // Step 1: Validate query parameters
+    if (sort_by) queryValidator(orderQueryValidationConfig, "sort_by", sort_by);
+    if (sort_order) queryValidator(orderQueryValidationConfig, "sort_order", sort_order);
+
+    // Step 2: Setup pagination
+    const { pageNumber, limitNumber, skip, sortWith, sortSequence } =
+        paginationMaker({
+            page,
+            limit,
+            sort_by,
+            sort_order,
+        });
+
+    // Step 3: Build WHERE conditions
+    const conditions: any[] = [eq(orders.platform_id, platformId), eq(orders.order_status, "PRICING_REVIEW")];
+
+    // Step 3b: Optional filters
+    if (company_id) {
+        conditions.push(eq(orders.company_id, company_id));
+    }
+
+    if (date_from) {
+        const fromDate = new Date(date_from);
+        if (isNaN(fromDate.getTime())) {
+            throw new CustomizedError(httpStatus.BAD_REQUEST, "Invalid date_from format");
+        }
+        conditions.push(gte(orders.created_at, fromDate));
+    }
+
+    if (date_to) {
+        const toDate = new Date(date_to);
+        if (isNaN(toDate.getTime())) {
+            throw new CustomizedError(httpStatus.BAD_REQUEST, "Invalid date_to format");
+        }
+        conditions.push(lte(orders.created_at, toDate));
+    }
+
+    // Step 3c: Search functionality
+    if (search_term) {
+        const searchConditions = [
+            ilike(orders.order_id, `%${search_term}%`),
+            ilike(orders.contact_name, `%${search_term}%`),
+            ilike(orders.venue_name, `%${search_term}%`),
+            // Subquery for asset names in orderItems
+            sql`EXISTS (
+				SELECT 1 FROM ${orderItems}
+				WHERE ${orderItems.order_id} = ${orders.id}
+				AND ${orderItems.asset_name} ILIKE ${`%${search_term}%`}
+			)`,
+        ];
+        conditions.push(sql`(${sql.join(searchConditions, sql` OR `)})`);
+    }
+
+    // Step 4: Determine sort field
+    const sortField = orderSortableFields[sortWith] || orders.created_at;
+
+    // Step 5: Fetch orders with company and brand information
+    const results = await db
+        .select({
+            order: orders,
+            company: {
+                id: companies.id,
+                name: companies.name,
+            }
+        })
+        .from(orders)
+        .leftJoin(companies, eq(orders.company_id, companies.id))
+        .where(and(...conditions))
+        .orderBy(sortSequence === "asc" ? asc(sortField) : desc(sortField))
+        .limit(limitNumber)
+        .offset(skip);
+
+    // Step 6: Get total count
+    const [countResult] = await db
+        .select({ count: count() })
+        .from(orders)
+        .where(and(...conditions));
+
+    // Step 7: Enhance with standard pricing suggestion
+    const enhancedResults = await Promise.all(results.map(async (result) => {
+        const order = result.order;
+        let standardPricing = null;
+
+        // Try to find matching pricing tier
+        let tierToUse = null;
+
+        if (order.tier_id) {
+            // Use assigned tier
+            const [tier] = await db
+                .select()
+                .from(pricingTiers)
+                .where(eq(pricingTiers.id, order.tier_id))
+                .limit(1);
+            tierToUse = tier;
+        } else if (order.calculated_totals && order.venue_location) {
+            // Try to find matching tier based on location and volume
+            const calculatedTotals = order.calculated_totals as any;
+            const venueLocation = order.venue_location as any;
+
+            if (calculatedTotals.volume && venueLocation.country && venueLocation.city) {
+                const volume = parseFloat(calculatedTotals.volume);
+
+                const matchingTiers = await db
+                    .select()
+                    .from(pricingTiers)
+                    .where(
+                        and(
+                            eq(pricingTiers.platform_id, platformId),
+                            sql`LOWER(${pricingTiers.country}) = LOWER(${venueLocation.country})`,
+                            sql`LOWER(${pricingTiers.city}) = LOWER(${venueLocation.city})`,
+                            eq(pricingTiers.is_active, true),
+                            lte(pricingTiers.volume_min, volume.toString()),
+                            sql`(${pricingTiers.volume_max} IS NULL OR CAST(${pricingTiers.volume_max} AS DECIMAL) > ${volume})`
+                        )
+                    )
+                    .limit(1);
+
+                tierToUse = matchingTiers[0];
+            }
+        }
+
+        if (tierToUse) {
+            // Use flat rate from tier (NOT per-m³ multiplication)
+            const basePrice = parseFloat(tierToUse.base_price);
+
+            standardPricing = {
+                basePrice,
+                tierInfo: {
+                    country: tierToUse.country,
+                    city: tierToUse.city,
+                    volume_range: `${tierToUse.volume_min}-${tierToUse.volume_max || '∞'} m³`,
+                },
+            };
+        }
+
+        return {
+            id: order.id,
+            order_id: order.order_id,
+            company: {
+                id: result.company?.id,
+                name: result.company?.name,
+            },
+            contact_name: order.contact_name,
+            event_start_date: order.event_start_date,
+            venue_name: order.venue_name,
+            venue_location: order.venue_location,
+            calculated_volume: (order.calculated_totals as any)?.volume,
+            calculated_weight: (order.calculated_totals as any)?.weight,
+            status: order.order_status,
+            createdAt: order.created_at,
+            standard_pricing: standardPricing,
+        };
+    }));
+
+    return {
+        data: enhancedResults,
+        meta: {
+            page: pageNumber,
+            limit: limitNumber,
+            total: countResult.count,
+        },
+    };
+};
+
 export const OrderServices = {
     submitOrderFromCart,
     getOrders,
@@ -1216,5 +1390,6 @@ export const OrderServices = {
     getClientDashboardSummary,
     getOrderStatusHistory,
     updateOrderTimeWindows,
+    getPricingReviewOrders,
 };
 
