@@ -1,5 +1,5 @@
 import dayjs from "dayjs";
-import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
 import {
@@ -20,7 +20,7 @@ import { AuthUser } from "../../interface/common";
 import { sendEmail } from "../../services/email.service";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
-import { OrderItem, OrderSubmittedEmailData, SubmitOrderPayload, UpdateOrderTimeWindowsPayload } from "./order.interfaces";
+import { OrderItem, OrderSubmittedEmailData, StandardPricing, SubmitOrderPayload, UpdateOrderTimeWindowsPayload } from "./order.interfaces";
 import { calculateBlockedPeriod, isValidTransition, orderQueryValidationConfig, orderSortableFields, validateInboundScanningComplete, validateRoleBasedTransition } from "./order.utils";
 
 // Import asset availability checker
@@ -1379,6 +1379,157 @@ const getPricingReviewOrders = async (
     };
 };
 
+
+// ----------------------------------- GET ORDER PRICING DETAILS ------------------------------
+const getOrderPricingDetails = async (
+    orderId: string,
+    platformId: string
+) => {
+    // Step 1: Fetch order with relations
+    const order = await db.query.orders.findFirst({
+        where: and(
+            eq(orders.id, orderId),
+            eq(orders.platform_id, platformId)
+        ),
+        with: {
+            company: true,
+            pricing_tier: true,
+        },
+    });
+
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, 'Order not found');
+    }
+
+    // Step 2: Calculate standard pricing using helper function
+    const standardPricing = await calculateStandardPricing(order);
+
+    // Step 3: Return formatted pricing details
+    return {
+        order: {
+            id: order.id,
+            order_id: order.order_id,
+            calculated_volume: (order.calculated_totals as any)?.volume || null,
+            venue_location: order.venue_location,
+            company: {
+                id: order.company.id,
+                name: order.company.name,
+                platform_margin_percent: order.company.platform_margin_percent,
+            },
+        },
+        pricing_tier: order.pricing_tier
+            ? {
+                id: order.pricing_tier.id,
+                country: order.pricing_tier.country,
+                city: order.pricing_tier.city,
+                volume_min: order.pricing_tier.volume_min,
+                volume_max: order.pricing_tier.volume_max,
+                base_price: order.pricing_tier.base_price,
+            }
+            : null,
+        standard_pricing: standardPricing,
+        current_pricing: {
+            logistics_pricing: order.logistics_pricing || null,
+            platform_pricing: order.platform_pricing || null,
+            final_pricing: order.final_pricing || null
+        },
+    };
+};
+
+// ----------------------------------- HELPER: CALCULATE STANDARD PRICING ---------------------
+const calculateStandardPricing = async (order: any): Promise<StandardPricing> => {
+    const calculatedTotals = order.calculated_totals as any;
+    const venueLocation = order.venue_location as any;
+    const volume = parseFloat(calculatedTotals?.volume || '0');
+    const venueCity = venueLocation?.city;
+    const venueCountry = venueLocation?.country;
+
+    if (!venueCity || !venueCountry) {
+        return {
+            pricing_tier_id: null,
+            logistics_base_price: null,
+            platform_margin_percent: parseFloat(order.company.platform_margin_percent),
+            platform_margin_amount: null,
+            final_total_price: null,
+            tier_found: false,
+        };
+    }
+
+    // Find matching pricing tier (case-insensitive city match)
+    const tier = await db.query.pricingTiers.findFirst({
+        where: and(
+            eq(pricingTiers.platform_id, order.platform_id),
+            eq(sql`LOWER(${pricingTiers.country})`, venueCountry.toLowerCase()),
+            eq(sql`LOWER(${pricingTiers.city})`, venueCity.toLowerCase()),
+            lte(pricingTiers.volume_min, volume.toString()),
+            or(
+                isNull(pricingTiers.volume_max),
+                gte(pricingTiers.volume_max, volume.toString())
+            ),
+            eq(pricingTiers.is_active, true)
+        ),
+    });
+
+    if (!tier) {
+        // Try wildcard city match
+        const wildcardTier = await db.query.pricingTiers.findFirst({
+            where: and(
+                eq(pricingTiers.platform_id, order.platform_id),
+                eq(sql`LOWER(${pricingTiers.country})`, venueCountry.toLowerCase()),
+                eq(pricingTiers.city, '*'),
+                lte(pricingTiers.volume_min, volume.toString()),
+                or(
+                    isNull(pricingTiers.volume_max),
+                    gte(pricingTiers.volume_max, volume.toString())
+                ),
+                eq(pricingTiers.is_active, true)
+            ),
+        });
+
+        if (!wildcardTier) {
+            return {
+                pricing_tier_id: null,
+                logistics_base_price: null,
+                platform_margin_percent: parseFloat(order.company.platform_margin_percent),
+                platform_margin_amount: null,
+                final_total_price: null,
+                tier_found: false,
+            };
+        }
+
+        // Use wildcard tier
+        const logisticsBasePrice = parseFloat(wildcardTier.base_price);
+        const platformMarginPercent = parseFloat(order.company.platform_margin_percent);
+        const platformMarginAmount = logisticsBasePrice * (platformMarginPercent / 100);
+        const finalTotalPrice = logisticsBasePrice + platformMarginAmount;
+
+        return {
+            pricing_tier_id: wildcardTier.id,
+            logistics_base_price: parseFloat(logisticsBasePrice.toFixed(2)),
+            platform_margin_percent: parseFloat(platformMarginPercent.toFixed(2)),
+            platform_margin_amount: parseFloat(platformMarginAmount.toFixed(2)),
+            final_total_price: parseFloat(finalTotalPrice.toFixed(2)),
+            tier_found: true,
+        };
+    }
+
+    // Calculate standard pricing
+    const logisticsBasePrice = parseFloat(tier.base_price);
+    const platformMarginPercent = parseFloat(order.company.platform_margin_percent);
+    const platformMarginAmount = logisticsBasePrice * (platformMarginPercent / 100);
+    const finalTotalPrice = logisticsBasePrice + platformMarginAmount;
+
+    return {
+        pricing_tier_id: tier.id,
+        logistics_base_price: parseFloat(logisticsBasePrice.toFixed(2)),
+        platform_margin_percent: parseFloat(platformMarginPercent.toFixed(2)),
+        platform_margin_amount: parseFloat(platformMarginAmount.toFixed(2)),
+        final_total_price: parseFloat(finalTotalPrice.toFixed(2)),
+        tier_found: true,
+    };
+};
+
+
 export const OrderServices = {
     submitOrderFromCart,
     getOrders,
@@ -1391,5 +1542,6 @@ export const OrderServices = {
     getOrderStatusHistory,
     updateOrderTimeWindows,
     getPricingReviewOrders,
+    getOrderPricingDetails,
 };
 

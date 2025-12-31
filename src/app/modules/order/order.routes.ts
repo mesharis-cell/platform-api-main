@@ -55,6 +55,14 @@ router.get(
     OrderControllers.getOrderById
 );
 
+// Get order pricing details
+router.get(
+    "/:id/pricing-details",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    OrderControllers.getOrderPricingDetails
+);
+
 // Progress order status
 router.patch(
     "/:id/status",

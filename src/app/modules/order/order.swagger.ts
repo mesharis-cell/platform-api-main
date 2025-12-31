@@ -942,6 +942,223 @@
 
 /**
  * @swagger
+ * /api/client/v1/order/{id}/pricing-details:
+ *   get:
+ *     tags:
+ *       - Order Management
+ *     summary: Get order pricing details (ADMIN/LOGISTICS only)
+ *     description: |
+ *       Retrieves comprehensive pricing information for a specific order including:
+ *       - Order basic information (ID, volume, location, company)
+ *       - Matched pricing tier details
+ *       - Standard pricing calculation based on tier
+ *       - Current pricing details (logistics pricing, platform margin, final price)
+ *       
+ *       **Access Control:**
+ *       - ADMIN and LOGISTICS users can access all orders
+ *       - CLIENT users will receive a 403 Forbidden error
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         description: Order ID (UUID)
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *           example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *     responses:
+ *       200:
+ *         description: Order pricing details fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Order pricing details fetched successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     order:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                           format: uuid
+ *                         order_id:
+ *                           type: string
+ *                           example: "ORD-20251227-001"
+ *                         calculated_volume:
+ *                           type: string
+ *                           nullable: true
+ *                           example: "12.500"
+ *                           description: Total calculated volume in cubic meters (m³)
+ *                         venue_location:
+ *                           type: object
+ *                           description: Venue location details (JSONB)
+ *                           properties:
+ *                             country:
+ *                               type: string
+ *                               example: "UAE"
+ *                             city:
+ *                               type: string
+ *                               example: "Dubai"
+ *                             address:
+ *                               type: string
+ *                               example: "123 Main St"
+ *                             access_notes:
+ *                               type: string
+ *                               nullable: true
+ *                         company:
+ *                           type: object
+ *                           properties:
+ *                             id:
+ *                               type: string
+ *                               format: uuid
+ *                             name:
+ *                               type: string
+ *                               example: "Diageo"
+ *                             platform_margin_percent:
+ *                               type: string
+ *                               example: "25.00"
+ *                               description: Platform margin percentage for this company
+ *                     pricing_tier:
+ *                       type: object
+ *                       nullable: true
+ *                       description: Matched pricing tier for this order (null if no tier matched)
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                           format: uuid
+ *                         country:
+ *                           type: string
+ *                           example: "UAE"
+ *                         city:
+ *                           type: string
+ *                           example: "Dubai"
+ *                         volume_min:
+ *                           type: string
+ *                           example: "0.000"
+ *                           description: Minimum volume for this tier (m³)
+ *                         volume_max:
+ *                           type: string
+ *                           nullable: true
+ *                           example: "10.000"
+ *                           description: Maximum volume for this tier (m³), null means unlimited
+ *                         base_price:
+ *                           type: string
+ *                           example: "5000.00"
+ *                           description: Base price for this tier
+ *                     standard_pricing:
+ *                       type: object
+ *                       nullable: true
+ *                       description: Calculated standard pricing based on matched tier
+ *                       properties:
+ *                         pricing_tier_id:
+ *                           type: string
+ *                           format: uuid
+ *                           nullable: true
+ *                           description: ID of the matched pricing tier
+ *                         logistics_base_price:
+ *                           type: number
+ *                           nullable: true
+ *                           example: 5000.00
+ *                           description: Base price from pricing tier (logistics base price)
+ *                         platform_margin_percent:
+ *                           type: number
+ *                           nullable: true
+ *                           example: 25.00
+ *                           description: Platform margin percentage
+ *                         platform_margin_amount:
+ *                           type: number
+ *                           nullable: true
+ *                           example: 1250.00
+ *                           description: Calculated platform margin amount
+ *                         final_total_price:
+ *                           type: number
+ *                           nullable: true
+ *                           example: 6250.00
+ *                           description: Final total price (base price + platform margin)
+ *                         tier_found:
+ *                           type: boolean
+ *                           example: true
+ *                           description: Whether a matching pricing tier was found
+ *                     current_pricing:
+ *                       type: object
+ *                       description: Current pricing details (JSONB objects from database)
+ *                       properties:
+ *                         logistics_pricing:
+ *                           type: object
+ *                           nullable: true
+ *                           description: Logistics pricing details (JSONB)
+ *                           properties:
+ *                             base_price:
+ *                               type: number
+ *                               example: 5000.00
+ *                             adjusted_price:
+ *                               type: number
+ *                               example: 4500.00
+ *                             adjustment_reason:
+ *                               type: string
+ *                               example: "Volume discount applied"
+ *                             adjusted_at:
+ *                               type: string
+ *                               format: date-time
+ *                             adjusted_by:
+ *                               type: string
+ *                               format: uuid
+ *                               description: User ID who adjusted pricing
+ *                         platform_pricing:
+ *                           type: object
+ *                           nullable: true
+ *                           description: Platform pricing details (JSONB)
+ *                           properties:
+ *                             margin_percent:
+ *                               type: number
+ *                               example: 25.00
+ *                             margin_amount:
+ *                               type: number
+ *                               example: 1125.00
+ *                             reviewed_at:
+ *                               type: string
+ *                               format: date-time
+ *                             reviewed_by:
+ *                               type: string
+ *                               format: uuid
+ *                               description: User ID who reviewed pricing
+ *                             notes:
+ *                               type: string
+ *                               example: "Approved"
+ *                         final_pricing:
+ *                           type: object
+ *                           nullable: true
+ *                           description: Final pricing details (JSONB)
+ *                           properties:
+ *                             total_price:
+ *                               type: number
+ *                               example: 5625.00
+ *                             quote_sent_at:
+ *                               type: string
+ *                               format: date-time
+ *       401:
+ *         description: Unauthorized - Authentication required
+ *       403:
+ *         description: Forbidden - Only ADMIN and LOGISTICS users can access this endpoint
+ *       404:
+ *         description: Order not found
+ *       500:
+ *         description: Internal server error
+ *     security:
+ *       - BearerAuth: []
+ */
+
+/**
+ * @swagger
  * /api/client/v1/order/{id}/status:
  *   patch:
  *     tags:
