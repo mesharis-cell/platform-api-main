@@ -8,6 +8,8 @@ export type OrderItem = z.infer<typeof orderItemSchema>;
 
 export type UpdateOrderTimeWindowsPayload = z.infer<typeof orderSchemas.updateTimeWindowsSchema>["body"];
 
+export type AdjustLogisticsPricingPayload = z.infer<typeof orderSchemas.adjustLogisticsPricingSchema>["body"];
+
 // Email data interface for order notifications
 export interface OrderSubmittedEmailData {
     orderId: string;

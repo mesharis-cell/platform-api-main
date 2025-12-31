@@ -20,7 +20,7 @@ import { AuthUser } from "../../interface/common";
 import { sendEmail } from "../../services/email.service";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
-import { OrderItem, OrderSubmittedEmailData, StandardPricing, SubmitOrderPayload, UpdateOrderTimeWindowsPayload } from "./order.interfaces";
+import { AdjustLogisticsPricingPayload, OrderItem, OrderSubmittedEmailData, StandardPricing, SubmitOrderPayload, UpdateOrderTimeWindowsPayload } from "./order.interfaces";
 import { calculateBlockedPeriod, isValidTransition, orderQueryValidationConfig, orderSortableFields, validateInboundScanningComplete, validateRoleBasedTransition } from "./order.utils";
 
 // Import asset availability checker
@@ -1093,6 +1093,88 @@ const getClientDashboardSummary = async (companyId: string, platformId: string) 
     };
 };
 
+// ----------------------------------- ADJUST LOGISTICS PRICING -----------------------------------
+const adjustLogisticsPricing = async (
+    orderId: string,
+    user: AuthUser,
+    platformId: string,
+    payload: AdjustLogisticsPricingPayload
+) => {
+    // Step 1: Fetch order and verify it exists
+    const order = await db.query.orders.findFirst({
+        where: and(
+            eq(orders.id, orderId),
+            eq(orders.platform_id, platformId)
+        ),
+    });
+
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, 'Order not found');
+    }
+
+    // Step 2: Verify order is in PRICING_REVIEW status
+    if (order.order_status !== 'PRICING_REVIEW') {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            'Order is not in PRICING_REVIEW status'
+        );
+    }
+
+    // Step 3: Get base price from logistics_pricing or calculate from tier
+    const logisticsPricing = order.logistics_pricing as any;
+    const basePrice = logisticsPricing?.base_price || null;
+
+    // Step 4: Update logistics_pricing JSONB field
+    const updatedLogisticsPricing = {
+        base_price: basePrice,
+        adjusted_price: payload.adjusted_price,
+        adjustment_reason: payload.adjustment_reason,
+        adjusted_at: new Date().toISOString(),
+        adjusted_by: user.id,
+    };
+
+    // Step 5: Update order
+    await db
+        .update(orders)
+        .set({
+            logistics_pricing: updatedLogisticsPricing,
+            order_status: 'PENDING_APPROVAL',
+            updated_at: new Date(),
+        })
+        .where(eq(orders.id, orderId));
+
+    // Step 6: Log status change in order_status_history
+    await db
+        .insert(orderStatusHistory)
+        .values({
+            platform_id: platformId,
+            order_id: orderId,
+            status: 'PENDING_APPROVAL',
+            notes: `Logistics pricing adjusted: ${payload.adjustment_reason}`,
+            updated_by: user.id,
+        });
+
+    // Step 7: Fetch updated order with user details
+    const updatedOrder = await db.query.orders.findFirst({
+        where: eq(orders.id, orderId),
+        with: {
+            company: true,
+        },
+    });
+
+    return {
+        id: updatedOrder!.id,
+        order_id: updatedOrder!.order_id,
+        order_status: updatedOrder!.order_status,
+        logistics_pricing: updatedOrder!.logistics_pricing,
+        company: {
+            id: updatedOrder!.company.id,
+            name: updatedOrder!.company.name,
+        },
+    };
+};
+
+
 // ----------------------------------- GET ORDER STATUS HISTORY -------------------------------
 const getOrderStatusHistory = async (orderId: string, user: AuthUser, platformId: string) => {
     // Step 1: Verify order exists and user has access
@@ -1543,5 +1625,6 @@ export const OrderServices = {
     updateOrderTimeWindows,
     getPricingReviewOrders,
     getOrderPricingDetails,
+    adjustLogisticsPricing,
 };
 

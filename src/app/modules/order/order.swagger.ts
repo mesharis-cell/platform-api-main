@@ -815,10 +815,6 @@
  *                     financial_status:
  *                       type: string
  *                       example: "PENDING_QUOTE"
- *                     order_status_history:
- *                       type: array
- *                       items:
- *                         type: object
  *                     financial_status_history:
  *                       type: array
  *                       items:
@@ -1149,6 +1145,134 @@
  *         description: Unauthorized - Authentication required
  *       403:
  *         description: Forbidden - Only ADMIN and LOGISTICS users can access this endpoint
+ *       404:
+ *         description: Order not found
+ *       500:
+ *         description: Internal server error
+ *     security:
+ *       - BearerAuth: []
+ */
+
+/**
+ * @swagger
+ * /api/client/v1/order/{id}/adjust-pricing:
+ *   patch:
+ *     tags:
+ *       - Order Management
+ *     summary: Adjust logistics pricing (ADMIN/LOGISTICS only)
+ *     description: |
+ *       Adjusts the logistics pricing for an order in PRICING_REVIEW status.
+ *       Updates the logistics_pricing JSONB field and transitions the order to QUOTED status.
+ *       
+ *       **Access Control:**
+ *       - ADMIN and LOGISTICS users can adjust pricing
+ *       - CLIENT users will receive a 403 Forbidden error
+ *       
+ *       **Requirements:**
+ *       - Order must be in PRICING_REVIEW status
+ *       - Adjusted price must be greater than 0
+ *       - Adjustment reason must be at least 10 characters
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         description: Order ID (UUID)
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *           example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - adjusted_price
+ *               - adjustment_reason
+ *             properties:
+ *               adjusted_price:
+ *                 type: number
+ *                 description: Adjusted logistics price (must be greater than 0)
+ *                 example: 4500.00
+ *               adjustment_reason:
+ *                 type: string
+ *                 description: Reason for price adjustment (minimum 10 characters)
+ *                 example: "Volume discount applied for large order"
+ *     responses:
+ *       200:
+ *         description: Logistics pricing adjusted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Logistics pricing adjusted successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                     order_id:
+ *                       type: string
+ *                       example: "ORD-20251227-001"
+ *                     order_status:
+ *                       type: string
+ *                       example: "QUOTED"
+ *                     logistics_pricing:
+ *                       type: object
+ *                       description: Updated logistics pricing details
+ *                       properties:
+ *                         base_price:
+ *                           type: number
+ *                           nullable: true
+ *                           example: 5000.00
+ *                         adjusted_price:
+ *                           type: number
+ *                           example: 4500.00
+ *                         adjustment_reason:
+ *                           type: string
+ *                           example: "Volume discount applied for large order"
+ *                         adjusted_at:
+ *                           type: string
+ *                           format: date-time
+ *                         adjusted_by:
+ *                           type: string
+ *                           format: uuid
+ *                           description: User ID who adjusted the pricing
+ *                     company:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                           format: uuid
+ *                         name:
+ *                           type: string
+ *                           example: "Diageo"
+ *       400:
+ *         description: Bad request - Invalid input or order not in PRICING_REVIEW status
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Order is not in PRICING_REVIEW status"
+ *       401:
+ *         description: Unauthorized - Authentication required
+ *       403:
+ *         description: Forbidden - Only ADMIN and LOGISTICS users can adjust pricing
  *       404:
  *         description: Order not found
  *       500:

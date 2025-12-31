@@ -297,6 +297,26 @@ const getOrderPricingDetails = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- ADJUST LOGISTICS PRICING -----------------------------------
+const adjustLogisticsPricing = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const { id } = req.params;
+
+    const result = await OrderServices.adjustLogisticsPricing(
+        id,
+        user,
+        platformId,
+        req.body
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Logistics pricing adjusted successfully",
+        data: result,
+    });
+});
 
 export const OrderControllers = {
     submitOrder,
@@ -312,6 +332,7 @@ export const OrderControllers = {
     updateTimeWindows,
     getPricingReviewOrders,
     getOrderPricingDetails,
+    adjustLogisticsPricing,
 };
 
 

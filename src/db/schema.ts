@@ -607,7 +607,6 @@ export const orders = pgTable(
     // Status tracking
     order_status: orderStatusEnum('order_status').notNull().default('DRAFT'),
     financial_status: financialStatusEnum('financial_status').notNull().default('PENDING_QUOTE'),
-    order_status_history: jsonb('order_status_history').default('[]'),
     financial_status_history: jsonb('financial_status_history').default('[]'),
 
     // Scanning & photos

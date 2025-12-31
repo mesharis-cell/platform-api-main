@@ -86,9 +86,23 @@ const updateTimeWindowsSchema = z.object({
     }),
 });
 
+const adjustLogisticsPricingSchema = z.object({
+    body: z.object({
+        adjusted_price: z
+            .number("Adjusted price should be a number")
+            .positive("Adjusted price must be greater than 0"),
+        adjustment_reason: z
+            .string("Adjustment reason should be a text")
+            .min(10, "Adjustment reason must be at least 10 characters"),
+    }).strict(),
+});
+
+
 export const orderSchemas = {
     submitOrderSchema,
     updateJobNumberSchema,
     progressStatusSchema,
     updateTimeWindowsSchema,
+    adjustLogisticsPricingSchema,
 };
+

@@ -106,6 +106,15 @@ router.get(
     OrderControllers.getOrderScanEvents
 );
 
+// Adjust logistics pricing
+router.patch(
+    "/:id/adjust-pricing",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    payloadValidator(orderSchemas.adjustLogisticsPricingSchema),
+    OrderControllers.adjustLogisticsPricing
+);
+
 // Submit order
 router.post(
     "/submit-from-cart",
