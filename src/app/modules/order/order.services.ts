@@ -1789,6 +1789,8 @@ const approveStandardPricing = async (
             updated_by: user.id,
         });
 
+    // TODO: Send email
+
     // Step 8: Return pricing details
     return {
         id: order.id,

@@ -2349,4 +2349,233 @@
  *         description: Internal server error
  *     security:
  *       - BearerAuth: []
+ *//**
+ * @swagger
+ * /api/client/v1/order/{id}/approve-standard-pricing:
+ *   patch:
+ *     tags:
+ *       - Order Management
+ *     summary: Approve standard pricing for an order (ADMIN/LOGISTICS only)
+ *     description: |
+ *       Approves standard pricing for an order in PRICING_REVIEW status.
+ *       This endpoint automatically calculates pricing based on matching pricing tiers
+ *       and transitions the order to QUOTED status with financial status QUOTE_SENT.
+ *       
+ *       **Workflow:**
+ *       1. Validates order is in PRICING_REVIEW status
+ *       2. Calculates standard pricing using existing pricing tiers based on:
+ *          - Order volume (calculated from order items)
+ *          - Venue location (country and city)
+ *       3. Updates order with calculated pricing:
+ *          - Logistics base price (flat rate from tier)
+ *          - Platform margin (percentage and amount)
+ *          - Final total price
+ *       4. Transitions order status to QUOTED
+ *       5. Updates financial status to QUOTE_SENT
+ *       6. Logs status change in order history
+ *       
+ *       **Access Control:**
+ *       - ADMIN and LOGISTICS users only
+ *       
+ *       **Pricing Calculation:**
+ *       - Uses flat rate from pricing tier (NOT per-m³ multiplication)
+ *       - Platform margin calculated as percentage of logistics base price
+ *       - Final price = logistics base price + platform margin amount
+ *       
+ *       **Error Cases:**
+ *       - Order not found
+ *       - Order not in PRICING_REVIEW status
+ *       - No matching pricing tier found (requires manual pricing adjustment)
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         description: Order ID (UUID)
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *           example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *     requestBody:
+ *       description: Optional notes for the pricing approval
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               notes:
+ *                 type: string
+ *                 description: Optional notes about the pricing approval decision
+ *                 example: "Standard pricing approved based on Dubai tier for 12.5m³ volume"
+ *           examples:
+ *             withNotes:
+ *               summary: Approval with notes
+ *               value:
+ *                 notes: "Standard pricing approved - matches Dubai tier for medium volume orders"
+ *             withoutNotes:
+ *               summary: Approval without notes
+ *               value: {}
+ *     responses:
+ *       200:
+ *         description: Standard pricing approved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Standard pricing approved successfully. Quote sent to client."
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                       description: Order internal UUID
+ *                       example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *                     order_id:
+ *                       type: string
+ *                       description: Human-readable order ID
+ *                       example: "ORD-20260101-001"
+ *                     order_status:
+ *                       type: string
+ *                       description: Updated order status (always QUOTED after approval)
+ *                       example: "QUOTED"
+ *                     financial_status:
+ *                       type: string
+ *                       description: Updated financial status (always QUOTE_SENT after approval)
+ *                       example: "QUOTE_SENT"
+ *                     pricing:
+ *                       type: object
+ *                       description: Calculated pricing details
+ *                       properties:
+ *                         logistics_base_price:
+ *                           type: number
+ *                           format: float
+ *                           description: Flat rate from pricing tier (NOT per-m³)
+ *                           example: 5000.00
+ *                         platform_margin_percent:
+ *                           type: number
+ *                           format: float
+ *                           description: Platform margin percentage
+ *                           example: 25.00
+ *                         platform_margin_amount:
+ *                           type: number
+ *                           format: float
+ *                           description: Platform margin amount in currency
+ *                           example: 1250.00
+ *                         final_total_price:
+ *                           type: number
+ *                           format: float
+ *                           description: Total price (base + margin)
+ *                           example: 6250.00
+ *                     tier_id:
+ *                       type: string
+ *                       format: uuid
+ *                       description: ID of the pricing tier used for calculation
+ *                       example: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+ *                     quote_sent_at:
+ *                       type: string
+ *                       format: date-time
+ *                       description: Timestamp when quote was sent
+ *                       example: "2026-01-01T15:04:59.000Z"
+ *             examples:
+ *               successfulApproval:
+ *                 summary: Successful pricing approval
+ *                 value:
+ *                   success: true
+ *                   message: "Standard pricing approved successfully. Quote sent to client."
+ *                   data:
+ *                     id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *                     order_id: "ORD-20260101-001"
+ *                     order_status: "QUOTED"
+ *                     financial_status: "QUOTE_SENT"
+ *                     pricing:
+ *                       logistics_base_price: 5000.00
+ *                       platform_margin_percent: 25.00
+ *                       platform_margin_amount: 1250.00
+ *                       final_total_price: 6250.00
+ *                     tier_id: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+ *                     quote_sent_at: "2026-01-01T15:04:59.000Z"
+ *       400:
+ *         description: Bad request - Validation errors or business rule violations
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *             examples:
+ *               wrongStatus:
+ *                 summary: Order not in PRICING_REVIEW status
+ *                 value:
+ *                   success: false
+ *                   message: "Order is not in PRICING_REVIEW status. Current status: QUOTED"
+ *               noTierFound:
+ *                 summary: No pricing tier found
+ *                 value:
+ *                   success: false
+ *                   message: "No pricing tier found for this order. Please adjust pricing manually."
+ *       401:
+ *         description: Unauthorized - Authentication required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "You are not authorized"
+ *       403:
+ *         description: Forbidden - Insufficient permissions (ADMIN/LOGISTICS only)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "You do not have permission to approve pricing"
+ *       404:
+ *         description: Not Found - Order not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Order not found"
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Something went wrong!"
+ *     security:
+ *       - BearerAuth: []
  */
