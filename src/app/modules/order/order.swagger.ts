@@ -920,6 +920,66 @@
  *                                 format: uuid
  *                               name:
  *                                 type: string
+ *                     order_status_history:
+ *                       type: array
+ *                       description: History of order status changes, ordered by most recent first
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                             format: uuid
+ *                           platform_id:
+ *                             type: string
+ *                             format: uuid
+ *                           order_id:
+ *                             type: string
+ *                             format: uuid
+ *                           status:
+ *                             type: string
+ *                             enum: [DRAFT, SUBMITTED, PRICING_REVIEW, PENDING_APPROVAL, QUOTED, DECLINED, CONFIRMED, IN_PREPARATION, READY_FOR_DELIVERY, IN_TRANSIT, DELIVERED, IN_USE, AWAITING_RETURN, CLOSED]
+ *                             example: "CONFIRMED"
+ *                           notes:
+ *                             type: string
+ *                             nullable: true
+ *                           updated_by:
+ *                             type: string
+ *                             format: uuid
+ *                             description: User ID who made the status change
+ *                           timestamp:
+ *                             type: string
+ *                             format: date-time
+ *                             description: When the status change occurred
+ *                     financial_status_history:
+ *                       type: array
+ *                       description: History of financial status changes, ordered by most recent first
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                             format: uuid
+ *                           platform_id:
+ *                             type: string
+ *                             format: uuid
+ *                           order_id:
+ *                             type: string
+ *                             format: uuid
+ *                           status:
+ *                             type: string
+ *                             enum: [PENDING_QUOTE, QUOTE_SENT, QUOTE_ACCEPTED, PENDING_INVOICE, INVOICED, PAID]
+ *                             example: "QUOTE_SENT"
+ *                           notes:
+ *                             type: string
+ *                             nullable: true
+ *                           updated_by:
+ *                             type: string
+ *                             format: uuid
+ *                             description: User ID who made the status change
+ *                           timestamp:
+ *                             type: string
+ *                             format: date-time
+ *                             description: When the status change occurred
  *       401:
  *         description: Unauthorized - Authentication required
  *       403:

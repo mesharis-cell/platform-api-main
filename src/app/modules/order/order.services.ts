@@ -8,6 +8,7 @@ import {
     brands,
     collections,
     companies,
+    financialStatusHistory,
     orderItems,
     orders,
     orderStatusHistory,
@@ -787,12 +788,26 @@ const getOrderById = async (orderId: string, user: AuthUser, platformId: string)
         .leftJoin(collections, eq(orderItems.from_collection, collections.id))
         .where(eq(orderItems.order_id, orderData.order.id));
 
+    const financialHistory = await db
+        .select()
+        .from(financialStatusHistory)
+        .where(eq(financialStatusHistory.order_id, orderData.order.id))
+        .orderBy(desc(financialStatusHistory.timestamp));
+
+    const orderHistory = await db
+        .select()
+        .from(orderStatusHistory)
+        .where(eq(orderStatusHistory.order_id, orderData.order.id))
+        .orderBy(desc(orderStatusHistory.timestamp));
+
     return {
         ...orderData.order,
         company: orderData.company,
         brand: orderData.brand,
         user: orderData.user,
         items: itemResults,
+        financial_status_history: financialHistory,
+        order_status_history: orderHistory,
     };
 };
 

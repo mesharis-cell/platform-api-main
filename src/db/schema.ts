@@ -641,6 +641,8 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
   items: many(orderItems),
   scan_events: many(scanEvents),
   asset_bookings: many(assetBookings),
+  order_status_history: many(orderStatusHistory),
+  financial_status_history: many(financialStatusHistory),
 }))
 
 // ---------------------------------- ORDER ITEM -------------------------------------------
