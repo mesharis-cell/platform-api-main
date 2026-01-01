@@ -24,6 +24,8 @@ import { AdjustLogisticsPricingPayload, OrderItem, OrderSubmittedEmailData, Stan
 import { calculateBlockedPeriod, isValidTransition, orderQueryValidationConfig, orderSortableFields, validateInboundScanningComplete, validateRoleBasedTransition } from "./order.utils";
 
 // Import asset availability checker
+import { multipleEmailSender } from "../../utils/email-sender";
+import { emailTemplates } from "../../utils/email-templates";
 import { checkMultipleAssetsAvailability, getAssetAvailabilitySummary } from "../asset/assets.services";
 import { NotificationType } from "../notification-logs/notification-logs.interfaces";
 import { NotificationLogServices } from "../notification-logs/notification-logs.services";
@@ -58,6 +60,12 @@ const submitOrderFromCart = async (
 
     if (eventEnd < eventStart) {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Event end date must be on or after start date");
+    }
+
+    const [company] = await db.select().from(companies).where(and(eq(companies.id, companyId), eq(companies.platform_id, platformId)));
+
+    if (!company) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Company not found");
     }
 
     // Step 2: Verify all assets exist and belong to the company
@@ -209,6 +217,13 @@ const submitOrderFromCart = async (
             order_status: "PRICING_REVIEW",
             financial_status: "PENDING_QUOTE",
             tier_id: pricingTier?.id || null,
+            ...(pricingTier && { logistics_pricing: { base_price: pricingTier.base_price } }),
+            ...(pricingTier && {
+                platform_pricing: {
+                    margin_percent: company.platform_margin_percent,
+                    margin_amount: Number(pricingTier.base_price) * (Number(company.platform_margin_percent) / 100)
+                }
+            }),
         })
         .returning();
 
@@ -221,7 +236,6 @@ const submitOrderFromCart = async (
     await db.insert(orderItems).values(itemsToInsert);
 
     // Step 9: Prepare email notification data
-    const [company] = await db.select().from(companies).where(eq(companies.id, companyId));
 
     const emailData = {
         orderId: order.order_id,
@@ -235,7 +249,54 @@ const submitOrderFromCart = async (
     };
 
     // Step 10: Send email notifications
-    await sendOrderSubmittedNotifications(emailData);
+    const platformAdmins = await db
+        .select({ email: users.email, name: users.name })
+        .from(users)
+        .where(
+            and(
+                eq(users.platform_id, platformId),
+                sql`(
+                    ${users.permission_template} = 'PLATFORM_ADMIN'
+                    OR 'orders:receive_notifications' = ANY(${users.permissions})
+                ) AND ${users.email} NOT LIKE '%@system.internal'`
+            )
+        );
+
+    const platformAdminEmails = platformAdmins.map((admin) => admin.email);
+
+    await multipleEmailSender(platformAdminEmails, `New Order Submitted: ${emailData.orderId}`, emailTemplates.submit_order({
+        order_id: emailData.orderId,
+        company_name: emailData.companyName,
+        event_start_date: emailData.eventStartDate,
+        event_end_date: emailData.eventEndDate,
+        venue_city: emailData.venueCity,
+        total_volume: emailData.totalVolume,
+        item_count: emailData.itemCount || 0,
+        view_order_url: emailData.viewOrderUrl,
+        by_role: {
+            greeting: "Platform Admin",
+            message: "A new order has been submitted and requires review.",
+            action: "Review this order in the admin dashboard and monitor the pricing workflow.",
+        }
+    }));
+
+    // Find Logistics (permission_template = 'LOGISTICS_STAFF' OR 'orders:receive_notifications' in permissions)
+    const logisticsStaff = await db
+        .select({ email: users.email, name: users.name })
+        .from(users)
+        .where(
+            and(
+                eq(users.platform_id, platformId),
+                sql`(
+                    ${users.permission_template} = 'LOGISTICS_STAFF'
+                    OR 'orders:receive_notifications' = ANY(${users.permissions})
+                ) AND ${users.email} NOT LIKE '%@system.internal'`
+            )
+        );
+
+    const logisticsStaffEmails = logisticsStaff.map((staff) => staff.email);
+
+    await multipleEmailSender(logisticsStaffEmails, `New Order Submitted: ${emailData.orderId}`, renderOrderSubmittedEmail("LOGISTICS_STAFF", emailData));
 
     await sendOrderSubmittedConfirmationToClient(
         contact_email,
@@ -1127,6 +1188,7 @@ const adjustLogisticsPricing = async (
     }
 
     // Step 3: Get base price from logistics_pricing or calculate from tier
+    const platformPricing = order.platform_pricing as any;
     const logisticsPricing = order.logistics_pricing as any;
     const basePrice = logisticsPricing?.base_price || null;
 
@@ -1144,6 +1206,10 @@ const adjustLogisticsPricing = async (
         .update(orders)
         .set({
             logistics_pricing: updatedLogisticsPricing,
+            platform_pricing: {
+                ...platformPricing,
+                margin_amount: Number(updatedLogisticsPricing.adjusted_price) * (Number(order.company.platform_margin_percent) / 100)
+            },
             order_status: 'PENDING_APPROVAL',
             updated_at: new Date(),
         })
@@ -1159,6 +1225,31 @@ const adjustLogisticsPricing = async (
             notes: `Logistics pricing adjusted: ${payload.adjustment_reason}`,
             updated_by: user.id,
         });
+
+    // Step 7: Send notification to plaform admin
+    const platformAdmins = await db
+        .select({ email: users.email })
+        .from(users)
+        .where(
+            and(eq(users.platform_id, platformId),
+                eq(users.role, 'ADMIN'),
+                sql`${users.permission_template} = 'PLATFORM_ADMIN' AND ${users.email} NOT LIKE '%@system.internal'`)
+        )
+
+    const platformAdminEmails = platformAdmins.map(admin => admin.email);
+
+    // TODO: Change URL
+    await multipleEmailSender(
+        platformAdminEmails,
+        `Action Required: Order ${order.order_id} - Logistics Pricing Adjustment`,
+        emailTemplates.adjust_price({
+            order_id: order.order_id,
+            company_name: order.company.name,
+            adjusted_price: updatedLogisticsPricing.adjusted_price,
+            adjustment_reason: updatedLogisticsPricing.adjustment_reason,
+            view_order_url: `http://localhost:3000/order/${order.order_id}`,
+        })
+    );
 
     return {
         id: order.id,

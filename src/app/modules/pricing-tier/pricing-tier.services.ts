@@ -392,9 +392,9 @@ const calculatePricing = async (
     }
 
     // Step 4: Calculate estimated total (base price + margin)
-    const a2BasePrice = matchingTier.base_price;
-    const platformMarginAmount = a2BasePrice * (platformMarginPercent / 100);
-    const estimatedTotal = a2BasePrice + platformMarginAmount;
+    const logisticsBasePrice = matchingTier.base_price;
+    const platformMarginAmount = logisticsBasePrice * (platformMarginPercent / 100);
+    const estimatedTotal = logisticsBasePrice + platformMarginAmount;
 
     // Step 5: Return calculation result
     return {
@@ -403,7 +403,7 @@ const calculatePricing = async (
         city: matchingTier.city,
         volume_min: matchingTier.volume_min,
         volume_max: matchingTier.volume_max,
-        base_price: parseFloat(a2BasePrice.toFixed(2)), // A2 flat rate for this tier
+        base_price: parseFloat(logisticsBasePrice.toFixed(2)), // Logistics flat rate for this tier
         platform_margin_percent: parseFloat(platformMarginPercent.toFixed(2)),
         platform_margin_amount: parseFloat(platformMarginAmount.toFixed(2)),
         estimated_total: parseFloat(estimatedTotal.toFixed(2)), // Final estimate with margin
