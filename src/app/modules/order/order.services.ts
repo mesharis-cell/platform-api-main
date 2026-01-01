@@ -20,7 +20,7 @@ import { AuthUser } from "../../interface/common";
 import { sendEmail } from "../../services/email.service";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
-import { AdjustLogisticsPricingPayload, ApproveStandardPricingPayload, OrderItem, OrderSubmittedEmailData, StandardPricing, SubmitOrderPayload, UpdateOrderTimeWindowsPayload } from "./order.interfaces";
+import { AdjustLogisticsPricingPayload, ApproveStandardPricingPayload, ApprovePlatformPricingPayload, OrderItem, OrderSubmittedEmailData, StandardPricing, SubmitOrderPayload, UpdateOrderTimeWindowsPayload } from "./order.interfaces";
 import { calculateBlockedPeriod, isValidTransition, orderQueryValidationConfig, orderSortableFields, validateInboundScanningComplete, validateRoleBasedTransition } from "./order.utils";
 
 // Import asset availability checker
@@ -31,6 +31,7 @@ import { NotificationType } from "../notification-logs/notification-logs.interfa
 import { NotificationLogServices } from "../notification-logs/notification-logs.services";
 import { getNotificationTypeForTransition } from "../notification-logs/notification-logs.utils";
 import { orderIdGenerator, renderOrderSubmittedEmail } from "./order.utils";
+import { uuidRegex } from "../../constants/common";
 
 // ----------------------------------- SUBMIT ORDER FROM CART ---------------------------------
 const submitOrderFromCart = async (
@@ -431,7 +432,7 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
     }
 
     // Step 3b: Optional filters
-    if (company_id) {
+    if (user.role !== 'CLIENT' && company_id) {
         conditions.push(eq(orders.company_id, company_id));
     }
 
@@ -713,7 +714,21 @@ const getMyOrders = async (query: Record<string, any>, user: AuthUser, platformI
 
 // ----------------------------------- GET ORDER BY ID ----------------------------------------
 const getOrderById = async (orderId: string, user: AuthUser, platformId: string) => {
-    // Step 1: Fetch order with relations
+    // Step 1: Check if orderId is a valid UUID
+    const isUUID = uuidRegex.test(orderId);
+
+    // Step 2: Build where condition based on input type
+    const whereCondition = isUUID
+        ? and(
+            or(eq(orders.id, orderId), eq(orders.order_id, orderId)),
+            eq(orders.platform_id, platformId)
+        )
+        : and(
+            eq(orders.order_id, orderId),
+            eq(orders.platform_id, platformId)
+        );
+
+    // Step 3: Fetch order with relations
     const result = await db
         .select({
             order: orders,
@@ -736,10 +751,7 @@ const getOrderById = async (orderId: string, user: AuthUser, platformId: string)
         .leftJoin(companies, eq(orders.company_id, companies.id))
         .leftJoin(brands, eq(orders.brand_id, brands.id))
         .leftJoin(users, eq(orders.user_id, users.id))
-        .where(and(
-            eq(orders.order_id, orderId),
-            eq(orders.platform_id, platformId)
-        ))
+        .where(whereCondition)
         .limit(1);
 
     if (result.length === 0) {
@@ -1815,6 +1827,104 @@ const approveStandardPricing = async (
 };
 
 
+// ----------------------------------- APPROVE PLATFORM PRICING -----------------------------------
+const approvePlatformPricing = async (
+    orderId: string,
+    user: AuthUser,
+    platformId: string,
+    payload: ApprovePlatformPricingPayload
+) => {
+    const { logistics_base_price, platform_margin_percent, notes } = payload;
+    // Step 1: Fetch order with company details
+    const order = await db.query.orders.findFirst({
+        where: and(
+            eq(orders.id, orderId),
+            eq(orders.platform_id, platformId)
+        ),
+        with: {
+            company: true,
+        },
+    });
+
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, 'Order not found');
+    }
+
+    // Step 2: Verify order is in PENDING_APPROVAL status
+    if (order.order_status !== 'PENDING_APPROVAL') {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Order is not in PENDING_APPROVAL status. Current status: ${order.order_status}`
+        );
+    }
+
+    // Step 4: Calculate platform margin and final pricing
+    const platformMarginAmount = logistics_base_price * (platform_margin_percent / 100);
+    const finalTotalPrice = logistics_base_price + platformMarginAmount;
+
+    // Step 5: Update platform_pricing with review details
+    const platformPricing = {
+        margin_percent: platform_margin_percent,
+        margin_amount: parseFloat(platformMarginAmount.toFixed(2)),
+        reviewed_at: new Date().toISOString(),
+        reviewed_by: user.id,
+        notes: notes || null,
+    };
+
+    // Step 6: Update final_pricing
+    const finalPricing = {
+        total_price: parseFloat(finalTotalPrice.toFixed(2)),
+        quote_sent_at: new Date().toISOString(),
+    };
+
+    // Step 7: Update order with platform approval
+    await db
+        .update(orders)
+        .set({
+            platform_pricing: platformPricing,
+            final_pricing: finalPricing,
+            order_status: 'QUOTED',
+            financial_status: 'QUOTE_SENT',
+            updated_at: new Date(),
+        })
+        .where(eq(orders.id, orderId));
+
+    // Step 8: Log status change in order_status_history
+    await db
+        .insert(orderStatusHistory)
+        .values({
+            platform_id: platformId,
+            order_id: orderId,
+            status: 'QUOTED',
+            notes: notes || 'Platform approved adjusted pricing',
+            updated_by: user.id,
+        });
+
+    // TODO: Send quote notification email
+
+    // Step 9: Return approval details
+    return {
+        id: order.id,
+        order_id: order.order_id,
+        order_status: 'QUOTED',
+        financial_status: 'QUOTE_SENT',
+        pricing: {
+            logistics_adjusted_price: logistics_base_price,
+            platform_margin_percent: platform_margin_percent,
+            platform_margin_amount: parseFloat(platformMarginAmount.toFixed(2)),
+            final_total_price: parseFloat(finalTotalPrice.toFixed(2)),
+        },
+        reviewed_at: platformPricing.reviewed_at,
+        reviewed_by: {
+            id: user.id,
+            name: user.name,
+        },
+        review_notes: notes || null,
+        quote_sent_at: finalPricing.quote_sent_at,
+    };
+};
+
+
 export const OrderServices = {
     submitOrderFromCart,
     getOrders,
@@ -1830,5 +1940,6 @@ export const OrderServices = {
     getOrderPricingDetails,
     adjustLogisticsPricing,
     approveStandardPricing,
+    approvePlatformPricing,
 };
 

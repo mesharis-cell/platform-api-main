@@ -607,7 +607,6 @@ export const orders = pgTable(
     // Status tracking
     order_status: orderStatusEnum('order_status').notNull().default('DRAFT'),
     financial_status: financialStatusEnum('financial_status').notNull().default('PENDING_QUOTE'),
-    financial_status_history: jsonb('financial_status_history').default('[]'),
 
     // Scanning & photos
     scanning_data: jsonb('scanning_data').default('{}'), // {scanned_out: [], scanned_in: []}
@@ -689,6 +688,70 @@ export const orderItemsRelations = relations(orderItems, ({ one }) => ({
   asset: one(assets, { fields: [orderItems.asset_id], references: [assets.id] }),
   from_collection: one(collections, { fields: [orderItems.from_collection], references: [collections.id] }),
 }))
+
+// ---------------------------------- ORDER STATUS HISTORY ---------------------------------
+export const orderStatusHistory = pgTable(
+  'order_status_history',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    platform_id: uuid('platform')
+      .notNull()
+      .references(() => platforms.id, { onDelete: 'cascade' }),
+    order_id: uuid('order')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+    status: orderStatusEnum('status').notNull(),
+    notes: text('notes'),
+    updated_by: uuid('updated_by')
+      .notNull()
+      .references(() => users.id),
+    timestamp: timestamp('timestamp').notNull().defaultNow(),
+  },
+  (table) => [
+    index('order_status_history_order_idx').on(table.order_id),
+  ]
+)
+
+export const orderStatusHistoryRelations = relations(
+  orderStatusHistory,
+  ({ one }) => ({
+    order: one(orders, { fields: [orderStatusHistory.order_id], references: [orders.id] }),
+    platform: one(platforms, { fields: [orderStatusHistory.platform_id], references: [platforms.id] }),
+    updated_by_user: one(users, { fields: [orderStatusHistory.updated_by], references: [users.id] }),
+  })
+)
+
+// ---------------------------------- FINANCIAL STATUS HISTORY ---------------------------------
+export const financialStatusHistory = pgTable(
+  'financial_status_history',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    platform_id: uuid('platform')
+      .notNull()
+      .references(() => platforms.id, { onDelete: 'cascade' }),
+    order_id: uuid('order')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+    status: financialStatusEnum('status').notNull(),
+    notes: text('notes'),
+    updated_by: uuid('updated_by')
+      .notNull()
+      .references(() => users.id),
+    timestamp: timestamp('timestamp').notNull().defaultNow(),
+  },
+  (table) => [
+    index('financial_status_history_order_idx').on(table.order_id),
+  ]
+)
+
+export const financialStatusHistoryRelations = relations(
+  financialStatusHistory,
+  ({ one }) => ({
+    order: one(orders, { fields: [financialStatusHistory.order_id], references: [orders.id] }),
+    platform: one(platforms, { fields: [financialStatusHistory.platform_id], references: [platforms.id] }),
+    updated_by_user: one(users, { fields: [financialStatusHistory.updated_by], references: [users.id] }),
+  })
+)
 
 
 // -----------------------------------------------------------------------------------------
@@ -843,41 +906,6 @@ export const scanEventsRelations = relations(scanEvents, ({ one }) => ({
   asset: one(assets, { fields: [scanEvents.asset_id], references: [assets.id] }),
   scanned_by_user: one(users, { fields: [scanEvents.scanned_by], references: [users.id] }),
 }))
-
-// ---------------------------------- ORDER STATUS HISTORY ---------------------------------
-// Purpose: Timeline of order lifecycle changes (Submitted -> Quoted -> Delivered)
-export const orderStatusHistory = pgTable(
-  'order_status_history',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    platform_id: uuid('platform')
-      .notNull()
-      .references(() => platforms.id, { onDelete: 'cascade' }),
-    order_id: uuid('order')
-      .notNull()
-      .references(() => orders.id, { onDelete: 'cascade' }),
-
-    status: orderStatusEnum('status').notNull(),
-    notes: text('notes'),
-
-    updated_by: uuid('updated_by')
-      .notNull()
-      .references(() => users.id),
-    timestamp: timestamp('timestamp').notNull().defaultNow(),
-  },
-  (table) => [
-    index('order_status_history_order_idx').on(table.order_id),
-  ]
-)
-
-export const orderStatusHistoryRelations = relations(
-  orderStatusHistory,
-  ({ one }) => ({
-    order: one(orders, { fields: [orderStatusHistory.order_id], references: [orders.id] }),
-    platform: one(platforms, { fields: [orderStatusHistory.platform_id], references: [platforms.id] }),
-    updated_by_user: one(users, { fields: [orderStatusHistory.updated_by], references: [users.id] }),
-  })
-)
 
 // ---------------------------------- NOTIFICATION LOGS ------------------------------------
 // Purpose: Track all system emails (Quotes, Invoices, Status Updates)

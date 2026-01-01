@@ -815,10 +815,6 @@
  *                     financial_status:
  *                       type: string
  *                       example: "PENDING_QUOTE"
- *                     financial_status_history:
- *                       type: array
- *                       items:
- *                         type: object
  *                     scanning_data:
  *                       type: object
  *                     delivery_photos:
@@ -2350,42 +2346,271 @@
  *     security:
  *       - BearerAuth: []
  *//**
+* @swagger
+* /api/client/v1/order/{id}/approve-standard-pricing:
+*   patch:
+*     tags:
+*       - Order Management
+*     summary: Approve standard pricing for an order (ADMIN/LOGISTICS only)
+*     description: |
+*       Approves standard pricing for an order in PRICING_REVIEW status.
+*       This endpoint automatically calculates pricing based on matching pricing tiers
+*       and transitions the order to QUOTED status with financial status QUOTE_SENT.
+*       
+*       **Workflow:**
+*       1. Validates order is in PRICING_REVIEW status
+*       2. Calculates standard pricing using existing pricing tiers based on:
+*          - Order volume (calculated from order items)
+*          - Venue location (country and city)
+*       3. Updates order with calculated pricing:
+*          - Logistics base price (flat rate from tier)
+*          - Platform margin (percentage and amount)
+*          - Final total price
+*       4. Transitions order status to QUOTED
+*       5. Updates financial status to QUOTE_SENT
+*       6. Logs status change in order history
+*       
+*       **Access Control:**
+*       - ADMIN and LOGISTICS users only
+*       
+*       **Pricing Calculation:**
+*       - Uses flat rate from pricing tier (NOT per-m³ multiplication)
+*       - Platform margin calculated as percentage of logistics base price
+*       - Final price = logistics base price + platform margin amount
+*       
+*       **Error Cases:**
+*       - Order not found
+*       - Order not in PRICING_REVIEW status
+*       - No matching pricing tier found (requires manual pricing adjustment)
+*     parameters:
+*       - $ref: '#/components/parameters/PlatformHeader'
+*       - name: id
+*         in: path
+*         required: true
+*         description: Order ID (UUID)
+*         schema:
+*           type: string
+*           format: uuid
+*           example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+*     requestBody:
+*       description: Optional notes for the pricing approval
+*       content:
+*         application/json:
+*           schema:
+*             type: object
+*             properties:
+*               notes:
+*                 type: string
+*                 description: Optional notes about the pricing approval decision
+*                 example: "Standard pricing approved based on Dubai tier for 12.5m³ volume"
+*           examples:
+*             withNotes:
+*               summary: Approval with notes
+*               value:
+*                 notes: "Standard pricing approved - matches Dubai tier for medium volume orders"
+*             withoutNotes:
+*               summary: Approval without notes
+*               value: {}
+*     responses:
+*       200:
+*         description: Standard pricing approved successfully
+*         content:
+*           application/json:
+*             schema:
+*               type: object
+*               properties:
+*                 success:
+*                   type: boolean
+*                   example: true
+*                 message:
+*                   type: string
+*                   example: "Standard pricing approved successfully. Quote sent to client."
+*                 data:
+*                   type: object
+*                   properties:
+*                     id:
+*                       type: string
+*                       format: uuid
+*                       description: Order internal UUID
+*                       example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+*                     order_id:
+*                       type: string
+*                       description: Human-readable order ID
+*                       example: "ORD-20260101-001"
+*                     order_status:
+*                       type: string
+*                       description: Updated order status (always QUOTED after approval)
+*                       example: "QUOTED"
+*                     financial_status:
+*                       type: string
+*                       description: Updated financial status (always QUOTE_SENT after approval)
+*                       example: "QUOTE_SENT"
+*                     pricing:
+*                       type: object
+*                       description: Calculated pricing details
+*                       properties:
+*                         logistics_base_price:
+*                           type: number
+*                           format: float
+*                           description: Flat rate from pricing tier (NOT per-m³)
+*                           example: 5000.00
+*                         platform_margin_percent:
+*                           type: number
+*                           format: float
+*                           description: Platform margin percentage
+*                           example: 25.00
+*                         platform_margin_amount:
+*                           type: number
+*                           format: float
+*                           description: Platform margin amount in currency
+*                           example: 1250.00
+*                         final_total_price:
+*                           type: number
+*                           format: float
+*                           description: Total price (base + margin)
+*                           example: 6250.00
+*                     tier_id:
+*                       type: string
+*                       format: uuid
+*                       description: ID of the pricing tier used for calculation
+*                       example: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+*                     quote_sent_at:
+*                       type: string
+*                       format: date-time
+*                       description: Timestamp when quote was sent
+*                       example: "2026-01-01T15:04:59.000Z"
+*             examples:
+*               successfulApproval:
+*                 summary: Successful pricing approval
+*                 value:
+*                   success: true
+*                   message: "Standard pricing approved successfully. Quote sent to client."
+*                   data:
+*                     id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+*                     order_id: "ORD-20260101-001"
+*                     order_status: "QUOTED"
+*                     financial_status: "QUOTE_SENT"
+*                     pricing:
+*                       logistics_base_price: 5000.00
+*                       platform_margin_percent: 25.00
+*                       platform_margin_amount: 1250.00
+*                       final_total_price: 6250.00
+*                     tier_id: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+*                     quote_sent_at: "2026-01-01T15:04:59.000Z"
+*       400:
+*         description: Bad request - Validation errors or business rule violations
+*         content:
+*           application/json:
+*             schema:
+*               type: object
+*               properties:
+*                 success:
+*                   type: boolean
+*                   example: false
+*                 message:
+*                   type: string
+*             examples:
+*               wrongStatus:
+*                 summary: Order not in PRICING_REVIEW status
+*                 value:
+*                   success: false
+*                   message: "Order is not in PRICING_REVIEW status. Current status: QUOTED"
+*               noTierFound:
+*                 summary: No pricing tier found
+*                 value:
+*                   success: false
+*                   message: "No pricing tier found for this order. Please adjust pricing manually."
+*       401:
+*         description: Unauthorized - Authentication required
+*         content:
+*           application/json:
+*             schema:
+*               type: object
+*               properties:
+*                 success:
+*                   type: boolean
+*                   example: false
+*                 message:
+*                   type: string
+*                   example: "You are not authorized"
+*       403:
+*         description: Forbidden - Insufficient permissions (ADMIN/LOGISTICS only)
+*         content:
+*           application/json:
+*             schema:
+*               type: object
+*               properties:
+*                 success:
+*                   type: boolean
+*                   example: false
+*                 message:
+*                   type: string
+*                   example: "You do not have permission to approve pricing"
+*       404:
+*         description: Not Found - Order not found
+*         content:
+*           application/json:
+*             schema:
+*               type: object
+*               properties:
+*                 success:
+*                   type: boolean
+*                   example: false
+*                 message:
+*                   type: string
+*                   example: "Order not found"
+*       500:
+*         description: Internal server error
+*         content:
+*           application/json:
+*             schema:
+*               type: object
+*               properties:
+*                 success:
+*                   type: boolean
+*                   example: false
+*                 message:
+*                   type: string
+*                   example: "Something went wrong!"
+*     security:
+*       - BearerAuth: []
+*/
+/**
  * @swagger
- * /api/client/v1/order/{id}/approve-standard-pricing:
+ * /api/client/v1/order/{id}/approve-platform-pricing:
  *   patch:
  *     tags:
  *       - Order Management
- *     summary: Approve standard pricing for an order (ADMIN/LOGISTICS only)
+ *     summary: Approve platform pricing for an order (ADMIN only)
  *     description: |
- *       Approves standard pricing for an order in PRICING_REVIEW status.
- *       This endpoint automatically calculates pricing based on matching pricing tiers
- *       and transitions the order to QUOTED status with financial status QUOTE_SENT.
+ *       Approves platform pricing for an order in PENDING_APPROVAL status.
+ *       This endpoint is used after logistics has adjusted pricing, allowing platform admins
+ *       to review and approve the adjusted pricing with platform margin calculation.
  *       
  *       **Workflow:**
- *       1. Validates order is in PRICING_REVIEW status
- *       2. Calculates standard pricing using existing pricing tiers based on:
- *          - Order volume (calculated from order items)
- *          - Venue location (country and city)
- *       3. Updates order with calculated pricing:
- *          - Logistics base price (flat rate from tier)
- *          - Platform margin (percentage and amount)
- *          - Final total price
- *       4. Transitions order status to QUOTED
- *       5. Updates financial status to QUOTE_SENT
- *       6. Logs status change in order history
+ *       1. Validates order is in PENDING_APPROVAL status
+ *       2. Accepts logistics base price and platform margin percent from admin
+ *       3. Calculates platform margin amount and final total price
+ *       4. Updates order with platform pricing details
+ *       5. Transitions order status to QUOTED
+ *       6. Updates financial status to QUOTE_SENT
+ *       7. Logs status change in order history
  *       
  *       **Access Control:**
- *       - ADMIN and LOGISTICS users only
+ *       - ADMIN users only
  *       
  *       **Pricing Calculation:**
- *       - Uses flat rate from pricing tier (NOT per-m³ multiplication)
- *       - Platform margin calculated as percentage of logistics base price
- *       - Final price = logistics base price + platform margin amount
+ *       - Platform margin amount = logistics base price × platform margin %
+ *       - Final total price = logistics base price + platform margin amount
+ *       
+ *       **Use Case:**
+ *       This endpoint is used when logistics has adjusted pricing (via adjust-pricing endpoint)
+ *       and the order is in PENDING_APPROVAL status waiting for platform admin review.
  *       
  *       **Error Cases:**
  *       - Order not found
- *       - Order not in PRICING_REVIEW status
- *       - No matching pricing tier found (requires manual pricing adjustment)
+ *       - Order not in PENDING_APPROVAL status
+ *       - Invalid pricing values
  *     parameters:
  *       - $ref: '#/components/parameters/PlatformHeader'
  *       - name: id
@@ -2397,27 +2622,49 @@
  *           format: uuid
  *           example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
  *     requestBody:
- *       description: Optional notes for the pricing approval
+ *       required: true
+ *       description: Pricing details and optional notes for platform approval
  *       content:
  *         application/json:
  *           schema:
  *             type: object
+ *             required:
+ *               - logistics_base_price
+ *               - platform_margin_percent
  *             properties:
+ *               logistics_base_price:
+ *                 type: number
+ *                 format: float
+ *                 description: Logistics base price (adjusted price from logistics team)
+ *                 minimum: 0.01
+ *                 example: 5500.00
+ *               platform_margin_percent:
+ *                 type: number
+ *                 format: float
+ *                 description: Platform margin percentage to apply
+ *                 minimum: 0
+ *                 maximum: 100
+ *                 example: 25.00
  *               notes:
  *                 type: string
  *                 description: Optional notes about the pricing approval decision
- *                 example: "Standard pricing approved based on Dubai tier for 12.5m³ volume"
+ *                 example: "Approved adjusted pricing for special event requirements"
  *           examples:
- *             withNotes:
- *               summary: Approval with notes
+ *             standardApproval:
+ *               summary: Standard platform approval
  *               value:
- *                 notes: "Standard pricing approved - matches Dubai tier for medium volume orders"
- *             withoutNotes:
- *               summary: Approval without notes
- *               value: {}
+ *                 logistics_base_price: 5500.00
+ *                 platform_margin_percent: 25.00
+ *                 notes: "Approved adjusted pricing"
+ *             withCustomMargin:
+ *               summary: Approval with custom margin
+ *               value:
+ *                 logistics_base_price: 6000.00
+ *                 platform_margin_percent: 20.00
+ *                 notes: "Special discount applied for long-term client"
  *     responses:
  *       200:
- *         description: Standard pricing approved successfully
+ *         description: Platform pricing approved successfully
  *         content:
  *           application/json:
  *             schema:
@@ -2428,7 +2675,7 @@
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: "Standard pricing approved successfully. Quote sent to client."
+ *                   example: "Platform pricing approved successfully. Quote sent to client."
  *                 data:
  *                   type: object
  *                   properties:
@@ -2453,54 +2700,74 @@
  *                       type: object
  *                       description: Calculated pricing details
  *                       properties:
- *                         logistics_base_price:
+ *                         logistics_adjusted_price:
  *                           type: number
  *                           format: float
- *                           description: Flat rate from pricing tier (NOT per-m³)
- *                           example: 5000.00
+ *                           description: Logistics base price (from request)
+ *                           example: 5500.00
  *                         platform_margin_percent:
  *                           type: number
  *                           format: float
- *                           description: Platform margin percentage
+ *                           description: Platform margin percentage (from request)
  *                           example: 25.00
  *                         platform_margin_amount:
  *                           type: number
  *                           format: float
- *                           description: Platform margin amount in currency
- *                           example: 1250.00
+ *                           description: Calculated platform margin amount
+ *                           example: 1375.00
  *                         final_total_price:
  *                           type: number
  *                           format: float
- *                           description: Total price (base + margin)
- *                           example: 6250.00
- *                     tier_id:
+ *                           description: Total price (logistics + platform margin)
+ *                           example: 6875.00
+ *                     reviewed_at:
  *                       type: string
- *                       format: uuid
- *                       description: ID of the pricing tier used for calculation
- *                       example: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+ *                       format: date-time
+ *                       description: Timestamp when platform reviewed the pricing
+ *                       example: "2026-01-01T16:17:00.000Z"
+ *                     reviewed_by:
+ *                       type: object
+ *                       description: Admin user who approved the pricing
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                           format: uuid
+ *                           example: "user-uuid"
+ *                         name:
+ *                           type: string
+ *                           example: "Admin User"
+ *                     review_notes:
+ *                       type: string
+ *                       nullable: true
+ *                       description: Notes provided during approval
+ *                       example: "Approved adjusted pricing"
  *                     quote_sent_at:
  *                       type: string
  *                       format: date-time
- *                       description: Timestamp when quote was sent
- *                       example: "2026-01-01T15:04:59.000Z"
+ *                       description: Timestamp when quote was sent to client
+ *                       example: "2026-01-01T16:17:00.000Z"
  *             examples:
  *               successfulApproval:
- *                 summary: Successful pricing approval
+ *                 summary: Successful platform pricing approval
  *                 value:
  *                   success: true
- *                   message: "Standard pricing approved successfully. Quote sent to client."
+ *                   message: "Platform pricing approved successfully. Quote sent to client."
  *                   data:
  *                     id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
  *                     order_id: "ORD-20260101-001"
  *                     order_status: "QUOTED"
  *                     financial_status: "QUOTE_SENT"
  *                     pricing:
- *                       logistics_base_price: 5000.00
+ *                       logistics_adjusted_price: 5500.00
  *                       platform_margin_percent: 25.00
- *                       platform_margin_amount: 1250.00
- *                       final_total_price: 6250.00
- *                     tier_id: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
- *                     quote_sent_at: "2026-01-01T15:04:59.000Z"
+ *                       platform_margin_amount: 1375.00
+ *                       final_total_price: 6875.00
+ *                     reviewed_at: "2026-01-01T16:17:00.000Z"
+ *                     reviewed_by:
+ *                       id: "user-uuid"
+ *                       name: "Admin User"
+ *                     review_notes: "Approved adjusted pricing"
+ *                     quote_sent_at: "2026-01-01T16:17:00.000Z"
  *       400:
  *         description: Bad request - Validation errors or business rule violations
  *         content:
@@ -2515,15 +2782,20 @@
  *                   type: string
  *             examples:
  *               wrongStatus:
- *                 summary: Order not in PRICING_REVIEW status
+ *                 summary: Order not in PENDING_APPROVAL status
  *                 value:
  *                   success: false
- *                   message: "Order is not in PRICING_REVIEW status. Current status: QUOTED"
- *               noTierFound:
- *                 summary: No pricing tier found
+ *                   message: "Order is not in PENDING_APPROVAL status. Current status: QUOTED"
+ *               invalidPrice:
+ *                 summary: Invalid logistics base price
  *                 value:
  *                   success: false
- *                   message: "No pricing tier found for this order. Please adjust pricing manually."
+ *                   message: "Logistics base price must be greater than 0"
+ *               invalidMargin:
+ *                 summary: Invalid platform margin percent
+ *                 value:
+ *                   success: false
+ *                   message: "Platform margin percent must be between 0 and 100"
  *       401:
  *         description: Unauthorized - Authentication required
  *         content:
@@ -2538,7 +2810,7 @@
  *                   type: string
  *                   example: "You are not authorized"
  *       403:
- *         description: Forbidden - Insufficient permissions (ADMIN/LOGISTICS only)
+ *         description: Forbidden - Insufficient permissions (ADMIN only)
  *         content:
  *           application/json:
  *             schema:
@@ -2549,7 +2821,7 @@
  *                   example: false
  *                 message:
  *                   type: string
- *                   example: "You do not have permission to approve pricing"
+ *                   example: "You do not have permission to approve platform pricing"
  *       404:
  *         description: Not Found - Order not found
  *         content:
