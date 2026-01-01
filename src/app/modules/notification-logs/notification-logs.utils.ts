@@ -151,6 +151,7 @@ export async function sendEmailWithLogging(
     subject: string,
     html: string
 ): Promise<string> {
+    // TODO
     // In development, log email instead of sending
     // if (config.node_env === 'development') {
     //     console.log('='.repeat(80))
