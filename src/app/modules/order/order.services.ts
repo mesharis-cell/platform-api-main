@@ -431,7 +431,7 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
     }
 
     // Step 3b: Optional filters
-    if (company_id) {
+    if (user.role !== 'CLIENT' && company_id) {
         conditions.push(eq(orders.company_id, company_id));
     }
 
@@ -730,10 +730,7 @@ const getOrderById = async (orderId: string, user: AuthUser, platformId: string)
         .leftJoin(companies, eq(orders.company_id, companies.id))
         .leftJoin(brands, eq(orders.brand_id, brands.id))
         .leftJoin(users, eq(orders.user_id, users.id))
-        .where(and(
-            eq(orders.order_id, orderId),
-            eq(orders.platform_id, platformId)
-        ))
+        .where(and(or(eq(orders.id, orderId), eq(orders.order_id, orderId)), eq(orders.platform_id, platformId)))
         .limit(1);
 
     if (result.length === 0) {
