@@ -4,6 +4,7 @@ import config from "./app/config";
 import "./app/modules/asset/assets.swagger";
 import "./app/modules/auth/Auth.swagger";
 import "./app/modules/brand/brand.swagger";
+import "./app/modules/calendar/calendar.swagger";
 import "./app/modules/catalog/catalog.swagger";
 import "./app/modules/collection/collection.swagger";
 import "./app/modules/company/company.swagger";
