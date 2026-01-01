@@ -124,6 +124,15 @@ router.patch(
     OrderControllers.approveStandardPricing
 );
 
+// Approve platform pricing
+router.patch(
+    "/:id/approve-platform-pricing",
+    platformValidator,
+    auth("ADMIN"),
+    payloadValidator(orderSchemas.approvePlatformPricingSchema),
+    OrderControllers.approvePlatformPricing
+);
+
 // Submit order
 router.post(
     "/submit-from-cart",

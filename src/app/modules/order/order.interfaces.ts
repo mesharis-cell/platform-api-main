@@ -12,6 +12,8 @@ export type AdjustLogisticsPricingPayload = z.infer<typeof orderSchemas.adjustLo
 
 export type ApproveStandardPricingPayload = z.infer<typeof orderSchemas.approveStandardPricingSchema>["body"];
 
+export type ApprovePlatformPricingPayload = z.infer<typeof orderSchemas.approvePlatformPricingSchema>["body"];
+
 // Email data interface for order notifications
 export interface OrderSubmittedEmailData {
     orderId: string;
