@@ -24,6 +24,8 @@ import { AdjustLogisticsPricingPayload, OrderItem, OrderSubmittedEmailData, Stan
 import { calculateBlockedPeriod, isValidTransition, orderQueryValidationConfig, orderSortableFields, validateInboundScanningComplete, validateRoleBasedTransition } from "./order.utils";
 
 // Import asset availability checker
+import { multipleEmailSender } from "../../utils/email-sender";
+import { emailTemplates } from "../../utils/email-templates";
 import { checkMultipleAssetsAvailability, getAssetAvailabilitySummary } from "../asset/assets.services";
 import { NotificationType } from "../notification-logs/notification-logs.interfaces";
 import { NotificationLogServices } from "../notification-logs/notification-logs.services";
@@ -235,7 +237,40 @@ const submitOrderFromCart = async (
     };
 
     // Step 10: Send email notifications
-    await sendOrderSubmittedNotifications(emailData);
+    const platformAdmins = await db
+        .select({ email: users.email, name: users.name })
+        .from(users)
+        .where(
+            and(
+                eq(users.platform_id, platformId),
+                sql`(
+                    ${users.permission_template} = 'PLATFORM_ADMIN'
+                    OR 'orders:receive_notifications' = ANY(${users.permissions})
+                ) AND ${users.email} NOT LIKE '%@system.internal'`
+            )
+        );
+
+    const platformAdminEmails = platformAdmins.map((admin) => admin.email);
+
+    await multipleEmailSender(platformAdminEmails, `New Order Submitted: ${emailData.orderId}`, renderOrderSubmittedEmail("PLATFORM_ADMIN", emailData));
+
+    // Find Logistics (permission_template = 'LOGISTICS_STAFF' OR 'orders:receive_notifications' in permissions)
+    const logisticsStaff = await db
+        .select({ email: users.email, name: users.name })
+        .from(users)
+        .where(
+            and(
+                eq(users.platform_id, platformId),
+                sql`(
+                    ${users.permission_template} = 'LOGISTICS_STAFF'
+                    OR 'orders:receive_notifications' = ANY(${users.permissions})
+                ) AND ${users.email} NOT LIKE '%@system.internal'`
+            )
+        );
+
+    const logisticsStaffEmails = logisticsStaff.map((staff) => staff.email);
+
+    await multipleEmailSender(logisticsStaffEmails, `New Order Submitted: ${emailData.orderId}`, renderOrderSubmittedEmail("LOGISTICS_STAFF", emailData));
 
     await sendOrderSubmittedConfirmationToClient(
         contact_email,
@@ -1156,6 +1191,31 @@ const adjustLogisticsPricing = async (
             notes: `Logistics pricing adjusted: ${payload.adjustment_reason}`,
             updated_by: user.id,
         });
+
+    // Step 7: Send notification to plaform admin
+    const platformAdmins = await db
+        .select({ email: users.email })
+        .from(users)
+        .where(
+            and(eq(users.platform_id, platformId),
+                eq(users.role, 'ADMIN'),
+                sql`${users.permission_template} = 'PLATFORM_ADMIN' AND ${users.email} NOT LIKE '%@system.internal'`)
+        )
+
+    const platformAdminEmails = platformAdmins.map(admin => admin.email);
+
+    // TODO: Change URL
+    await multipleEmailSender(
+        platformAdminEmails,
+        `Action Required: Order ${order.order_id} - Logistics Pricing Adjustment`,
+        emailTemplates.adjust_price({
+            order_id: order.order_id,
+            company_name: order.company.name,
+            adjusted_price: updatedLogisticsPricing.adjusted_price,
+            adjustment_reason: updatedLogisticsPricing.adjustment_reason,
+            view_order_url: `http://localhost:3000/order/${order.order_id}`,
+        })
+    );
 
     return {
         id: order.id,
