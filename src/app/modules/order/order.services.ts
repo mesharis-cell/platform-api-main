@@ -500,6 +500,9 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
         updated_at: r.order.updated_at,
         item_count: itemCounts[r.order.id] || 0,
         item_preview: itemPreviews[r.order.id] || [],
+        logistics_pricing: r.order.logistics_pricing,
+        platform_pricing: r.order.platform_pricing,
+        final_pricing: r.order.final_pricing,
     }));
 
     return {
