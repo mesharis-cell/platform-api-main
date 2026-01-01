@@ -115,6 +115,15 @@ router.patch(
     OrderControllers.adjustLogisticsPricing
 );
 
+// Approve standard pricing
+router.patch(
+    "/:id/approve-standard-pricing",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    payloadValidator(orderSchemas.approveStandardPricingSchema),
+    OrderControllers.approveStandardPricing
+);
+
 // Submit order
 router.post(
     "/submit-from-cart",

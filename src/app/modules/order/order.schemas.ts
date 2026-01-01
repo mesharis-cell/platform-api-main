@@ -97,6 +97,14 @@ const adjustLogisticsPricingSchema = z.object({
     }).strict(),
 });
 
+const approveStandardPricingSchema = z.object({
+    body: z.object({
+        notes: z
+            .string("Notes should be a text")
+            .optional(),
+    }).strict(),
+});
+
 
 export const orderSchemas = {
     submitOrderSchema,
@@ -104,5 +112,6 @@ export const orderSchemas = {
     progressStatusSchema,
     updateTimeWindowsSchema,
     adjustLogisticsPricingSchema,
+    approveStandardPricingSchema,
 };
 

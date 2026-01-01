@@ -20,7 +20,7 @@ import { AuthUser } from "../../interface/common";
 import { sendEmail } from "../../services/email.service";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
-import { AdjustLogisticsPricingPayload, OrderItem, OrderSubmittedEmailData, StandardPricing, SubmitOrderPayload, UpdateOrderTimeWindowsPayload } from "./order.interfaces";
+import { AdjustLogisticsPricingPayload, ApproveStandardPricingPayload, OrderItem, OrderSubmittedEmailData, StandardPricing, SubmitOrderPayload, UpdateOrderTimeWindowsPayload } from "./order.interfaces";
 import { calculateBlockedPeriod, isValidTransition, orderQueryValidationConfig, orderSortableFields, validateInboundScanningComplete, validateRoleBasedTransition } from "./order.utils";
 
 // Import asset availability checker
@@ -1705,6 +1705,108 @@ const calculateStandardPricing = async (order: any): Promise<StandardPricing> =>
 };
 
 
+// ----------------------------------- APPROVE STANDARD PRICING -----------------------------------
+const approveStandardPricing = async (
+    orderId: string,
+    user: AuthUser,
+    platformId: string,
+    payload: ApproveStandardPricingPayload
+) => {
+    // Step 1: Fetch order with company details
+    const order = await db.query.orders.findFirst({
+        where: and(
+            eq(orders.id, orderId),
+            eq(orders.platform_id, platformId)
+        ),
+        with: {
+            company: true,
+        },
+    });
+
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, 'Order not found');
+    }
+
+    // Step 2: Verify order is in PRICING_REVIEW status
+    if (order.order_status !== 'PRICING_REVIEW') {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Order is not in PRICING_REVIEW status. Current status: ${order.order_status}`
+        );
+    }
+
+    // Step 3: Calculate standard pricing
+    const standardPricing = await calculateStandardPricing(order);
+
+    // Step 4: Verify pricing tier was found
+    if (!standardPricing.tier_found) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            'No pricing tier found for this order. Please adjust pricing manually.'
+        );
+    }
+
+    // Step 5: Prepare pricing objects
+    const logisticsPricing = {
+        base_price: standardPricing.logistics_base_price,
+    };
+
+    const platformPricing = {
+        margin_percent: standardPricing.platform_margin_percent,
+        margin_amount: standardPricing.platform_margin_amount,
+        reviewed_at: new Date().toISOString(),
+        reviewed_by: user.id,
+        notes: payload.notes || null,
+    };
+
+    const finalPricing = {
+        total_price: standardPricing.final_total_price,
+        quote_sent_at: new Date().toISOString(),
+    };
+
+    // Step 6: Update order with standard pricing
+    await db
+        .update(orders)
+        .set({
+            tier_id: standardPricing.pricing_tier_id,
+            logistics_pricing: logisticsPricing,
+            platform_pricing: platformPricing,
+            final_pricing: finalPricing,
+            order_status: 'QUOTED',
+            financial_status: 'QUOTE_SENT',
+            updated_at: new Date(),
+        })
+        .where(eq(orders.id, orderId));
+
+    // Step 7: Log status change in order_status_history
+    await db
+        .insert(orderStatusHistory)
+        .values({
+            platform_id: platformId,
+            order_id: orderId,
+            status: 'QUOTED',
+            notes: payload.notes || 'Standard pricing approved',
+            updated_by: user.id,
+        });
+
+    // Step 8: Return pricing details
+    return {
+        id: order.id,
+        order_id: order.order_id,
+        order_status: 'QUOTED',
+        financial_status: 'QUOTE_SENT',
+        pricing: {
+            logistics_base_price: standardPricing.logistics_base_price,
+            platform_margin_percent: standardPricing.platform_margin_percent,
+            platform_margin_amount: standardPricing.platform_margin_amount,
+            final_total_price: standardPricing.final_total_price,
+        },
+        tier_id: standardPricing.pricing_tier_id,
+        quote_sent_at: finalPricing.quote_sent_at,
+    };
+};
+
+
 export const OrderServices = {
     submitOrderFromCart,
     getOrders,
@@ -1719,5 +1821,6 @@ export const OrderServices = {
     getPricingReviewOrders,
     getOrderPricingDetails,
     adjustLogisticsPricing,
+    approveStandardPricing,
 };
 

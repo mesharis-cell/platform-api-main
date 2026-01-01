@@ -318,6 +318,27 @@ const adjustLogisticsPricing = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- APPROVE STANDARD PRICING -----------------------------------
+const approveStandardPricing = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const { id } = req.params;
+
+    const result = await OrderServices.approveStandardPricing(
+        id,
+        user,
+        platformId,
+        req.body
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Standard pricing approved successfully. Quote sent to client.",
+        data: result,
+    });
+});
+
 export const OrderControllers = {
     submitOrder,
     getOrders,
@@ -333,6 +354,7 @@ export const OrderControllers = {
     getPricingReviewOrders,
     getOrderPricingDetails,
     adjustLogisticsPricing,
+    approveStandardPricing,
 };
 
 
