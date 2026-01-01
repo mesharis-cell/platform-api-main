@@ -105,6 +105,21 @@ const approveStandardPricingSchema = z.object({
     }).strict(),
 });
 
+const approvePlatformPricingSchema = z.object({
+    body: z.object({
+        logistics_base_price: z
+            .number("Logistics base price should be a number")
+            .positive("Logistics base price must be greater than 0"),
+        platform_margin_percent: z
+            .number("Platform margin percent should be a number")
+            .min(0, "Platform margin percent must be greater than 0")
+            .max(100, "Platform margin percent must be less than 100"),
+        notes: z
+            .string("Notes should be a text")
+            .optional(),
+    }).strict(),
+});
+
 
 export const orderSchemas = {
     submitOrderSchema,
@@ -113,5 +128,6 @@ export const orderSchemas = {
     updateTimeWindowsSchema,
     adjustLogisticsPricingSchema,
     approveStandardPricingSchema,
+    approvePlatformPricingSchema,
 };
 

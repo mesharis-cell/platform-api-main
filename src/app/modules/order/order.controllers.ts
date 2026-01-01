@@ -339,6 +339,27 @@ const approveStandardPricing = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- APPROVE PLATFORM PRICING -----------------------------------
+const approvePlatformPricing = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const { id } = req.params;
+
+    const result = await OrderServices.approvePlatformPricing(
+        id,
+        user,
+        platformId,
+        req.body
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Platform pricing approved successfully. Quote sent to client.",
+        data: result,
+    });
+});
+
 export const OrderControllers = {
     submitOrder,
     getOrders,
@@ -355,6 +376,7 @@ export const OrderControllers = {
     getOrderPricingDetails,
     adjustLogisticsPricing,
     approveStandardPricing,
+    approvePlatformPricing,
 };
 
 
