@@ -2917,3 +2917,198 @@
  *     security:
  *       - BearerAuth: []
  */
+
+
+/**
+ * @swagger
+ * /api/client/v1/order/{id}/approve-quote:
+ *   patch:
+ *     tags:
+ *       - Order Management
+ *     summary: Approve quote (CLIENT only)
+ *     description: |
+ *       Allows a CLIENT user to approve a quote for their order.
+ *
+ *       **Business Logic:**
+ *       - Verifies the order belongs to the client's company
+ *       - Checks that the order is in QUOTED status
+ *       - Validates asset availability for the event dates (including refurbishment buffer)
+ *       - Creates asset bookings for all order items
+ *       - Updates order status to CONFIRMED
+ *       - Updates financial status to QUOTE_ACCEPTED
+ *       - Logs the status change in order_status_history
+ *
+ *       **Access Control:**
+ *       - CLIENT users only
+ *       - Can only approve quotes for their own company's orders
+ *
+ *       **Status Transitions:**
+ *       - Order Status: QUOTED → CONFIRMED
+ *       - Financial Status: QUOTE_SENT → QUOTE_ACCEPTED
+ *
+ *       **Asset Booking:**
+ *       - For each order item, creates an asset booking
+ *       - Blocked period includes refurbishment days before and after the event
+ *       - Validates sufficient asset availability before creating bookings
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         description: Order ID (UUID or human-readable order ID)
+ *         schema:
+ *           type: string
+ *           example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               notes:
+ *                 type: string
+ *                 description: Optional notes about the quote approval
+ *                 example: "Approved for upcoming event"
+ *           examples:
+ *             withNotes:
+ *               summary: Approval with notes
+ *               value:
+ *                 notes: "Approved for upcoming event"
+ *             withoutNotes:
+ *               summary: Approval without notes
+ *               value: {}
+ *     responses:
+ *       200:
+ *         description: Quote approved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Quote approved successfully."
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                       description: Order internal UUID
+ *                       example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *                     order_id:
+ *                       type: string
+ *                       description: Human-readable order ID
+ *                       example: "ORD-20260102-001"
+ *                     order_status:
+ *                       type: string
+ *                       description: Updated order status (always CONFIRMED after approval)
+ *                       example: "CONFIRMED"
+ *                     financial_status:
+ *                       type: string
+ *                       description: Updated financial status (always QUOTE_ACCEPTED after approval)
+ *                       example: "QUOTE_ACCEPTED"
+ *                     updated_at:
+ *                       type: string
+ *                       format: date-time
+ *                       description: Timestamp when the order was updated
+ *                       example: "2026-01-02T19:13:27.000Z"
+ *             examples:
+ *               successfulApproval:
+ *                 summary: Successful quote approval
+ *                 value:
+ *                   success: true
+ *                   message: "Quote approved successfully."
+ *                   data:
+ *                     id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *                     order_id: "ORD-20260102-001"
+ *                     order_status: "CONFIRMED"
+ *                     financial_status: "QUOTE_ACCEPTED"
+ *                     updated_at: "2026-01-02T19:13:27.000Z"
+ *       400:
+ *         description: Bad request - Validation errors or business rule violations
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *             examples:
+ *               wrongStatus:
+ *                 summary: Order not in QUOTED status
+ *                 value:
+ *                   success: false
+ *                   message: "Order is not in QUOTED status"
+ *               missingEventDates:
+ *                 summary: Order missing event dates
+ *                 value:
+ *                   success: false
+ *                   message: "Order must have event dates"
+ *               insufficientAvailability:
+ *                 summary: Insufficient asset availability
+ *                 value:
+ *                   success: false
+ *                   message: "Insufficient availability for Display Stand. Available: 5, Requested: 10"
+ *       401:
+ *         description: Unauthorized - Authentication required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "You are not authorized"
+ *       403:
+ *         description: Forbidden - Insufficient permissions (CLIENT only)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "You do not have permission to approve quotes"
+ *       404:
+ *         description: Not Found - Order not found or access denied
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Order not found or you do not have access to this order"
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Something went wrong!"
+ *     security:
+ *       - BearerAuth: []
+ */
