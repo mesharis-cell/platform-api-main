@@ -2,6 +2,7 @@ import { and, desc, eq, isNotNull, sql } from "drizzle-orm"
 import { db } from "../../db"
 import { invoices } from "../../db/schema"
 import { renderInvoicePDF } from "./invoice-pdf"
+import { deleteFileFromS3, uploadPDFToS3 } from "../services/s3.service"
 
 // --------------------------------- INVOICE NUMBER GENERATOR ---------------------------------
 // FORMAT: INV-YYYYMMDD-###
@@ -47,7 +48,7 @@ export const invoiceGenerator = async (data: InvoicePayload, regenerate: boolean
     }
 
     // Prevent regeneration after payment confirmed
-    if (regenerate && invoice.invoice_paid_at) {
+    if (regenerate && invoice?.invoice_paid_at) {
         throw new Error(
             'Cannot regenerate invoice after payment has been confirmed'
         )
@@ -55,22 +56,44 @@ export const invoiceGenerator = async (data: InvoicePayload, regenerate: boolean
 
     // Generate or reuse invoice number
     let invoiceNumber: string
-    if (regenerate && invoice.invoice_id) {
-        // Archive old PDF if exists
+    if (regenerate && invoice?.invoice_id) {
         if (invoice.invoice_pdf_url) {
-            try {
-                // await deleteFileFromS3(invoice.invoice_pdf_url)
-            } catch (error) {
-                console.error('Failed to delete old invoice PDF:', error)
-                // Continue anyway, non-blocking
-            }
+            await deleteFileFromS3(invoice.invoice_pdf_url)
         }
         invoiceNumber = invoice.invoice_id
     } else {
         invoiceNumber = await invoiceNumberGenerator(data.platform_id)
     }
 
+    // Generate PDF
     const pdfBuffer = await renderInvoicePDF({ ...data, invoice_number: invoiceNumber, invoice_date: new Date() })
+
+    // Upload PDF to S3
+    const key = `invoices/${data.company_name}/${invoiceNumber}.pdf`
+    const pdfUrl = await uploadPDFToS3(pdfBuffer, invoiceNumber, key)
+
+    // Save or update invoice record
+    if (regenerate && invoice) {
+        await db
+            .update(invoices)
+            .set({
+                invoice_pdf_url: pdfUrl,
+                updated_at: new Date(),
+            })
+            .where(and(eq(invoices.id, invoice.id), eq(invoices.platform_id, data.platform_id)))
+    } else {
+        await db.insert(invoices).values({
+            platform_id: data.platform_id,
+            order_id: data.order_id,
+            invoice_id: invoiceNumber,
+            invoice_pdf_url: pdfUrl,
+        })
+    }
+
+    return {
+        invoice_id: invoiceNumber,
+        invoice_pdf_url: pdfUrl,
+    }
 }
 
 // --------------------------------- TYPES ----------------------------------------------------
