@@ -2023,7 +2023,32 @@ const approveQuote = async (
         })
     }
 
-    return null
+    // Update order status to CONFIRMED
+    await db
+        .update(orders)
+        .set({
+            order_status: 'CONFIRMED',
+            financial_status: 'QUOTE_ACCEPTED',
+            updated_at: new Date(),
+        })
+        .where(eq(orders.id, orderId))
+
+    // Log status change
+    await db.insert(orderStatusHistory).values({
+        platform_id: platformId,
+        order_id: orderId,
+        status: 'CONFIRMED',
+        notes: notes || 'Client approved quote',
+        updated_by: user.id,
+    })
+
+    return {
+        id: order.id,
+        order_id: order.order_id,
+        order_status: 'CONFIRMED',
+        financial_status: 'QUOTE_ACCEPTED',
+        updated_at: new Date(),
+    }
 };
 
 
