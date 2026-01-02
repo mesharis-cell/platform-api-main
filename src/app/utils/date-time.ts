@@ -1,4 +1,6 @@
-export function formatDateForEmail(date: Date): string {
+export function formatDateForEmail(date: Date | null): string {
+    if (!date) return 'N/A'
+
     const d = new Date(date);
     return d.toLocaleDateString('en-US', {
         year: 'numeric',
