@@ -146,7 +146,7 @@ const getOrderById = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const { id } = req.params;
 
-    const result = await OrderServices.getOrderById(id, user, platformId);
+    const result = await OrderServices.getOrderById(id, user, platformId, req.query);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -360,6 +360,27 @@ const approvePlatformPricing = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- APPROVE QUOTE ----------------------------------------------
+const approveQuote = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const { id } = req.params;
+
+    const result = await OrderServices.approveQuote(
+        id,
+        user,
+        platformId,
+        req.body
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Quote approved successfully.",
+        data: result,
+    });
+});
+
 export const OrderControllers = {
     submitOrder,
     getOrders,
@@ -377,6 +398,7 @@ export const OrderControllers = {
     adjustLogisticsPricing,
     approveStandardPricing,
     approvePlatformPricing,
+    approveQuote,
 };
 
 

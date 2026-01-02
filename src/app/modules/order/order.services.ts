@@ -21,13 +21,13 @@ import { AuthUser } from "../../interface/common";
 import { sendEmail } from "../../services/email.service";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
-import { AdjustLogisticsPricingPayload, ApproveStandardPricingPayload, ApprovePlatformPricingPayload, OrderItem, OrderSubmittedEmailData, StandardPricing, SubmitOrderPayload, UpdateOrderTimeWindowsPayload } from "./order.interfaces";
+import { AdjustLogisticsPricingPayload, ApproveStandardPricingPayload, ApprovePlatformPricingPayload, OrderItem, OrderSubmittedEmailData, StandardPricing, SubmitOrderPayload, UpdateOrderTimeWindowsPayload, ApproveQuotePayload } from "./order.interfaces";
 import { calculateBlockedPeriod, isValidTransition, orderQueryValidationConfig, orderSortableFields, validateInboundScanningComplete, validateRoleBasedTransition } from "./order.utils";
 
 // Import asset availability checker
 import { multipleEmailSender } from "../../utils/email-sender";
 import { emailTemplates } from "../../utils/email-templates";
-import { checkMultipleAssetsAvailability, getAssetAvailabilitySummary } from "../asset/assets.services";
+import { AssetServices, checkMultipleAssetsAvailability, getAssetAvailabilitySummary } from "../asset/assets.services";
 import { NotificationType } from "../notification-logs/notification-logs.interfaces";
 import { NotificationLogServices } from "../notification-logs/notification-logs.services";
 import { getNotificationTypeForTransition } from "../notification-logs/notification-logs.utils";
@@ -714,7 +714,9 @@ const getMyOrders = async (query: Record<string, any>, user: AuthUser, platformI
 };
 
 // ----------------------------------- GET ORDER BY ID ----------------------------------------
-const getOrderById = async (orderId: string, user: AuthUser, platformId: string) => {
+const getOrderById = async (orderId: string, user: AuthUser, platformId: string, query: Record<string, any>) => {
+    const { quote } = query;
+
     // Step 1: Check if orderId is a valid UUID
     const isUUID = uuidRegex.test(orderId);
 
@@ -766,6 +768,15 @@ const getOrderById = async (orderId: string, user: AuthUser, platformId: string)
         if (user.company_id !== orderData.order.company_id) {
             throw new CustomizedError(httpStatus.FORBIDDEN, "You don't have access to this order");
         }
+    }
+
+    if (
+        quote === 'true' &&
+        orderData.order.order_status !== 'QUOTED' &&
+        orderData.order.order_status !== 'CONFIRMED' &&
+        orderData.order.order_status !== 'DECLINED'
+    ) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Order does not have a quote yet");
     }
 
     // Step 2: Fetch order items with asset details
@@ -1939,6 +1950,113 @@ const approvePlatformPricing = async (
     };
 };
 
+// ----------------------------------- APPROVE QUOTE ----------------------------------------------
+const approveQuote = async (
+    orderId: string,
+    user: AuthUser,
+    platformId: string,
+    payload: ApproveQuotePayload
+) => {
+    const { notes } = payload;
+    // Step 1: Fetch order with company details
+    const order = await db.query.orders.findFirst({
+        where: and(
+            eq(orders.id, orderId),
+            eq(orders.platform_id, platformId)
+        ),
+        with: {
+            company: true,
+            items: {
+                with: {
+                    asset: {
+                        columns: {
+                            id: true,
+                            name: true,
+                            refurb_days_estimate: true,
+                        },
+                    },
+                },
+            },
+        }
+    });
+
+    if (!order || user.company_id !== order.company_id) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, 'Order not found or you do not have access to this order');
+    }
+
+    // Step 2: Verify order is in QUOTED status
+    if (order.order_status !== 'QUOTED') {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, 'Order is not in QUOTED status')
+    }
+
+    // Step 3: Verify order has event dates
+    if (!order.event_start_date || !order.event_end_date) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, 'Order must have event dates')
+    }
+
+    // Create booking for each item
+    for (const item of order.items) {
+        const refurbDays = item.asset.refurb_days_estimate || 0
+
+        const { blockedFrom, blockedUntil } = calculateBlockedPeriod(
+            order.event_start_date,
+            order.event_end_date,
+            refurbDays
+        )
+
+        // Check availability first
+        const availability = await AssetServices.getSingleAssetAvailability(
+            item.asset.id,
+            blockedFrom,
+            blockedUntil,
+            user,
+            platformId
+        )
+
+        if (availability.available_quantity < item.quantity) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                `Insufficient availability for ${item.asset.name}. Available: ${availability.available_quantity}, Requested: ${item.quantity}`
+            )
+        }
+
+        await db.insert(assetBookings).values({
+            asset_id: item.asset.id,
+            order_id: orderId,
+            quantity: item.quantity,
+            blocked_from: blockedFrom,
+            blocked_until: blockedUntil,
+        })
+    }
+
+    // Update order status to CONFIRMED
+    await db
+        .update(orders)
+        .set({
+            order_status: 'CONFIRMED',
+            financial_status: 'QUOTE_ACCEPTED',
+            updated_at: new Date(),
+        })
+        .where(eq(orders.id, orderId))
+
+    // Log status change
+    await db.insert(orderStatusHistory).values({
+        platform_id: platformId,
+        order_id: orderId,
+        status: 'CONFIRMED',
+        notes: notes || 'Client approved quote',
+        updated_by: user.id,
+    })
+
+    return {
+        id: order.id,
+        order_id: order.order_id,
+        order_status: 'CONFIRMED',
+        financial_status: 'QUOTE_ACCEPTED',
+        updated_at: new Date(),
+    }
+};
+
 
 export const OrderServices = {
     submitOrderFromCart,
@@ -1956,5 +2074,6 @@ export const OrderServices = {
     adjustLogisticsPricing,
     approveStandardPricing,
     approvePlatformPricing,
+    approveQuote,
 };
 

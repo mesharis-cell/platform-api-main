@@ -351,16 +351,16 @@ const getAssets = async (query: Record<string, any>, user: AuthUser, platformId:
             .where(and(...conditions)),
     ]);
 
-    	// Get summary counts
-	const [redCount] = await db
-		.select({ count: sql<number>`count(*)` })
-		.from(assets)
-		.where(and(eq(assets.platform_id, platformId), eq(assets.condition, 'RED'), isNull(assets.deleted_at)))
+    // Get summary counts
+    const [redCount] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(assets)
+        .where(and(eq(assets.platform_id, platformId), eq(assets.condition, 'RED'), isNull(assets.deleted_at)))
 
-	const [orangeCount] = await db
-		.select({ count: sql<number>`count(*)` })
-		.from(assets)
-		.where(and(eq(assets.platform_id, platformId), eq(assets.condition, 'ORANGE'), isNull(assets.deleted_at)))
+    const [orangeCount] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(assets)
+        .where(and(eq(assets.platform_id, platformId), eq(assets.condition, 'ORANGE'), isNull(assets.deleted_at)))
 
     // Step 6: Return paginated response
     return {
@@ -1107,7 +1107,6 @@ export const getAssetAvailabilitySummary = async (
     };
 };
 
-// : Promise<BulkUploadResponse>
 // ----------------------------------- BULK UPLOAD ASSETS ---------------------------------
 const bulkUploadAssets = async (file: Express.Multer.File, user: AuthUser, platformId: string) => {
     // Step 1: Parse CSV file
@@ -1306,6 +1305,7 @@ export const AssetServices = {
     getAssetScanHistory,
     getBatchAvailability,
     checkAssetAvailability,
+    getSingleAssetAvailability,
     bulkUploadAssets,
     addConditionHistory,
     generateQRCode,
