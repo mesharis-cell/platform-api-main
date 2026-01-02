@@ -597,13 +597,6 @@ export const orders = pgTable(
     platform_pricing: jsonb('platform_pricing'), // {margin_percent, margin_amount, reviewed_at, reviewed_by, notes}
     final_pricing: jsonb('final_pricing'), // {total_price, quote_sent_at}
 
-    // Invoicing
-    invoice_id: varchar('invoice_id', { length: 30 }), // TODO: reference
-    invoice_generated_at: timestamp('invoice_generated_at'),
-    invoice_paid_at: timestamp('invoice_paid_at'),
-    payment_method: varchar('payment_method', { length: 50 }),
-    payment_reference: varchar('payment_reference', { length: 100 }),
-
     // Status tracking
     order_status: orderStatusEnum('order_status').notNull().default('DRAFT'),
     financial_status: financialStatusEnum('financial_status').notNull().default('PENDING_QUOTE'),
@@ -620,9 +613,6 @@ export const orders = pgTable(
   (table) => [
     // Order ID unique per platform
     unique('orders_platform_order_id_unique').on(table.platform_id, table.order_id),
-    // Invoice ID unique per platform when not null
-    unique('orders_platform_invoice_id_unique').on(table.platform_id, table.invoice_id),
-
     // Indexes for performance
     index('orders_platform_company_idx').on(table.platform_id, table.company_id),
     index('orders_status_idx').on(table.order_status),
@@ -755,6 +745,38 @@ export const financialStatusHistoryRelations = relations(
   })
 )
 
+// ---------------------------------- INVOICES -------------------------------------------------
+export const invoices = pgTable(
+  'invoices',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    platform_id: uuid('platform')
+      .notNull()
+      .references(() => platforms.id, { onDelete: 'cascade' }),
+    order_id: uuid('order')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+    invoice_id: varchar('invoice_id', { length: 50 }).notNull(),
+    invoice_pdf_url: varchar('invoice_pdf_url', { length: 255 }).notNull(),
+    invoice_paid_at: timestamp('invoice_paid_at'),
+    payment_method: varchar('payment_method', { length: 50 }),
+    payment_reference: varchar('payment_reference', { length: 100 }),
+    created_at: timestamp('created_at').notNull().defaultNow(),
+    updated_at: timestamp('updated_at').$onUpdate(() => new Date()).notNull(),
+  },
+  (table) => [
+    index('invoices_order_idx').on(table.order_id),
+    unique('platform_invoice_id_unique').on(table.platform_id, table.invoice_id),
+  ]
+)
+
+export const invoicesRelations = relations(
+  invoices,
+  ({ one }) => ({
+    order: one(orders, { fields: [invoices.order_id], references: [orders.id] }),
+    platform: one(platforms, { fields: [invoices.platform_id], references: [platforms.id] }),
+  })
+)
 
 // -----------------------------------------------------------------------------------------
 // ---------------------------------- SESSION ----------------------------------------------

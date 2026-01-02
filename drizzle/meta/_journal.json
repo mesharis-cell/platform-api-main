@@ -50,6 +50,20 @@
       "when": 1767288973515,
       "tag": "0006_material_adam_warlock",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1767364698274,
+      "tag": "0007_familiar_reavers",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1767365466767,
+      "tag": "0008_curly_shiva",
+      "breakpoints": true
     }
   ]
 }
