@@ -798,17 +798,6 @@
  *                     final_pricing:
  *                       type: object
  *                       nullable: true
- *                     invoice_id:
- *                       type: string
- *                       nullable: true
- *                     invoice_generated_at:
- *                       type: string
- *                       format: date-time
- *                       nullable: true
- *                     invoice_paid_at:
- *                       type: string
- *                       format: date-time
- *                       nullable: true
  *                     payment_method:
  *                       type: string
  *                       nullable: true
