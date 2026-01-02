@@ -1305,6 +1305,7 @@ export const AssetServices = {
     getAssetScanHistory,
     getBatchAvailability,
     checkAssetAvailability,
+    getSingleAssetAvailability,
     bulkUploadAssets,
     addConditionHistory,
     generateQRCode,

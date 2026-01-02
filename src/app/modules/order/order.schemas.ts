@@ -120,6 +120,14 @@ const approvePlatformPricingSchema = z.object({
     }).strict(),
 });
 
+const approveQuoteSchema = z.object({
+    body: z.object({
+        notes: z
+            .string("Notes should be a text")
+            .optional(),
+    }).strict(),
+});
+
 
 export const orderSchemas = {
     submitOrderSchema,
@@ -129,5 +137,6 @@ export const orderSchemas = {
     adjustLogisticsPricingSchema,
     approveStandardPricingSchema,
     approvePlatformPricingSchema,
+    approveQuoteSchema,
 };
 

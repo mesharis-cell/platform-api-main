@@ -63,6 +63,15 @@ router.get(
     OrderControllers.getOrderPricingDetails
 );
 
+// Approve quote
+router.patch(
+    "/:id/approve-quote",
+    platformValidator,
+    auth("CLIENT"),
+    payloadValidator(orderSchemas.approveQuoteSchema),
+    OrderControllers.approveQuote
+);
+
 // Progress order status
 router.patch(
     "/:id/status",
