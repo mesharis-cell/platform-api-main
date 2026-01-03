@@ -8,6 +8,7 @@ import "./app/modules/calendar/calendar.swagger";
 import "./app/modules/catalog/catalog.swagger";
 import "./app/modules/collection/collection.swagger";
 import "./app/modules/company/company.swagger";
+import "./app/modules/invoice/invoice.swagger";
 import "./app/modules/order/order.swagger";
 import "./app/modules/platform/platform.swagger";
 import "./app/modules/pricing-tier/pricing-tier.swagger";

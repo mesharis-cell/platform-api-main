@@ -2,7 +2,8 @@ declare namespace NodeJS {
   interface ProcessEnv {
     NODE_ENV: "development" | "production" | "test";
     DATABASE_URL: string;
-    FRONTEND_URL: string;
+    CLIENT_URL: string;
+    SERVER_URL: string;
     PORT: string;
     SALT_ROUNDS: string;
     JWT_ACCESS_SECRET: string;
@@ -16,7 +17,7 @@ declare namespace NodeJS {
     EMAIL_FROM: string;
     APP_NAME: string;
     AWS_REGION: string;
-    AWS_S3_BUCKET: string;
+    AWS_BUCKET_NAME: string;
     AWS_ACCESS_KEY_ID: string;
     AWS_SECRET_ACCESS_KEY: string;
   }

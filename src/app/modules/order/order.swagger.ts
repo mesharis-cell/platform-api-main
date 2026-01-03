@@ -3101,3 +3101,207 @@
  *     security:
  *       - BearerAuth: []
  */
+
+
+/**
+ * @swagger
+ * /api/client/v1/order/{id}/decline-quote:
+ *   patch:
+ *     tags:
+ *       - Order Management
+ *     summary: Decline a quote (CLIENT only)
+ *     description: |
+ *       Allows a CLIENT user to decline a quote for an order in QUOTED status.
+ *
+ *       **Business Logic:**
+ *       - Order must be in `QUOTED` status
+ *       - User must belong to the same company as the order
+ *       - Decline reason must be at least 10 characters
+ *       - Order status will be updated to `DECLINED`
+ *       - Status change will be logged in order history
+ *       - Notification will be sent to relevant parties
+ *
+ *       **Access Control:**
+ *       - CLIENT users only
+ *       - User must have access to the order (same company)
+ *
+ *       **Status Transition:**
+ *       - QUOTED → DECLINED
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         description: Order ID (UUID)
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *           example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - decline_reason
+ *             properties:
+ *               decline_reason:
+ *                 type: string
+ *                 minLength: 10
+ *                 description: Reason for declining the quote (minimum 10 characters)
+ *                 example: "The pricing is higher than our budget allows for this event."
+ *           examples:
+ *             budgetConstraint:
+ *               summary: Budget constraint
+ *               value:
+ *                 decline_reason: "The pricing is higher than our budget allows for this event."
+ *             alternativeVendor:
+ *               summary: Alternative vendor selected
+ *               value:
+ *                 decline_reason: "We have decided to proceed with an alternative vendor for this event."
+ *             eventCancelled:
+ *               summary: Event cancelled
+ *               value:
+ *                 decline_reason: "The event has been cancelled, so we no longer need these assets."
+ *             scopeChange:
+ *               summary: Scope change
+ *               value:
+ *                 decline_reason: "Our event requirements have changed significantly, and we need to submit a new order."
+ *     responses:
+ *       200:
+ *         description: Quote declined successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Quote declined successfully."
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                       description: Order internal UUID
+ *                       example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *                     order_id:
+ *                       type: string
+ *                       description: Human-readable order ID
+ *                       example: "ORD-20260103-001"
+ *                     order_status:
+ *                       type: string
+ *                       description: Updated order status
+ *                       example: "DECLINED"
+ *                       enum: [DECLINED]
+ *                     updated_at:
+ *                       type: string
+ *                       format: date-time
+ *                       description: Timestamp when the order was declined
+ *                       example: "2026-01-03T12:15:00.000Z"
+ *             example:
+ *               success: true
+ *               message: "Quote declined successfully."
+ *               data:
+ *                 id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *                 order_id: "ORD-20260103-001"
+ *                 order_status: "DECLINED"
+ *                 updated_at: "2026-01-03T12:15:00.000Z"
+ *       400:
+ *         description: Bad Request - Validation errors or invalid status
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *             examples:
+ *               invalidStatus:
+ *                 summary: Order not in QUOTED status
+ *                 value:
+ *                   success: false
+ *                   message: "Order is not in QUOTED status. Current status: CONFIRMED"
+ *               shortDeclineReason:
+ *                 summary: Decline reason too short
+ *                 value:
+ *                   success: false
+ *                   message: "Decline reason is required and must be at least 10 characters"
+ *               missingDeclineReason:
+ *                 summary: Missing decline reason
+ *                 value:
+ *                   success: false
+ *                   message: "Decline reason should be a text"
+ *       401:
+ *         description: Unauthorized - Authentication required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Unauthorized"
+ *       403:
+ *         description: Forbidden - Insufficient permissions or no access to order
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *             examples:
+ *               noAccess:
+ *                 summary: No access to order
+ *                 value:
+ *                   success: false
+ *                   message: "Order not found or you do not have access to this order"
+ *               wrongRole:
+ *                 summary: Wrong user role
+ *                 value:
+ *                   success: false
+ *                   message: "Forbidden - CLIENT role required"
+ *       404:
+ *         description: Not Found - Order does not exist
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Order not found or you do not have access to this order"
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Internal server error"
+ *     security:
+ *       - BearerAuth: []
+ */

@@ -72,6 +72,16 @@ router.patch(
     OrderControllers.approveQuote
 );
 
+// Decline quote
+router.patch(
+    "/:id/decline-quote",
+    platformValidator,
+    auth("CLIENT"),
+    payloadValidator(orderSchemas.declineQuoteSchema),
+    OrderControllers.declineQuote
+);
+
+
 // Progress order status
 router.patch(
     "/:id/status",

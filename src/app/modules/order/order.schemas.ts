@@ -128,6 +128,14 @@ const approveQuoteSchema = z.object({
     }).strict(),
 });
 
+const declineQuoteSchema = z.object({
+    body: z.object({
+        decline_reason: z
+            .string("Decline reason should be a text")
+            .min(10, "Decline reason must be at least 10 characters"),
+    }).strict(),
+});
+
 
 export const orderSchemas = {
     submitOrderSchema,
@@ -138,5 +146,7 @@ export const orderSchemas = {
     approveStandardPricingSchema,
     approvePlatformPricingSchema,
     approveQuoteSchema,
+    declineQuoteSchema,
 };
+
 

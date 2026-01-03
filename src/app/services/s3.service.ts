@@ -104,3 +104,30 @@ export const uploadImageToS3 = async (
 ): Promise<string> => {
     return uploadFileToS3(imageBuffer, 'images', fileName, contentType);
 };
+
+export const getPDFBufferFromS3 = async (fileUrl: string): Promise<Buffer> => {
+    try {
+        // Extract key from URL
+        const url = new URL(fileUrl);
+        const key = url.pathname.substring(1);
+
+        const command = new GetObjectCommand({
+            Bucket: config.aws_s3_bucket,
+            Key: key,
+        });
+
+        const response = await s3Client.send(command);
+
+        // Convert stream to buffer
+        const chunks: Uint8Array[] = [];
+        for await (const chunk of response.Body as any) {
+            chunks.push(chunk);
+        }
+        const buffer = Buffer.concat(chunks);
+
+        return buffer;
+    } catch (error) {
+        console.error('Error fetching PDF from S3:', error);
+        throw new Error('Failed to fetch invoice PDF');
+    }
+};

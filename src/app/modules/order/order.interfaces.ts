@@ -16,6 +16,9 @@ export type ApprovePlatformPricingPayload = z.infer<typeof orderSchemas.approveP
 
 export type ApproveQuotePayload = z.infer<typeof orderSchemas.approveQuoteSchema>["body"];
 
+export type DeclineQuotePayload = z.infer<typeof orderSchemas.declineQuoteSchema>["body"];
+
+
 // Email data interface for order notifications
 export interface OrderSubmittedEmailData {
     orderId: string;

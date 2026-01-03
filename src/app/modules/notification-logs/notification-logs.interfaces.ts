@@ -22,6 +22,7 @@ export type NotificationRecipients = {
 }
 
 export type NotificationData = {
+    platformId: string
     orderId: string
     orderIdReadable: string
     companyName: string
@@ -35,6 +36,7 @@ export type NotificationData = {
     deliveryWindow?: string
     pickupWindow?: string
     orderUrl: string
+    serverUrl: string
     supportEmail: string
     supportPhone: string
     // Additional context fields

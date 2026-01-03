@@ -106,9 +106,11 @@ export const getRecipientsForNotification = async (
 
 // ----------------------------------- BUILD NOTIFICATION DATA ------------------------------------
 export const buildNotificationData = async (order: any): Promise<NotificationData> => {
-    const baseUrl = config.frontend_url || 'http://localhost:3000'
+    const clientUrl = config.client_url;
+    const serverUrl = config.server_url;
 
     return {
+        platformId: order.platform_id,
         orderId: order.id,
         orderIdReadable: order.order_id,
         companyName: order.company?.name || 'Unknown Company',
@@ -124,7 +126,7 @@ export const buildNotificationData = async (order: any): Promise<NotificationDat
         finalTotalPrice: order.final_pricing?.total_price
             ? Number(order.final_pricing.total_price).toFixed(2)
             : '',
-        invoiceNumber: order.invoice_id || '',
+        invoiceNumber: order.invoiceNumber || '',
         deliveryWindow: formatTimeWindow(
             order.delivery_window?.start,
             order.delivery_window?.end
@@ -133,7 +135,8 @@ export const buildNotificationData = async (order: any): Promise<NotificationDat
             order.pickup_window?.start,
             order.pickup_window?.end
         ),
-        orderUrl: `${baseUrl}/orders/${order.order_id}`,
+        orderUrl: `${clientUrl}/orders/${order.order_id}`,
+        serverUrl: serverUrl,
         supportEmail: 'support@assetfulfillment.com',
         supportPhone: '+971 XX XXX XXXX',
         // Additional fields for enhanced templates

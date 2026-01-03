@@ -35,10 +35,10 @@ export const invoiceNumberGenerator = async (platformId: string): Promise<string
 }
 
 // --------------------------------- INVOICE GENERATOR ----------------------------------------
-export const invoiceGenerator = async (data: InvoicePayload, regenerate: boolean = false) => {
+export const invoiceGenerator = async (data: InvoicePayload, regenerate: boolean = false): Promise<{ invoice_id: string; invoice_pdf_url: string; }> => {
 
     const [invoice] = await db.select().from(invoices).where(
-        and(eq(invoices.order_id, data.order_id), eq(invoices.platform_id, data.platform_id))
+        and(eq(invoices.order_id, data.id), eq(invoices.platform_id, data.platform_id))
     );
 
     if (invoice && !regenerate) {
@@ -69,7 +69,7 @@ export const invoiceGenerator = async (data: InvoicePayload, regenerate: boolean
     const pdfBuffer = await renderInvoicePDF({ ...data, invoice_number: invoiceNumber, invoice_date: new Date() })
 
     // Upload PDF to S3
-    const key = `invoices/${data.company_name}/${invoiceNumber}.pdf`
+    const key = `invoices/${data.company_name.replace(/\s/g, '-').toLowerCase()}/${invoiceNumber}.pdf`
     const pdfUrl = await uploadPDFToS3(pdfBuffer, invoiceNumber, key)
 
     // Save or update invoice record
@@ -84,7 +84,7 @@ export const invoiceGenerator = async (data: InvoicePayload, regenerate: boolean
     } else {
         await db.insert(invoices).values({
             platform_id: data.platform_id,
-            order_id: data.order_id,
+            order_id: data.id,
             invoice_id: invoiceNumber,
             invoice_pdf_url: pdfUrl,
         })
@@ -104,6 +104,7 @@ export type HandlingTag =
     | 'AssemblyRequired'
 
 export type InvoicePayload = {
+    id: string;
     order_id: string;
     platform_id: string;
     contact_name: string;
