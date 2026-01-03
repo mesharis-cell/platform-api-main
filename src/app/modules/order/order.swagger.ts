@@ -3305,3 +3305,180 @@
  *     security:
  *       - BearerAuth: []
  */
+
+/**
+ * @swagger
+ * /api/client/v1/order/statistics:
+ *   get:
+ *     tags:
+ *       - Order Management
+ *     summary: Get order statistics (CLIENT only)
+ *     description: |
+ *       Retrieves order statistics and recent orders for the authenticated client user's company.
+ *
+ *       **Statistics Provided:**
+ *       - **Active Orders**: Orders in progress (CONFIRMED, IN_PREPARATION, READY_FOR_DELIVERY, IN_TRANSIT, DELIVERED, IN_USE, AWAITING_RETURN)
+ *       - **Pending Quotes**: Orders in QUOTED status awaiting client approval
+ *       - **Upcoming Events**: Future events (event_start_date >= today) in CONFIRMED or IN_PREPARATION status
+ *       - **Awaiting Return**: Orders in AWAITING_RETURN status
+ *       - **Recent Orders**: Last 5 orders sorted by creation date
+ *
+ *       **Access Control:**
+ *       - CLIENT users only
+ *       - User must have a valid company ID
+ *       - Only shows orders from user's company
+ *
+ *       **Performance:**
+ *       - Optimized with single database query
+ *       - In-memory processing for counts
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *     responses:
+ *       200:
+ *         description: Order statistics fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Order statistics fetched successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     summary:
+ *                       type: object
+ *                       description: Order counts by category
+ *                       properties:
+ *                         active_orders:
+ *                           type: integer
+ *                           description: Count of orders in active statuses (CONFIRMED, IN_PREPARATION, READY_FOR_DELIVERY, IN_TRANSIT, DELIVERED, IN_USE, AWAITING_RETURN)
+ *                           example: 12
+ *                         pending_quotes:
+ *                           type: integer
+ *                           description: Count of orders in QUOTED status
+ *                           example: 3
+ *                         upcoming_events:
+ *                           type: integer
+ *                           description: Count of future events in CONFIRMED or IN_PREPARATION status
+ *                           example: 5
+ *                         awaiting_return:
+ *                           type: integer
+ *                           description: Count of orders in AWAITING_RETURN status
+ *                           example: 2
+ *                     recent_orders:
+ *                       type: array
+ *                       description: Last 5 orders sorted by creation date (newest first)
+ *                       maxItems: 5
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                             format: uuid
+ *                             description: Order internal UUID
+ *                             example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *                           order_id:
+ *                             type: string
+ *                             description: Human-readable order ID
+ *                             example: "ORD-20260103-001"
+ *                           venue_name:
+ *                             type: string
+ *                             description: Event venue name
+ *                             example: "Dubai World Trade Centre"
+ *                           event_start_date:
+ *                             type: string
+ *                             format: date-time
+ *                             description: Event start date
+ *                             example: "2026-02-15T00:00:00.000Z"
+ *                           event_end_date:
+ *                             type: string
+ *                             format: date-time
+ *                             description: Event end date
+ *                             example: "2026-02-17T00:00:00.000Z"
+ *                           order_status:
+ *                             type: string
+ *                             description: Current order status
+ *                             enum: [DRAFT, SUBMITTED, PRICING_REVIEW, PENDING_APPROVAL, QUOTED, DECLINED, CONFIRMED, IN_PREPARATION, READY_FOR_DELIVERY, IN_TRANSIT, DELIVERED, IN_USE, AWAITING_RETURN, CLOSED]
+ *                             example: "CONFIRMED"
+ *                           created_at:
+ *                             type: string
+ *                             format: date-time
+ *                             description: Order creation timestamp
+ *                             example: "2026-01-03T12:00:00.000Z"
+ *             example:
+ *               success: true
+ *               message: "Order statistics fetched successfully"
+ *               data:
+ *                 summary:
+ *                   active_orders: 12
+ *                   pending_quotes: 3
+ *                   upcoming_events: 5
+ *                   awaiting_return: 2
+ *                 recent_orders:
+ *                   - id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *                     order_id: "ORD-20260103-001"
+ *                     venue_name: "Dubai World Trade Centre"
+ *                     event_start_date: "2026-02-15T00:00:00.000Z"
+ *                     event_end_date: "2026-02-17T00:00:00.000Z"
+ *                     order_status: "CONFIRMED"
+ *                     created_at: "2026-01-03T12:00:00.000Z"
+ *       400:
+ *         description: Bad Request - Missing company ID
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Company ID is required"
+ *       401:
+ *         description: Unauthorized - Authentication required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Unauthorized"
+ *       403:
+ *         description: Forbidden - CLIENT role required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Forbidden - CLIENT role required"
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Internal server error"
+ *     security:
+ *       - BearerAuth: []
+ */
