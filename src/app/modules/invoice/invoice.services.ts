@@ -375,6 +375,9 @@ const confirmPayment = async (
 const generateInvoice = async (platformId: string, user: AuthUser, payload: GenerateInvoicePayload) => {
     const { order_id, regenerate } = payload;
 
+    console.log("order_id", order_id);
+    console.log("platformId", platformId);
+
     // Step 1: Fetch order with company details
     const order = await db.query.orders.findFirst({
         where: and(
