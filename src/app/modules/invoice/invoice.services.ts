@@ -367,6 +367,10 @@ const confirmPayment = async (
     };
 };
 
+// ----------------------------------- INVOICE GENERATE ---------------------------------------
+const generateInvoice = async (platformId: string, user: AuthUser, payload: any) => {
+
+}
 export const InvoiceServices = {
     getInvoiceById,
     downloadInvoice,
