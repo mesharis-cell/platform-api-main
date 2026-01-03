@@ -8,6 +8,26 @@ import { invoices } from "../../../db/schema";
 import { and, eq } from "drizzle-orm";
 import CustomizedError from "../../error/customized-error";
 
+// ----------------------------------- GET INVOICE BY ID --------------------------------------
+const getInvoiceById = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const { invoiceId } = req.params;
+
+    const result = await InvoiceServices.getInvoiceById(
+        invoiceId,
+        user,
+        platformId
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Invoice fetched successfully",
+        data: result,
+    });
+});
+
 // ----------------------------------- DOWNLOAD INVOICE (PRESIGNED URL) -----------------------
 const downloadInvoice = catchAsync(async (req, res) => {
     const user = (req as any).user;
@@ -80,6 +100,7 @@ const getInvoices = catchAsync(async (req, res) => {
 });
 
 export const InvoiceControllers = {
+    getInvoiceById,
     downloadInvoice,
     downloadInvoicePDF,
     getInvoices,

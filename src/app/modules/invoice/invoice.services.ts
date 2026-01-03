@@ -8,37 +8,55 @@ import { getPresignedUrl } from "../../services/s3.service";
 import queryValidator from "../../utils/query-validator";
 import paginationMaker from "../../utils/pagination-maker";
 import { invoiceQueryValidationConfig, invoiceSortableFields } from "./invoice.utils";
+import { uuidRegex } from "../../constants/common";
 
 // ----------------------------------- GET INVOICE BY ID --------------------------------------
-export const getInvoiceById = async (
+const getInvoiceById = async (
     invoiceId: string,
     user: AuthUser,
     platformId: string
 ) => {
-    // Fetch invoice
-    const [invoice] = await db
-        .select()
+    // Step 1: Determine if invoiceId is UUID or invoice_id
+    const isUUID = invoiceId.match(uuidRegex);
+
+    // Step 2: Fetch invoice with order and company information
+    const [result] = await db
+        .select({
+            invoice: invoices,
+            order: {
+                id: orders.id,
+                order_id: orders.order_id,
+                contact_name: orders.contact_name,
+                event_start_date: orders.event_start_date,
+                event_end_date: orders.event_end_date,
+                venue_name: orders.venue_name,
+                final_pricing: orders.final_pricing,
+                order_status: orders.order_status,
+                financial_status: orders.financial_status,
+            },
+            company: {
+                id: companies.id,
+                name: companies.name,
+            },
+        })
         .from(invoices)
+        .innerJoin(orders, eq(invoices.order_id, orders.id))
+        .leftJoin(companies, eq(orders.company_id, companies.id))
         .where(
             and(
-                eq(invoices.invoice_id, invoiceId),
+                isUUID ? eq(invoices.id, invoiceId) : eq(invoices.invoice_id, invoiceId),
                 eq(invoices.platform_id, platformId)
             )
         );
 
-    if (!invoice) {
+    // Step 3: Check if invoice exists
+    if (!result) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Invoice not found");
     }
 
-    // Access control: Only ADMIN, LOGISTICS, or the company that owns the order can access
+    // Step 4: Access control - CLIENT users can only access their company's invoices
     if (user.role === 'CLIENT') {
-        // Need to check if the invoice's order belongs to the user's company
-        const [order] = await db
-            .select()
-            .from(orders)
-            .where(eq(orders.id, invoice.order_id));
-
-        if (!order || order.company_id !== user.company_id) {
+        if (!user.company_id || !result.company || result.company.id !== user.company_id) {
             throw new CustomizedError(
                 httpStatus.FORBIDDEN,
                 "You don't have access to this invoice"
@@ -46,7 +64,19 @@ export const getInvoiceById = async (
         }
     }
 
-    return invoice;
+    // Step 5: Format and return result
+    return {
+        id: result.invoice.id,
+        invoice_id: result.invoice.invoice_id,
+        invoice_pdf_url: result.invoice.invoice_pdf_url,
+        invoice_paid_at: result.invoice.invoice_paid_at,
+        payment_method: result.invoice.payment_method,
+        payment_reference: result.invoice.payment_reference,
+        order: result.order,
+        company: result.company,
+        created_at: result.invoice.created_at,
+        updated_at: result.invoice.updated_at,
+    };
 };
 
 // ----------------------------------- DOWNLOAD INVOICE ---------------------------------------

@@ -14,7 +14,14 @@ router.get(
 );
 
 
-// Download invoice (get presigned URL)
+// Get single invoice by ID or invoice_id
+router.get(
+    "/:invoiceId",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    InvoiceControllers.getInvoiceById
+);
+
 router.get(
     "/download/:invoiceId",
     platformValidator,
