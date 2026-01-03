@@ -2157,6 +2157,100 @@ const declineQuote = async (
 };
 
 
+// ----------------------------------- GET CLIENT ORDER STATISTICS ----------------------------
+const getClientOrderStatistics = async (companyId: string, platformId: string) => {
+    // Get today's date for upcoming events filter
+    const today = new Date().toISOString().split('T')[0];
+
+    // Base condition for all queries
+    const baseCondition = and(
+        eq(orders.company_id, companyId),
+        eq(orders.platform_id, platformId),
+        isNull(orders.deleted_at)
+    );
+
+    // Fetch all orders in a single query
+    const allOrders = await db
+        .select({
+            id: orders.id,
+            order_id: orders.order_id,
+            venue_name: orders.venue_name,
+            event_start_date: orders.event_start_date,
+            event_end_date: orders.event_end_date,
+            order_status: orders.order_status,
+            created_at: orders.created_at,
+        })
+        .from(orders)
+        .where(baseCondition)
+        .orderBy(desc(orders.created_at));
+
+    // Define status categories
+    const activeOrderStatuses = [
+        'CONFIRMED',
+        'IN_PREPARATION',
+        'READY_FOR_DELIVERY',
+        'IN_TRANSIT',
+        'DELIVERED',
+        'IN_USE',
+        'AWAITING_RETURN',
+    ];
+    const upcomingEventStatuses = ['CONFIRMED', 'IN_PREPARATION'];
+
+    // Process counts in memory
+    let activeOrdersCount = 0;
+    let pendingQuotesCount = 0;
+    let upcomingEventsCount = 0;
+    let awaitingReturnCount = 0;
+
+    for (const order of allOrders) {
+        // Count active orders
+        if (activeOrderStatuses.includes(order.order_status)) {
+            activeOrdersCount++;
+        }
+
+        // Count pending quotes
+        if (order.order_status === 'QUOTED') {
+            pendingQuotesCount++;
+        }
+
+        // Count upcoming events
+        if (
+            upcomingEventStatuses.includes(order.order_status) &&
+            order.event_start_date &&
+            order.event_start_date >= new Date(today)
+        ) {
+            upcomingEventsCount++;
+        }
+
+        // Count awaiting return
+        if (order.order_status === 'AWAITING_RETURN') {
+            awaitingReturnCount++;
+        }
+    }
+
+    // Get 5 most recent orders
+    const recentOrders = allOrders.slice(0, 5);
+
+    return {
+        summary: {
+            active_orders: activeOrdersCount,
+            pending_quotes: pendingQuotesCount,
+            upcoming_events: upcomingEventsCount,
+            awaiting_return: awaitingReturnCount,
+        },
+        recent_orders: recentOrders.map(order => ({
+            id: order.id,
+            order_id: order.order_id,
+            venue_name: order.venue_name,
+            event_start_date: order.event_start_date,
+            event_end_date: order.event_end_date,
+            order_status: order.order_status,
+            created_at: order.created_at,
+        })),
+    };
+};
+
+
 export const OrderServices = {
     submitOrderFromCart,
     getOrders,
@@ -2175,6 +2269,8 @@ export const OrderServices = {
     approvePlatformPricing,
     approveQuote,
     declineQuote,
+    getClientOrderStatistics,
 };
+
 
 

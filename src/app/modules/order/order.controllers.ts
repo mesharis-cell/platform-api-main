@@ -402,6 +402,27 @@ const declineQuote = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- GET ORDER STATISTICS (CLIENT) ------------------------------
+const getOrderStatistics = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+
+    // Get company ID from user
+    const companyId = user.company_id;
+    if (!companyId) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Company ID is required");
+    }
+
+    const result = await OrderServices.getClientOrderStatistics(companyId, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Order statistics fetched successfully",
+        data: result,
+    });
+});
+
 export const OrderControllers = {
     submitOrder,
     getOrders,
@@ -421,7 +442,9 @@ export const OrderControllers = {
     approvePlatformPricing,
     approveQuote,
     declineQuote,
+    getOrderStatistics,
 };
+
 
 
 

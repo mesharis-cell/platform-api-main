@@ -39,6 +39,15 @@ router.get(
     OrderControllers.getClientDashboardSummary
 );
 
+// Get order statistics (CLIENT only)
+router.get(
+    "/statistics",
+    platformValidator,
+    auth("CLIENT"),
+    OrderControllers.getOrderStatistics
+);
+
+
 // Get pricing review orders
 router.get(
     "/pricing-review",
