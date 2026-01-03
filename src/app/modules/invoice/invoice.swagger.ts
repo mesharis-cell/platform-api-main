@@ -309,6 +309,276 @@
 
 /**
  * @swagger
+ * /api/client/v1/invoice/{invoiceId}:
+ *   get:
+ *     tags:
+ *       - Invoice Management
+ *     summary: Get single invoice by ID
+ *     description: |
+ *       Retrieves a single invoice with order and company information.
+ *       
+ *       **Flexible ID Lookup:**
+ *       - Accepts both internal UUID and human-readable invoice_id
+ *       - Automatic detection of ID format
+ *       
+ *       **Includes:**
+ *       - Complete invoice details
+ *       - Associated order information
+ *       - Company details
+ *       - Payment status and references
+ *       
+ *       **Access Control:**
+ *       - ADMIN and LOGISTICS users can access all invoices
+ *       - CLIENT users can only access invoices for their company's orders
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: invoiceId
+ *         in: path
+ *         required: true
+ *         description: Invoice identifier (UUID or invoice_id)
+ *         schema:
+ *           type: string
+ *         examples:
+ *           uuid:
+ *             summary: Internal UUID
+ *             value: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *           invoiceId:
+ *             summary: Invoice ID
+ *             value: "INV-20260103-001"
+ *     responses:
+ *       200:
+ *         description: Invoice fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Invoice fetched successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                       description: Invoice internal UUID
+ *                       example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *                     invoice_id:
+ *                       type: string
+ *                       description: Human-readable invoice ID
+ *                       example: "INV-20260103-001"
+ *                     invoice_pdf_url:
+ *                       type: string
+ *                       description: S3 URL of the invoice PDF
+ *                       example: "s3://bucket/invoices/company-name/INV-20260103-001.pdf"
+ *                     invoice_paid_at:
+ *                       type: string
+ *                       format: date-time
+ *                       nullable: true
+ *                       description: Timestamp when invoice was paid (null if unpaid)
+ *                       example: "2026-01-05T10:00:00.000Z"
+ *                     payment_method:
+ *                       type: string
+ *                       nullable: true
+ *                       description: Payment method used
+ *                       example: "bank_transfer"
+ *                     payment_reference:
+ *                       type: string
+ *                       nullable: true
+ *                       description: Payment reference number
+ *                       example: "REF123456"
+ *                     order:
+ *                       type: object
+ *                       description: Associated order information
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                           format: uuid
+ *                           example: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+ *                         order_id:
+ *                           type: string
+ *                           example: "ORD-20260103-001"
+ *                         contact_name:
+ *                           type: string
+ *                           example: "John Doe"
+ *                         event_start_date:
+ *                           type: string
+ *                           format: date-time
+ *                           example: "2026-02-15T00:00:00.000Z"
+ *                         event_end_date:
+ *                           type: string
+ *                           format: date-time
+ *                           example: "2026-02-17T00:00:00.000Z"
+ *                         venue_name:
+ *                           type: string
+ *                           example: "Dubai World Trade Centre"
+ *                         final_pricing:
+ *                           type: object
+ *                           nullable: true
+ *                           description: Final pricing details
+ *                           properties:
+ *                             total_price:
+ *                               type: number
+ *                               example: 5000.00
+ *                             quote_sent_at:
+ *                               type: string
+ *                               format: date-time
+ *                               example: "2026-01-03T14:00:00.000Z"
+ *                         order_status:
+ *                           type: string
+ *                           description: Current order status
+ *                           example: "CONFIRMED"
+ *                         financial_status:
+ *                           type: string
+ *                           description: Financial status
+ *                           example: "INVOICED"
+ *                     company:
+ *                       type: object
+ *                       description: Company information
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                           format: uuid
+ *                           example: "c3d4e5f6-a7b8-9012-cdef-123456789012"
+ *                         name:
+ *                           type: string
+ *                           example: "Diageo"
+ *                     created_at:
+ *                       type: string
+ *                       format: date-time
+ *                       description: Invoice creation timestamp
+ *                       example: "2026-01-03T12:00:00.000Z"
+ *                     updated_at:
+ *                       type: string
+ *                       format: date-time
+ *                       description: Invoice last update timestamp
+ *                       example: "2026-01-05T10:00:00.000Z"
+ *             examples:
+ *               paidInvoice:
+ *                 summary: Paid invoice
+ *                 value:
+ *                   success: true
+ *                   message: "Invoice fetched successfully"
+ *                   data:
+ *                     id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *                     invoice_id: "INV-20260103-001"
+ *                     invoice_pdf_url: "s3://bucket/invoices/diageo/INV-20260103-001.pdf"
+ *                     invoice_paid_at: "2026-01-05T10:00:00.000Z"
+ *                     payment_method: "bank_transfer"
+ *                     payment_reference: "REF123456"
+ *                     order:
+ *                       id: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+ *                       order_id: "ORD-20260103-001"
+ *                       contact_name: "John Doe"
+ *                       event_start_date: "2026-02-15T00:00:00.000Z"
+ *                       event_end_date: "2026-02-17T00:00:00.000Z"
+ *                       venue_name: "Dubai World Trade Centre"
+ *                       final_pricing:
+ *                         total_price: 5000.00
+ *                         quote_sent_at: "2026-01-03T14:00:00.000Z"
+ *                       order_status: "CONFIRMED"
+ *                       financial_status: "INVOICED"
+ *                     company:
+ *                       id: "c3d4e5f6-a7b8-9012-cdef-123456789012"
+ *                       name: "Diageo"
+ *                     created_at: "2026-01-03T12:00:00.000Z"
+ *                     updated_at: "2026-01-05T10:00:00.000Z"
+ *               unpaidInvoice:
+ *                 summary: Unpaid invoice
+ *                 value:
+ *                   success: true
+ *                   message: "Invoice fetched successfully"
+ *                   data:
+ *                     id: "d4e5f6a7-b8c9-0123-def4-567890123456"
+ *                     invoice_id: "INV-20260102-005"
+ *                     invoice_pdf_url: "s3://bucket/invoices/heineken/INV-20260102-005.pdf"
+ *                     invoice_paid_at: null
+ *                     payment_method: null
+ *                     payment_reference: null
+ *                     order:
+ *                       id: "e5f6a7b8-c9d0-1234-ef56-789012345678"
+ *                       order_id: "ORD-20260102-005"
+ *                       contact_name: "Jane Smith"
+ *                       event_start_date: "2026-03-10T00:00:00.000Z"
+ *                       event_end_date: "2026-03-12T00:00:00.000Z"
+ *                       venue_name: "Abu Dhabi Convention Centre"
+ *                       final_pricing:
+ *                         total_price: 3500.00
+ *                         quote_sent_at: "2026-01-02T16:00:00.000Z"
+ *                       order_status: "DELIVERED"
+ *                       financial_status: "INVOICED"
+ *                     company:
+ *                       id: "f6a7b8c9-d0e1-2345-f678-901234567890"
+ *                       name: "Heineken"
+ *                     created_at: "2026-01-02T15:30:00.000Z"
+ *                     updated_at: "2026-01-02T15:30:00.000Z"
+ *       401:
+ *         description: Unauthorized - Authentication required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Unauthorized"
+ *       403:
+ *         description: Forbidden - Access denied to this invoice
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *             examples:
+ *               noAccess:
+ *                 summary: CLIENT user accessing another company's invoice
+ *                 value:
+ *                   success: false
+ *                   message: "You don't have access to this invoice"
+ *       404:
+ *         description: Invoice not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Invoice not found"
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Internal server error"
+ *     security:
+ *       - BearerAuth: []
+ */
+
+/**
+ * @swagger
  * /api/client/v1/invoice/download/{invoiceId}:
  *   get:
  *     tags:
