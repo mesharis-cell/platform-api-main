@@ -975,6 +975,33 @@
  *                             type: string
  *                             format: date-time
  *                             description: When the status change occurred
+ *                     invoice:
+ *                       type: object
+ *                       nullable: true
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                           format: uuid
+ *                         invoice_id:
+ *                           type: string
+ *                           example: INV-20260103-001
+ *                         invoice_pdf_url:
+ *                           type: string
+ *                           example: https://example.com/invoice.pdf
+ *                         invoice_paid_at:
+ *                           type: string
+ *                           format: date-time
+ *                           nullable: true
+ *                         payment_method:
+ *                           type: string
+ *                         payment_reference:
+ *                           type: string
+ *                         created_at:
+ *                           type: string
+ *                           format: date-time
+ *                         updated_at:
+ *                           type: string
+ *                           format: date-time
  *       401:
  *         description: Unauthorized - Authentication required
  *       403:

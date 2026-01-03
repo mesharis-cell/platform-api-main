@@ -5,6 +5,15 @@ import { InvoiceControllers } from "./invoice.controllers";
 
 const router = Router();
 
+// Get invoices list
+router.get(
+    "/",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    InvoiceControllers.getInvoices
+);
+
+
 // Download invoice (get presigned URL)
 router.get(
     "/download/:invoiceId",

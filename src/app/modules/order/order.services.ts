@@ -9,6 +9,7 @@ import {
     collections,
     companies,
     financialStatusHistory,
+    invoices,
     orderItems,
     orders,
     orderStatusHistory,
@@ -812,6 +813,14 @@ const getOrderById = async (orderId: string, user: AuthUser, platformId: string,
         .where(eq(orderStatusHistory.order_id, orderData.order.id))
         .orderBy(desc(orderStatusHistory.timestamp));
 
+    const invoice = await db
+        .select()
+        .from(invoices)
+        .where(and(
+            eq(invoices.order_id, orderData.order.id),
+            eq(invoices.platform_id, platformId)
+        ));
+
     return {
         ...orderData.order,
         company: orderData.company,
@@ -820,6 +829,16 @@ const getOrderById = async (orderId: string, user: AuthUser, platformId: string,
         items: itemResults,
         financial_status_history: financialHistory,
         order_status_history: orderHistory,
+        invoice: invoice.length > 0 ? invoice.map((i) => ({
+            id: i.id,
+            invoice_id: i.invoice_id,
+            invoice_pdf_url: i.invoice_pdf_url,
+            invoice_paid_at: i.invoice_paid_at,
+            payment_method: i.payment_method,
+            payment_reference: i.payment_reference,
+            created_at: i.created_at,
+            updated_at: i.updated_at,
+        }))[0] : null,
     };
 };
 
