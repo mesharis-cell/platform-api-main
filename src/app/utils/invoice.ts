@@ -69,7 +69,7 @@ export const invoiceGenerator = async (data: InvoicePayload, regenerate: boolean
     const pdfBuffer = await renderInvoicePDF({ ...data, invoice_number: invoiceNumber, invoice_date: new Date() })
 
     // Upload PDF to S3
-    const key = `invoices/${data.company_name}/${invoiceNumber}.pdf`
+    const key = `invoices/${data.company_name.replace(/\s/g, '-').toLowerCase()}/${invoiceNumber}.pdf`
     const pdfUrl = await uploadPDFToS3(pdfBuffer, invoiceNumber, key)
 
     // Save or update invoice record

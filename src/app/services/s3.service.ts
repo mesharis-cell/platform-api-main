@@ -109,7 +109,7 @@ export const getPDFBufferFromS3 = async (fileUrl: string): Promise<Buffer> => {
     try {
         // Extract key from URL
         const url = new URL(fileUrl);
-        const key = url.pathname.substring(1); // Remove leading slash
+        const key = url.pathname.substring(1);
 
         const command = new GetObjectCommand({
             Bucket: config.aws_s3_bucket,
