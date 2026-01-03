@@ -43,7 +43,7 @@ const getCalendarEvents = async (
   if (month) {
     // Calculate start of month (first day)
     const startOfMonth = `${month}-01`;
-    
+
     // Calculate end of month (last day)
     // Split month into year and month parts
     const [yearStr, monthStr] = month.split('-');
