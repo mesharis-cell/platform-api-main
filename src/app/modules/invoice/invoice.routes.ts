@@ -2,6 +2,8 @@ import { Router } from "express";
 import auth from "../../middleware/auth";
 import platformValidator from "../../middleware/platform-validator";
 import { InvoiceControllers } from "./invoice.controllers";
+import { invoiceSchemas } from "./invoice.schemas";
+import payloadValidator from "../../middleware/payload-validator";
 
 const router = Router();
 
@@ -33,6 +35,15 @@ router.get(
 router.get(
     "/download-pdf/:invoiceId",
     InvoiceControllers.downloadInvoicePDF
+);
+
+// Confirm payment (ADMIN only)
+router.patch(
+    "/:orderId/confirm-payment",
+    platformValidator,
+    auth("ADMIN"),
+    payloadValidator(invoiceSchemas.confirmPayment),
+    InvoiceControllers.confirmPayment
 );
 
 export const InvoiceRoutes = router;

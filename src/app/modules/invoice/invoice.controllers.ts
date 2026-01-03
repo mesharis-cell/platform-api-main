@@ -99,9 +99,31 @@ const getInvoices = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- CONFIRM PAYMENT ----------------------------------------
+const confirmPayment = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const { orderId } = req.params;
+
+    const result = await InvoiceServices.confirmPayment(
+        orderId,
+        req.body,
+        user,
+        platformId
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Payment confirmed successfully",
+        data: result,
+    });
+});
+
 export const InvoiceControllers = {
     getInvoiceById,
     downloadInvoice,
     downloadInvoicePDF,
     getInvoices,
+    confirmPayment,
 };

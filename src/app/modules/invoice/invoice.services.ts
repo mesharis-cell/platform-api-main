@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, ilike, sql } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { companies, invoices, orders } from "../../../db/schema";
+import { companies, financialStatusHistory, invoices, orders } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { getPresignedUrl } from "../../services/s3.service";
@@ -9,6 +9,7 @@ import queryValidator from "../../utils/query-validator";
 import paginationMaker from "../../utils/pagination-maker";
 import { invoiceQueryValidationConfig, invoiceSortableFields } from "./invoice.utils";
 import { uuidRegex } from "../../constants/common";
+import { ConfirmPaymentPayload } from "./invoice.interfaces";
 
 // ----------------------------------- GET INVOICE BY ID --------------------------------------
 const getInvoiceById = async (
@@ -261,8 +262,114 @@ const getInvoices = async (
     };
 };
 
+// ----------------------------------- CONFIRM PAYMENT ----------------------------------------
+const confirmPayment = async (
+    orderId: string,
+    payload: ConfirmPaymentPayload,
+    user: AuthUser,
+    platformId: string
+) => {
+    // Step 1: Determine if orderId is UUID or order_id
+    const isUUID = orderId.match(uuidRegex);
+
+    // Step 2: Fetch invoice with order information
+    const [result] = await db
+        .select({
+            invoice: invoices,
+            order: {
+                id: orders.id,
+                order_id: orders.order_id,
+                company_id: orders.company_id,
+                financial_status: orders.financial_status,
+            },
+        })
+        .from(invoices)
+        .innerJoin(orders, eq(invoices.order_id, orders.id))
+        .where(
+            and(
+                isUUID ? eq(invoices.id, orderId) : eq(invoices.invoice_id, orderId),
+                eq(invoices.platform_id, platformId)
+            )
+        );
+
+    // Step 3: Validate invoice exists
+    if (!result) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Invoice not found");
+    }
+
+    // Step 4: Access control - CLIENT users cannot confirm payments
+    if (user.role === 'CLIENT') {
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            "Only ADMIN and LOGISTICS users can confirm payments"
+        );
+    }
+
+    // Step 5: Verify invoice is not already paid
+    if (result.invoice.invoice_paid_at) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Payment already confirmed for this invoice"
+        );
+    }
+
+    // Step 6: Validate payment date
+    const paymentDate = new Date(payload.payment_date || new Date().toISOString());
+    const now = new Date();
+
+    if (isNaN(paymentDate.getTime())) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Invalid payment date format");
+    }
+
+    if (paymentDate > now) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Payment date cannot be in the future"
+        );
+    }
+
+    // Step 7: Update invoice with payment details
+    await db
+        .update(invoices)
+        .set({
+            invoice_paid_at: paymentDate,
+            payment_method: payload.payment_method,
+            payment_reference: payload.payment_reference,
+            updated_at: new Date(),
+        })
+        .where(eq(invoices.id, result.invoice.id));
+
+    // Step 8: Update order financial status to PAID
+    await db
+        .update(orders)
+        .set({
+            financial_status: 'PAID',
+            updated_at: new Date(),
+        })
+        .where(eq(orders.id, result.order.id));
+
+    // Step 9: Log financial status change
+    await db.insert(financialStatusHistory).values({
+        platform_id: platformId,
+        order_id: result.order.id,
+        status: 'PAID',
+        notes: payload.notes || `Payment confirmed via ${payload.payment_method}`,
+        updated_by: user.id,
+    });
+
+    // Step 10: Return updated invoice details
+    return {
+        invoice_id: result.invoice.invoice_id,
+        invoice_paid_at: paymentDate.toISOString(),
+        payment_method: payload.payment_method,
+        payment_reference: payload.payment_reference,
+        order_id: result.order.order_id,
+    };
+};
+
 export const InvoiceServices = {
     getInvoiceById,
     downloadInvoice,
     getInvoices,
+    confirmPayment,
 };
