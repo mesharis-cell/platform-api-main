@@ -59,7 +59,28 @@ const downloadInvoicePDF = catchAsync(async (req, res) => {
     res.status(httpStatus.OK).send(buffer);
 });
 
+// ----------------------------------- GET INVOICES -------------------------------------------
+const getInvoices = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+
+    const result = await InvoiceServices.getInvoices(
+        req.query,
+        user,
+        platformId
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Invoices fetched successfully",
+        meta: result.meta,
+        data: result.data,
+    });
+});
+
 export const InvoiceControllers = {
     downloadInvoice,
     downloadInvoicePDF,
+    getInvoices,
 };
