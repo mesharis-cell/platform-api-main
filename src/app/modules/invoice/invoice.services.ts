@@ -360,6 +360,7 @@ const confirmPayment = async (
     return {
         invoice_id: result.invoice.invoice_id,
         invoice_paid_at: paymentDate.toISOString(),
+        invoice_pdf_url: result.invoice.invoice_pdf_url,
         payment_method: payload.payment_method,
         payment_reference: payload.payment_reference,
         order_id: result.order.order_id,
