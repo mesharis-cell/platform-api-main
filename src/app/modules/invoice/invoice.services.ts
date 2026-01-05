@@ -274,9 +274,6 @@ const confirmPayment = async (
     user: AuthUser,
     platformId: string
 ) => {
-    // Step 1: Determine if orderId is UUID or order_id
-    const isUUID = orderId.match(uuidRegex);
-
     // Step 2: Fetch invoice with order information
     const [result] = await db
         .select({
@@ -292,7 +289,7 @@ const confirmPayment = async (
         .innerJoin(orders, eq(invoices.order_id, orders.id))
         .where(
             and(
-                isUUID ? eq(invoices.id, orderId) : eq(invoices.invoice_id, orderId),
+                eq(invoices.order_id, orderId),
                 eq(invoices.platform_id, platformId)
             )
         );
@@ -487,6 +484,7 @@ const generateInvoice = async (platformId: string, user: AuthUser, payload: Gene
         invoice_pdf_url,
     };
 }
+
 export const InvoiceServices = {
     getInvoiceById,
     downloadInvoice,
