@@ -5,6 +5,8 @@ import { assetBookings, assetConditionHistory, assets, orderStatusHistory, order
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { CompleteInboundScanResponse, CompleteOutboundScanResponse, InboundScanPayload, InboundScanResponse, OrderProgressResponse, OutboundScanPayload, OutboundScanResponse } from "./scanning.interfaces";
+import { invoiceGenerator } from "../../utils/invoice";
+import { NotificationLogServices } from "../notification-logs/notification-logs.services";
 
 // ----------------------------------- INBOUND SCAN ---------------------------------------
 const inboundScan = async (
@@ -284,7 +286,17 @@ const completeInboundScan = async (
         ),
         with: {
             company: true,
-            items: true,
+            items: {
+                with: {
+                    asset: {
+                        columns: {
+                            id: true,
+                            name: true,
+                            refurb_days_estimate: true,
+                        },
+                    },
+                },
+            },
         },
     });
 
@@ -322,28 +334,68 @@ const completeInboundScan = async (
         }
     }
 
-    // Step 5: Release asset bookings (delete bookings to free up assets)
-    await db.delete(assetBookings).where(eq(assetBookings.order_id, orderId));
+    await db.transaction(async (tx) => {
+        // Step 5: Release asset bookings (delete bookings to free up assets)
+        await tx.delete(assetBookings).where(eq(assetBookings.order_id, orderId));
 
-    // Step 6: Update order status to CLOSED
-    await db
-        .update(orders)
-        .set({
-            order_status: 'CLOSED',
-        })
-        .where(eq(orders.id, orderId));
+        // Step 6: Update order status to CLOSED
+        await tx
+            .update(orders)
+            .set({
+                order_status: 'CLOSED',
+                financial_status: 'INVOICED'
+            })
+            .where(eq(orders.id, orderId));
 
-    // Step 7: Create status history entry
-    await db.insert(orderStatusHistory).values({
-        platform_id: platformId,
-        order_id: orderId,
-        status: 'CLOSED',
-        notes: 'Inbound scanning completed - all items returned and inspected',
-        updated_by: user.id,
-    });
+        // Step 7: Create status history entry
+        await tx.insert(orderStatusHistory).values({
+            platform_id: platformId,
+            order_id: orderId,
+            status: 'CLOSED',
+            notes: 'Inbound scanning completed - all items returned and inspected',
+            updated_by: user.id,
+        });
+    })
 
-    // TODO: Step 8: Send notification (implement notification service)
-    // sendNotification('ORDER_CLOSED', orderId)
+    // Step 8: Send notification
+    await NotificationLogServices.sendNotification(platformId, 'ORDER_CLOSED', { ...order })
+
+    // Step 9: Generate and send invoice
+    const venueLocation = order.venue_location as any;
+    const invoiceData = {
+        id: order.id,
+        user_id: user.id,
+        platform_id: order.platform_id,
+        order_id: order.order_id,
+        contact_name: order.contact_name,
+        contact_email: order.contact_email,
+        contact_phone: order.contact_phone,
+        company_name: order.company.name,
+        event_start_date: order.event_start_date,
+        event_end_date: order.event_end_date,
+        venue_name: order.venue_name,
+        venue_country: venueLocation.country || 'N/A',
+        venue_city: venueLocation.city || 'N/A',
+        venue_address: venueLocation.address || 'N/A',
+        pricing: {
+            logistics_base_price: (order.logistics_pricing as any)?.base_price || 0,
+            platform_margin_percent: (order.platform_pricing as any)?.margin_percent || 0,
+            platform_margin_amount: (order.platform_pricing as any)?.margin_amount || 0,
+            final_total_price: (order.final_pricing as any)?.total_price || 0,
+            show_breakdown: false
+        },
+        items: order.items.map(item => ({
+            asset_name: item.asset.name,
+            quantity: item.quantity,
+            handling_tags: item.handling_tags as any,
+            from_collection_name: item.from_collection_name || 'N/A'
+        }))
+
+    };
+
+    const { invoice_id } = await invoiceGenerator(invoiceData);
+
+    await NotificationLogServices.sendNotification(platformId, 'INVOICE_GENERATED', { ...order, invoiceNumber: invoice_id });
 
     return {
         message: 'Inbound scan completed successfully',

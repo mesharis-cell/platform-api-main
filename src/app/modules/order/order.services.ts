@@ -1947,62 +1947,28 @@ const approveQuote = async (
         })
     }
 
-    // Update order status to CONFIRMED
-    await db
-        .update(orders)
-        .set({
-            order_status: 'CONFIRMED',
-            financial_status: 'QUOTE_ACCEPTED',
-            updated_at: new Date(),
-        })
-        .where(eq(orders.id, orderId))
+    await db.transaction(async (tx) => {
+        // Update order status to CONFIRMED
+        await tx
+            .update(orders)
+            .set({
+                order_status: 'CONFIRMED',
+                financial_status: 'QUOTE_ACCEPTED',
+                updated_at: new Date(),
+            })
+            .where(eq(orders.id, orderId))
 
-    // Log status change
-    await db.insert(orderStatusHistory).values({
-        platform_id: platformId,
-        order_id: orderId,
-        status: 'CONFIRMED',
-        notes: notes || 'Client approved quote',
-        updated_by: user.id,
+        // Log status change
+        await tx.insert(orderStatusHistory).values({
+            platform_id: platformId,
+            order_id: orderId,
+            status: 'CONFIRMED',
+            notes: notes || 'Client approved quote',
+            updated_by: user.id,
+        })
     })
 
-    const venueLocation = order.venue_location as any;
-    const invoiceData = {
-        id: order.id,
-        user_id: user.id,
-        platform_id: order.platform_id,
-        order_id: order.order_id,
-        contact_name: order.contact_name,
-        contact_email: order.contact_email,
-        contact_phone: order.contact_phone,
-        company_name: order.company.name,
-        event_start_date: order.event_start_date,
-        event_end_date: order.event_end_date,
-        venue_name: order.venue_name,
-        venue_country: venueLocation.country || 'N/A',
-        venue_city: venueLocation.city || 'N/A',
-        venue_address: venueLocation.address || 'N/A',
-        pricing: {
-            logistics_base_price: (order.logistics_pricing as any)?.base_price || 0,
-            platform_margin_percent: (order.platform_pricing as any)?.margin_percent || 0,
-            platform_margin_amount: (order.platform_pricing as any)?.margin_amount || 0,
-            final_total_price: (order.final_pricing as any)?.total_price || 0,
-            show_breakdown: false
-        },
-        items: order.items.map(item => ({
-            asset_name: item.asset.name,
-            quantity: item.quantity,
-            handling_tags: item.handling_tags as any,
-            from_collection_name: item.from_collection_name || 'N/A'
-        }))
-
-    };
-
     await NotificationLogServices.sendNotification(platformId, 'QUOTE_APPROVED', order);
-
-    const { invoice_id } = await invoiceGenerator(invoiceData);
-
-    await NotificationLogServices.sendNotification(platformId, 'INVOICE_GENERATED', { ...order, invoiceNumber: invoice_id });
 
     return {
         id: order.id,
