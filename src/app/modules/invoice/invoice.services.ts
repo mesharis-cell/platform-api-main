@@ -302,15 +302,7 @@ const confirmPayment = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Invoice not found");
     }
 
-    // Step 4: Access control - CLIENT users cannot confirm payments
-    if (user.role === 'CLIENT') {
-        throw new CustomizedError(
-            httpStatus.FORBIDDEN,
-            "Only ADMIN and LOGISTICS users can confirm payments"
-        );
-    }
-
-    // Step 5: Verify invoice is not already paid
+    // Step 4: Verify invoice is not already paid
     if (result.invoice.invoice_paid_at) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
@@ -318,7 +310,7 @@ const confirmPayment = async (
         );
     }
 
-    // Step 6: Validate payment date
+    // Step 5: Validate payment date
     const paymentDate = new Date(payload.payment_date || new Date().toISOString());
     const now = new Date();
 
@@ -333,39 +325,42 @@ const confirmPayment = async (
         );
     }
 
-    // Step 7: Update invoice with payment details
-    await db
-        .update(invoices)
-        .set({
-            invoice_paid_at: paymentDate,
-            payment_method: payload.payment_method,
-            payment_reference: payload.payment_reference,
-            updated_at: new Date(),
-        })
-        .where(eq(invoices.id, result.invoice.id));
+    await db.transaction(async (tx) => {
+        // Step 6: Update invoice with payment details
+        await tx
+            .update(invoices)
+            .set({
+                invoice_paid_at: paymentDate,
+                payment_method: payload.payment_method,
+                payment_reference: payload.payment_reference,
+                updated_at: new Date(),
+            })
+            .where(eq(invoices.id, result.invoice.id));
 
-    // Step 8: Update order financial status to PAID
-    await db
-        .update(orders)
-        .set({
-            financial_status: 'PAID',
-            updated_at: new Date(),
-        })
-        .where(eq(orders.id, result.order.id));
+        // Step 7: Update order financial status to PAID
+        await tx
+            .update(orders)
+            .set({
+                financial_status: 'PAID',
+                updated_at: new Date(),
+            })
+            .where(eq(orders.id, result.order.id));
 
-    // Step 9: Log financial status change
-    await db.insert(financialStatusHistory).values({
-        platform_id: platformId,
-        order_id: result.order.id,
-        status: 'PAID',
-        notes: payload.notes || `Payment confirmed via ${payload.payment_method}`,
-        updated_by: user.id,
+        // Step 8: Log financial status change
+        await tx.insert(financialStatusHistory).values({
+            platform_id: platformId,
+            order_id: result.order.id,
+            status: 'PAID',
+            notes: payload.notes || `Payment confirmed via ${payload.payment_method}`,
+            updated_by: user.id,
+        });
     });
 
-    // Step 10: Return updated invoice details
+    // Step 9: Return updated invoice details
     return {
         invoice_id: result.invoice.invoice_id,
         invoice_paid_at: paymentDate.toISOString(),
+        invoice_pdf_url: result.invoice.invoice_pdf_url,
         payment_method: payload.payment_method,
         payment_reference: payload.payment_reference,
         order_id: result.order.order_id,

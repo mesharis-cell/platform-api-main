@@ -20,6 +20,7 @@ declare namespace NodeJS {
     AWS_BUCKET_NAME: string;
     AWS_ACCESS_KEY_ID: string;
     AWS_SECRET_ACCESS_KEY: string;
-    CRON_SECRET: string;
+    SYSTEM_USER_EMAIL: string;
+    SYSTEM_USER_PASSWORD: string;
   }
 }

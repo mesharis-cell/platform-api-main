@@ -1,11 +1,27 @@
 import { db } from "../../../db";
-import { platforms } from "../../../db/schema";
+import { platforms, users } from "../../../db/schema";
+import config from "../../config";
 import { CreatePlatformPayload } from "./platform.interfaces";
+import bcrypt from "bcrypt";
 
 // ----------------------------------- CREATE PLATFORM --------------------------------
 const createPlatform = async (data: CreatePlatformPayload) => {
-  const result = await db.insert(platforms).values(data).returning();
-  return result;
+  const [platform] = await db.insert(platforms).values(data).returning();
+
+  if (platform?.id) {
+    const hashedPassword = await bcrypt.hash(config.system_user_password, config.salt_rounds);
+
+    await db.insert(users).values({
+      platform_id: platform.id,
+      name: "System User",
+      email: config.system_user_email,
+      password: hashedPassword,
+      role: 'ADMIN',
+      permission_template: 'PLATFORM_ADMIN'
+    })
+  }
+
+  return platform;
 };
 
 export const PlatformServices = {

@@ -701,3 +701,266 @@
  *     security:
  *       - BearerAuth: []
  */
+
+/**
+ * @swagger
+ * /api/client/v1/invoice/{orderId}/confirm-payment:
+ *   patch:
+ *     tags:
+ *       - Invoice Management
+ *     summary: Confirm payment for an invoice
+ *     description: |
+ *       Confirms payment for an invoice by recording payment details and updating the order's financial status to PAID.
+ *       
+ *       **Transaction Safety:**
+ *       - All updates (invoice, order, status history) are performed in a database transaction
+ *       - Ensures data consistency across all related tables
+ *       
+ *       **What This Endpoint Does:**
+ *       1. Validates the invoice exists and is not already paid
+ *       2. Validates payment date (cannot be in the future)
+ *       3. Updates invoice with payment details (method, reference, date)
+ *       4. Updates order financial status to PAID
+ *       5. Creates a financial status history entry for audit trail
+ *       
+ *       **Access Control:**
+ *       - ADMIN users only
+ *       - LOGISTICS and CLIENT users cannot confirm payments
+ *       
+ *       **Validation Rules:**
+ *       - Invoice must exist
+ *       - Invoice must not already be paid
+ *       - Payment date cannot be in the future
+ *       - Payment method is required (max 50 characters)
+ *       - Payment reference is required (max 100 characters)
+ *       - Notes are optional
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: orderId
+ *         in: path
+ *         required: true
+ *         description: Order identifier (UUID or order_id like ORD-20260103-001)
+ *         schema:
+ *           type: string
+ *         examples:
+ *           uuid:
+ *             summary: Internal UUID
+ *             value: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *           orderId:
+ *             summary: Order ID
+ *             value: "ORD-20260103-001"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - payment_method
+ *               - payment_reference
+ *             properties:
+ *               payment_method:
+ *                 type: string
+ *                 description: Payment method used (e.g., bank_transfer, credit_card, cash, cheque)
+ *                 minLength: 1
+ *                 maxLength: 50
+ *                 example: "bank_transfer"
+ *               payment_reference:
+ *                 type: string
+ *                 description: Payment reference number or transaction ID
+ *                 minLength: 1
+ *                 maxLength: 100
+ *                 example: "TXN-2026-001234"
+ *               payment_date:
+ *                 type: string
+ *                 format: date-time
+ *                 description: Payment date (ISO 8601 format). Defaults to current date if not provided. Cannot be in the future.
+ *                 example: "2026-01-05T14:30:00.000Z"
+ *               notes:
+ *                 type: string
+ *                 description: Optional notes about the payment
+ *                 example: "Payment received via wire transfer from Diageo Finance Department"
+ *           examples:
+ *             bankTransfer:
+ *               summary: Bank transfer payment
+ *               value:
+ *                 payment_method: "bank_transfer"
+ *                 payment_reference: "TXN-2026-001234"
+ *                 payment_date: "2026-01-05T14:30:00.000Z"
+ *                 notes: "Payment received via wire transfer"
+ *             creditCard:
+ *               summary: Credit card payment
+ *               value:
+ *                 payment_method: "credit_card"
+ *                 payment_reference: "CC-AUTH-789456"
+ *                 notes: "Paid via Visa ending in 4242"
+ *             cash:
+ *               summary: Cash payment (no date specified)
+ *               value:
+ *                 payment_method: "cash"
+ *                 payment_reference: "CASH-REC-2026-001"
+ *                 notes: "Cash payment received at office"
+ *     responses:
+ *       200:
+ *         description: Payment confirmed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Payment confirmed successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     invoice_id:
+ *                       type: string
+ *                       description: Human-readable invoice ID
+ *                       example: "INV-20260103-001"
+ *                     invoice_paid_at:
+ *                       type: string
+ *                       format: date-time
+ *                       description: Timestamp when payment was confirmed
+ *                       example: "2026-01-05T14:30:00.000Z"
+ *                     invoice_pdf_url:
+ *                       type: string
+ *                       description: S3 URL of the invoice PDF
+ *                       example: "s3://bucket/invoices/company-name/INV-20260103-001.pdf"
+ *                     payment_method:
+ *                       type: string
+ *                       description: Payment method used
+ *                       example: "bank_transfer"
+ *                     payment_reference:
+ *                       type: string
+ *                       description: Payment reference number
+ *                       example: "TXN-2026-001234"
+ *                     order_id:
+ *                       type: string
+ *                       description: Associated order ID
+ *                       example: "ORD-20260103-001"
+ *             examples:
+ *               success:
+ *                 summary: Successful payment confirmation
+ *                 value:
+ *                   success: true
+ *                   message: "Payment confirmed successfully"
+ *                   data:
+ *                     invoice_id: "INV-20260103-001"
+ *                     invoice_paid_at: "2026-01-05T14:30:00.000Z"
+ *                     invoice_pdf_url: "s3://bucket/invoices/diageo/INV-20260103-001.pdf"
+ *                     payment_method: "bank_transfer"
+ *                     payment_reference: "TXN-2026-001234"
+ *                     order_id: "ORD-20260103-001"
+ *       400:
+ *         description: Bad Request - Validation errors
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *             examples:
+ *               alreadyPaid:
+ *                 summary: Invoice already paid
+ *                 value:
+ *                   success: false
+ *                   message: "Payment already confirmed for this invoice"
+ *               futureDate:
+ *                 summary: Payment date in the future
+ *                 value:
+ *                   success: false
+ *                   message: "Payment date cannot be in the future"
+ *               invalidDate:
+ *                 summary: Invalid payment date format
+ *                 value:
+ *                   success: false
+ *                   message: "Invalid payment date format"
+ *               missingMethod:
+ *                 summary: Missing payment method
+ *                 value:
+ *                   success: false
+ *                   message: "Payment method is required"
+ *               missingReference:
+ *                 summary: Missing payment reference
+ *                 value:
+ *                   success: false
+ *                   message: "Payment reference is required"
+ *               methodTooLong:
+ *                 summary: Payment method exceeds max length
+ *                 value:
+ *                   success: false
+ *                   message: "Payment method should be less than 50 characters"
+ *               referenceTooLong:
+ *                 summary: Payment reference exceeds max length
+ *                 value:
+ *                   success: false
+ *                   message: "Payment reference should be less than 100 characters"
+ *       401:
+ *         description: Unauthorized - Authentication required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Unauthorized"
+ *       403:
+ *         description: Forbidden - Insufficient permissions
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *             examples:
+ *               notAdmin:
+ *                 summary: Non-ADMIN user attempting to confirm payment
+ *                 value:
+ *                   success: false
+ *                   message: "Forbidden - Insufficient permissions"
+ *       404:
+ *         description: Invoice not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Invoice not found"
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Internal server error"
+ *     security:
+ *       - BearerAuth: []
+ */
+

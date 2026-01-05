@@ -26,4 +26,6 @@ export default {
   aws_s3_bucket: process.env.AWS_BUCKET_NAME,
   aws_access_key_id: process.env.AWS_ACCESS_KEY_ID,
   aws_secret_access_key: process.env.AWS_SECRET_ACCESS_KEY,
+  system_user_email: process.env.SYSTEM_USER_EMAIL || "unknown@system.internal",
+  system_user_password: process.env.SYSTEM_USER_PASSWORD || "unknown",
 };

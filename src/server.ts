@@ -19,7 +19,7 @@ async function main() {
     cron.schedule("0 0 * * *", async () => {
       console.log("🕐 Running scheduled cron: Event end date transitions");
       try {
-        await CronServices.transitionOrdersOnEventEnd()
+        await CronServices.transitionOrdersBasedOnEventDates()
       } catch (error) {
         console.error("❌ Cron job failed:", error);
       }

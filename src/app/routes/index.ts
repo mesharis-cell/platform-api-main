@@ -1,6 +1,5 @@
 import { Router } from "express";
 import { AuthRoutes } from "../modules/auth/Auth.routes";
-import { CronRoutes } from "../modules/cron/cron.routes";
 import { ClientRoutes } from "./client-routes";
 import { OperationRoutes } from "./operation-routes";
 
@@ -18,10 +17,6 @@ const routes = [
   {
     path: "/client/v1",
     route: ClientRoutes,
-  },
-  {
-    path: "/cron",
-    route: CronRoutes,
   }
 ];
 
