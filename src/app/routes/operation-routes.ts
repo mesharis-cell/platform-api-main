@@ -9,6 +9,7 @@ import { UserRoutes } from "../modules/user/user.routes";
 import { WarehouseRoutes } from "../modules/warehouse/warehouse.routes";
 import { ZoneRoutes } from "../modules/zone/zone.routes";
 import { ScanningRoutes } from "../modules/scanning/scanning.routes";
+import { UploadRoutes } from "../modules/upload/upload.route";
 
 
 const router = Router();
@@ -53,6 +54,10 @@ const routes = [
   {
     path: "/scanning",
     route: ScanningRoutes,
+  },
+  {
+    path: "/upload",
+    route: UploadRoutes,
   }
 ];
 

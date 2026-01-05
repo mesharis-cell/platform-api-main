@@ -1163,7 +1163,7 @@ const adjustLogisticsPricing = async (
         adjusted_price: payload.adjusted_price,
         adjustment_reason: payload.adjustment_reason,
         adjusted_at: new Date().toISOString(),
-        adjusted_by: user.id,
+        adjusted_by: user.email,
     };
 
     // Step 5: Update order
@@ -1173,6 +1173,7 @@ const adjustLogisticsPricing = async (
             logistics_pricing: updatedLogisticsPricing,
             platform_pricing: {
                 ...platformPricing,
+                margin_percent: order.company.platform_margin_percent,
                 margin_amount: Number(updatedLogisticsPricing.adjusted_price) * (Number(order.company.platform_margin_percent) / 100)
             },
             order_status: 'PENDING_APPROVAL',

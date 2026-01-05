@@ -13,6 +13,7 @@ import "./app/modules/order/order.swagger";
 import "./app/modules/platform/platform.swagger";
 import "./app/modules/pricing-tier/pricing-tier.swagger";
 import "./app/modules/scanning/scanning.swagger";
+import "./app/modules/upload/upload.swagger";
 import "./app/modules/user/user.swagger";
 import "./app/modules/warehouse/warehouse.swagger";
 import "./app/modules/zone/zone.swagger";
