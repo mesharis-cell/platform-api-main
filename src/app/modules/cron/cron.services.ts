@@ -1,7 +1,8 @@
-import { and, eq, or, sql } from "drizzle-orm";
+import { and, eq, gte, lte, or, sql } from "drizzle-orm";
 import { db } from "../../../db";
 import { orders, orderStatusHistory } from "../../../db/schema";
 import { getSystemUser } from "../../utils/helper-query";
+import { NotificationLogServices } from "../notification-logs/notification-logs.services";
 
 /**
  * Unified cron job to handle both event start and event end transitions
@@ -131,6 +132,98 @@ const transitionOrdersBasedOnEventDates = async () => {
     }
 };
 
+/**
+ * Cron job to send pickup reminders for orders with pickup windows within 48 hours
+ * - Finds orders with status IN_USE or AWAITING_RETURN
+ * - Checks if pickup window start is within the next 48 hours
+ * - Sends PICKUP_REMINDER notification if not already sent
+ */
+const sendPickupReminders = async () => {
+    try {
+        // Step 1: Calculate time window (now to 48 hours from now)
+        const now = new Date();
+        const in48Hours = new Date(now.getTime() + 48 * 60 * 60 * 1000);
+
+        // Step 2: Find orders with pickup windows within 48 hours
+        const ordersForReminder = await db.query.orders.findMany({
+            where: and(
+                or(
+                    eq(orders.order_status, "IN_USE"),
+                    eq(orders.order_status, "AWAITING_RETURN")
+                ),
+                sql`(${orders.pickup_window}->>'start')::timestamp >= ${now.toISOString()}`,
+                sql`(${orders.pickup_window}->>'start')::timestamp <= ${in48Hours.toISOString()}`
+            ),
+            with: {
+                company: {
+                    columns: {
+                        id: true,
+                        name: true,
+                    },
+                },
+            },
+        });
+
+        // Step 3: Early return if no orders need reminders
+        if (ordersForReminder.length === 0) {
+            console.log("✅ Pickup reminder cron: No orders need reminders");
+            return;
+        }
+
+        // Step 4: Group orders by platform for efficient processing
+        const ordersByPlatform = ordersForReminder.reduce((acc, order) => {
+            if (!acc[order.platform_id]) {
+                acc[order.platform_id] = [];
+            }
+            acc[order.platform_id].push(order);
+            return acc;
+        }, {} as Record<string, typeof ordersForReminder>);
+
+        let remindersSent = 0;
+        let remindersSkipped = 0;
+
+        // Step 5: Process orders grouped by platform
+        for (const [platformId, platformOrders] of Object.entries(ordersByPlatform)) {
+            console.log(`📧 Processing ${platformOrders.length} orders for platform ${platformId}`);
+
+            // Step 5a: Send notification for each order
+            for (const order of platformOrders) {
+                try {
+                    // Check if pickup_window exists and has a start time
+                    const pickupWindow = order.pickup_window as any;
+                    if (!pickupWindow || !pickupWindow.start) {
+                        console.log(`   ⚠ Skipping order ${order.order_id}: No pickup window defined`);
+                        remindersSkipped++;
+                        continue;
+                    }
+
+                    // Send PICKUP_REMINDER notification
+                    await NotificationLogServices.sendNotification(
+                        platformId,
+                        "PICKUP_REMINDER",
+                        order
+                    );
+
+                    remindersSent++;
+                } catch (error: any) {
+                    console.error(`   ❌ Failed to send reminder for order ${order.order_id}:`, error.message);
+                    remindersSkipped++;
+                }
+            }
+        }
+
+        // Step 6: Log summary
+        console.log(
+            `✅ Pickup reminder cron completed: ${remindersSent} reminders sent, ${remindersSkipped} skipped`
+        );
+
+    } catch (error: any) {
+        console.error("❌ Pickup reminder cron error:", error);
+        throw error;
+    }
+};
+
 export const CronServices = {
     transitionOrdersBasedOnEventDates,
+    sendPickupReminders,
 };

@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { AnalyticsRoutes } from "../modules/analytics/analytics.routes";
 import { AssetRoutes } from "../modules/asset/asset.routes";
 import { BrandRoutes } from "../modules/brand/brand.routes";
 import { CollectionRoutes } from "../modules/collection/collection.routes";
@@ -58,6 +59,10 @@ const routes = [
   {
     path: "/upload",
     route: UploadRoutes,
+  },
+  {
+    path: "/analytics",
+    route: AnalyticsRoutes,
   }
 ];
 

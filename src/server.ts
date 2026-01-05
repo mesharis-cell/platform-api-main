@@ -20,6 +20,7 @@ async function main() {
       console.log("🕐 Running scheduled cron: Event end date transitions");
       try {
         await CronServices.transitionOrdersBasedOnEventDates()
+        await CronServices.sendPickupReminders()
       } catch (error) {
         console.error("❌ Cron job failed:", error);
       }
