@@ -71,6 +71,20 @@
       "when": 1767466295347,
       "tag": "0009_free_longshot",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1767629209563,
+      "tag": "0010_late_goblin_queen",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1767629862932,
+      "tag": "0011_curly_amazoness",
+      "breakpoints": true
     }
   ]
 }

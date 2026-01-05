@@ -1,6 +1,8 @@
 import http from "http";
+import cron from "node-cron";
 import app from "./app";
 import config from "./app/config";
+import { CronServices } from "./app/modules/cron/cron.services";
 
 const port = config.port || 9000;
 
@@ -12,6 +14,17 @@ async function main() {
     server.listen(port, () => {
       console.log(`${config.app_name} server is running on port ${port}`);
     });
+
+    // Run daily at midnight (00:00) to transition orders from IN_USE to AWAITING_RETURN
+    cron.schedule("0 0 * * *", async () => {
+      console.log("🕐 Running scheduled cron: Event end date transitions");
+      try {
+        await CronServices.transitionOrdersOnEventEnd()
+      } catch (error) {
+        console.error("❌ Cron job failed:", error);
+      }
+    });
+
   } catch (error) {
     console.log(error);
   }
