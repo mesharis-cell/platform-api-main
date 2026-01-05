@@ -63,6 +63,7 @@ export const orderStatusEnum = pgEnum('order_status', [
   'AWAITING_RETURN',
   'CLOSED',
 ])
+
 export const financialStatusEnum = pgEnum('financial_status', [
   'PENDING_QUOTE',
   'QUOTE_SENT',
