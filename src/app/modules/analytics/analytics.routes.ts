@@ -21,4 +21,12 @@ router.get(
     AnalyticsControllers.getRevenueSummary
 );
 
+// Get margin summary (ADMIN only)
+router.get(
+    "/margin-summary",
+    platformValidator,
+    auth('ADMIN'),
+    AnalyticsControllers.getMarginSummary
+);
+
 export const AnalyticsRoutes = router;

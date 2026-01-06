@@ -4,7 +4,7 @@ import { db } from "../../../db";
 import { companies, invoices, orders } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
-import { TimeSeries, TimePeriodMetrics, TimeSeriesQuery } from "./analytics.interfaces";
+import { TimeSeries, TimePeriodMetrics, TimeSeriesQuery, MarginSummary } from "./analytics.interfaces";
 import { calculateTimeRange, formatPeriodLabel, REVENUE_ORDER_STATUSES } from "./analytics.utils";
 
 const getRevenueSummary = async (
@@ -219,7 +219,84 @@ const getTimeSeries = async (
     };
 };
 
+// ----------------------------------- GET MARGIN SUMMARY -----------------------------------
+const getMarginSummary = async (
+    platformId: string,
+    userCompanies: string[],
+    company_id?: string,
+    start_date?: string,
+    end_date?: string,
+    time_period?: "month" | "quarter" | "year"
+): Promise<MarginSummary> => {
+    const timeRange = calculateTimeRange(start_date, end_date, time_period);
+
+    // Build query conditions - always filter by platform
+    const conditions = [
+        eq(orders.platform_id, platformId),
+        inArray(orders.order_status, REVENUE_ORDER_STATUSES as any),
+    ];
+
+    // Company filtering
+    if (company_id) {
+        conditions.push(eq(orders.company_id, company_id));
+    } else if (!userCompanies.includes("*")) {
+        conditions.push(inArray(orders.company_id, userCompanies));
+    }
+
+    // Execute query with invoice paid date filter
+    const result = await db
+        .select({
+            totalMarginAmount: sql<number>`COALESCE(SUM((${orders.platform_pricing}->>'margin_amount')::numeric), 0)`,
+            averageMarginPercent: sql<number>`COALESCE(AVG((${orders.platform_pricing}->>'margin_percent')::numeric), 0)`,
+            orderCount: sql<number>`COUNT(*)`,
+        })
+        .from(orders)
+        .leftJoin(invoices, eq(invoices.order_id, orders.id))
+        .where(
+            and(
+                ...conditions,
+                gte(invoices.invoice_paid_at, timeRange.start),
+                lte(invoices.invoice_paid_at, timeRange.end)
+            )
+        );
+
+    const data = result[0] || {
+        totalMarginAmount: 0,
+        averageMarginPercent: 0,
+        orderCount: 0,
+    };
+
+    // Get company name if filtering by company
+    let companyName = "All Companies";
+    if (company_id) {
+        const companyResult = await db
+            .select({ name: companies.name })
+            .from(companies)
+            .where(eq(companies.id, company_id))
+            .limit(1);
+
+        companyName = companyResult[0]?.name || "Unknown Company";
+    }
+
+    return {
+        totalMarginAmount: Number(data.totalMarginAmount),
+        averageMarginPercent: Number(
+            parseFloat(data.averageMarginPercent.toString()).toFixed(2)
+        ),
+        orderCount: Number(data.orderCount),
+        timeRange: {
+            start: timeRange.start.toISOString(),
+            end: timeRange.end.toISOString(),
+        },
+        filters: {
+            companyId: company_id || null,
+            companyName,
+        },
+    };
+};
+
 export const AnalyticsServices = {
     getTimeSeries,
     getRevenueSummary,
+    getMarginSummary,
 };

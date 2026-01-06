@@ -32,3 +32,17 @@ export interface TimeSeriesQuery {
     startDate?: string;
     endDate?: string;
 }
+
+export interface MarginSummary {
+    totalMarginAmount: number;
+    averageMarginPercent: number;
+    orderCount: number;
+    timeRange: {
+        start: string;
+        end: string;
+    };
+    filters: {
+        companyId: string | null;
+        companyName: string;
+    };
+}
