@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, desc, eq, or, sql } from "drizzle-orm";
 import { db } from "../../../db";
 import { notificationLogs } from "../../../db/schema";
 import { getEmailTemplate } from "../../utils/email-template";
@@ -85,6 +85,87 @@ const sendNotification = async (
     )
 };
 
+// ----------------------------------- GET FAILED NOTIFICATIONS -----------------------------------
+const getFailedNotifications = async (
+    platformId: string,
+    filters?: {
+        status?: 'FAILED' | 'RETRYING';
+        notification_type?: string;
+        order_id?: string;
+        limit?: number;
+        offset?: number;
+    }
+) => {
+    const conditions = [
+        eq(notificationLogs.platform_id, platformId),
+    ];
+
+    // Filter by status (default to FAILED or RETRYING)
+    if (filters?.status) {
+        conditions.push(eq(notificationLogs.status, filters.status));
+    } else {
+        conditions.push(
+            or(
+                eq(notificationLogs.status, 'FAILED'),
+                eq(notificationLogs.status, 'RETRYING')
+            )!
+        );
+    }
+
+    // Filter by notification type
+    if (filters?.notification_type) {
+        conditions.push(eq(notificationLogs.notification_type, filters.notification_type));
+    }
+
+    // Filter by order ID
+    if (filters?.order_id) {
+        conditions.push(eq(notificationLogs.order_id, filters.order_id));
+    }
+
+    // Get notifications with order details
+    const notifications = await db.query.notificationLogs.findMany({
+        where: and(...conditions),
+        with: {
+            order: {
+                with: {
+                    company: true,
+                },
+            },
+        },
+        orderBy: desc(notificationLogs.created_at),
+        limit: filters?.limit || 50,
+        offset: filters?.offset || 0,
+    });
+
+    // Get total count
+    const totalResult = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(notificationLogs)
+        .where(and(...conditions));
+
+    const total = Number(totalResult[0].count);
+
+    return {
+        notifications: notifications.map((n) => ({
+            id: n.id,
+            order: {
+                id: n.order.id,
+                orderId: n.order.order_id,
+                companyName: n.order.company?.name || "Unknown",
+            },
+            notificationType: n.notification_type,
+            recipients: JSON.parse(n.recipients),
+            status: n.status,
+            attempts: n.attempts,
+            lastAttemptAt: n.last_attempt_at,
+            errorMessage: n.error_message,
+            createdAt: n.created_at,
+        })),
+        total,
+    };
+};
+
 export const NotificationLogServices = {
-    sendNotification
+    sendNotification,
+    getFailedNotifications,
 }
