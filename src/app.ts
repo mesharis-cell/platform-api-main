@@ -35,7 +35,7 @@ app.use(
 );
 
 // Handle preflight BEFORE routes
-app.options("*", cors());
+app.options("/{*path}", cors());
 
 // test server
 app.get("/", (req: Request, res: Response) => {
