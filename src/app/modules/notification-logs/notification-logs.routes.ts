@@ -13,4 +13,12 @@ router.get(
   NotificationLogControllers.getFailedNotifications
 );
 
+// Retry a failed notification (ADMIN only)
+router.post(
+  "/:id/retry",
+  platformValidator,
+  auth('ADMIN'),
+  NotificationLogControllers.retryNotification
+);
+
 export const NotificationLogRoutes = router;

@@ -1,9 +1,11 @@
 import { and, desc, eq, or, sql } from "drizzle-orm";
 import { db } from "../../../db";
+import httpStatus from "http-status";
 import { notificationLogs } from "../../../db/schema";
 import { getEmailTemplate } from "../../utils/email-template";
 import { NotificationRecipients, NotificationType } from "./notification-logs.interfaces";
 import { buildNotificationData, getRecipientsForNotification, sendEmailWithLogging } from "./notification-logs.utils";
+import CustomizedError from "../../error/customized-error";
 
 const sendNotification = async (
     platformId: string,
@@ -165,7 +167,98 @@ const getFailedNotifications = async (
     };
 };
 
+// ----------------------------------- RETRY NOTIFICATION -----------------------------------
+const retryNotification = async (
+    notificationLogId: string
+): Promise<{ success: boolean; error?: string }> => {
+    try {
+        // Get notification log entry
+        const logEntry = await db.query.notificationLogs.findFirst({
+            where: eq(notificationLogs.id, notificationLogId),
+            with: {
+                order: true,
+            },
+        });
+
+        if (!logEntry) {
+            throw new CustomizedError(httpStatus.NOT_FOUND, "Notification log entry not found");
+        }
+
+        if (logEntry.status !== 'FAILED') {
+            throw new CustomizedError(httpStatus.BAD_REQUEST, "Can only retry FAILED notifications");
+        }
+
+        // Parse recipients
+        const recipients: NotificationRecipients = JSON.parse(logEntry.recipients);
+
+        // Build notification data
+        const data = await buildNotificationData(logEntry.order);
+
+        // Get email template
+        const { subject, html } = await getEmailTemplate(
+            logEntry.notification_type as NotificationType,
+            data
+        );
+
+        // Update log entry to RETRYING
+        await db
+            .update(notificationLogs)
+            .set({
+                status: 'RETRYING',
+                attempts: logEntry.attempts + 1,
+                last_attempt_at: new Date(),
+            })
+            .where(eq(notificationLogs.id, notificationLogId));
+
+        // Attempt to send
+        try {
+            const messageId = await sendEmailWithLogging(
+                recipients.to[0],
+                subject,
+                html
+            );
+
+            // Update to SENT
+            await db
+                .update(notificationLogs)
+                .set({
+                    status: 'SENT',
+                    sent_at: new Date(),
+                    message_id: messageId,
+                    error_message: null,
+                })
+                .where(eq(notificationLogs.id, notificationLogId));
+
+            // Send CC'd emails
+            if (recipients.cc && recipients.cc.length > 0) {
+                for (const ccEmail of recipients.cc) {
+                    await sendEmailWithLogging(ccEmail, subject, html);
+                }
+            }
+
+            console.log(
+                `✅ Notification retry successful: ${logEntry.notification_type}`
+            );
+            return { success: true };
+        } catch (emailError: any) {
+            // Update back to FAILED
+            await db
+                .update(notificationLogs)
+                .set({
+                    status: 'FAILED',
+                    error_message: emailError.message || "Unknown email error",
+                })
+                .where(eq(notificationLogs.id, notificationLogId));
+
+            return { success: false, error: emailError.message };
+        }
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+};
+
 export const NotificationLogServices = {
     sendNotification,
     getFailedNotifications,
+    retryNotification,
 }

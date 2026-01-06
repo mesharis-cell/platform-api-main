@@ -38,6 +38,30 @@ const getFailedNotifications = catchAsync(async (req, res) => {
   });
 });
 
+// ----------------------------------- RETRY NOTIFICATION -----------------------------------------
+const retryNotification = catchAsync(async (req, res) => {
+  const { id } = req.params;
+
+  const result = await NotificationLogServices.retryNotification(id);
+
+  if (!result.success) {
+    return sendResponse(res, {
+      statusCode: httpStatus.BAD_REQUEST,
+      success: false,
+      message: result.error || "Failed to retry notification",
+      data: null,
+    });
+  }
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Notification retry successful",
+    data: null,
+  });
+});
+
 export const NotificationLogControllers = {
   getFailedNotifications,
+  retryNotification,
 };
