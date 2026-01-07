@@ -343,7 +343,7 @@ const completeInboundScan = async (
             .update(orders)
             .set({
                 order_status: 'CLOSED',
-                financial_status: 'INVOICED'
+                financial_status: 'PENDING_INVOICE'
             })
             .where(eq(orders.id, orderId));
 
