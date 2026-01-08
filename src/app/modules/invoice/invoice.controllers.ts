@@ -160,8 +160,10 @@ const downloadCostEstimatePDF = catchAsync(async (req, res) => {
 
     const s3Key = `cost-estimates/${order.company.name.replace(/\s/g, '-').toLowerCase()}/${order.order_id}.pdf`
 
+    console.log(s3Key);
+
     const buffer = await getPDFBufferFromS3(s3Key);
-    const fileName = `${order.order_id}.pdf`;
+    const fileName = `cost-estimate-${order.order_id}.pdf`;
 
     // Set headers for PDF download
     res.setHeader('Content-Type', 'application/pdf');
