@@ -55,4 +55,10 @@ router.patch(
     InvoiceControllers.confirmPayment
 );
 
+// Download cost estimate PDF (direct download)
+router.get(
+    "/download-cost-estimate-pdf/:orderId",
+    InvoiceControllers.downloadCostEstimatePDF
+);
+
 export const InvoiceRoutes = router;

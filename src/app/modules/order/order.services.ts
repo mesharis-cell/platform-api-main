@@ -35,6 +35,9 @@ import { getNotificationTypeForTransition } from "../notification-logs/notificat
 import { orderIdGenerator, renderOrderSubmittedEmail } from "./order.utils";
 import { uuidRegex } from "../../constants/common";
 import { invoiceGenerator } from "../../utils/invoice";
+import { costEstimateGenerator } from "../../utils/cost-estimate";
+import { getPlatformAdminEmails } from "../../utils/helper-query";
+import config from "../../config";
 
 // ----------------------------------- SUBMIT ORDER FROM CART ---------------------------------
 const submitOrderFromCart = async (
@@ -1689,6 +1692,16 @@ const approveStandardPricing = async (
         ),
         with: {
             company: true,
+            items: {
+                with: {
+                    asset: {
+                        columns: {
+                            id: true,
+                            name: true,
+                        },
+                    },
+                },
+            },
         },
     });
 
@@ -1733,32 +1746,72 @@ const approveStandardPricing = async (
         quote_sent_at: new Date().toISOString(),
     };
 
-    // Step 6: Update order with standard pricing
-    await db
-        .update(orders)
-        .set({
-            tier_id: standardPricing.pricing_tier_id,
-            logistics_pricing: logisticsPricing,
-            platform_pricing: platformPricing,
-            final_pricing: finalPricing,
-            order_status: 'QUOTED',
-            financial_status: 'QUOTE_SENT',
-            updated_at: new Date(),
-        })
-        .where(eq(orders.id, orderId));
+    db.transaction(async (tx) => {
+        // Step 6: Update order with standard pricing
+        await tx
+            .update(orders)
+            .set({
+                tier_id: standardPricing.pricing_tier_id,
+                logistics_pricing: logisticsPricing,
+                platform_pricing: platformPricing,
+                final_pricing: finalPricing,
+                order_status: 'QUOTED',
+                financial_status: 'QUOTE_SENT',
+                updated_at: new Date(),
+            })
+            .where(eq(orders.id, orderId));
 
-    // Step 7: Log status change in order_status_history
-    await db
-        .insert(orderStatusHistory)
-        .values({
-            platform_id: platformId,
-            order_id: orderId,
-            status: 'QUOTED',
-            notes: payload.notes || 'Standard pricing approved',
-            updated_by: user.id,
-        });
+        // Step 7: Log status change in order_status_history
+        await tx
+            .insert(orderStatusHistory)
+            .values({
+                platform_id: platformId,
+                order_id: orderId,
+                status: 'QUOTED',
+                notes: payload.notes || 'Standard pricing approved',
+                updated_by: user.id,
+            });
+    })
 
-    // TODO: Send email
+    const venueLocation = order.venue_location as any
+    const estimateData = {
+        id: order.id,
+        user_id: user.id,
+        platform_id: order.platform_id,
+        order_id: order.order_id,
+        contact_name: order.contact_name,
+        contact_email: order.contact_email,
+        contact_phone: order.contact_phone,
+        company_name: order.company.name,
+        event_start_date: order.event_start_date,
+        event_end_date: order.event_end_date,
+        venue_name: order.venue_name,
+        venue_country: venueLocation.country || 'N/A',
+        venue_city: venueLocation.city || 'N/A',
+        venue_address: venueLocation.address || 'N/A',
+        pricing: {
+            logistics_base_price: (order.logistics_pricing as any)?.base_price || 0,
+            platform_margin_percent: (order.platform_pricing as any)?.margin_percent || 0,
+            platform_margin_amount: (order.platform_pricing as any)?.margin_amount || 0,
+            final_total_price: (order.final_pricing as any)?.total_price || 0,
+            show_breakdown: false
+        },
+        items: order.items.map(item => ({
+            asset_name: item.asset.name,
+            quantity: item.quantity,
+            handling_tags: item.handling_tags as any,
+            from_collection_name: item.from_collection_name || 'N/A'
+        }))
+    }
+
+    // Step 3: Generate cost estimate
+    await costEstimateGenerator(estimateData)
+
+    // Send A2 standard approval notification to PLATFORM ADMIN (FYI)
+    await NotificationLogServices.sendNotification(platformId, 'A2_APPROVED_STANDARD', order)
+
+    // Send quote to client
+    await NotificationLogServices.sendNotification(platformId, 'QUOTE_SENT', order)
 
     // Step 8: Return pricing details
     return {
@@ -1794,6 +1847,16 @@ const approvePlatformPricing = async (
         ),
         with: {
             company: true,
+            items: {
+                with: {
+                    asset: {
+                        columns: {
+                            id: true,
+                            name: true,
+                        },
+                    },
+                },
+            },
         },
     });
 
@@ -1828,30 +1891,81 @@ const approvePlatformPricing = async (
         quote_sent_at: new Date().toISOString(),
     };
 
-    // Step 7: Update order with platform approval
-    await db
-        .update(orders)
-        .set({
-            platform_pricing: platformPricing,
-            final_pricing: finalPricing,
-            order_status: 'QUOTED',
-            financial_status: 'QUOTE_SENT',
-            updated_at: new Date(),
-        })
-        .where(eq(orders.id, orderId));
+    db.transaction(async (tx) => {
+        // Step 7: Update order with platform approval
+        await tx
+            .update(orders)
+            .set({
+                platform_pricing: platformPricing,
+                final_pricing: finalPricing,
+                order_status: 'QUOTED',
+                financial_status: 'QUOTE_SENT',
+                updated_at: new Date(),
+            })
+            .where(eq(orders.id, orderId));
 
-    // Step 8: Log status change in order_status_history
-    await db
-        .insert(orderStatusHistory)
-        .values({
-            platform_id: platformId,
-            order_id: orderId,
-            status: 'QUOTED',
-            notes: notes || 'Platform approved adjusted pricing',
-            updated_by: user.id,
-        });
+        // Step 8: Log status change in order_status_history
+        await tx
+            .insert(orderStatusHistory)
+            .values({
+                platform_id: platformId,
+                order_id: orderId,
+                status: 'QUOTED',
+                notes: notes || 'Platform approved adjusted pricing',
+                updated_by: user.id,
+            });
+    })
 
     // TODO: Send quote notification email
+    const venueLocation = order.venue_location as any
+    const estimateData = {
+        id: order.id,
+        user_id: user.id,
+        platform_id: order.platform_id,
+        order_id: order.order_id,
+        contact_name: order.contact_name,
+        contact_email: order.contact_email,
+        contact_phone: order.contact_phone,
+        company_name: order.company.name,
+        event_start_date: order.event_start_date,
+        event_end_date: order.event_end_date,
+        venue_name: order.venue_name,
+        venue_country: venueLocation.country || 'N/A',
+        venue_city: venueLocation.city || 'N/A',
+        venue_address: venueLocation.address || 'N/A',
+        pricing: {
+            logistics_base_price: logistics_base_price || 0,
+            platform_margin_percent: platform_margin_percent || 0,
+            platform_margin_amount: platformMarginAmount || 0,
+            final_total_price: finalTotalPrice || 0,
+            show_breakdown: false
+        },
+        items: order.items.map(item => ({
+            asset_name: item.asset.name,
+            quantity: item.quantity,
+            handling_tags: item.handling_tags as any,
+            from_collection_name: item.from_collection_name || 'N/A'
+        }))
+    }
+
+    // Step 3: Generate cost estimate
+    await costEstimateGenerator(estimateData)
+
+    // Send notification to plaform admin
+    const platformAdminEmails = await getPlatformAdminEmails(platformId)
+
+    // TODO: Change URL
+    await multipleEmailSender(
+        platformAdminEmails,
+        `Action Required: Order ${order.order_id} - Logistics Pricing Adjustment`,
+        emailTemplates.adjust_price({
+            order_id: order.order_id,
+            company_name: order.company.name,
+            adjusted_price: logistics_base_price,
+            adjustment_reason: 'Logistics has adjusted the pricing for order',
+            view_order_url: `${config.client_url}/order/${order.id}`,
+        })
+    );
 
     // Step 9: Return approval details
     return {

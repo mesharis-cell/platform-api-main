@@ -4,7 +4,7 @@ import sendResponse from "../../shared/send-response";
 import { InvoiceServices } from "./invoice.services";
 import { getPDFBufferFromS3 } from "../../services/s3.service";
 import { db } from "../../../db";
-import { invoices } from "../../../db/schema";
+import { invoices, orders } from "../../../db/schema";
 import { and, eq } from "drizzle-orm";
 import CustomizedError from "../../error/customized-error";
 
@@ -139,6 +139,39 @@ const generateInvoice = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- DOWNLOAD COST ESTIMATE PDF (DIRECT) --------------------
+const downloadCostEstimatePDF = catchAsync(async (req, res) => {
+    const platformId = (req.query as any).pid;
+    const { orderId } = req.params;
+
+    const order = await db.query.orders.findFirst({
+        where: and(
+            eq(orders.id, orderId),
+            eq(orders.platform_id, platformId)
+        ),
+        with: {
+            company: true
+        }
+    });
+
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    }
+
+    const s3Key = `cost-estimates/${order.company.name.replace(/\s/g, '-').toLowerCase()}/${order.order_id}.pdf`
+
+    const buffer = await getPDFBufferFromS3(s3Key);
+    const fileName = `${order.order_id}.pdf`;
+
+    // Set headers for PDF download
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Length', buffer.length);
+
+    // Send PDF buffer
+    res.status(httpStatus.OK).send(buffer);
+});
+
 export const InvoiceControllers = {
     getInvoiceById,
     downloadInvoice,
@@ -146,4 +179,5 @@ export const InvoiceControllers = {
     getInvoices,
     confirmPayment,
     generateInvoice,
+    downloadCostEstimatePDF
 };

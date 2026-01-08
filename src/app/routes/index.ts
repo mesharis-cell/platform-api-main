@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { AuthRoutes } from "../modules/auth/Auth.routes";
+import { CostEstimateRoutes } from "../modules/cost-estimate/cost-estimate.routes";
 import { ClientRoutes } from "./client-routes";
 import { OperationRoutes } from "./operation-routes";
 
@@ -17,6 +18,10 @@ const routes = [
   {
     path: "/client/v1",
     route: ClientRoutes,
+  },
+  {
+    path: "/api",
+    route: CostEstimateRoutes,
   }
 ];
 

@@ -135,10 +135,10 @@ export type InvoicePayload = {
     venue_address: string;
     items: Array<{ asset_name: string, quantity: number, handling_tags: HandlingTag[], from_collection_name?: string }>;
     pricing: {
-        logistics_base_price: string;
-        platform_margin_percent: string;
-        platform_margin_amount: string;
-        final_total_price: string;
+        logistics_base_price: string | number;
+        platform_margin_percent: string | number;
+        platform_margin_amount: string | number;
+        final_total_price: string | number;
         show_breakdown: boolean;
     };
 }
