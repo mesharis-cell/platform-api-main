@@ -61,27 +61,12 @@ export async function renderCostEstimatePDF(data: InvoicePayload & { estimate_nu
 
             doc.moveDown(1)
 
-            // Estimate details in grid
+            // Estimate details in grid (2 boxes)
             const detailsY = doc.y
-            const detailBoxWidth = (contentWidth - 20) / 3
-
-            // Estimate Number
-            doc.rect(margin, detailsY, detailBoxWidth, 40)
-                .lineWidth(1)
-                .stroke('#ccc')
-
-            doc.fontSize(7)
-                .font('Helvetica-Bold')
-                .fillColor('#666')
-                .text('ESTIMATE NO.', margin + 10, detailsY + 8, { width: detailBoxWidth - 20 })
-
-            doc.fontSize(10)
-                .font('Helvetica')
-                .fillColor('#000')
-                .text(data.estimate_number, margin + 10, detailsY + 20, { width: detailBoxWidth - 20 })
+            const detailBoxWidth = (contentWidth - 10) / 2
 
             // Date
-            const dateBoxX = margin + detailBoxWidth + 10
+            const dateBoxX = margin
             doc.rect(dateBoxX, detailsY, detailBoxWidth, 40)
                 .lineWidth(1)
                 .stroke('#ccc')
