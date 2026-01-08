@@ -942,6 +942,10 @@ const progressOrderStatus = async (
 ) => {
     const { new_status, notes } = payload;
 
+    if (new_status === 'CONFIRMED' && user.role !== 'CLIENT') {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Only client can confirm orders");
+    }
+
     // Step 1: Get order with company details and items
     const order = await db.query.orders.findFirst({
         where: and(
