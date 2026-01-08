@@ -344,7 +344,7 @@ export async function renderInvoicePDF(data: InvoicePayload & { invoice_number: 
             doc.fontSize(10)
                 .font('Helvetica-Bold')
                 .fillColor('#000')
-                .text('TOTAL AMOUNT DUE', summaryX + 15, totalY + 12)
+                .text('TOTAL AMOUNT', summaryX + 15, totalY + 12)
 
             doc.fontSize(18)
                 .font('Helvetica-Bold')
@@ -401,6 +401,47 @@ export async function renderInvoicePDF(data: InvoicePayload & { invoice_number: 
                     doc.y,
                     { width: contentWidth }
                 )
+
+            // ============================================================
+            // PAID WATERMARK (if applicable)
+            // ============================================================
+            if (data.financial_status === 'PAID') {
+                doc.save()
+
+                // Position watermark in center of page
+                const centerX = pageWidth / 2
+                const centerY = pageHeight / 2
+
+                // Rotate and add watermark
+                doc.translate(centerX, centerY)
+                    .rotate(-45, { origin: [0, 0] })
+
+                // Add semi-transparent background rectangle
+                doc.rect(-120, -27.5, 240, 55)
+                    .fillOpacity(0.03)
+                    .fill('#10B981')
+                    .fillOpacity(1)
+
+                // Add border
+                doc.rect(-120, -27.5, 240, 55)
+                    .lineWidth(3)
+                    .strokeOpacity(0.15)
+                    .stroke('#10B981')
+                    .strokeOpacity(1)
+
+                // Add "PAID" text
+                doc.fontSize(45)
+                    .font('Helvetica-Bold')
+                    .fillOpacity(0.15)
+                    .fillColor('#10B981')
+                    .text('PAID', -120, -20, {
+                        width: 240,
+                        align: 'center'
+                    })
+                    .fillOpacity(1)
+
+                doc.restore()
+            }
 
             // ============================================================
             // FOOTER
