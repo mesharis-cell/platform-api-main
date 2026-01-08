@@ -1,5 +1,4 @@
 import httpStatus from "http-status";
-import CustomizedError from "../../error/customized-error";
 import catchAsync from "../../shared/catch-async";
 import sendResponse from "../../shared/send-response";
 import { AuthServices } from "./Auth.services";
@@ -29,7 +28,22 @@ const getPlatformByDomain = catchAsync(async (req, res) => {
   });
 });
 
+const resetPassword = catchAsync(async (req, res) => {
+  const user = (req as any).user;
+  const platformId = (req as any).platformId;
+
+  const result = await AuthServices.resetPassword(platformId, user, req.body);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Password reset successfully",
+    data: result,
+  });
+});
+
 export const AuthControllers = {
   login,
   getPlatformByDomain,
+  resetPassword,
 };

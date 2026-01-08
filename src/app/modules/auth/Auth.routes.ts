@@ -2,7 +2,8 @@ import { Router } from "express";
 import payloadValidator from "../../middleware/payload-validator";
 import platformValidator from "../../middleware/platform-validator";
 import { AuthControllers } from "./Auth.controllers";
-import { AuthValidations } from "./Auth.validations";
+import { AuthSchemas } from "./Auth.schemas";
+import auth from "../../middleware/auth";
 
 const router = Router();
 
@@ -14,8 +15,16 @@ router.get(
 router.post(
   "/login",
   platformValidator,
-  payloadValidator(AuthValidations.loginValidationSchema),
+  payloadValidator(AuthSchemas.loginValidationSchema),
   AuthControllers.login
+);
+
+router.post(
+  "/reset-password",
+  platformValidator,
+  auth("ADMIN", "LOGISTICS", "CLIENT"),
+  payloadValidator(AuthSchemas.resetPasswordValidationSchema),
+  AuthControllers.resetPassword
 );
 
 export const AuthRoutes = router;

@@ -359,5 +359,220 @@
  *               $ref: '#/components/schemas/Error'
  */
 
+/**
+ * @swagger
+ * /api/auth/reset-password:
+ *   post:
+ *     tags:
+ *       - Authentication
+ *     summary: Reset user password
+ *     description: |
+ *       Allows an authenticated user to reset their own password by providing their current password and new password.
+ *       The user must be logged in and provide a valid access token. The platform ID is required in the X-Platform header.
+ *       
+ *       **Security Features:**
+ *       - Requires authentication (user must be logged in)
+ *       - Verifies current password before allowing reset
+ *       - Prevents setting new password same as current password
+ *       - Validates new password strength (minimum 8 characters)
+ *       - Only active users can reset their password
+ *       - User can only reset their own password
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - current_password
+ *               - new_password
+ *             properties:
+ *               current_password:
+ *                 type: string
+ *                 description: User's current password
+ *                 example: "OldPassword@123"
+ *               new_password:
+ *                 type: string
+ *                 minLength: 8
+ *                 maxLength: 50
+ *                 description: New password (must be at least 8 characters)
+ *                 example: "NewSecurePass@456"
+ *     responses:
+ *       200:
+ *         description: Password reset successful. Returns updated user data without password.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Password reset successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                       description: User unique identifier
+ *                       example: "550e8400-e29b-41d4-a716-446655440000"
+ *                     platform_id:
+ *                       type: string
+ *                       format: uuid
+ *                       description: Platform ID
+ *                       example: "593c027e-0774-4b0b-ae46-ec59c4f11304"
+ *                     company_id:
+ *                       type: string
+ *                       format: uuid
+ *                       nullable: true
+ *                       description: Company ID (null for ADMIN/LOGISTICS users)
+ *                       example: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+ *                     name:
+ *                       type: string
+ *                       description: User's full name
+ *                       example: "John Doe"
+ *                     email:
+ *                       type: string
+ *                       format: email
+ *                       description: User's email address
+ *                       example: "john.doe@example.com"
+ *                     role:
+ *                       type: string
+ *                       enum: [ADMIN, LOGISTICS, CLIENT]
+ *                       description: User role
+ *                       example: "CLIENT"
+ *                     permissions:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                       description: Array of user permissions
+ *                       example: ["orders.create", "orders.view", "assets.view"]
+ *                     permission_template:
+ *                       type: string
+ *                       nullable: true
+ *                       description: Permission template applied to user
+ *                       example: "CLIENT_USER"
+ *                     is_active:
+ *                       type: boolean
+ *                       description: Whether the user account is active
+ *                       example: true
+ *                     last_login_at:
+ *                       type: string
+ *                       format: date-time
+ *                       nullable: true
+ *                       description: Last login timestamp
+ *                       example: "2025-12-22T10:30:00.000Z"
+ *                     created_at:
+ *                       type: string
+ *                       format: date-time
+ *                       description: Account creation timestamp
+ *                       example: "2025-12-19T02:30:00.000Z"
+ *                     updated_at:
+ *                       type: string
+ *                       format: date-time
+ *                       description: Account last update timestamp
+ *                       example: "2026-01-09T01:12:00.000Z"
+ *       400:
+ *         description: Bad request - Validation error, missing X-Platform header, or new password same as current
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "BAD_REQUEST"
+ *                     message:
+ *                       type: string
+ *                       example: "New password cannot be the same as current password"
+ *                     details:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           field:
+ *                             type: string
+ *                             example: "new_password"
+ *                           message:
+ *                             type: string
+ *                             example: "New password must be at least 8 characters"
+ *       401:
+ *         description: Unauthorized - Not authenticated, invalid token, or current password is incorrect
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "UNAUTHORIZED"
+ *                     message:
+ *                       type: string
+ *                       example: "Current password is incorrect"
+ *       403:
+ *         description: Forbidden - User account is not active
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "FORBIDDEN"
+ *                     message:
+ *                       type: string
+ *                       example: "User account is not active"
+ *       404:
+ *         description: Not found - User does not exist
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "NOT_FOUND"
+ *                     message:
+ *                       type: string
+ *                       example: "User not found"
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+
 export const authSwagger = {};
 

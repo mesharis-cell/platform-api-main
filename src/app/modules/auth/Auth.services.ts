@@ -7,7 +7,8 @@ import { companies, companyDomains, platforms, users } from "../../../db/schema"
 import config from "../../config";
 import CustomizedError from "../../error/customized-error";
 import { tokenGenerator } from "../../utils/jwt-helpers";
-import { LoginCredential } from "./Auth.interfaces";
+import { LoginCredential, ResetPasswordPayload } from "./Auth.interfaces";
+import { AuthUser } from "../../interface/common";
 
 const login = async (credential: LoginCredential, platformId: string) => {
   const { email, password } = credential;
@@ -198,7 +199,63 @@ const getConfigByHostname = async (origin: string) => {
   }
 };
 
+const resetPassword = async (platformId: string, authUser: AuthUser, payload: ResetPasswordPayload) => {
+  const { current_password, new_password } = payload;
+
+  // Step 1: Find user by email and platform
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(
+      and(
+        eq(users.id, authUser.id),
+        eq(users.platform_id, platformId)
+      )
+    );
+
+  if (!user) {
+    throw new CustomizedError(httpStatus.NOT_FOUND, "User not found");
+  }
+
+  if (!user.is_active) {
+    throw new CustomizedError(httpStatus.FORBIDDEN, "User account is not active");
+  }
+
+  // Step 2: Verify current password
+  const isPasswordMatch = await bcrypt.compare(current_password, user.password);
+
+  if (!isPasswordMatch) {
+    throw new CustomizedError(httpStatus.UNAUTHORIZED, "Current password is incorrect");
+  }
+
+  // Step 3: Check if new password is same as current password
+  const isSamePassword = await bcrypt.compare(new_password, user.password);
+
+  if (isSamePassword) {
+    throw new CustomizedError(httpStatus.BAD_REQUEST, "New password cannot be the same as current password");
+  }
+
+  // Step 4: Hash new password
+  const hashedPassword = await bcrypt.hash(new_password, 12);
+
+  // Step 5: Update password in database
+  await db
+    .update(users)
+    .set({
+      password: hashedPassword,
+      updated_at: new Date(),
+    })
+    .where(eq(users.id, user.id));
+
+  // Remove password from response
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { password: _pass, ...userData } = user;
+
+  return userData;
+};
+
 export const AuthServices = {
   login,
   getConfigByHostname,
+  resetPassword,
 };
