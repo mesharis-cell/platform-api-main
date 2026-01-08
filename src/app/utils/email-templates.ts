@@ -38,6 +38,14 @@ type SendInvoiceToAdminTemplatePayload = {
     download_invoice_url: string
 };
 
+type AdjustmentNotificationTemplatePayload = {
+    order_id: string,
+    company_name: string,
+    adjusted_price: number,
+    adjustment_reason: string,
+    view_order_url: string
+};
+
 export const emailTemplates = {
     adjust_price: (data: AdjustPriceTemplatePayload) => (
         `

@@ -8,11 +8,11 @@ const formatCurrency = (amount: string): string => {
 }
 
 // ============================================================
-// INVOICE PDF - Based on Cost Estimate Design
+// COST ESTIMATE PDF - Black & White Design
 // ============================================================
-export async function renderInvoicePDF(data: InvoicePayload & { invoice_number: string; invoice_date: Date }): Promise<Buffer> {
-    console.log('=== Starting Invoice PDF Generation ===')
-    console.log('Invoice Number:', data.invoice_number)
+export async function renderCostEstimatePDF(data: InvoicePayload & { estimate_number: string; estimate_date: Date }): Promise<Buffer> {
+    console.log('=== Starting Cost Estimate PDF Generation ===')
+    console.log('Estimate Number:', data.estimate_number)
 
     return new Promise((resolve, reject) => {
         try {
@@ -25,12 +25,12 @@ export async function renderInvoicePDF(data: InvoicePayload & { invoice_number: 
 
             doc.on('end', () => {
                 const buffer = Buffer.concat(chunks)
-                console.log('Simple Invoice PDF generated successfully, size:', buffer.length, 'bytes')
+                console.log('Cost Estimate PDF generated successfully, size:', buffer.length, 'bytes')
                 resolve(buffer)
             })
 
             doc.on('error', (error: Error) => {
-                console.error('=== Simple Invoice PDF Generation Error ===')
+                console.error('=== Cost Estimate PDF Generation Error ===')
                 console.error('Error:', error)
                 reject(error)
             })
@@ -52,31 +52,21 @@ export async function renderInvoicePDF(data: InvoicePayload & { invoice_number: 
             doc.fontSize(36)
                 .font('Helvetica-Bold')
                 .fillColor('#000')
-                .text('INVOICE', margin, margin, { align: 'left' })
+                .text('COST', margin, margin, { align: 'left' })
+
+            doc.fontSize(36)
+                .font('Helvetica')
+                .fillColor('#666')
+                .text('ESTIMATE', margin, doc.y, { align: 'left' })
 
             doc.moveDown(1)
 
-            // Invoice details in grid
+            // Estimate details in grid (2 boxes)
             const detailsY = doc.y
-            const detailBoxWidth = (contentWidth - 20) / 3
-
-            // Invoice Number
-            doc.rect(margin, detailsY, detailBoxWidth, 40)
-                .lineWidth(1)
-                .stroke('#ccc')
-
-            doc.fontSize(7)
-                .font('Helvetica-Bold')
-                .fillColor('#666')
-                .text('INVOICE NO.', margin + 10, detailsY + 8, { width: detailBoxWidth - 20 })
-
-            doc.fontSize(10)
-                .font('Helvetica')
-                .fillColor('#000')
-                .text(data.invoice_number, margin + 10, detailsY + 20, { width: detailBoxWidth - 20 })
+            const detailBoxWidth = (contentWidth - 10) / 2
 
             // Date
-            const dateBoxX = margin + detailBoxWidth + 10
+            const dateBoxX = margin
             doc.rect(dateBoxX, detailsY, detailBoxWidth, 40)
                 .lineWidth(1)
                 .stroke('#ccc')
@@ -89,7 +79,7 @@ export async function renderInvoicePDF(data: InvoicePayload & { invoice_number: 
             doc.fontSize(10)
                 .font('Helvetica')
                 .fillColor('#000')
-                .text(formatDateForEmail(data.invoice_date), dateBoxX + 10, detailsY + 20, { width: detailBoxWidth - 20 })
+                .text(formatDateForEmail(data.estimate_date), dateBoxX + 10, detailsY + 20, { width: detailBoxWidth - 20 })
 
             // Order Reference
             const orderBoxX = dateBoxX + detailBoxWidth + 10
@@ -344,7 +334,7 @@ export async function renderInvoicePDF(data: InvoicePayload & { invoice_number: 
             doc.fontSize(10)
                 .font('Helvetica-Bold')
                 .fillColor('#000')
-                .text('TOTAL AMOUNT DUE', summaryX + 15, totalY + 12)
+                .text('ESTIMATED TOTAL', summaryX + 15, totalY + 12)
 
             doc.fontSize(18)
                 .font('Helvetica-Bold')
@@ -359,25 +349,26 @@ export async function renderInvoicePDF(data: InvoicePayload & { invoice_number: 
             doc.y = totalY + totalHeight + 25
 
             // ============================================================
-            // PAYMENT INSTRUCTIONS
+            // IMPORTANT NOTES
             // ============================================================
             doc.fontSize(8)
                 .font('Helvetica-Bold')
                 .fillColor('#000')
-                .text('PAYMENT INSTRUCTIONS', margin, doc.y)
+                .text('IMPORTANT NOTES', margin, doc.y)
 
-            doc.rect(margin, doc.y + 2, 140, 1)
+            doc.rect(margin, doc.y + 2, 100, 1)
                 .fill('#000')
 
             doc.moveDown(1)
 
-            const paymentNotes = [
-                'Payment Method: Bank Transfer or Check',
-                'Payment Terms: Net 30 Days',
-                `Payment Reference: ${data.invoice_number}`
+            const notes = [
+                'This is an estimate only and not a final invoice',
+                'Final costs may vary based on actual requirements',
+                'Estimate valid for 30 days from the estimate date',
+                `Reference number: ${data.estimate_number}`
             ]
 
-            paymentNotes.forEach(note => {
+            notes.forEach(note => {
                 // Bullet point
                 doc.circle(margin + 3, doc.y + 3, 2)
                     .fill('#000')
@@ -396,7 +387,7 @@ export async function renderInvoicePDF(data: InvoicePayload & { invoice_number: 
                 .font('Helvetica')
                 .fillColor('#666')
                 .text(
-                    'Please include the invoice number in your payment reference to ensure proper processing.',
+                    'Please review this estimate carefully. If you have any questions or would like to proceed, please contact your account manager.',
                     margin,
                     doc.y,
                     { width: contentWidth }
@@ -415,7 +406,7 @@ export async function renderInvoicePDF(data: InvoicePayload & { invoice_number: 
             doc.fontSize(7)
                 .font('Helvetica')
                 .fillColor('#999')
-                .text('Thank you for your business', margin, footerY + 10, {
+                .text('Thank you for considering our services', margin, footerY + 10, {
                     align: 'center',
                     width: contentWidth,
                 })
@@ -428,7 +419,7 @@ export async function renderInvoicePDF(data: InvoicePayload & { invoice_number: 
 
             doc.end()
         } catch (error) {
-            console.error('=== Simple Invoice PDF Generation Failed ===')
+            console.error('=== Cost Estimate PDF Generation Failed ===')
             console.error('Error:', error)
             if (error instanceof Error) {
                 console.error('Stack:', error.stack)

@@ -105,11 +105,20 @@ export const uploadImageToS3 = async (
     return uploadFileToS3(imageBuffer, 'images', fileName, contentType);
 };
 
-export const getPDFBufferFromS3 = async (fileUrl: string): Promise<Buffer> => {
+export const getPDFBufferFromS3 = async (fileUrlOrKey: string): Promise<Buffer> => {
     try {
-        // Extract key from URL
-        const url = new URL(fileUrl);
-        const key = url.pathname.substring(1);
+        // Check if input is a URL using regex
+        const urlRegex = /^https?:\/\//i;
+        let key: string;
+
+        if (urlRegex.test(fileUrlOrKey)) {
+            // Extract key from URL
+            const url = new URL(fileUrlOrKey);
+            key = url.pathname.substring(1); // Remove leading slash
+        } else {
+            // Input is already a key
+            key = fileUrlOrKey;
+        }
 
         const command = new GetObjectCommand({
             Bucket: config.aws_s3_bucket,
