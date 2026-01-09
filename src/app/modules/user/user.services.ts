@@ -9,7 +9,7 @@ import { permissionChecker, validDateChecker } from "../../utils/checker";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
 import { CreateUserPayload } from "./user.interfaces";
-import { resolveUserPermissions, userQueryValidationConfig, validateRoleAndTemplate } from "./user.utils";
+import { userQueryValidationConfig } from "./user.utils";
 
 // ----------------------------------- CREATE USER ------------------------------------
 const createUser = async (data: CreateUserPayload) => {
@@ -262,19 +262,9 @@ const updateUser = async (
   }
 
 
-  // Step 2: Validate role and permission template compatibility if template is being updated
-  if (data.permission_template) {
-    validateRoleAndTemplate(existingUser.role, data.permission_template);
-  }
-
-  if (
-    data.permission_template !== undefined ||
-    data.permissions !== undefined
-  ) {
-    finalData.permissions = resolveUserPermissions(
-      data.permission_template,
-      data.permissions
-    );
+  // Step 2: Validate permissions
+  if ((data.permissions && data.permissions.length > 0) || data.permission_template) {
+    finalData.permissions = permissionChecker(data.role || existingUser.role, data.permissions, data.permission_template)
   }
 
   // Step 3: Update user

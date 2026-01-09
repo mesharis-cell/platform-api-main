@@ -92,33 +92,3 @@ export const allowedTemplatesForRole: Record<string, string> = {
   LOGISTICS: "LOGISTICS_STAFF",
   CLIENT: "CLIENT_USER",
 };
-
-export const validateRoleAndTemplate = (
-  role: string,
-  template: string | null | undefined
-) => {
-  if (!template) return;
-
-  const allowedTemplate = allowedTemplatesForRole[role];
-  if (template !== allowedTemplate) {
-    throw new CustomizedError(
-      httpStatus.BAD_REQUEST,
-      `Role '${role}' can only have '${allowedTemplate}' permission template`
-    );
-  }
-};
-
-export const resolveUserPermissions = (
-  template: string | null | undefined,
-  permissions: string[] = []
-): string[] => {
-  if (
-    template &&
-    userPermissionTemplates[template as keyof typeof userPermissionTemplates]
-  ) {
-    return userPermissionTemplates[
-      template as keyof typeof userPermissionTemplates
-    ].permissions;
-  }
-  return permissions;
-};
