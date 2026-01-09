@@ -1,6 +1,6 @@
-import { and, eq, gte, lte, or, sql } from "drizzle-orm";
+import { and, eq, gte, lt, lte, or, sql } from "drizzle-orm";
 import { db } from "../../../db";
-import { orders, orderStatusHistory } from "../../../db/schema";
+import { orders, orderStatusHistory, otp } from "../../../db/schema";
 import { getSystemUser } from "../../utils/helper-query";
 import { NotificationLogServices } from "../notification-logs/notification-logs.services";
 
@@ -223,7 +223,45 @@ const sendPickupReminders = async () => {
     }
 };
 
+/**
+ * Cron job to delete expired OTPs from the database
+ * - Finds all OTP records where expires_at is less than current time
+ * - Deletes expired OTPs to maintain database hygiene
+ * - Runs periodically to clean up wastage/expired OTPs
+ */
+const deleteExpiredOTPs = async () => {
+    try {
+        // Step 1: Get current timestamp
+        const now = new Date();
+
+        // Step 2: Delete all expired OTPs
+        const result = await db
+            .delete(otp)
+            .where(lt(otp.expires_at, now))
+            .returning({ id: otp.id });
+
+        // Step 3: Log results
+        const deletedCount = result.length;
+
+        if (deletedCount === 0) {
+            console.log("✅ OTP cleanup cron: No expired OTPs to delete");
+        } else {
+            console.log(`✅ OTP cleanup cron completed: ${deletedCount} expired OTP(s) deleted`);
+        }
+
+        return {
+            deletedCount,
+            timestamp: now.toISOString(),
+        };
+
+    } catch (error: any) {
+        console.error("❌ OTP cleanup cron error:", error);
+        throw error;
+    }
+};
+
 export const CronServices = {
     transitionOrdersBasedOnEventDates,
     sendPickupReminders,
+    deleteExpiredOTPs,
 };
