@@ -1,17 +1,22 @@
 import { Router } from "express";
 import auth from "../../middleware/auth";
+import requirePermission from "../../middleware/permission";
 import payloadValidator from "../../middleware/payload-validator";
 import platformValidator from "../../middleware/platform-validator";
+import { PERMISSIONS } from "../../constants/permissions";
 import { OrderControllers } from "./order.controllers";
 import { orderSchemas } from "./order.schemas";
 
 const router = Router();
 
 // Get orders
+// Example: Permission-based access control
+// User must have 'orders:read' permission in their permissions array
 router.get(
     "/",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
+    requirePermission(PERMISSIONS.ORDERS_READ),
     OrderControllers.getOrders
 );
 
