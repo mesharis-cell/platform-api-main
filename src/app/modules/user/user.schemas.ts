@@ -28,7 +28,7 @@ const createUser = z.object({
       .default([]),
     permission_template: z.enum(permissionTemplateEnum.enumValues, { message: enumMessageGenerator("Permission Template", permissionTemplateEnum.enumValues) }).optional().nullable(),
     is_active: z.boolean().optional().default(true),
-  }),
+  }).strict(),
 });
 
 const updateUser = z.object({
@@ -49,7 +49,7 @@ const updateUser = z.object({
       .optional(),
     permission_template: z.enum(permissionTemplateEnum.enumValues, { message: enumMessageGenerator("Permission Template", permissionTemplateEnum.enumValues) }).optional().nullable(),
     is_active: z.boolean().optional(),
-  }),
+  }).strict(),
 });
 
 export const UserSchemas = {
