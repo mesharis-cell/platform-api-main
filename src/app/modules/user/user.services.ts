@@ -5,7 +5,7 @@ import { db } from "../../../db";
 import { companies, users } from "../../../db/schema";
 import config from "../../config";
 import CustomizedError from "../../error/customized-error";
-import { validDateChecker } from "../../utils/checker";
+import { permissionChecker, validDateChecker } from "../../utils/checker";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
 import { CreateUserPayload } from "./user.interfaces";
@@ -35,26 +35,20 @@ const createUser = async (data: CreateUserPayload) => {
       }
     }
 
-    // Step 1b: Validate role and permission template compatibility
-    validateRoleAndTemplate(data.role, data.permission_template);
+    // Step 2: Validate permissions
+    const permissions = permissionChecker(data.role, data.permissions, data.permission_template);
 
-    // Step 2: Hash the password
+    // Step 3: Hash the password
     const hashedPassword = await bcrypt.hash(data.password, config.salt_rounds);
 
-    // Step 2b: Resolve permissions based on template
-    const permissions = resolveUserPermissions(
-      data.permission_template,
-      data.permissions
-    );
-
-    // Step 3: Prepare user data with hashed password
+    // Step 4: Prepare user data with hashed password
     const userData = {
       ...data,
       password: hashedPassword,
       permissions,
     };
 
-    // Step 4: Insert user into database
+    // Step 5: Insert user into database
     const [result] = await db.insert(users).values(userData).returning();
     return result;
   } catch (error: any) {
