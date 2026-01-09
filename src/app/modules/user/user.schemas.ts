@@ -1,11 +1,6 @@
 import z from "zod";
-import { userRoleEnum } from "../../../db/schema";
+import { permissionTemplateEnum, userRoleEnum } from "../../../db/schema";
 import { enumMessageGenerator } from "../../utils/helper";
-
-// Permission template enum
-const permissionTemplateEnum = z.enum(
-  ["PLATFORM_ADMIN", "LOGISTICS_STAFF", "CLIENT_USER"]
-).default("CLIENT_USER");
 
 const createUser = z.object({
   body: z.object({
@@ -31,7 +26,7 @@ const createUser = z.object({
       })
       .optional()
       .default([]),
-    permission_template: permissionTemplateEnum.optional().nullable(),
+    permission_template: z.enum(permissionTemplateEnum.enumValues, { message: enumMessageGenerator("Permission Template", permissionTemplateEnum.enumValues) }).optional().nullable(),
     is_active: z.boolean().optional().default(true),
   }),
 });
@@ -52,7 +47,7 @@ const updateUser = z.object({
         error: "Permissions must be an array of strings",
       })
       .optional(),
-    permission_template: permissionTemplateEnum.optional().nullable(),
+    permission_template: z.enum(permissionTemplateEnum.enumValues, { message: enumMessageGenerator("Permission Template", permissionTemplateEnum.enumValues) }).optional().nullable(),
     is_active: z.boolean().optional(),
   }),
 });

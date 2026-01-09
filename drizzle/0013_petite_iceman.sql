@@ -1,0 +1,2 @@
+CREATE TYPE "public"."permission_template" AS ENUM('PLATFORM_ADMIN', 'LOGISTICS_STAFF', 'CLIENT_USER');--> statement-breakpoint
+ALTER TABLE "users" ALTER COLUMN "permission_template" SET DATA TYPE "public"."permission_template" USING "permission_template"::"public"."permission_template";

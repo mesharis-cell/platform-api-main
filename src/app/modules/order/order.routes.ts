@@ -10,8 +10,6 @@ import { orderSchemas } from "./order.schemas";
 const router = Router();
 
 // Get orders
-// Example: Permission-based access control
-// User must have 'orders:read' permission in their permissions array
 router.get(
     "/",
     platformValidator,

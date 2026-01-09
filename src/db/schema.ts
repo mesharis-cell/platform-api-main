@@ -24,6 +24,12 @@ export const userRoleEnum = pgEnum('user_role', [
   'CLIENT', // Client User (Company User)
 ])
 
+export const permissionTemplateEnum = pgEnum('permission_template', [
+  'PLATFORM_ADMIN',
+  'LOGISTICS_STAFF',
+  'CLIENT_USER',
+])
+
 export const hostnameTypeEnum = pgEnum('hostname_type', [
   'VANITY',
   'CUSTOM',
@@ -233,7 +239,7 @@ export const users = pgTable(
       .array()
       .notNull()
       .default(sql`ARRAY[]::text[]`),
-    permission_template: varchar('permission_template', { length: 50 }), // PLATFORM_ADMIN, LOGISTICS_STAFF, CLIENT_USER
+    permission_template: permissionTemplateEnum('permission_template'),
     is_active: boolean('is_active').notNull().default(true),
     last_login_at: timestamp('last_login_at'),
     created_at: timestamp('created_at').notNull().defaultNow(),
