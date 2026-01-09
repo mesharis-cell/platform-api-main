@@ -97,7 +97,7 @@ export const invoiceGenerator = async (data: InvoicePayload, regenerate: boolean
             // Update order financial status
             await tx.update(orders)
                 .set({
-                    financial_status: 'INVOICED',
+                    financial_status: 'PENDING_INVOICE',
                     updated_at: new Date(),
                 })
                 .where(and(eq(orders.id, data.id), eq(orders.platform_id, data.platform_id)));

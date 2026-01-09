@@ -402,6 +402,26 @@ const getOrderStatistics = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- CHANGE FINANCIAL STATUS -----------------------------------
+const sendInvoice = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const { orderId } = req.params;
+
+    const result = await OrderServices.sendInvoice(
+        user,
+        platformId,
+        orderId,
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Invoice sent successfully.",
+        data: result,
+    });
+});
+
 export const OrderControllers = {
     submitOrder,
     getOrders,
@@ -421,6 +441,7 @@ export const OrderControllers = {
     approveQuote,
     declineQuote,
     getOrderStatistics,
+    sendInvoice,
 };
 
 

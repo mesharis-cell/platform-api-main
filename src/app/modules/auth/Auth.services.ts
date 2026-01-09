@@ -99,6 +99,7 @@ const getConfigByHostname = async (origin: string) => {
       const [platform] = await db
         .select({
           id: platforms.id,
+          name: platforms.name,
           config: platforms.config,
         })
         .from(platforms)
@@ -108,6 +109,7 @@ const getConfigByHostname = async (origin: string) => {
       if (platform) {
         const config = platform.config as any;
         return {
+          platform_name: platform.name,
           platform_id: platform.id,
           company_id: null,
           company_name: null,
@@ -154,6 +156,7 @@ const getConfigByHostname = async (origin: string) => {
     const [platform] = await db
       .select({
         id: platforms.id,
+        name: platforms.name,
         config: platforms.config,
       })
       .from(platforms)
@@ -164,6 +167,7 @@ const getConfigByHostname = async (origin: string) => {
       const config = platform.config as any;
       return {
         platform_id: platform.id,
+        platform_name: platform.name,
         company_id: null,
         company_name: null,
         logo_url: config?.logo_url || null,

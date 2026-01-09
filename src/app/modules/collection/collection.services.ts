@@ -225,6 +225,7 @@ const getCollectionById = async (id: string, user: AuthUser, platformId: string)
                             images: true,
                             volume_per_unit: true,
                             weight_per_unit: true,
+                            dimensions: true,
                             status: true,
                             condition: true,
                             qr_code: true,

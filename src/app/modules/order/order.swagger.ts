@@ -3436,3 +3436,159 @@
  *     security:
  *       - BearerAuth: []
  */
+
+/**
+ * @swagger
+ * /api/client/v1/order/{orderId}/send-invoice:
+ *   patch:
+ *     tags:
+ *       - Order Management
+ *     summary: Send invoice for an order (ADMIN only)
+ *     description: |
+ *       Updates the financial status of an order to INVOICED.
+ *       This endpoint is used to mark an order as invoiced after it has been closed.
+ *       
+ *       **Business Rules:**
+ *       - Order must be in CLOSED status
+ *       - Order must not already be invoiced (financial_status !== INVOICED)
+ *       
+ *       **Status Transitions:**
+ *       - Financial Status: Any (except INVOICED) → INVOICED
+ *       
+ *       **Access Control:**
+ *       - ADMIN users only
+ *       
+ *       **Use Case:**
+ *       This endpoint is called when an admin wants to mark an order as invoiced
+ *       after the order has been completed and closed.
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: orderId
+ *         in: path
+ *         required: true
+ *         description: Order ID (UUID)
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *           example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *     responses:
+ *       200:
+ *         description: Invoice sent successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Invoice sent successfully."
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                       description: Order internal UUID
+ *                       example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *                     order_id:
+ *                       type: string
+ *                       description: Human-readable order ID
+ *                       example: "ORD-20260109-001"
+ *                     financial_status:
+ *                       type: string
+ *                       description: Updated financial status (always INVOICED after success)
+ *                       example: "INVOICED"
+ *                     updated_at:
+ *                       type: string
+ *                       format: date-time
+ *                       description: Timestamp when the order was updated
+ *                       example: "2026-01-09T14:48:00.000Z"
+ *             example:
+ *               success: true
+ *               message: "Invoice sent successfully."
+ *               data:
+ *                 id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *                 order_id: "ORD-20260109-001"
+ *                 financial_status: "INVOICED"
+ *                 updated_at: "2026-01-09T14:48:00.000Z"
+ *       400:
+ *         description: Bad request - Order not in correct status
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *             examples:
+ *               alreadyInvoiced:
+ *                 summary: Order already invoiced
+ *                 value:
+ *                   success: false
+ *                   message: "Order is already invoiced"
+ *               notClosed:
+ *                 summary: Order not in CLOSED status
+ *                 value:
+ *                   success: false
+ *                   message: "Order is not in CLOSED status"
+ *       401:
+ *         description: Unauthorized - Authentication required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Unauthorized"
+ *       403:
+ *         description: Forbidden - ADMIN role required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Forbidden - ADMIN role required"
+ *       404:
+ *         description: Not Found - Order not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Order not found"
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Internal server error"
+ *     security:
+ *       - BearerAuth: []
+ */
