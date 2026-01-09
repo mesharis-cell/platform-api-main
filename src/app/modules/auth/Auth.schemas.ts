@@ -20,7 +20,21 @@ const resetPasswordValidationSchema = z.object({
   }),
 });
 
+const forgotPasswordSchema = z.object({
+  body: z
+    .object({
+      email: z.email({ error: "Enter a valid email" }),
+      otp: z.number({ error: "OTP should be a number" }).optional(),
+      new_password: z
+        .string({ error: "New password should be a text" })
+        .min(8, "New password must be at least 8 characters")
+        .max(50, "New password must be at most 50 characters").optional(),
+    })
+    .strict(),
+});
+
 export const AuthSchemas = {
   loginValidationSchema,
   resetPasswordValidationSchema,
+  forgotPasswordSchema
 };

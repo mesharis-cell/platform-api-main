@@ -977,3 +977,22 @@ export const notificationLogsRelations = relations(
     platform: one(platforms, { fields: [notificationLogs.platform_id], references: [platforms.id] }),
   })
 )
+
+// ---------------------------------- OTP --------------------------------------------------
+export const otp = pgTable(
+  'otp',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    platform_id: uuid('platform')
+      .notNull()
+      .references(() => platforms.id, { onDelete: 'cascade' }),
+    email: varchar('email', { length: 255 }).notNull(),
+    otp: varchar('otp', { length: 6 }).notNull(),
+    expires_at: timestamp('expires_at').notNull(),
+    created_at: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => [
+    index('otp_email_idx').on(table.email),
+    index('otp_platform_idx').on(table.platform_id),
+  ]
+)
