@@ -1,3 +1,5 @@
+import z from "zod";
+import { AuthSchemas } from "./Auth.schemas";
 
 
 
@@ -11,4 +13,5 @@ export interface ResetPasswordPayload {
   current_password: string;
   new_password: string;
 }
-
+// ----------------------------------- FORGOT PASSWORD PAYLOAD --------------------------------
+export type ForgotPasswordPayload = z.infer<typeof AuthSchemas.forgotPasswordSchema>["body"];

@@ -38,12 +38,9 @@ type SendInvoiceToAdminTemplatePayload = {
     download_invoice_url: string
 };
 
-type AdjustmentNotificationTemplatePayload = {
-    order_id: string,
-    company_name: string,
-    adjusted_price: number,
-    adjustment_reason: string,
-    view_order_url: string
+type ForgotPasswordOtpTemplatePayload = {
+    email: string,
+    otp: string
 };
 
 export const emailTemplates = {
@@ -248,5 +245,89 @@ export const emailTemplates = {
         </body>
         </html>
 		`
+    ),
+    forgot_password_otp: (data: ForgotPasswordOtpTemplatePayload) => (
+        `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Password Reset OTP</title>
+        </head>
+        <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #f6f9fc;">
+            <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color: #f6f9fc;">
+                <tr>
+                    <td align="center" style="padding: 40px 20px;">
+                        <table width="600" cellpadding="0" cellspacing="0" role="presentation" style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);">
+                            <!-- Header -->
+                            <tr>
+                                <td style="padding: 40px 40px 0;">
+                                    <h1 style="margin: 0; font-size: 28px; font-weight: bold; color: #1f2937; line-height: 1.3;">Password Reset Request</h1>
+                                </td>
+                            </tr>
+
+                            <!-- Message -->
+                            <tr>
+                                <td style="padding: 16px 40px 0;">
+                                    <p style="margin: 0; font-size: 16px; line-height: 1.6; color: #374151;">We received a request to reset the password for your account associated with <strong>${data.email}</strong>.</p>
+                                </td>
+                            </tr>
+
+                            <tr>
+                                <td style="padding: 16px 40px 0;">
+                                    <p style="margin: 0; font-size: 16px; line-height: 1.6; color: #374151;">Use the following One-Time Password (OTP) to reset your password:</p>
+                                </td>
+                            </tr>
+
+                            <!-- OTP Box -->
+                            <tr>
+                                <td style="padding: 24px 40px;">
+                                    <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px;">
+                                        <tr>
+                                            <td style="padding: 32px; text-align: center;">
+                                                <p style="margin: 0 0 8px; font-size: 14px; font-weight: 600; color: #ffffff; text-transform: uppercase; letter-spacing: 1px;">Your OTP Code</p>
+                                                <p style="margin: 0; font-size: 48px; font-weight: bold; color: #ffffff; letter-spacing: 8px; font-family: 'Courier New', monospace;">${data.otp}</p>
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </td>
+                            </tr>
+
+                            <!-- Expiration Notice -->
+                            <tr>
+                                <td style="padding: 0 40px;">
+                                    <div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 16px; border-radius: 4px;">
+                                        <p style="margin: 0; font-size: 14px; font-weight: 600; color: #92400e;">⏱️ This OTP will expire in 5 minutes</p>
+                                    </div>
+                                </td>
+                            </tr>
+
+                            <!-- Security Notice -->
+                            <tr>
+                                <td style="padding: 24px 40px;">
+                                    <div style="background-color: #fef2f2; border-left: 4px solid #ef4444; padding: 16px; border-radius: 4px;">
+                                        <p style="margin: 0 0 8px; font-size: 14px; font-weight: 600; color: #991b1b;">🔒 Security Notice</p>
+                                        <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #7f1d1d;">If you didn't request a password reset, please ignore this email or contact support if you have concerns about your account security.</p>
+                                    </div>
+                                </td>
+                            </tr>
+
+                            <!-- Footer -->
+                            <tr>
+                                <td style="padding: 32px 40px;">
+                                    <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 0 0 32px;">
+                                    <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #6b7280;">
+                                        This is an automated message from the Asset Fulfillment System. Please do not reply to this email.
+                                    </p>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+        </body>
+        </html>
+        `
     )
 };

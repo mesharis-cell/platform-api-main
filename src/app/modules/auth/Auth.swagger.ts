@@ -574,5 +574,310 @@
  *               $ref: '#/components/schemas/Error'
  */
 
+/**
+ * @swagger
+ * /api/auth/forgot-password:
+ *   post:
+ *     tags:
+ *       - Authentication
+ *     summary: Forgot password - OTP-based password reset
+ *     description: |
+ *       Two-step password reset process using OTP (One-Time Password):
+ *       
+ *       **Step 1: Request OTP**
+ *       - Send only `email` in the request body
+ *       - System generates a 6-digit OTP valid for 5 minutes
+ *       - OTP is sent to the user's email address
+ *       - Returns OTP details (email and expiration time)
+ *       
+ *       **Step 2: Reset Password with OTP**
+ *       - Send `email`, `otp`, and `new_password` in the request body
+ *       - System verifies OTP validity and expiration
+ *       - Updates user password if OTP is valid
+ *       - Deletes used OTP from database
+ *       
+ *       **Security Features:**
+ *       - OTP expires after 5 minutes
+ *       - OTP is single-use (deleted after successful reset)
+ *       - Only active users can request OTP
+ *       - Platform-scoped (multi-tenant support)
+ *       - Password hashed with bcrypt
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: User's email address
+ *                 example: "john.doe@example.com"
+ *               otp:
+ *                 type: number
+ *                 description: 6-digit OTP code (required for Step 2)
+ *                 example: 123456
+ *               new_password:
+ *                 type: string
+ *                 minLength: 8
+ *                 maxLength: 50
+ *                 description: New password (required for Step 2, must be at least 8 characters)
+ *                 example: "NewSecurePass@456"
+ *           examples:
+ *             requestOTP:
+ *               summary: Step 1 - Request OTP
+ *               value:
+ *                 email: "john.doe@example.com"
+ *             resetPassword:
+ *               summary: Step 2 - Reset Password with OTP
+ *               value:
+ *                 email: "john.doe@example.com"
+ *                 otp: 123456
+ *                 new_password: "NewSecurePass@456"
+ *     responses:
+ *       200:
+ *         description: Success - OTP sent or password reset successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   nullable: true
+ *             examples:
+ *               otpSent:
+ *                 summary: Step 1 Response - OTP Sent
+ *                 value:
+ *                   success: true
+ *                   message: "OTP sent successfully"
+ *                   data:
+ *                     email: "john.doe@example.com"
+ *                     expires_at: "2026-01-09T14:50:00.000Z"
+ *               passwordReset:
+ *                 summary: Step 2 Response - Password Reset
+ *                 value:
+ *                   success: true
+ *                   message: "Password reset successfully"
+ *                   data: null
+ *       400:
+ *         description: Bad request - Validation error, missing X-Platform header, or invalid request structure
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "BAD_REQUEST"
+ *                     message:
+ *                       type: string
+ *                     details:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           field:
+ *                             type: string
+ *                           message:
+ *                             type: string
+ *             examples:
+ *               invalidEmail:
+ *                 summary: Invalid email format
+ *                 value:
+ *                   success: false
+ *                   error:
+ *                     code: "VALIDATION_ERROR"
+ *                     message: "Invalid email address"
+ *               missingPassword:
+ *                 summary: OTP provided without new password
+ *                 value:
+ *                   success: false
+ *                   error:
+ *                     code: "BAD_REQUEST"
+ *                     message: "New password is required"
+ *               invalidRequest:
+ *                 summary: Invalid request structure
+ *                 value:
+ *                   success: false
+ *                   error:
+ *                     code: "BAD_REQUEST"
+ *                     message: "Invalid request"
+ *       403:
+ *         description: Forbidden - Invalid OTP, expired OTP, or OTP not matched
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "FORBIDDEN"
+ *                     message:
+ *                       type: string
+ *             examples:
+ *               otpNotMatched:
+ *                 summary: OTP does not match
+ *                 value:
+ *                   success: false
+ *                   error:
+ *                     code: "FORBIDDEN"
+ *                     message: "OTP not matched"
+ *               otpExpired:
+ *                 summary: OTP has expired
+ *                 value:
+ *                   success: false
+ *                   error:
+ *                     code: "FORBIDDEN"
+ *                     message: "OTP has expired"
+ *               invalidOTP:
+ *                 summary: Invalid OTP code
+ *                 value:
+ *                   success: false
+ *                   error:
+ *                     code: "FORBIDDEN"
+ *                     message: "Invalid OTP"
+ *       404:
+ *         description: Not found - User does not exist or is not active
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "NOT_FOUND"
+ *                     message:
+ *                       type: string
+ *                       example: "Invalid email or user is not active"
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+
+/**
+ * @swagger
+ * /api/auth/reset-password-with-token:
+ *   post:
+ *     tags:
+ *       - Authentication
+ *     summary: Reset password with token
+ *     description: |
+ *       Resets user password using the token received via email.
+ *       The platform ID is required in the X-Platform header to identify which platform the user belongs to.
+ *       
+ *       **Security Features:**
+ *       - Validates reset token and expiration (1 hour validity)
+ *       - Hashes new password with bcrypt
+ *       - Clears reset token after successful reset
+ *       - Validates new password strength (minimum 8 characters)
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - token
+ *               - new_password
+ *             properties:
+ *               token:
+ *                 type: string
+ *                 description: Reset token received via email
+ *                 example: "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6"
+ *               new_password:
+ *                 type: string
+ *                 minLength: 8
+ *                 maxLength: 50
+ *                 description: New password (must be at least 8 characters)
+ *                 example: "NewSecurePass@456"
+ *     responses:
+ *       200:
+ *         description: Password reset successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Password has been reset successfully. You can now login with your new password."
+ *                 data:
+ *                   type: "null"
+ *                   example: null
+ *       400:
+ *         description: Bad request - Invalid/expired token, validation error, or missing X-Platform header
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       example: "BAD_REQUEST"
+ *                     message:
+ *                       type: string
+ *                       example: "Invalid or expired reset token"
+ *                     details:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           field:
+ *                             type: string
+ *                             example: "new_password"
+ *                           message:
+ *                             type: string
+ *                             example: "New password must be at least 8 characters"
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+
 export const authSwagger = {};
 

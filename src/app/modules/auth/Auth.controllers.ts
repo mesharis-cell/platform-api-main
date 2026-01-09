@@ -4,8 +4,7 @@ import sendResponse from "../../shared/send-response";
 import { AuthServices } from "./Auth.services";
 
 const login = catchAsync(async (req, res) => {
-  // Extract platform ID from header - using lowercase as express lowercases headers
-  const platformId = req.headers["x-platform"] as string;
+  const platformId = (req as any).platformId;
 
   const result = await AuthServices.login(req.body, platformId);
 
@@ -42,8 +41,23 @@ const resetPassword = catchAsync(async (req, res) => {
   });
 });
 
+const forgotPassword = catchAsync(async (req, res) => {
+  console.log(req)
+  const platformId = (req as any).platformId;
+
+  const result = await AuthServices.forgotPassword(platformId, req.body);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: result.message,
+    data: result.data || null,
+  });
+});
+
 export const AuthControllers = {
   login,
   getPlatformByDomain,
   resetPassword,
+  forgotPassword,
 };

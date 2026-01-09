@@ -85,6 +85,13 @@
       "when": 1767629862932,
       "tag": "0011_curly_amazoness",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1767967484604,
+      "tag": "0012_orange_hiroim",
+      "breakpoints": true
     }
   ]
 }

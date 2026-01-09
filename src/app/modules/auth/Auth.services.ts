@@ -1,14 +1,19 @@
 import bcrypt from "bcrypt";
+import crypto from "crypto";
 import { and, eq } from "drizzle-orm";
 import httpStatus from "http-status";
 import { Secret } from "jsonwebtoken";
 import { db } from "../../../db";
-import { companies, companyDomains, platforms, users } from "../../../db/schema";
+import { companies, companyDomains, platforms, users, otp } from "../../../db/schema";
 import config from "../../config";
 import CustomizedError from "../../error/customized-error";
-import { tokenGenerator } from "../../utils/jwt-helpers";
-import { LoginCredential, ResetPasswordPayload } from "./Auth.interfaces";
 import { AuthUser } from "../../interface/common";
+import { sendEmail } from "../../services/email.service";
+import { tokenGenerator } from "../../utils/jwt-helpers";
+import { ForgotPasswordPayload, LoginCredential, ResetPasswordPayload } from "./Auth.interfaces";
+import { OTPGenerator } from "../../utils/helper";
+import { emailTemplates } from "../../utils/email-templates";
+import { OTPVerifier } from "../../utils/otp-verifier";
 
 const login = async (credential: LoginCredential, platformId: string) => {
   const { email, password } = credential;
@@ -258,8 +263,101 @@ const resetPassword = async (platformId: string, authUser: AuthUser, payload: Re
   return userData;
 };
 
+const forgotPassword = async (platformId: string, payload: ForgotPasswordPayload) => {
+  // Step 1: Validate payload structure
+  const { email, otp: inputOtp, new_password } = payload;
+
+  if (inputOtp && !new_password) {
+    throw new CustomizedError(
+      httpStatus.BAD_REQUEST,
+      "New password is required"
+    );
+  }
+
+  // Step 2: Handle OTP generation and sending
+  if (email && !inputOtp) {
+    // Step 2.1: Check if the user exists and is active
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(
+        and(
+          eq(users.email, email),
+          eq(users.platform_id, platformId),
+          eq(users.is_active, true)
+        )
+      );
+
+    if (!user) {
+      throw new CustomizedError(httpStatus.NOT_FOUND, "Invalid email or user is not active");
+    }
+
+    // Step 2.2: Generate OTP and expiration time
+    const generatedOTP = OTPGenerator();
+    const expirationTime = new Date(new Date().getTime() + 5 * 60000);
+
+    // Step 2.3: Send OTP email
+    await sendEmail({
+      to: email,
+      subject: `OTP for password reset`,
+      html: emailTemplates.forgot_password_otp({
+        email,
+        otp: String(generatedOTP)
+      }),
+    })
+
+    // Step 2.4: Save OTP record in the database
+    const [createdOtp] = await db.insert(otp).values({
+      platform_id: platformId,
+      email,
+      otp: String(generatedOTP),
+      expires_at: expirationTime,
+    }).returning();
+
+    return {
+      message: "OTP sent successfully",
+      data: {
+        email: createdOtp.email,
+        expires_at: createdOtp.expires_at,
+      }
+    };
+  }
+
+  // Step 3: Handle password reset using OTP
+  if (email && inputOtp && new_password) {
+    // Step 3.1: Verify OTP from database
+    await OTPVerifier(platformId, String(inputOtp), email);
+
+    // Step 3.2: Hash new password
+    const hashedPassword = await bcrypt.hash(
+      new_password,
+      Number(config.salt_rounds)
+    );
+
+    // Step 3.3: Update user password
+    await db.update(users).set({
+      password: hashedPassword,
+      updated_at: new Date(),
+    }).where(
+      and(
+        eq(users.email, email),
+        eq(users.platform_id, platformId)
+      )
+    );
+
+    return {
+      message: "Password reset successfully",
+      data: null,
+    };
+  }
+
+  // Step 4: Handle invalid request cases
+  throw new CustomizedError(httpStatus.BAD_REQUEST, "Invalid request");
+};
+
 export const AuthServices = {
   login,
   getConfigByHostname,
   resetPassword,
+  forgotPassword
 };
