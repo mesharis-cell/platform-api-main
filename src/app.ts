@@ -1,10 +1,13 @@
 import cookiePerser from "cookie-parser";
-import cors from "cors";
 import express, { Application, Request, Response } from "express";
 import httpStatus from "http-status";
 import config from "./app/config";
 import globalErrorHandler from "./app/middleware/global-error-handler";
 import notFoundHandler from "./app/middleware/not-found-handler";
+import {
+  corsMiddleware,
+  corsPreflightHandler,
+} from "./app/middleware/cors";
 import router from "./app/routes";
 import swaggerRoutes from "./app/routes/swagger.routes";
 
@@ -16,26 +19,22 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookiePerser());
 
 // =====================
-// CORS (Vercel + JWT SAFE)
+// CORS (Database-driven, Multi-tenant)
 // =====================
+// Handles dynamic CORS for:
+// - Platform subdomains (admin.xyz.com, warehouse.xyz.com, client.xyz.com)
+// - Custom company domains (diageo.com, etc.)
+// - Development origins (localhost:3000, etc.)
+// Origins are cached for 1 minute and fetched from platforms & companyDomains tables
 app.use((req, res, next) => {
   res.header("Vary", "Origin");
   next();
 });
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true); // Postman / server-side
-      callback(null, origin); // allow all domains dynamically
-    },
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "x-platform"],
-  })
-);
+app.use(corsMiddleware);
 
 // Handle preflight BEFORE routes
-app.options("/{*path}", cors());
+app.options("/{*path}", corsPreflightHandler);
 
 // test server
 app.get("/", (req: Request, res: Response) => {
