@@ -1,9 +1,11 @@
 import dayjs from "dayjs";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "../../../db";
-import { financialStatusEnum, orderItems, orders, orderStatusEnum, scanEvents } from "../../../db/schema";
+import { assetBookings, assets, financialStatusEnum, orderItems, orders, orderStatusEnum, scanEvents } from "../../../db/schema";
 import { sortOrderType } from "../../constants/common";
 import { AuthUser } from "../../interface/common";
+import CustomizedError from "../../error/customized-error";
+import httpStatus from "http-status";
 
 // Sortable fields for order queries
 export const orderSortableFields: Record<string, any> = {
@@ -126,20 +128,6 @@ export const PREP_BUFFER_DAYS = 5;
 // Return buffer days (time needed after event for return and processing)
 export const RETURN_BUFFER_DAYS = 3;
 
-export function calculateBlockedPeriod(
-	eventStartDate: Date,
-	eventEndDate: Date,
-	refurbDays: number = 0
-): { blockedFrom: Date; blockedUntil: Date } {
-	// Total prep time = prep buffer + refurb time
-	const totalPrepDays = PREP_BUFFER_DAYS + refurbDays
-
-	const blockedFrom = dayjs(eventStartDate).subtract(totalPrepDays, 'day').toDate()
-	const blockedUntil = dayjs(eventEndDate).add(RETURN_BUFFER_DAYS, 'day').toDate()
-
-	return { blockedFrom, blockedUntil }
-}
-
 // ----------------------------------- VALIDATE INBOUND SCANNING COMPLETE ----------------------
 /**
  * Validates that all order items have been scanned in (inbound)
@@ -181,4 +169,122 @@ export async function validateInboundScanningComplete(
 
 	console.log(`✅ All items scanned in for order ${orderId}`);
 	return true;
+}
+
+export type UnavailableItem = {
+	asset_id: string;
+	asset_name: string;
+	requested: number;
+	available: number;
+	next_available_date?: Date;
+}
+
+// ----------------------------------- CHECK ASSETS FOR ORDER -----------------------------------
+export const checkAssetsForOrder = async (platformId: string, companyId: string, requiredAssets: { id: string, quantity: number }[], eventStartDate: Date, eventEndDate: Date) => {
+	const assetIds = requiredAssets.map((asset) => asset.id);
+
+	// Step 1: Verify assets exist and belong to the company
+	const foundAssets = await db
+		.select()
+		.from(assets)
+		.where(
+			and(
+				inArray(assets.id, assetIds),
+				eq(assets.company_id, companyId),
+				eq(assets.platform_id, platformId),
+				isNull(assets.deleted_at)
+			)
+		);
+
+	if (foundAssets.length !== assetIds.length) {
+		throw new CustomizedError(
+			httpStatus.NOT_FOUND,
+			"One or more assets not found or do not belong to your company"
+		);
+	}
+
+	// Step 2: Verify all assets have AVAILABLE status
+	const unavailableAssets = foundAssets.filter((a) => a.status !== "AVAILABLE");
+	if (unavailableAssets.length > 0) {
+		throw new CustomizedError(
+			httpStatus.BAD_REQUEST,
+			`Cannot order unavailable assets: ${unavailableAssets.map((a) => a.name).join(", ")}`
+		);
+	}
+
+	const unavailableItems: Array<UnavailableItem> = [];
+
+	// Step 3: Check date-based availability for requested quantities
+	for (const item of requiredAssets) {
+		// Find asset in the foundAssets array
+		const asset = foundAssets.find((a) => a.id === item.id);
+		if (!asset) {
+			throw new CustomizedError(
+				httpStatus.NOT_FOUND,
+				`Asset "${item.id}" not found`
+			);
+		}
+
+		// Query overlapping bookings for the event period
+		const overlappingBookings = await db.query.assetBookings.findMany({
+			where: and(
+				eq(assetBookings.asset_id, item.id),
+				sql`${assetBookings.blocked_from} <= ${eventStartDate}`,
+				sql`${assetBookings.blocked_until} >= ${eventEndDate}`
+			),
+			with: {
+				order: {
+					columns: {
+						id: true,
+						order_id: true,
+					},
+				},
+			},
+		});
+
+		// Calculate available quantity
+		const bookedQuantity = overlappingBookings.reduce((sum, booking) => sum + booking.quantity, 0);
+		const availableQuantity = Math.max(0, item.quantity - bookedQuantity);
+
+		// If insufficient quantity, track for error message
+		if (availableQuantity < item.quantity) {
+			// Find next available date from latest booking end
+			let nextAvailableDate: Date | undefined;
+			if (overlappingBookings.length > 0) {
+				const latestBookingEnd = new Date(
+					Math.max(...overlappingBookings.map(b => new Date(b.blocked_until).getTime()))
+				);
+				nextAvailableDate = new Date(latestBookingEnd);
+				nextAvailableDate.setDate(nextAvailableDate.getDate() + 1);
+			}
+
+			unavailableItems.push({
+				asset_id: item.id,
+				asset_name: asset.name,
+				requested: item.quantity,
+				available: availableQuantity,
+				next_available_date: nextAvailableDate,
+			});
+		}
+	}
+
+	// Step 4: Throw error if any items are unavailable
+	if (unavailableItems.length > 0) {
+		const unavailableList = unavailableItems
+			.map(({ asset_name, requested, available, next_available_date }) => {
+				const nextDate = next_available_date
+					? ` (available from ${new Date(next_available_date).toLocaleDateString()})`
+					: "";
+
+				return `${asset_name}: requested ${requested}, available ${available} ${nextDate}`;
+			})
+			.join("; ");
+
+		throw new CustomizedError(
+			httpStatus.BAD_REQUEST,
+			`Insufficient availability for requested dates: ${unavailableList}`
+		);
+	}
+
+	return foundAssets;
 }

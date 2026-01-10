@@ -22,13 +22,12 @@ import { AuthUser } from "../../interface/common";
 import { sendEmail } from "../../services/email.service";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
-import { AdjustLogisticsPricingPayload, ApproveStandardPricingPayload, ApprovePlatformPricingPayload, OrderItemPayload, StandardPricing, SubmitOrderPayload, UpdateOrderTimeWindowsPayload, ApproveQuotePayload, DeclineQuotePayload, OrderItem } from "./order.interfaces";
-import { calculateBlockedPeriod, isValidTransition, orderQueryValidationConfig, orderSortableFields, validateInboundScanningComplete, validateRoleBasedTransition } from "./order.utils";
+import { AdjustLogisticsPricingPayload, ApproveStandardPricingPayload, ApprovePlatformPricingPayload, StandardPricing, SubmitOrderPayload, UpdateOrderTimeWindowsPayload, ApproveQuotePayload, DeclineQuotePayload, OrderItem } from "./order.interfaces";
+import { checkAssetsForOrder, isValidTransition, orderQueryValidationConfig, orderSortableFields, PREP_BUFFER_DAYS, RETURN_BUFFER_DAYS, validateInboundScanningComplete, validateRoleBasedTransition } from "./order.utils";
 
 // Import asset availability checker
 import { multipleEmailSender } from "../../utils/email-sender";
 import { emailTemplates } from "../../utils/email-templates";
-import { AssetServices, checkMultipleAssetsAvailability, getAssetAvailabilitySummary } from "../asset/assets.services";
 import { NotificationType } from "../notification-logs/notification-logs.interfaces";
 import { NotificationLogServices } from "../notification-logs/notification-logs.services";
 import { getNotificationTypeForTransition } from "../notification-logs/notification-logs.utils";
@@ -62,62 +61,11 @@ const submitOrderFromCart = async (
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Company not found");
     }
 
-    // Step 2: Verify all assets exist and belong to the company
-    const assetIds = items.map((item: OrderItemPayload) => item.asset_id);
-    const foundAssets = await db
-        .select()
-        .from(assets)
-        .where(
-            and(
-                inArray(assets.id, assetIds),
-                eq(assets.company_id, companyId),
-                eq(assets.platform_id, platformId),
-                isNull(assets.deleted_at)
-            )
-        );
+    // Step 2: Check assets availability
+    const requiredAssets = items.map((i) => ({ id: i.asset_id, quantity: i.quantity }))
+    const foundAssets = await checkAssetsForOrder(platformId, companyId, requiredAssets, event_start_date, event_end_date);
 
-    if (foundAssets.length !== assetIds.length) {
-        throw new CustomizedError(
-            httpStatus.NOT_FOUND,
-            "One or more assets not found or do not belong to your company"
-        );
-    }
-
-    // Step 3: Check asset status - all must be AVAILABLE
-    const unavailableAssets = foundAssets.filter((a) => a.status !== "AVAILABLE");
-    if (unavailableAssets.length > 0) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            `Cannot order unavailable assets: ${unavailableAssets.map((a) => a.name).join(", ")}`
-        );
-    }
-
-    // Step 4: Check date-based availability for requested quantities
-    const itemsForAvailabilityCheck = payload.items.map((item: OrderItemPayload) => ({
-        asset_id: item.asset_id,
-        quantity: item.quantity,
-    }));
-
-    const availabilityCheck = await checkMultipleAssetsAvailability(itemsForAvailabilityCheck, event_start_date, event_end_date, user, platformId);
-
-    if (!availabilityCheck.all_available) {
-        const unavailableList = availabilityCheck.unavailable_items
-            .map(({ asset_name, requested, available, next_available_date }) => {
-                const nextDate = next_available_date
-                    ? ` (available from ${new Date(next_available_date).toLocaleDateString()})`
-                    : "";
-
-                return `${asset_name}: requested ${requested}, available ${available}${nextDate}`;
-            })
-            .join("; ");
-
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            `Insufficient availability for requested dates: ${unavailableList}`
-        );
-    }
-
-    // Step 5: Calculate order totals (volume and weight)
+    // Step 3: Calculate order totals (volume and weight)
     const orderItemsData: OrderItem[] = [];
     let totalVolume = 0;
     let totalWeight = 0;
@@ -158,7 +106,7 @@ const submitOrderFromCart = async (
     const calculatedVolume = totalVolume.toFixed(3);
     const calculatedWeight = totalWeight.toFixed(2);
 
-    // Step 6: Find matching pricing tier based on location and volume
+    // Step 4: Find matching pricing tier based on location and volume
     const volume = parseFloat(calculatedVolume);
     const matchingTiers = await db
         .select()
@@ -180,10 +128,10 @@ const submitOrderFromCart = async (
 
     const pricingTier = matchingTiers[0] || null;
 
-    // Step 7: Create the order record
+    // Step 5: Create the order record
     const orderId = await orderIdGenerator();
     const orderResult = await db.transaction(async (tx) => {
-        // Step 7.a: Create the order record
+        // Step 5.a: Create the order record
         const [order] = await tx
             .insert(orders)
             .values({
@@ -222,14 +170,14 @@ const submitOrderFromCart = async (
             })
             .returning();
 
-        // Step 7.b: Insert order items
+        // Step 5.b: Insert order items
         const itemsToInsert = orderItemsData.map((item) => ({
             ...item,
             order_id: order.id
         }));
         await tx.insert(orderItems).values(itemsToInsert);
 
-        // Step 7.c: Insert order status history
+        // Step 5.c: Insert order status history
         await tx.insert(orderStatusHistory).values({
             platform_id: platformId,
             order_id: order.id,
@@ -241,8 +189,8 @@ const submitOrderFromCart = async (
         return order;
     })
 
-    // Step 8: Send email to admin, logistics staff and client
-    // Step 8.a: Prepare email data
+    // Step 6: Send email to admin, logistics staff and client
+    // Step 6.a: Prepare email data
     const emailData = {
         order_id: orderResult.order_id,
         company_name: company?.name || 'N/A',
@@ -254,7 +202,7 @@ const submitOrderFromCart = async (
         view_order_url: `${config.client_url}/orders/${orderResult.order_id}`,
     };
 
-    // Step 8.b: Send email to admin
+    // Step 6.b: Send email to admin
     const platformAdminEmails = await getPlatformAdminEmails(platformId);
     await multipleEmailSender(platformAdminEmails, `New Order Submitted: ${emailData.order_id}`, emailTemplates.submit_order({
         ...emailData,
@@ -265,7 +213,7 @@ const submitOrderFromCart = async (
         }
     }));
 
-    // Step 8.c: Send email to logistics staff
+    // Step 6.c: Send email to logistics staff
     const logisticsStaffEmails = await getPlatformLogisticsStaffEmails(platformId);
     await multipleEmailSender(logisticsStaffEmails, `New Order Submitted: ${emailData.order_id}`,
         emailTemplates.submit_order({
@@ -278,7 +226,7 @@ const submitOrderFromCart = async (
         })
     );
 
-    // Step 8.d: Send email to client
+    // Step 6.d: Send email to client
     await sendEmail({
         to: contact_email,
         subject: `Order Confirmation: ${emailData.order_id}`,
@@ -292,7 +240,7 @@ const submitOrderFromCart = async (
         }),
     });
 
-    // Step 9: Return order details to client
+    // Step 7: Return order details to client
     return {
         order_id: orderResult.order_id,
         status: orderResult.order_status,
@@ -848,8 +796,8 @@ const progressOrderStatus = async (
 ) => {
     const { new_status, notes } = payload;
 
-    if (new_status === 'CONFIRMED' && user.role !== 'CLIENT') {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "Only client can confirm orders");
+    if (new_status === 'CONFIRMED') {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Only client can confirm order by approve quote");
     }
 
     // Step 1: Get order with company details and items
@@ -912,28 +860,6 @@ const progressOrderStatus = async (
         );
     }
 
-    // Step 5: Handle special side effects based on transitions
-    if (new_status === 'CONFIRMED') {
-        if (!order.event_start_date || !order.event_end_date) {
-            throw new Error('Order must have event dates')
-        }
-
-        // Create booking for each item
-        for (const item of order.items) {
-            const refurbDays = item.asset.refurb_days_estimate || 0
-            await createBooking(
-                item.asset.id,
-                orderId,
-                item.quantity,
-                order.event_start_date,
-                order.event_end_date,
-                refurbDays,
-                user,
-                platformId
-            )
-        }
-    }
-
     if (new_status === 'CLOSED') {
         // Validate that all items have been scanned in (inbound)
         const allItemsScanned = await validateInboundScanningComplete(orderId);
@@ -951,7 +877,7 @@ const progressOrderStatus = async (
             .where(eq(assetBookings.order_id, orderId));
     }
 
-    // Step 6: Update order status
+    // Step 5: Update order status
     await db
         .update(orders)
         .set({
@@ -960,7 +886,7 @@ const progressOrderStatus = async (
         })
         .where(eq(orders.id, orderId));
 
-    // Step 7: Create status history entry
+    // Step 6: Create status history entry
     await db.insert(orderStatusHistory).values({
         platform_id: platformId,
         order_id: orderId,
@@ -969,17 +895,16 @@ const progressOrderStatus = async (
         updated_by: user.id,
     });
 
-    // Step 8: Get updated order
+    // Step 7: Get updated order
     const [updatedOrder] = await db
         .select()
         .from(orders)
         .where(eq(orders.id, orderId));
 
-    // Step 9: Trigger notification if applicable (asynchronously, don't block response)
+    // Step 8: Trigger notification if applicable (asynchronously, don't block response)
     const notificationType = getNotificationTypeForTransition(currentStatus, new_status);
 
     if (notificationType) {
-        // TODO: Send notification asynchronously
         await NotificationLogServices.sendNotification(platformId, notificationType as NotificationType, updatedOrder);
         console.log(`📧 Notification sent: ${notificationType} for order ${order.order_id}`);
     }
@@ -992,48 +917,6 @@ const progressOrderStatus = async (
         updated_at: updatedOrder.updated_at,
     };
 };
-
-export async function createBooking(
-    assetId: string,
-    orderId: string,
-    quantity: number,
-    eventStartDate: Date,
-    eventEndDate: Date,
-    refurbDays: number = 0,
-    user: AuthUser,
-    platformId: string
-): Promise<void> {
-    // Calculate blocked period with buffers
-    const { blockedFrom, blockedUntil } = calculateBlockedPeriod(
-        eventStartDate,
-        eventEndDate,
-        refurbDays
-    )
-
-    // Check availability first
-    const availability = await getAssetAvailabilitySummary(
-        assetId,
-        blockedFrom,
-        blockedUntil,
-        user,
-        platformId
-    )
-
-    if (availability.available_quantity < quantity) {
-        throw new Error(
-            `Insufficient availability for asset. Available: ${availability.available_quantity}, Requested: ${quantity}`
-        )
-    }
-
-    // Create booking
-    await db.insert(assetBookings).values({
-        asset_id: assetId,
-        order_id: orderId,
-        quantity,
-        blocked_from: blockedFrom,
-        blocked_until: blockedUntil,
-    })
-}
 
 // ----------------------------------- ADJUST LOGISTICS PRICING -----------------------------------
 const adjustLogisticsPricing = async (
@@ -1947,43 +1830,32 @@ const approveQuote = async (
         throw new CustomizedError(httpStatus.BAD_REQUEST, 'Order must have event dates')
     }
 
-    // Create booking for each item
-    for (const item of order.items) {
-        const refurbDays = item.asset.refurb_days_estimate || 0
+    // Step 4: Check assets availability
+    const requiredAssets = order.items.map(item => ({ id: item.asset_id, quantity: item.quantity }))
 
-        const { blockedFrom, blockedUntil } = calculateBlockedPeriod(
-            order.event_start_date,
-            order.event_end_date,
-            refurbDays
-        )
+    const foundAssets = await checkAssetsForOrder(platformId, order.company_id, requiredAssets, order.event_start_date, order.event_end_date);
 
-        // Check availability first
-        const availability = await AssetServices.getSingleAssetAvailability(
-            item.asset.id,
-            blockedFrom,
-            blockedUntil,
-            user,
-            platformId
-        )
+    // Step 5: Prepare asset bookings data
+    const assetBookingItems = foundAssets.map(item => {
+        const totalPrepDays = PREP_BUFFER_DAYS + (item.refurb_days_estimate || 0)
+        const blockedFrom = dayjs(order.event_start_date).subtract(totalPrepDays, 'day').toDate()
+        const blockedUntil = dayjs(order.event_end_date).add(RETURN_BUFFER_DAYS, 'day').toDate()
 
-        if (availability.available_quantity < item.quantity) {
-            throw new CustomizedError(
-                httpStatus.BAD_REQUEST,
-                `Insufficient availability for ${item.asset.name}. Available: ${availability.available_quantity}, Requested: ${item.quantity}`
-            )
-        }
+        const requiredAsset = requiredAssets.find(a => a.id === item.id)
 
-        await db.insert(assetBookings).values({
-            asset_id: item.asset.id,
+        return {
+            asset_id: item.id,
             order_id: orderId,
-            quantity: item.quantity,
+            quantity: requiredAsset?.quantity || 0,
             blocked_from: blockedFrom,
             blocked_until: blockedUntil,
-        })
-    }
+        }
+    })
 
+    // Step 6: Insert asset bookings data, update order status and create order history
     await db.transaction(async (tx) => {
-        // Update order status to CONFIRMED
+        await tx.insert(assetBookings).values(assetBookingItems);
+
         await tx
             .update(orders)
             .set({
@@ -1993,7 +1865,6 @@ const approveQuote = async (
             })
             .where(eq(orders.id, orderId))
 
-        // Log status change
         await tx.insert(orderStatusHistory).values({
             platform_id: platformId,
             order_id: orderId,
@@ -2003,6 +1874,7 @@ const approveQuote = async (
         })
     })
 
+    // Step 7: Send notification
     await NotificationLogServices.sendNotification(platformId, 'QUOTE_APPROVED', order);
 
     return {
