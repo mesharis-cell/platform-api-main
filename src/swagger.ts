@@ -62,7 +62,7 @@ const swaggerDefinition = {
         schema: {
           type: "string",
           format: "uuid",
-          example: "593c027e-0774-4b0b-ae46-ec59c4f11304",
+          example: "34296bfa-406d-4266-bb68-55b65f270176",
         },
         description: "Platform UUID (required on all requests)",
       },
@@ -148,10 +148,6 @@ const swaggerDefinition = {
     {
       name: "Calendar",
       description: "Client Calendar Events (Orders displayed as calendar events)",
-    },
-    {
-      name: "Catalog Operations",
-      description: "Catalog CRUD operations for asset catalog management",
     },
     {
       name: "Collection Management",
