@@ -4,6 +4,8 @@ import payloadValidator from "../../middleware/payload-validator";
 import platformValidator from "../../middleware/platform-validator";
 import { ScanningControllers } from "./scanning.controllers";
 import { ScanningSchemas } from "./scanning.schemas";
+import requirePermission from "../../middleware/permission";
+import { PERMISSIONS } from "../../constants/permissions";
 
 const router = Router();
 
@@ -12,6 +14,7 @@ router.post(
   "/inbound/:order_id/scan",
   platformValidator,
   auth('ADMIN', 'LOGISTICS'),
+  requirePermission(PERMISSIONS.SCANNING_SCAN_IN),
   payloadValidator(ScanningSchemas.inboundScanSchema),
   ScanningControllers.inboundScan
 );
@@ -21,6 +24,7 @@ router.get(
   "/inbound/:order_id/progress",
   platformValidator,
   auth('ADMIN', 'LOGISTICS'),
+  requirePermission(PERMISSIONS.SCANNING_SCAN_IN),
   ScanningControllers.getInboundProgress
 );
 
@@ -29,6 +33,7 @@ router.post(
   "/inbound/:order_id/complete",
   platformValidator,
   auth('ADMIN', 'LOGISTICS'),
+  requirePermission(PERMISSIONS.SCANNING_SCAN_IN),
   ScanningControllers.completeInboundScan
 );
 
@@ -39,6 +44,7 @@ router.post(
   "/outbound/:order_id/scan",
   platformValidator,
   auth('ADMIN', 'LOGISTICS'),
+  requirePermission(PERMISSIONS.SCANNING_SCAN_OUT),
   payloadValidator(ScanningSchemas.outboundScanSchema),
   ScanningControllers.outboundScan
 );
@@ -48,6 +54,7 @@ router.get(
   "/outbound/:order_id/progress",
   platformValidator,
   auth('ADMIN', 'LOGISTICS'),
+  requirePermission(PERMISSIONS.SCANNING_SCAN_OUT),
   ScanningControllers.getOutboundProgress
 );
 
@@ -56,6 +63,7 @@ router.post(
   "/outbound/:order_id/complete",
   platformValidator,
   auth('ADMIN', 'LOGISTICS'),
+  requirePermission(PERMISSIONS.SCANNING_SCAN_OUT),
   ScanningControllers.completeOutboundScan
 );
 

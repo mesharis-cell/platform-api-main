@@ -2,6 +2,8 @@ import { Router } from "express";
 import auth from "../../middleware/auth";
 import platformValidator from "../../middleware/platform-validator";
 import { AnalyticsControllers } from "./analytics.controllers";
+import requirePermission from "../../middleware/permission";
+import { PERMISSIONS } from "../../constants/permissions";
 
 const router = Router();
 
@@ -18,6 +20,7 @@ router.get(
     "/revenue-summary",
     platformValidator,
     auth('ADMIN'),
+    requirePermission(PERMISSIONS.ANALYTICS_VIEW_REVENUE),
     AnalyticsControllers.getRevenueSummary
 );
 
@@ -26,6 +29,7 @@ router.get(
     "/margin-summary",
     platformValidator,
     auth('ADMIN'),
+    requirePermission(PERMISSIONS.ANALYTICS_TRACK_MARGIN),
     AnalyticsControllers.getMarginSummary
 );
 
@@ -34,6 +38,7 @@ router.get(
     "/company-breakdown",
     platformValidator,
     auth('ADMIN'),
+    requirePermission(PERMISSIONS.ANALYTICS_FILTER_BY_COMPANY),
     AnalyticsControllers.getCompanyBreakdown
 );
 

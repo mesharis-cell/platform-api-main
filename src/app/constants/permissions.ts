@@ -1,16 +1,6 @@
-/**
- * Permission Constants
- * 
- * Naming Convention: {module}:{action}
- * Examples: auth:login, orders:create, assets:read
- * 
- * This file defines all available permissions in the system.
- * Each permission should be added to the user's permissions array to grant access.
- */
-
 export const PERMISSIONS = {
     // ==================== AUTHENTICATION ====================
-    AUTH_LOGIN: 'auth:login',
+    AUTH_LOGIN: 'auth:login', // TODO: Need to use another method
     AUTH_RESET_PASSWORD: 'auth:reset_password', // ✅
     AUTH_ALL: 'auth:*',
 
@@ -93,21 +83,21 @@ export const PERMISSIONS = {
     ORDERS_ALL: 'orders:*',
 
     // ==================== QUOTES ====================
-    QUOTES_APPROVE: 'quotes:approve',
-    QUOTES_DECLINE: 'quotes:decline',
+    QUOTES_APPROVE: 'quotes:approve', // ✅
+    QUOTES_DECLINE: 'quotes:decline', // ✅
     QUOTES_ALL: 'quotes:*',
 
     // ==================== INVOICING ====================
-    INVOICES_GENERATE: 'invoices:generate',
-    INVOICES_READ: 'invoices:read',
-    INVOICES_DOWNLOAD: 'invoices:download',
-    INVOICES_CONFIRM_PAYMENT: 'invoices:confirm_payment',
+    INVOICES_GENERATE: 'invoices:generate', // ✅
+    INVOICES_READ: 'invoices:read', // ✅
+    INVOICES_DOWNLOAD: 'invoices:download', // TODO: Need to use another method
+    INVOICES_CONFIRM_PAYMENT: 'invoices:confirm_payment', // ✅
     INVOICES_TRACK_PAYMENT_STATUS: 'invoices:track_payment_status',
     INVOICES_ALL: 'invoices:*',
 
     // ==================== QR SCANNING ====================
-    SCANNING_SCAN_OUT: 'scanning:scan_out',
-    SCANNING_SCAN_IN: 'scanning:scan_in',
+    SCANNING_SCAN_OUT: 'scanning:scan_out', // ✅
+    SCANNING_SCAN_IN: 'scanning:scan_in', // ✅
     SCANNING_CAPTURE_TRUCK_PHOTOS: 'scanning:capture_truck_photos',
     SCANNING_ALL: 'scanning:*',
 
@@ -118,10 +108,10 @@ export const PERMISSIONS = {
     INVENTORY_ALL: 'inventory:*',
 
     // ==================== CONDITION MANAGEMENT ====================
-    CONDITIONS_UPDATE: 'conditions:update',
-    CONDITIONS_VIEW_HISTORY: 'conditions:view_history',
-    CONDITIONS_VIEW_ITEMS_NEEDING_ATTENTION: 'conditions:view_items_needing_attention',
-    CONDITIONS_COMPLETE_MAINTENANCE: 'conditions:complete_maintenance',
+    CONDITIONS_UPDATE: 'conditions:update', // ✅
+    CONDITIONS_VIEW_HISTORY: 'conditions:view_history', // ✅
+    CONDITIONS_VIEW_ITEMS_NEEDING_ATTENTION: 'conditions:view_items_needing_attention', // ✅
+    CONDITIONS_COMPLETE_MAINTENANCE: 'conditions:complete_maintenance', // ✅
     CONDITIONS_ALL: 'conditions:*',
 
     // ==================== LIFECYCLE & NOTIFICATIONS ====================
@@ -133,9 +123,9 @@ export const PERMISSIONS = {
     NOTIFICATIONS_ALL: 'notifications:*',
 
     // ==================== ANALYTICS ====================
-    ANALYTICS_VIEW_REVENUE: 'analytics:view_revenue',
-    ANALYTICS_TRACK_MARGIN: 'analytics:track_margin',
-    ANALYTICS_FILTER_BY_COMPANY: 'analytics:filter_by_company',
+    ANALYTICS_VIEW_REVENUE: 'analytics:view_revenue', // ✅
+    ANALYTICS_TRACK_MARGIN: 'analytics:track_margin', // ✅
+    ANALYTICS_FILTER_BY_COMPANY: 'analytics:filter_by_company', // ✅
     ANALYTICS_ALL: 'analytics:*',
 };
 

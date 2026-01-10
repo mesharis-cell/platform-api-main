@@ -4,6 +4,8 @@ import platformValidator from "../../middleware/platform-validator";
 import { InvoiceControllers } from "./invoice.controllers";
 import { invoiceSchemas } from "./invoice.schemas";
 import payloadValidator from "../../middleware/payload-validator";
+import requirePermission from "../../middleware/permission";
+import { PERMISSIONS } from "../../constants/permissions";
 
 const router = Router();
 
@@ -12,6 +14,7 @@ router.get(
     "/",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
+    requirePermission(PERMISSIONS.INVOICES_READ),
     InvoiceControllers.getInvoices
 );
 
@@ -20,6 +23,7 @@ router.post(
     "/generate",
     platformValidator,
     auth("ADMIN"),
+    requirePermission(PERMISSIONS.INVOICES_GENERATE),
     payloadValidator(invoiceSchemas.generateInvoice),
     InvoiceControllers.generateInvoice
 );
@@ -30,6 +34,7 @@ router.get(
     "/:invoiceId",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
+    requirePermission(PERMISSIONS.INVOICES_READ),
     InvoiceControllers.getInvoiceById
 );
 
@@ -37,6 +42,7 @@ router.get(
     "/download/:invoiceId",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
+    requirePermission(PERMISSIONS.INVOICES_DOWNLOAD),
     InvoiceControllers.downloadInvoice
 );
 
@@ -51,6 +57,7 @@ router.patch(
     "/:orderId/confirm-payment",
     platformValidator,
     auth("ADMIN"),
+    requirePermission(PERMISSIONS.INVOICES_CONFIRM_PAYMENT),
     payloadValidator(invoiceSchemas.confirmPayment),
     InvoiceControllers.confirmPayment
 );

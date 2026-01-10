@@ -34,6 +34,7 @@ router.post(
   "/add-condition-history",
   platformValidator,
   auth('ADMIN', 'LOGISTICS'),
+  requirePermission(PERMISSIONS.CONDITIONS_UPDATE),
   payloadValidator(AssetSchemas.addConditionHistorySchema),
   AssetControllers.addConditionHistory
 );
@@ -53,6 +54,7 @@ router.post(
   "/complete-maintenance",
   platformValidator,
   auth('ADMIN', 'LOGISTICS'),
+  requirePermission(PERMISSIONS.CONDITIONS_COMPLETE_MAINTENANCE),
   payloadValidator(AssetSchemas.completeMaintenanceSchema),
   AssetControllers.completeMaintenance
 );
@@ -80,7 +82,7 @@ router.get(
   "/",
   platformValidator,
   auth('ADMIN', 'LOGISTICS', 'CLIENT'),
-  requirePermission(PERMISSIONS.ASSETS_READ),
+  requirePermission(PERMISSIONS.ASSETS_READ, PERMISSIONS.CONDITIONS_VIEW_ITEMS_NEEDING_ATTENTION),
   AssetControllers.getAssets
 );
 
@@ -89,6 +91,7 @@ router.get(
   "/:id",
   platformValidator,
   auth('ADMIN', 'LOGISTICS', 'CLIENT'),
+  requirePermission(PERMISSIONS.ASSETS_READ, PERMISSIONS.CONDITIONS_VIEW_HISTORY),
   AssetControllers.getAssetById
 );
 

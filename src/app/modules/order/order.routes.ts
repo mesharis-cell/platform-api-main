@@ -84,6 +84,7 @@ router.patch(
     "/:id/approve-quote",
     platformValidator,
     auth("CLIENT"),
+    requirePermission(PERMISSIONS.QUOTES_APPROVE),
     payloadValidator(orderSchemas.approveQuoteSchema),
     OrderControllers.approveQuote
 );
@@ -93,6 +94,7 @@ router.patch(
     "/:id/decline-quote",
     platformValidator,
     auth("CLIENT"),
+    requirePermission(PERMISSIONS.QUOTES_DECLINE),
     payloadValidator(orderSchemas.declineQuoteSchema),
     OrderControllers.declineQuote
 );
