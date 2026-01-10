@@ -15,14 +15,18 @@ const submitOrderSchema = z.object({
             .min(1, "At least one item is required"),
 
         brand_id: z.uuid("Invalid brand ID").optional(),
-        event_start_date: z.string("Event start date is required").refine(
-            (date) => !isNaN(Date.parse(date)),
-            "Invalid event start date format"
-        ),
-        event_end_date: z.string("Event end date is required").refine(
-            (date) => !isNaN(Date.parse(date)),
-            "Invalid event end date format"
-        ),
+        event_start_date: z.string("Event start date is required")
+            .refine(
+                (date) => !isNaN(Date.parse(date)),
+                "Invalid event start date format"
+            )
+            .transform((date) => new Date(date)),
+        event_end_date: z.string("Event end date is required")
+            .refine(
+                (date) => !isNaN(Date.parse(date)),
+                "Invalid event end date format"
+            )
+            .transform((date) => new Date(date)),
         venue_name: z.string("Venue name is required").min(1, "Venue name is required").max(200),
         venue_country: z.string("Venue country is required").min(1, "Venue country is required").max(50),
         venue_city: z.string("Venue city is required").min(1, "Venue city is required").max(50),
@@ -32,7 +36,22 @@ const submitOrderSchema = z.object({
         contact_email: z.string("Contact email is required").email("Invalid email format").max(255),
         contact_phone: z.string("Contact phone is required").min(1, "Contact phone is required").max(50),
         special_instructions: z.string("Special instructions should be a text").optional(),
-    }).strict(),
+    })
+        .strict()
+        .refine((data) => {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            return data.event_start_date >= today;
+        }, {
+            message: "Event start date cannot be in the past",
+            path: ["event_start_date"],
+        })
+        .refine((data) => {
+            return data.event_end_date >= data.event_start_date;
+        }, {
+            message: "Event end date must be on or after start date",
+            path: ["event_end_date"],
+        })
 });
 
 const updateJobNumberSchema = z.object({

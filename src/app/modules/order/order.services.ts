@@ -22,7 +22,7 @@ import { AuthUser } from "../../interface/common";
 import { sendEmail } from "../../services/email.service";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
-import { AdjustLogisticsPricingPayload, ApproveStandardPricingPayload, ApprovePlatformPricingPayload, OrderItem, OrderSubmittedEmailData, StandardPricing, SubmitOrderPayload, UpdateOrderTimeWindowsPayload, ApproveQuotePayload, DeclineQuotePayload } from "./order.interfaces";
+import { AdjustLogisticsPricingPayload, ApproveStandardPricingPayload, ApprovePlatformPricingPayload, OrderItemPayload, StandardPricing, SubmitOrderPayload, UpdateOrderTimeWindowsPayload, ApproveQuotePayload, DeclineQuotePayload, OrderItem } from "./order.interfaces";
 import { calculateBlockedPeriod, isValidTransition, orderQueryValidationConfig, orderSortableFields, validateInboundScanningComplete, validateRoleBasedTransition } from "./order.utils";
 
 // Import asset availability checker
@@ -32,11 +32,12 @@ import { AssetServices, checkMultipleAssetsAvailability, getAssetAvailabilitySum
 import { NotificationType } from "../notification-logs/notification-logs.interfaces";
 import { NotificationLogServices } from "../notification-logs/notification-logs.services";
 import { getNotificationTypeForTransition } from "../notification-logs/notification-logs.utils";
-import { orderIdGenerator, renderOrderSubmittedEmail } from "./order.utils";
+import { orderIdGenerator } from "./order.utils";
 import { uuidRegex } from "../../constants/common";
 import { costEstimateGenerator } from "../../utils/cost-estimate";
-import { getPlatformAdminEmails } from "../../utils/helper-query";
+import { getPlatformAdminEmails, getPlatformLogisticsStaffEmails } from "../../utils/helper-query";
 import config from "../../config";
+import { formatDateForEmail } from "../../utils/date-time";
 
 // ----------------------------------- SUBMIT ORDER FROM CART ---------------------------------
 const submitOrderFromCart = async (
@@ -54,20 +55,7 @@ const submitOrderFromCart = async (
     // Extract all required fields from the payload
     const { items, brand_id, event_start_date, event_end_date, venue_name, venue_country, venue_city, venue_address, contact_name, contact_email, contact_phone, venue_access_notes, special_instructions } = payload;
 
-    // Step 1: Validate event dates
-    const eventStart = new Date(event_start_date);
-    const eventEnd = new Date(event_end_date);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    if (eventStart < today) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "Event start date cannot be in the past");
-    }
-
-    if (eventEnd < eventStart) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "Event end date must be on or after start date");
-    }
-
+    // Step 1: Verify company exists and belongs to the platform
     const [company] = await db.select().from(companies).where(and(eq(companies.id, companyId), eq(companies.platform_id, platformId)));
 
     if (!company) {
@@ -75,7 +63,7 @@ const submitOrderFromCart = async (
     }
 
     // Step 2: Verify all assets exist and belong to the company
-    const assetIds = items.map((item: OrderItem) => item.asset_id);
+    const assetIds = items.map((item: OrderItemPayload) => item.asset_id);
     const foundAssets = await db
         .select()
         .from(assets)
@@ -105,12 +93,12 @@ const submitOrderFromCart = async (
     }
 
     // Step 4: Check date-based availability for requested quantities
-    const itemsForAvailabilityCheck = payload.items.map((item: OrderItem) => ({
+    const itemsForAvailabilityCheck = payload.items.map((item: OrderItemPayload) => ({
         asset_id: item.asset_id,
         quantity: item.quantity,
     }));
 
-    const availabilityCheck = await checkMultipleAssetsAvailability(itemsForAvailabilityCheck, eventStart, eventEnd, user, platformId);
+    const availabilityCheck = await checkMultipleAssetsAvailability(itemsForAvailabilityCheck, event_start_date, event_end_date, user, platformId);
 
     if (!availabilityCheck.all_available) {
         const unavailableList = availabilityCheck.unavailable_items
@@ -130,7 +118,7 @@ const submitOrderFromCart = async (
     }
 
     // Step 5: Calculate order totals (volume and weight)
-    const orderItemsData = [];
+    const orderItemsData: OrderItem[] = [];
     let totalVolume = 0;
     let totalWeight = 0;
 
@@ -194,91 +182,82 @@ const submitOrderFromCart = async (
 
     // Step 7: Create the order record
     const orderId = await orderIdGenerator();
+    const orderResult = await db.transaction(async (tx) => {
+        // Step 7.a: Create the order record
+        const [order] = await tx
+            .insert(orders)
+            .values({
+                platform_id: platformId,
+                order_id: orderId,
+                company_id: companyId,
+                brand_id: brand_id || null,
+                user_id: user.id,
+                contact_name: contact_name,
+                contact_email: contact_email,
+                contact_phone: contact_phone,
+                event_start_date: event_start_date,
+                event_end_date: event_end_date,
+                venue_name: venue_name,
+                venue_location: {
+                    country: venue_country,
+                    city: venue_city,
+                    address: venue_address,
+                    access_notes: venue_access_notes || null,
+                },
+                special_instructions: special_instructions || null,
+                calculated_totals: {
+                    volume: calculatedVolume,
+                    weight: calculatedWeight,
+                },
+                order_status: "PRICING_REVIEW",
+                financial_status: "PENDING_QUOTE",
+                tier_id: pricingTier?.id || null,
+                ...(pricingTier && { logistics_pricing: { base_price: pricingTier.base_price } }),
+                ...(pricingTier && {
+                    platform_pricing: {
+                        margin_percent: company.platform_margin_percent,
+                        margin_amount: Number(pricingTier.base_price) * (Number(company.platform_margin_percent) / 100)
+                    }
+                }),
+            })
+            .returning();
 
-    const [order] = await db
-        .insert(orders)
-        .values({
+        // Step 7.b: Insert order items
+        const itemsToInsert = orderItemsData.map((item) => ({
+            ...item,
+            order_id: order.id
+        }));
+        await tx.insert(orderItems).values(itemsToInsert);
+
+        // Step 7.c: Insert order status history
+        await tx.insert(orderStatusHistory).values({
             platform_id: platformId,
-            order_id: orderId,
-            company_id: companyId,
-            brand_id: brand_id || null,
-            user_id: user.id,
-            contact_name: contact_name,
-            contact_email: contact_email,
-            contact_phone: contact_phone,
-            event_start_date: eventStart,
-            event_end_date: eventEnd,
-            venue_name: venue_name,
-            venue_location: {
-                country: venue_country,
-                city: venue_city,
-                address: venue_address,
-                access_notes: venue_access_notes || null,
-            },
-            special_instructions: special_instructions || null,
-            calculated_totals: {
-                volume: calculatedVolume,
-                weight: calculatedWeight,
-            },
-            order_status: "PRICING_REVIEW",
-            financial_status: "PENDING_QUOTE",
-            tier_id: pricingTier?.id || null,
-            ...(pricingTier && { logistics_pricing: { base_price: pricingTier.base_price } }),
-            ...(pricingTier && {
-                platform_pricing: {
-                    margin_percent: company.platform_margin_percent,
-                    margin_amount: Number(pricingTier.base_price) * (Number(company.platform_margin_percent) / 100)
-                }
-            }),
+            order_id: order.id,
+            status: "PRICING_REVIEW",
+            notes: `Order created`,
+            updated_by: user.id,
         })
-        .returning();
 
-    // Step 8: Insert order items with snapshot data
-    const itemsToInsert = orderItemsData.map((item) => ({
-        ...item,
-        order_id: order.id
-    }));
+        return order;
+    })
 
-    await db.insert(orderItems).values(itemsToInsert);
-
-    // Step 9: Prepare email notification data
-
+    // Step 8: Send email to admin, logistics staff and client
+    // Step 8.a: Prepare email data
     const emailData = {
-        orderId: order.order_id,
-        companyName: company?.name || "",
-        eventStartDate: dayjs(eventStart).format("YYYY-MM-DD"),
-        eventEndDate: dayjs(eventEnd).format("YYYY-MM-DD"),
-        venueCity: venue_city,
-        totalVolume: calculatedVolume,
-        itemCount: items.length,
-        viewOrderUrl: `http://localhost:3000/orders/${order.order_id}`,
+        order_id: orderResult.order_id,
+        company_name: company?.name || 'N/A',
+        event_start_date: formatDateForEmail(event_start_date),
+        event_end_date: formatDateForEmail(event_end_date),
+        venue_city: venue_city,
+        total_volume: calculatedVolume,
+        item_count: items.length,
+        view_order_url: `${config.client_url}/orders/${orderResult.order_id}`,
     };
 
-    // Step 10: Send email notifications
-    const platformAdmins = await db
-        .select({ email: users.email, name: users.name })
-        .from(users)
-        .where(
-            and(
-                eq(users.platform_id, platformId),
-                sql`(
-                    ${users.permission_template} = 'PLATFORM_ADMIN'
-                    OR 'orders:receive_notifications' = ANY(${users.permissions})
-                ) AND ${users.email} NOT LIKE '%@system.internal'`
-            )
-        );
-
-    const platformAdminEmails = platformAdmins.map((admin) => admin.email);
-
-    await multipleEmailSender(platformAdminEmails, `New Order Submitted: ${emailData.orderId}`, emailTemplates.submit_order({
-        order_id: emailData.orderId,
-        company_name: emailData.companyName,
-        event_start_date: emailData.eventStartDate,
-        event_end_date: emailData.eventEndDate,
-        venue_city: emailData.venueCity,
-        total_volume: emailData.totalVolume,
-        item_count: emailData.itemCount || 0,
-        view_order_url: emailData.viewOrderUrl,
+    // Step 8.b: Send email to admin
+    const platformAdminEmails = await getPlatformAdminEmails(platformId);
+    await multipleEmailSender(platformAdminEmails, `New Order Submitted: ${emailData.order_id}`, emailTemplates.submit_order({
+        ...emailData,
         by_role: {
             greeting: "Platform Admin",
             message: "A new order has been submitted and requires review.",
@@ -286,113 +265,41 @@ const submitOrderFromCart = async (
         }
     }));
 
-    // Find Logistics (permission_template = 'LOGISTICS_STAFF' OR 'orders:receive_notifications' in permissions)
-    const logisticsStaff = await db
-        .select({ email: users.email, name: users.name })
-        .from(users)
-        .where(
-            and(
-                eq(users.platform_id, platformId),
-                sql`(
-                    ${users.permission_template} = 'LOGISTICS_STAFF'
-                    OR 'orders:receive_notifications' = ANY(${users.permissions})
-                ) AND ${users.email} NOT LIKE '%@system.internal'`
-            )
-        );
-
-    const logisticsStaffEmails = logisticsStaff.map((staff) => staff.email);
-
-    await multipleEmailSender(logisticsStaffEmails, `New Order Submitted: ${emailData.orderId}`, renderOrderSubmittedEmail("LOGISTICS_STAFF", emailData));
-
-    await sendOrderSubmittedConfirmationToClient(
-        contact_email,
-        emailData
+    // Step 8.c: Send email to logistics staff
+    const logisticsStaffEmails = await getPlatformLogisticsStaffEmails(platformId);
+    await multipleEmailSender(logisticsStaffEmails, `New Order Submitted: ${emailData.order_id}`,
+        emailTemplates.submit_order({
+            ...emailData,
+            by_role: {
+                greeting: "Logistics Team",
+                message: "A new order has been submitted and requires pricing review.",
+                action: "Review the order details and provide pricing within 24-48 hours.",
+            }
+        })
     );
 
-    // Step 11: Return order details to client
+    // Step 8.d: Send email to client
+    await sendEmail({
+        to: contact_email,
+        subject: `Order Confirmation: ${emailData.order_id}`,
+        html: emailTemplates.submit_order({
+            ...emailData,
+            by_role: {
+                greeting: "Client",
+                message: "Your order has been successfully submitted.",
+                action: "You will receive a quote via email within 24-48 hours. Track your order status in the dashboard.",
+            }
+        }),
+    });
+
+    // Step 9: Return order details to client
     return {
-        order_id: order.order_id,
-        status: order.order_status,
+        order_id: orderResult.order_id,
+        status: orderResult.order_status,
         company_name: company?.name || "",
         calculated_volume: calculatedVolume,
         item_count: items.length,
     };
-};
-
-// ----------------------------------- HELPER: SEND ORDER SUBMITTED NOTIFICATIONS -------------
-const sendOrderSubmittedNotifications = async (data: OrderSubmittedEmailData): Promise<void> => {
-    try {
-        // Find Platform Admins (permission_template = 'PLATFORM_ADMIN' OR 'orders:receive_notifications' in permissions)
-        const platformAdmins = await db
-            .select({ email: users.email, name: users.name })
-            .from(users)
-            .where(
-                sql`(
-                    ${users.permission_template} = 'PLATFORM_ADMIN'
-                    OR 'orders:receive_notifications' = ANY(${users.permissions})
-                ) AND ${users.email} NOT LIKE '%@system.internal'`
-            );
-
-        // Find Logistics (permission_template = 'LOGISTICS_STAFF' OR 'orders:receive_notifications' in permissions)
-        const logisticsStaff = await db
-            .select({ email: users.email, name: users.name })
-            .from(users)
-            .where(
-                sql`(
-                    ${users.permission_template} = 'LOGISTICS_STAFF'
-                    OR 'orders:receive_notifications' = ANY(${users.permissions})
-                ) AND ${users.email} NOT LIKE '%@system.internal'`
-            );
-
-        // Send emails to Platform Admins
-        const platformAdminPromises = platformAdmins.map(async (admin) => {
-            const html = renderOrderSubmittedEmail("PLATFORM_ADMIN", data);
-            return sendEmail({
-                to: admin.email,
-                subject: `New Order Submitted: ${data.orderId}`,
-                html,
-            });
-        });
-
-        // Send emails to Logistics Staff
-        const logisticsStaffPromises = logisticsStaff.map(async (staff) => {
-            const html = renderOrderSubmittedEmail("LOGISTICS_STAFF", data);
-            return sendEmail({
-                to: staff.email,
-                subject: `New Order Submitted: ${data.orderId}`,
-                html,
-            });
-        });
-
-        // Send all emails concurrently
-        await Promise.all([...logisticsStaffPromises, ...platformAdminPromises]);
-
-        console.log(`Order submission notifications sent for order ${data.orderId}`);
-    } catch (error) {
-        // Log error but don't throw - email failures shouldn't block order submission
-        console.error("Error sending order submission notifications:", error);
-    }
-};
-
-// ----------------------------------- HELPER: SEND ORDER CONFIRMATION TO CLIENT --------------
-const sendOrderSubmittedConfirmationToClient = async (
-    clientEmail: string,
-    data: OrderSubmittedEmailData
-): Promise<void> => {
-    try {
-        const html = renderOrderSubmittedEmail("CLIENT_USER", data);
-
-        await sendEmail({
-            to: clientEmail,
-            subject: `Order Confirmation: ${data.orderId}`,
-            html,
-        });
-
-        console.log(`Order confirmation sent to client: ${clientEmail}`);
-    } catch (error) {
-        // Log error but don't throw - email failures shouldn't block order submission
-        console.error("Error sending order confirmation to client:", error);
-    }
 };
 
 // ----------------------------------- GET ORDERS ---------------------------------------------

@@ -4,7 +4,7 @@ import { orderItemSchema, orderSchemas } from "./order.schemas";
 // Submit order payload interface
 export type SubmitOrderPayload = z.infer<typeof orderSchemas.submitOrderSchema>["body"];
 
-export type OrderItem = z.infer<typeof orderItemSchema>;
+export type OrderItemPayload = z.infer<typeof orderItemSchema>;
 
 export type UpdateOrderTimeWindowsPayload = z.infer<typeof orderSchemas.updateTimeWindowsSchema>["body"];
 
@@ -18,21 +18,20 @@ export type ApproveQuotePayload = z.infer<typeof orderSchemas.approveQuoteSchema
 
 export type DeclineQuotePayload = z.infer<typeof orderSchemas.declineQuoteSchema>["body"];
 
-
-// Email data interface for order notifications
-export interface OrderSubmittedEmailData {
-    orderId: string;
-    companyName: string;
-    eventStartDate: string;
-    eventEndDate: string;
-    venueCity: string;
-    totalVolume: string;
-    itemCount: number;
-    viewOrderUrl: string;
+export type OrderItem = {
+    platform_id: string;
+    asset_id: string;
+    asset_name: string;
+    quantity: number;
+    volume_per_unit: string;
+    weight_per_unit: string;
+    total_volume: string;
+    total_weight: string;
+    condition_notes: string | null;
+    handling_tags: string[];
+    from_collection: string | null;
+    from_collection_name: string | null;
 }
-
-// Email recipient role type
-export type RecipientRole = 'PLATFORM_ADMIN' | 'LOGISTICS_STAFF' | 'CLIENT_USER';
 
 // Progress status payload interface
 export interface ProgressStatusPayload {
