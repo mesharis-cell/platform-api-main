@@ -34,7 +34,14 @@ app.use((req, res, next) => {
 app.use(corsMiddleware);
 
 // Handle preflight BEFORE routes
-app.options("/{*path}", corsPreflightHandler);
+// Add Cache-Control to prevent CDN from caching preflight responses with wrong origin
+app.options("/{*path}", (req, res, next) => {
+  // Prevent CDN caching of preflight - each origin needs its own response
+  res.header("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.header("Pragma", "no-cache");
+  res.header("Expires", "0");
+  next();
+}, corsPreflightHandler);
 
 // test server
 app.get("/", (req: Request, res: Response) => {
