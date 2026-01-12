@@ -26,8 +26,23 @@ app.use(cookiePerser());
 // - Custom company domains (diageo.com, etc.)
 // - Development origins (localhost:3000, etc.)
 // Origins are cached for 1 minute and fetched from platforms & companyDomains tables
+
+// CRITICAL: Set headers to prevent Vercel Edge/CDN from caching responses with wrong origin
+// This middleware runs BEFORE cors middleware to ensure headers are set first
 app.use((req, res, next) => {
-  res.header("Vary", "Origin");
+  // Tell caches to vary response by Origin - different origins = different cached responses
+  res.header("Vary", "Origin, Accept-Encoding");
+
+  // Disable ALL caching at Vercel CDN/Edge level
+  res.header("CDN-Cache-Control", "no-store");
+  res.header("Vercel-CDN-Cache-Control", "no-store");
+
+  // Disable browser/proxy caching of API responses
+  res.header("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0");
+  res.header("Pragma", "no-cache");
+  res.header("Expires", "0");
+  res.header("Surrogate-Control", "no-store");
+
   next();
 });
 
