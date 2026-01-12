@@ -54,6 +54,9 @@ const submitOrderFromCart = async (
     // Extract all required fields from the payload
     const { items, brand_id, event_start_date, event_end_date, venue_name, venue_country, venue_city, venue_address, contact_name, contact_email, contact_phone, venue_access_notes, special_instructions } = payload;
 
+    const eventStartDate = dayjs(event_start_date).toDate();
+    const eventEndDate = dayjs(event_end_date).toDate();
+
     // Step 1: Verify company exists and belongs to the platform
     const [company] = await db.select().from(companies).where(and(eq(companies.id, companyId), eq(companies.platform_id, platformId)));
 
@@ -63,7 +66,10 @@ const submitOrderFromCart = async (
 
     // Step 2: Check assets availability
     const requiredAssets = items.map((i) => ({ id: i.asset_id, quantity: i.quantity }))
-    const foundAssets = await checkAssetsForOrder(platformId, companyId, requiredAssets, event_start_date, event_end_date);
+    const foundAssets = await checkAssetsForOrder(platformId, companyId, requiredAssets, eventStartDate, eventEndDate);
+
+    console.log("event_start_date: ", eventStartDate)
+    console.log("event_end_date: ", eventEndDate)
 
     // Step 3: Calculate order totals (volume and weight)
     const orderItemsData: OrderItem[] = [];
@@ -143,8 +149,8 @@ const submitOrderFromCart = async (
                 contact_name: contact_name,
                 contact_email: contact_email,
                 contact_phone: contact_phone,
-                event_start_date: event_start_date,
-                event_end_date: event_end_date,
+                event_start_date: eventStartDate,
+                event_end_date: eventEndDate,
                 venue_name: venue_name,
                 venue_location: {
                     country: venue_country,

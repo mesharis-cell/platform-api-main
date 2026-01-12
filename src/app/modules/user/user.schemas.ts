@@ -28,7 +28,12 @@ const createUser = z.object({
       .default([]),
     permission_template: z.enum(permissionTemplateEnum.enumValues, { message: enumMessageGenerator("Permission Template", permissionTemplateEnum.enumValues) }).optional().nullable(),
     is_active: z.boolean().optional().default(true),
-  }).strict(),
+  }).strict().refine((data) => {
+    if (data.role === "CLIENT" && !data.company_id) {
+      return false;
+    }
+    return true;
+  }, "Company ID is required for CLIENT role"),
 });
 
 const updateUser = z.object({
