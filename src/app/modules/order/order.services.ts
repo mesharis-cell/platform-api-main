@@ -866,6 +866,33 @@ const progressOrderStatus = async (
         );
     }
 
+    // Step 4.5: Validate date-based transitions
+    const today = dayjs().startOf('day');
+
+    // Check if transitioning from DELIVERED to IN_USE
+    if (currentStatus === 'DELIVERED' && new_status === 'IN_USE') {
+        const eventStartDate = dayjs(order.event_start_date).startOf('day');
+
+        if (today.isBefore(eventStartDate)) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                `Cannot mark order as IN_USE before event start date (${eventStartDate.format('YYYY-MM-DD')}). Current date: ${today.format('YYYY-MM-DD')}`
+            );
+        }
+    }
+
+    // Check if transitioning from IN_USE to AWAITING_RETURN
+    if (currentStatus === 'IN_USE' && new_status === 'AWAITING_RETURN') {
+        const eventEndDate = dayjs(order.event_end_date).startOf('day');
+
+        if (today.isBefore(eventEndDate)) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                `Cannot mark order as AWAITING_RETURN before event end date (${eventEndDate.format('YYYY-MM-DD')}). Current date: ${today.format('YYYY-MM-DD')}`
+            );
+        }
+    }
+
     if (new_status === 'CLOSED') {
         // Validate that all items have been scanned in (inbound)
         const allItemsScanned = await validateInboundScanningComplete(orderId);

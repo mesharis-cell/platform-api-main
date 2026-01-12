@@ -34,7 +34,8 @@ const getCalendarEvents = catchAsync(async (req, res) => {
     statusCode: httpStatus.OK,
     success: true,
     message: "Calendar events fetched successfully",
-    data: result,
+    meta: result.meta,
+    data: result.data,
   });
 });
 
