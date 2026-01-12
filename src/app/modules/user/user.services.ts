@@ -50,7 +50,10 @@ const createUser = async (data: CreateUserPayload) => {
 
     // Step 5: Insert user into database
     const [result] = await db.insert(users).values(userData).returning();
-    return result;
+
+    // Step 6: Remove password from result
+    const { password, ...remaining } = result;
+    return remaining;
   } catch (error: any) {
     const pgError = error.cause || error;
 

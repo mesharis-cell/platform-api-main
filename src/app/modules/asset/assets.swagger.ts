@@ -241,31 +241,56 @@
  *       - Asset Management
  *     summary: Upload assets in bulk via CSV
  *     description: |
- *       Allows ADMIN and LOGISTICS users to upload multiple assets at once using a CSV file. 
- *       The CSV file must contain the following required columns:
- *       - company (name of the company)
- *       - warehouse (name of the warehouse)
- *       - zone (name of the zone)
- *       - name (asset name)
- *       - category (FURNITURE, GLASSWARE, INSTALLATION, DECOR, OTHER)
- *       - trackingMethod (INDIVIDUAL or BATCH)
- *       - weight (numeric value)
- *       - dimensionLength (numeric value)
- *       - dimensionWidth (numeric value)
- *       - dimensionHeight (numeric value)
- *       - volume (numeric value)
- *       - totalQuantity (integer value)
+ *       Allows ADMIN and LOGISTICS users to upload multiple assets at once using a CSV file.
  *       
- *       Optional columns:
- *       - packaging (string)
- *       - brand (brand name)
- *       - description (string)
- *       - handlingTags (comma-separated values)
- *       - images (comma-separated URLs)
- *       - condition (GREEN, ORANGE, or RED)
+ *       **CSV Structure:**
+ *       The CSV file must contain the following columns (exact names):
  *       
- *       The endpoint validates all rows, checks foreign key references, and creates assets in a transaction.
- *       If any validation fails, no assets are created and detailed error information is returned.
+ *       **Required Columns:**
+ *       - `platform_id` - UUID of the platform
+ *       - `company_id` - UUID of the company
+ *       - `warehouse_id` - UUID of the warehouse
+ *       - `zone_id` - UUID of the zone
+ *       - `name` - Asset name (max 200 characters)
+ *       - `category` - Asset category (e.g., "Installation", "Furniture", "Glassware", "Decor", "Other")
+ *       - `tracking_method` - Either "INDIVIDUAL" or "BATCH"
+ *       - `qr_code` - Unique QR code identifier (max 100 characters)
+ *       - `weight_per_unit` - Weight in kilograms (decimal as string, e.g., "3.00")
+ *       - `dimensions` - JSON string with width, height, length in cm (e.g., '{"width":60,"height":75,"length":200}')
+ *       - `volume_per_unit` - Volume in cubic meters (decimal as string, e.g., "0.900")
+ *       
+ *       **Optional Columns:**
+ *       - `id` - Auto-generated if not provided
+ *       - `brand_id` - UUID of the brand (nullable)
+ *       - `description` - Asset description text
+ *       - `images` - JSON array of image URLs (e.g., '["https://example.com/image.jpg"]')
+ *       - `total_quantity` - Integer, defaults to 1
+ *       - `available_quantity` - Integer, defaults to 1
+ *       - `packaging` - Packaging description
+ *       - `condition` - "GREEN", "ORANGE", or "RED" (defaults to "GREEN")
+ *       - `condition_notes` - Notes about the condition
+ *       - `refurb_days_estimate` - Integer, days until refurbishment complete
+ *       - `condition_history` - JSON array (e.g., '[]')
+ *       - `handling_tags` - JSON array of tags (e.g., '["HeavyLift","Fragile"]')
+ *       - `status` - "AVAILABLE", "BOOKED", "OUT", or "MAINTENANCE" (defaults to "AVAILABLE")
+ *       - `last_scanned_at` - Timestamp (auto-managed)
+ *       - `last_scanned_by` - UUID (auto-managed)
+ *       - `created_at` - Auto-generated
+ *       - `updated_at` - Auto-generated
+ *       - `deleted_at` - Soft delete timestamp
+ *       
+ *       **Validation Process:**
+ *       1. CSV file is parsed and structure is validated
+ *       2. All required columns must be present
+ *       3. Each row is validated for reference IDs (company_id, warehouse_id, zone_id, brand_id)
+ *       4. Data types are converted (JSON strings parsed, numbers converted, empty strings to null)
+ *       5. All assets are inserted in a single transaction
+ *       
+ *       **Important Notes:**
+ *       - JSON fields (images, dimensions, handling_tags, condition_history) must be valid JSON strings
+ *       - Empty strings for optional fields are converted to null/undefined
+ *       - QR codes must be unique across all assets
+ *       - If any validation fails, no assets are created and detailed errors are returned
  *     parameters:
  *       - $ref: '#/components/parameters/PlatformHeader'
  *     requestBody:
@@ -289,43 +314,86 @@
  *             schema:
  *               type: object
  *               properties:
+ *                 statusCode:
+ *                   type: integer
+ *                   example: 201
  *                 success:
  *                   type: boolean
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: "Assets uploaded successfully"
+ *                   example: "5 asset(s) uploaded successfully"
  *                 data:
- *                   type: object
+ *                   type: array
+ *                   description: Array of created assets
+ *                   items:
+ *                     $ref: '#/components/schemas/Asset'
+ *       400:
+ *         description: Bad Request - CSV structure validation failed or reference validation failed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               oneOf:
+ *                 - type: object
+ *                   description: CSV structure errors
  *                   properties:
- *                     created:
+ *                     statusCode:
  *                       type: integer
- *                       example: 25
- *                     assets:
+ *                       example: 400
+ *                     success:
+ *                       type: boolean
+ *                       example: false
+ *                     message:
+ *                       type: string
+ *                       example: "Invalid CSV structure"
+ *                     data:
  *                       type: array
  *                       items:
  *                         type: object
  *                         properties:
- *                           id:
+ *                           type:
  *                             type: string
- *                             format: uuid
+ *                             example: "MISSING_COLUMNS"
+ *                           message:
+ *                             type: string
+ *                             example: "Missing required columns: company_id, warehouse_id"
+ *                 - type: object
+ *                   description: Reference validation errors
+ *                   properties:
+ *                     statusCode:
+ *                       type: integer
+ *                       example: 400
+ *                     success:
+ *                       type: boolean
+ *                       example: false
+ *                     message:
+ *                       type: string
+ *                       example: "Reference validation failed"
+ *                     data:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           rowNumber:
+ *                             type: integer
+ *                             example: 3
  *                           name:
  *                             type: string
- *                           qr_code:
- *                             type: string
- *       400:
- *         description: Bad Request - Invalid file
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "File must be a CSV (.csv)"
+ *                             example: "Premium bar"
+ *                           errors:
+ *                             type: array
+ *                             items:
+ *                               type: string
+ *                             example: ["Company with ID '...' not found", "Warehouse with ID '...' not found"]
+ *                 - type: object
+ *                   description: File validation error
+ *                   properties:
+ *                     success:
+ *                       type: boolean
+ *                       example: false
+ *                     message:
+ *                       type: string
+ *                       example: "File must be a CSV (.csv)"
  *       401:
  *         description: Unauthorized
  *         content:
@@ -339,59 +407,22 @@
  *                 message:
  *                   type: string
  *                   example: "You are not authorized"
- *       422:
- *         description: Validation failed
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "Validation failed"
- *                 data:
- *                   type: object
- *                   properties:
- *                     fileErrors:
- *                       type: array
- *                       items:
- *                         type: string
- *                       example: ["Missing required columns: brand, category"]
- *                     rowErrors:
- *                       type: array
- *                       items:
- *                         type: object
- *                         properties:
- *                           row:
- *                             type: integer
- *                             example: 5
- *                           errors:
- *                             type: array
- *                             items:
- *                               type: string
- *                             example: ["Company \"ABC Corp\" not found", "Weight must be a positive number"]
- *                     totalErrors:
- *                       type: integer
- *                       example: 3
- *                     totalRows:
- *                       type: integer
- *                       example: 50
  *       500:
- *         description: Internal Server Error
+ *         description: Internal Server Error - CSV parsing failed or database error
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
+ *                 statusCode:
+ *                   type: integer
+ *                   example: 500
  *                 success:
  *                   type: boolean
  *                   example: false
  *                 message:
  *                   type: string
- *                   example: "Something went wrong!"
+ *                   example: "Failed to parse CSV file"
  *     security:
  *       - BearerAuth: []
  */
