@@ -24,7 +24,7 @@ const DEV_ORIGINS = [
   "http://localhost:3001",
   "http://localhost:3002",
   "http://localhost:3003",
-  "http://localhost:5173", // Vite default
+  "http://localhost:5173",
   "http://localhost:5174",
   "http://127.0.0.1:3000",
   "http://127.0.0.1:3001",
@@ -150,9 +150,9 @@ const corsOriginValidator = async (
 };
 
 /**
- * Main CORS middleware configuration
+ * CORS configuration options
  */
-export const corsMiddleware = cors({
+const corsOptions = {
   origin: corsOriginValidator,
   credentials: true, // Required for cookies/JWT in Authorization header
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -167,10 +167,18 @@ export const corsMiddleware = cors({
     "x-total-count", // For pagination
     "x-page-count",
   ],
-  maxAge: 86400, // 24 hours - cache preflight requests
-});
+  // IMPORTANT: Keep maxAge short to prevent stale CORS responses across subdomains
+  // Browsers cache preflight by origin, but CDNs might not respect Vary: Origin correctly
+  maxAge: 600, // 10 minutes (was 24 hours - caused cross-subdomain caching issues)
+};
 
 /**
- * Preflight handler for OPTIONS requests
+ * Main CORS middleware configuration
  */
-export const corsPreflightHandler = cors();
+export const corsMiddleware = cors(corsOptions);
+
+/**
+ * Preflight handler for OPTIONS requests - uses same config as main middleware
+ * This ensures consistent origin validation for preflight requests
+ */
+export const corsPreflightHandler = cors(corsOptions);
