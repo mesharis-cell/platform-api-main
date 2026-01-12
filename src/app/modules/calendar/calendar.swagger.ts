@@ -11,10 +11,42 @@
  *   get:
  *     tags:
  *       - Calendar
- *     summary: Get calendar events
- *     description: Retrieve orders as calendar events for the authenticated client user's company. Events can be filtered by month or year.
+ *     summary: Get calendar events with pagination
+ *     description: |
+ *       Retrieve orders as calendar events with pagination support.
+ *       
+ *       **Access Control:**
+ *       - ADMIN and LOGISTICS users can view all calendar events across all companies
+ *       - CLIENT users can only view events for their own company
+ *       
+ *       **Filtering:**
+ *       Events can be filtered by month or year. If both are provided, month takes precedence.
+ *       If neither is provided, returns all events (paginated).
+ *       
+ *       **Pagination:**
+ *       Results are paginated with default limit of 10 items per page.
+ *       Events are sorted by event_start_date in ascending order.
  *     parameters:
  *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: page
+ *         in: query
+ *         description: Page number for pagination (starts from 1)
+ *         required: false
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *           example: 1
+ *       - name: limit
+ *         in: query
+ *         description: Number of items per page
+ *         required: false
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 10
+ *           example: 10
  *       - name: month
  *         in: query
  *         description: Filter by month in YYYY-MM format (e.g., "2024-12"). Takes precedence over year if both are provided.
@@ -39,12 +71,31 @@
  *             schema:
  *               type: object
  *               properties:
+ *                 statusCode:
+ *                   type: integer
+ *                   example: 200
  *                 success:
  *                   type: boolean
  *                   example: true
  *                 message:
  *                   type: string
  *                   example: "Calendar events fetched successfully"
+ *                 meta:
+ *                   type: object
+ *                   description: Pagination metadata
+ *                   properties:
+ *                     page:
+ *                       type: integer
+ *                       description: Current page number
+ *                       example: 1
+ *                     limit:
+ *                       type: integer
+ *                       description: Number of items per page
+ *                       example: 10
+ *                     total:
+ *                       type: integer
+ *                       description: Total number of events matching the filters
+ *                       example: 45
  *                 data:
  *                   type: array
  *                   description: List of calendar events (orders)
@@ -57,11 +108,18 @@
  *             schema:
  *               $ref: '#/components/schemas/Error'
  *       403:
- *         description: Forbidden - Invalid company access
+ *         description: Forbidden - CLIENT user without company access
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/Error'
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Company not found"
  *       500:
  *         description: Internal server error
  *         content:
@@ -131,6 +189,20 @@
  *             - AWAITING_RETURN
  *             - CLOSED
  *           example: "CONFIRMED"
+ *         company:
+ *           type: object
+ *           nullable: true
+ *           description: Company associated with the order
+ *           properties:
+ *             id:
+ *               type: string
+ *               format: uuid
+ *               description: Company unique identifier
+ *               example: "770e8400-e29b-41d4-a716-446655440002"
+ *             name:
+ *               type: string
+ *               description: Company name
+ *               example: "Diageo"
  *         brand:
  *           type: object
  *           nullable: true
