@@ -14,6 +14,7 @@ import { ForgotPasswordPayload, LoginCredential, ResetPasswordPayload } from "./
 import { OTPGenerator } from "../../utils/helper";
 import { emailTemplates } from "../../utils/email-templates";
 import { OTPVerifier } from "../../utils/otp-verifier";
+import { PERMISSIONS } from "../../constants/permissions";
 
 const login = async (credential: LoginCredential, platformId: string) => {
   const { email, password } = credential;
@@ -31,6 +32,10 @@ const login = async (credential: LoginCredential, platformId: string) => {
 
   if (!user) {
     throw new CustomizedError(httpStatus.NOT_FOUND, "User not found");
+  }
+
+  if (!(user.permissions.includes(PERMISSIONS.AUTH_LOGIN) || user.permissions.includes(PERMISSIONS.AUTH_ALL))) {
+    throw new CustomizedError(httpStatus.FORBIDDEN, "You are not authorized to login");
   }
 
   if (!user.is_active) {

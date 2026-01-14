@@ -10,6 +10,7 @@ import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
 import { CreateUserPayload } from "./user.interfaces";
 import { userQueryValidationConfig } from "./user.utils";
+import { AuthUser } from "../../interface/common";
 
 // ----------------------------------- CREATE USER ------------------------------------
 const createUser = async (data: CreateUserPayload) => {
@@ -70,7 +71,7 @@ const createUser = async (data: CreateUserPayload) => {
 };
 
 // ----------------------------------- GET USERS ------------------------------------
-const getUsers = async (platformId: string, query: Record<string, any>) => {
+const getUsers = async (platformId: string, query: Record<string, any>, user: AuthUser) => {
   const {
     search_term,
     page,

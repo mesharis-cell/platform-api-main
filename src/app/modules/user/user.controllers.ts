@@ -25,10 +25,11 @@ const createUser = catchAsync(async (req, res, next) => {
 
 // ----------------------------------- GET USERS --------------------------------------
 const getUsers = catchAsync(async (req, res, next) => {
+  const user = (req as any).user;
   const platformId = (req as any).platformId;
   const { query } = req;
 
-  const result = await UserServices.getUsers(platformId, query);
+  const result = await UserServices.getUsers(platformId, query, user);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,

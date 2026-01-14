@@ -1,6 +1,6 @@
 export const PERMISSIONS = {
     // ==================== AUTHENTICATION ====================
-    AUTH_LOGIN: 'auth:login', // TODO: Need to use another method
+    AUTH_LOGIN: 'auth:login', // ✅
     AUTH_RESET_PASSWORD: 'auth:reset_password', // ✅
     AUTH_ALL: 'auth:*',
 
@@ -14,7 +14,7 @@ export const PERMISSIONS = {
     COMPANIES_READ: 'companies:read', // ✅
     COMPANIES_UPDATE: 'companies:update', // ✅
     COMPANIES_ARCHIVE: 'companies:archive', // ✅
-    COMPANIES_SET_MARGIN: 'companies:set_margin',
+    COMPANIES_SET_MARGIN: 'companies:set_margin', // ✅
     COMPANIES_ALL: 'companies:*',
 
     // ==================== WAREHOUSE MANAGEMENT ====================
@@ -29,7 +29,7 @@ export const PERMISSIONS = {
     ZONES_READ: 'zones:read', // ✅
     ZONES_UPDATE: 'zones:update', // ✅
     ZONES_DELETE: 'zones:delete', // ✅
-    ZONES_ASSIGN_COMPANY: 'zones:assign_company',
+    ZONES_ASSIGN_COMPANY: 'zones:assign_company', // ✅
     ZONES_ALL: 'zones:*',
 
     // ==================== BRAND MANAGEMENT ====================

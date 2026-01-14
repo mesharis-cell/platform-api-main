@@ -57,10 +57,11 @@ const getCompanyById = catchAsync(async (req, res) => {
 
 // ----------------------------------- UPDATE COMPANY ---------------------------------------
 const updateCompany = catchAsync(async (req, res) => {
+  const user = (req as any).user;
   const platformId = (req as any).platformId;
   const { id } = req.params;
 
-  const result = await CompanyServices.updateCompany(id, req.body, platformId);
+  const result = await CompanyServices.updateCompany(id, req.body, platformId, user);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
