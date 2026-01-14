@@ -13,8 +13,8 @@ const router = Router();
 router.post(
   "/",
   platformValidator,
-  // auth('ADMIN'),
-  // requirePermission(PERMISSIONS.USERS_CREATE),
+  auth('ADMIN'),
+  requirePermission(PERMISSIONS.USERS_CREATE),
   payloadValidator(UserSchemas.createUser),
   UserControllers.createUser
 );
