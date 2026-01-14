@@ -8,6 +8,7 @@ import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
 import { CreateCompanyPayload } from "./company.interfaces";
 import { companyQueryValidationConfig, companySortableFields } from "./company.utils";
+import { PERMISSIONS } from "../../constants/permissions";
 
 // ----------------------------------- CREATE COMPANY -----------------------------------
 const createCompany = async (data: CreateCompanyPayload) => {
@@ -232,7 +233,8 @@ const getCompanyById = async (id: string, platformId: string, user: AuthUser) =>
 };
 
 // ----------------------------------- UPDATE COMPANY -----------------------------------
-const updateCompany = async (id: string, data: any, platformId: string) => {
+const updateCompany = async (id: string, data: any, platformId: string, user: AuthUser) => {
+
   try {
     // Step 1: Verify company exists and is not deleted
     const conditions: any[] = [
@@ -248,6 +250,14 @@ const updateCompany = async (id: string, data: any, platformId: string) => {
 
     if (!existingCompany) {
       throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found");
+    }
+
+    if (
+      data.platform_margin_percent &&
+      existingCompany.platform_margin_percent !== data.platform_margin_percent &&
+      !(user.permissions.includes(PERMISSIONS.COMPANIES_SET_MARGIN) || user.permissions.includes(PERMISSIONS.COMPANIES_ALL))
+    ) {
+      throw new CustomizedError(httpStatus.UNAUTHORIZED, "You are not authorized to update platform margin percentage");
     }
 
     // Step 2: Update company

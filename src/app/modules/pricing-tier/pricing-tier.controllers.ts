@@ -54,10 +54,11 @@ const getPricingTierById = catchAsync(async (req, res) => {
 
 // ----------------------------------- UPDATE PRICING TIER -----------------------------------
 const updatePricingTier = catchAsync(async (req, res) => {
+    const user = (req as any).user;
     const platformId = (req as any).platformId;
     const { id } = req.params;
 
-    const result = await PricingTierServices.updatePricingTier(id, req.body, platformId);
+    const result = await PricingTierServices.updatePricingTier(id, req.body, platformId, user);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

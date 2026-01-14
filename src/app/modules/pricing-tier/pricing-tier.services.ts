@@ -8,6 +8,7 @@ import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
 import { CreatePricingTierPayload } from "./pricing-tier.interfaces";
 import { pricingTierQueryValidationConfig, pricingTierSortableFields } from "./pricing-tier.utils";
+import { PERMISSIONS } from "../../constants/permissions";
 
 // ----------------------------------- CREATE PRICING TIER -----------------------------------
 const createPricingTier = async (data: CreatePricingTierPayload) => {
@@ -214,7 +215,7 @@ const getPricingTierById = async (id: string, platformId: string) => {
 };
 
 // ----------------------------------- UPDATE PRICING TIER -----------------------------------
-const updatePricingTier = async (id: string, data: any, platformId: string) => {
+const updatePricingTier = async (id: string, data: any, platformId: string, user: AuthUser) => {
     try {
         // Step 1: Verify pricing tier exists
         const conditions: any[] = [
@@ -231,7 +232,22 @@ const updatePricingTier = async (id: string, data: any, platformId: string) => {
             throw new CustomizedError(httpStatus.NOT_FOUND, "Pricing tier not found");
         }
 
-        // Step 2: Check for volume overlap if volume fields are being updated
+        // Step 2: Check if user has permission to activate/deactivate pricing tier
+        if (data.is_active === false && existingPricingTier.is_active === true) {
+            const isPermission = user.permissions.includes(PERMISSIONS.PRICING_TIERS_DEACTIVATE) || user.permissions.includes(PERMISSIONS.PRICING_TIERS_ALL)
+            if (!isPermission) {
+                throw new CustomizedError(httpStatus.FORBIDDEN, "You are not authorized to deactivate this pricing tier");
+            }
+        }
+
+        if (data.is_active === true && existingPricingTier.is_active === false) {
+            const isPermission = user.permissions.includes(PERMISSIONS.PRICING_TIERS_ACTIVATE) || user.permissions.includes(PERMISSIONS.PRICING_TIERS_ALL)
+            if (!isPermission) {
+                throw new CustomizedError(httpStatus.FORBIDDEN, "You are not authorized to activate this pricing tier");
+            }
+        }
+
+        // Step 3: Check for volume overlap if volume fields are being updated
         const updatedCountry = data.country || existingPricingTier.country;
         const updatedCity = data.city || existingPricingTier.city;
         const updatedVolumeMin = data.volume_min !== undefined ? data.volume_min : parseFloat(existingPricingTier.volume_min);
@@ -259,7 +275,7 @@ const updatePricingTier = async (id: string, data: any, platformId: string) => {
             }
         }
 
-        // Step 3: Convert number fields to strings for database
+        // Step 4: Convert number fields to strings for database
         const dbData: any = { ...data };
         if (data.volume_min !== undefined) {
             dbData.volume_min = data.volume_min.toString();
@@ -273,7 +289,7 @@ const updatePricingTier = async (id: string, data: any, platformId: string) => {
             dbData.base_price = data.base_price.toString();
         }
 
-        // Step 4: Update pricing tier
+        // Step 5: Update pricing tier
         const [result] = await db
             .update(pricingTiers)
             .set(dbData)
@@ -282,7 +298,7 @@ const updatePricingTier = async (id: string, data: any, platformId: string) => {
 
         return result;
     } catch (error: any) {
-        // Step 5: Handle database errors
+        // Step 6: Handle database errors
         const pgError = error.cause || error;
 
         if (pgError.code === '23505') {

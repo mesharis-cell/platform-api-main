@@ -8,6 +8,7 @@ import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
 import { CreateZonePayload } from "./zone.interfaces";
 import { zoneQueryValidationConfig, zoneSortableFields } from "./zone.utils";
+import { PERMISSIONS } from "../../constants/permissions";
 
 // ----------------------------------- CREATE ZONE -----------------------------------
 const createZone = async (data: CreateZonePayload) => {
@@ -236,15 +237,6 @@ const updateZone = async (id: string, data: any, user: AuthUser, platformId: str
             eq(zones.platform_id, platformId),
         ];
 
-        // CLIENT users can only update their company's zones
-        if (user.role === 'CLIENT') {
-            if (user.company_id) {
-                conditions.push(eq(zones.company_id, user.company_id));
-            } else {
-                throw new CustomizedError(httpStatus.UNAUTHORIZED, "Company not found");
-            }
-        }
-
         const [existingZone] = await db
             .select()
             .from(zones)
@@ -273,7 +265,11 @@ const updateZone = async (id: string, data: any, user: AuthUser, platformId: str
         }
 
         // Step 3: If company_id is being updated, validate it exists
-        if (data.company_id) {
+        if (data.company_id && data.company_id !== existingZone.company_id) {
+            if (!(user.permissions.includes(PERMISSIONS.ZONES_ASSIGN_COMPANY) || user.permissions.includes(PERMISSIONS.ZONES_ALL))) {
+                throw new CustomizedError(httpStatus.FORBIDDEN, "You are not authorized to assign company to zone");
+            }
+
             const [company] = await db
                 .select()
                 .from(companies)

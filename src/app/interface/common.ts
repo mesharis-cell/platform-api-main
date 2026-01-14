@@ -7,6 +7,7 @@ export type AuthUser = {
   role: UserRole;
   company_id: string | null;
   platform_id: string;
+  permissions: string[];
   iat: number;
   exp: number;
 };

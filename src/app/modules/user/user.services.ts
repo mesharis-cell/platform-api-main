@@ -1,5 +1,5 @@
 import bcrypt from "bcrypt";
-import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, lte, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, lte, ne, or } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
 import { companies, users } from "../../../db/schema";
@@ -10,6 +10,7 @@ import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
 import { CreateUserPayload } from "./user.interfaces";
 import { userQueryValidationConfig } from "./user.utils";
+import { AuthUser } from "../../interface/common";
 
 // ----------------------------------- CREATE USER ------------------------------------
 const createUser = async (data: CreateUserPayload) => {
@@ -70,7 +71,7 @@ const createUser = async (data: CreateUserPayload) => {
 };
 
 // ----------------------------------- GET USERS ------------------------------------
-const getUsers = async (platformId: string, query: Record<string, any>) => {
+const getUsers = async (platformId: string, query: Record<string, any>, user: AuthUser) => {
   const {
     search_term,
     page,
@@ -96,7 +97,7 @@ const getUsers = async (platformId: string, query: Record<string, any>) => {
     });
 
   // Step 2: Build WHERE conditions
-  const conditions: any[] = [eq(users.platform_id, platformId)];
+  const conditions: any[] = [eq(users.platform_id, platformId), ne(users.id, user.id)];
 
   // Step 3: Add date range and search filters
   if (search_term) {
@@ -216,7 +217,8 @@ const getUserById = async (id: string, platformId: string) => {
 const updateUser = async (
   id: string,
   platformId: string,
-  data: Partial<CreateUserPayload>
+  data: Partial<CreateUserPayload>,
+  user: AuthUser
 ) => {
   // Step 1: Check if user exists
   const existingUser = await getUserById(id, platformId);
@@ -231,6 +233,10 @@ const updateUser = async (
       httpStatus.BAD_REQUEST,
       "Only name, permission_template, permissions, company_id, and is_active can be updated"
     );
+  }
+
+  if (user.id === id && (data.permission_template || (data.permissions && data.permissions.length > 0))) {
+    throw new CustomizedError(httpStatus.BAD_REQUEST, "You cannot update your own permission_template or permissions");
   }
 
   // Handle activation/deactivation side effects
