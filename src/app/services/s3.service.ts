@@ -63,7 +63,7 @@ export const deleteFileFromS3 = async (fileUrl: string): Promise<void> => {
     }
 };
 
-// ------------------------------------ GET PRE-SIGNED URL -----------------------------------
+// ------------------------------------ GET PRE-SIGNED URL FOR DOWNLOAD ----------------------
 // Generate a presigned URL for temporary file access
 export const getPresignedUrl = async (
     fileUrl: string,
@@ -84,6 +84,51 @@ export const getPresignedUrl = async (
     } catch (error) {
         console.error('Error generating presigned URL:', error);
         throw new Error('Failed to generate presigned URL');
+    }
+};
+
+// ------------------------------------ GET PRE-SIGNED URL FOR UPLOAD -------------------------
+// Generate a presigned URL for direct frontend-to-S3 uploads
+// This bypasses Vercel's 4.5MB request body limit
+export interface PresignedUploadResult {
+    uploadUrl: string;  // URL to PUT the file to
+    fileUrl: string;    // Final public URL after upload
+    key: string;        // S3 key
+}
+
+export const getPresignedUploadUrl = async (
+    fileName: string,
+    contentType: string,
+    folder: string = 'images',
+    companyId?: string,
+    expiresIn: number = 3600 // 1 hour to complete upload
+): Promise<PresignedUploadResult> => {
+    try {
+        // Generate unique key with optional company folder
+        const uniqueSuffix = `${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
+        const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
+
+        const key = companyId
+            ? `${folder}/${companyId}/${uniqueSuffix}/${sanitizedFileName}`
+            : `${folder}/${uniqueSuffix}/${sanitizedFileName}`;
+
+        const command = new PutObjectCommand({
+            Bucket: config.aws_s3_bucket,
+            Key: key,
+            ContentType: contentType,
+        });
+
+        const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn });
+        const fileUrl = `https://${config.aws_s3_bucket}.s3.${config.aws_region}.amazonaws.com/${key}`;
+
+        return {
+            uploadUrl,
+            fileUrl,
+            key,
+        };
+    } catch (error) {
+        console.error('Error generating presigned upload URL:', error);
+        throw new Error('Failed to generate presigned upload URL');
     }
 };
 
