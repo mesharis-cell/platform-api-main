@@ -1883,15 +1883,16 @@ const approveQuote = async (
         }
     })
 
-    const bookedAssetIds = foundAssets.filter((a) => a.status === "BOOKED").map((a) => a.id);
-
     // Step 6: Insert asset bookings data, update order and asset status and create order history
     await db.transaction(async (tx) => {
         await tx.insert(assetBookings).values(assetBookingItems);
 
-        await tx.update(assets).set({
-            status: 'BOOKED',
-        }).where(inArray(assets.id, bookedAssetIds))
+        for (const asset of foundAssets) {
+            await tx
+                .update(assets)
+                .set({ status: asset.status, available_quantity: asset.available_quantity })
+                .where(eq(assets.id, asset.id));
+        }
 
         await tx
             .update(orders)
@@ -1911,8 +1912,8 @@ const approveQuote = async (
         })
     })
 
-    // Step 7: Send notification
-    await NotificationLogServices.sendNotification(platformId, 'QUOTE_APPROVED', order);
+    // // Step 7: Send notification
+    // await NotificationLogServices.sendNotification(platformId, 'QUOTE_APPROVED', order);
 
     return {
         id: order.id,

@@ -293,6 +293,7 @@ const completeInboundScan = async (
                             id: true,
                             name: true,
                             refurb_days_estimate: true,
+                            available_quantity: true,
                         },
                     },
                 },
@@ -356,12 +357,19 @@ const completeInboundScan = async (
             updated_by: user.id,
         });
 
-        // Step 8: Update asset status to AVAILABLE
-        const assetIds = order.items.map((i) => i.asset_id);
-
-        await tx.update(assets).set({
+        // Step 8: Update asset status and available quantity
+        const freeAssets = order.items.map((i) => ({
+            id: i.asset_id,
             status: 'AVAILABLE',
-        }).where(inArray(assets.id, assetIds));
+            available_quantity: i.asset.available_quantity + i.quantity
+        }));
+
+        for (const asset of freeAssets) {
+            await tx
+                .update(assets)
+                .set({ status: 'AVAILABLE', available_quantity: asset.available_quantity })
+                .where(eq(assets.id, asset.id));
+        }
     })
 
     // Step 9: Send notification

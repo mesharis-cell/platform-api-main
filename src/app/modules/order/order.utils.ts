@@ -276,16 +276,17 @@ export const checkAssetsForOrder = async (platformId: string, companyId: string,
 				available: availableQuantity,
 				next_available_date: nextAvailableDate,
 			});
+		} else {
+			const remainingQuantity = Math.max(0, (availableQuantity - item.quantity));
+
+			const assetStatus: AssetStatus = asset.tracking_method === "INDIVIDUAL" ? "BOOKED" : remainingQuantity <= 0 ? "BOOKED" : "AVAILABLE";
+
+			availableItems.push({
+				...asset,
+				status: assetStatus,
+				available_quantity: remainingQuantity,
+			});
 		}
-
-		const remainingQuantity = availableQuantity - item.quantity;
-
-		const assetStatus = asset.tracking_method === "INDIVIDUAL" ? "BOOKED" : remainingQuantity <= 0 ? "BOOKED" : "AVAILABLE";
-
-		availableItems.push({
-			...asset,
-			status: assetStatus
-		});
 	}
 
 	// Step 4: Throw error if any items are unavailable
