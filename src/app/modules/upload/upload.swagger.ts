@@ -7,7 +7,7 @@
 
 /**
  * @swagger
- * /api/operation/v1/upload/image:
+ * /api/operations/v1/upload/image:
  *   post:
  *     tags:
  *       - Upload
@@ -78,7 +78,7 @@
 
 /**
  * @swagger
- * /api/operation/v1/upload/images:
+ * /api/operations/v1/upload/images:
  *   post:
  *     tags:
  *       - Upload

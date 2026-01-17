@@ -68,9 +68,6 @@ const submitOrderFromCart = async (
     const requiredAssets = items.map((i) => ({ id: i.asset_id, quantity: i.quantity }))
     const foundAssets = await checkAssetsForOrder(platformId, companyId, requiredAssets, eventStartDate, eventEndDate);
 
-    console.log("event_start_date: ", eventStartDate)
-    console.log("event_end_date: ", eventEndDate)
-
     // Step 3: Calculate order totals (volume and weight)
     const orderItemsData: OrderItem[] = [];
     let totalVolume = 0;
@@ -1842,6 +1839,7 @@ const approveQuote = async (
                             id: true,
                             name: true,
                             refurb_days_estimate: true,
+                            tracking_method: true
                         },
                     },
                 },
@@ -1885,9 +1883,15 @@ const approveQuote = async (
         }
     })
 
-    // Step 6: Insert asset bookings data, update order status and create order history
+    const bookedAssetIds = foundAssets.filter((a) => a.status === "BOOKED").map((a) => a.id);
+
+    // Step 6: Insert asset bookings data, update order and asset status and create order history
     await db.transaction(async (tx) => {
         await tx.insert(assetBookings).values(assetBookingItems);
+
+        await tx.update(assets).set({
+            status: 'BOOKED',
+        }).where(inArray(assets.id, bookedAssetIds))
 
         await tx
             .update(orders)

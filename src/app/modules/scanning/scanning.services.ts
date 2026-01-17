@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
 import { assetBookings, assetConditionHistory, assets, orderStatusHistory, orders, scanEvents } from "../../../db/schema";
@@ -355,12 +355,19 @@ const completeInboundScan = async (
             notes: 'Inbound scanning completed - all items returned and inspected',
             updated_by: user.id,
         });
+
+        // Step 8: Update asset status to AVAILABLE
+        const assetIds = order.items.map((i) => i.asset_id);
+
+        await tx.update(assets).set({
+            status: 'AVAILABLE',
+        }).where(inArray(assets.id, assetIds));
     })
 
-    // Step 8: Send notification
+    // Step 9: Send notification
     await NotificationLogServices.sendNotification(platformId, 'ORDER_CLOSED', { ...order })
 
-    // Step 9: Generate and send invoice
+    // Step 10: Generate and send invoice
     const venueLocation = order.venue_location as any;
     const invoiceData = {
         id: order.id,
@@ -625,25 +632,34 @@ const completeOutboundScan = async (
         );
     }
 
-    // Step 5: Update order status to READY_FOR_DELIVERY
-    await db
-        .update(orders)
-        .set({
-            order_status: 'READY_FOR_DELIVERY',
-        })
-        .where(eq(orders.id, orderId));
+    await db.transaction(async (tx) => {
+        // Step 5: Update order status to READY_FOR_DELIVERY
+        await tx
+            .update(orders)
+            .set({
+                order_status: 'READY_FOR_DELIVERY',
+            })
+            .where(eq(orders.id, orderId));
 
-    // Step 6: Create status history entry
-    await db.insert(orderStatusHistory).values({
-        platform_id: platformId,
-        order_id: orderId,
-        status: 'READY_FOR_DELIVERY',
-        notes: 'All items scanned out and ready for delivery',
-        updated_by: user.id,
+        // Step 6: Create status history entry
+        await tx.insert(orderStatusHistory).values({
+            platform_id: platformId,
+            order_id: orderId,
+            status: 'READY_FOR_DELIVERY',
+            notes: 'All items scanned out and ready for delivery',
+            updated_by: user.id,
+        });
+
+        // Step 7: Update asset status to OUT
+        const assetIds = order.items.map((i) => i.asset_id);
+
+        await tx.update(assets).set({
+            status: 'OUT',
+        }).where(inArray(assets.id, assetIds));
     });
 
-    // TODO: Step 7: Send notification (implement notification service)
-    // sendNotification('READY_FOR_DELIVERY', orderId)
+    // Step 8: Send notification (implement notification service)
+    await NotificationLogServices.sendNotification(platformId, 'READY_FOR_DELIVERY', order)
 
     return {
         message: 'Outbound scan completed successfully',
