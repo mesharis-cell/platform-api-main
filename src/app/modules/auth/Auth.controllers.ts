@@ -17,7 +17,8 @@ const login = catchAsync(async (req, res) => {
 });
 
 const getPlatformByDomain = catchAsync(async (req, res) => {
-  const result = await AuthServices.getConfigByHostname(req.headers.origin as string);
+  const origin = req.headers.origin || req.headers['x-forwarded-host'];
+  const result = await AuthServices.getConfigByHostname(origin as string);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,

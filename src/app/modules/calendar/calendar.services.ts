@@ -18,7 +18,7 @@ const getCalendarEvents = async (
   } = query;
 
   // Step 1: Setup pagination
-  const { pageNumber, limitNumber, skip, sortWith, sortSequence } =
+  const { pageNumber, limitNumber, skip } =
     paginationMaker({
       page,
       limit,

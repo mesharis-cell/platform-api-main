@@ -8,6 +8,8 @@ export const PERMISSIONS = {
     USERS_CREATE: 'users:create', // ✅
     USERS_READ: 'users:read', // ✅
     USERS_ALL: 'users:*',
+    USERS_UPDATE: 'users:update', // ✅
+    USERS_DEACTIVATE: 'users:deactivate', // ✅
 
     // ==================== COMPANY MANAGEMENT ====================
     COMPANIES_CREATE: 'companies:create', // ✅
@@ -159,6 +161,7 @@ export const PERMISSION_TEMPLATES = {
         PERMISSIONS.BRANDS_READ,
         PERMISSIONS.WAREHOUSES_READ,
         PERMISSIONS.ZONES_READ,
+        PERMISSIONS.ZONES_CREATE,
         PERMISSIONS.ASSETS_ALL,
         PERMISSIONS.COLLECTIONS_ALL,
         PERMISSIONS.ORDERS_READ,
