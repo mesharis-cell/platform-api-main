@@ -6,6 +6,7 @@ import { sortOrderType } from "../../constants/common";
 import { AuthUser } from "../../interface/common";
 import CustomizedError from "../../error/customized-error";
 import httpStatus from "http-status";
+import { AssetStatus } from "../asset/assets.interfaces";
 
 // Sortable fields for order queries
 export const orderSortableFields: Record<string, any> = {
@@ -181,6 +182,12 @@ export type UnavailableItem = {
 	next_available_date?: Date;
 }
 
+export type AvailableItem = {
+	id: string;
+	status: AssetStatus;
+	refurb_days_estimate: number | null;
+}
+
 // ----------------------------------- CHECK ASSETS FOR ORDER -----------------------------------
 export const checkAssetsForOrder = async (platformId: string, companyId: string, requiredAssets: { id: string, quantity: number }[], eventStartDate: Date, eventEndDate: Date) => {
 	const assetIds = requiredAssets.map((asset) => asset.id);
@@ -215,6 +222,7 @@ export const checkAssetsForOrder = async (platformId: string, companyId: string,
 	}
 
 	const unavailableItems: Array<UnavailableItem> = [];
+	const availableItems = [];
 
 	// Step 3: Check date-based availability for requested quantities
 	for (const item of requiredAssets) {
@@ -246,7 +254,8 @@ export const checkAssetsForOrder = async (platformId: string, companyId: string,
 
 		// Calculate available quantity
 		const bookedQuantity = overlappingBookings.reduce((sum, booking) => sum + booking.quantity, 0);
-		const availableQuantity = Math.max(0, item.quantity - bookedQuantity);
+		// const availableQuantity = Math.max(0, item.quantity - bookedQuantity);
+		const availableQuantity = Math.max(0, (asset.total_quantity - bookedQuantity));
 
 		// If insufficient quantity, track for error message
 		if (availableQuantity < item.quantity) {
@@ -266,6 +275,16 @@ export const checkAssetsForOrder = async (platformId: string, companyId: string,
 				requested: item.quantity,
 				available: availableQuantity,
 				next_available_date: nextAvailableDate,
+			});
+		} else {
+			const remainingQuantity = Math.max(0, (availableQuantity - item.quantity));
+
+			const assetStatus: AssetStatus = asset.tracking_method === "INDIVIDUAL" ? "BOOKED" : remainingQuantity <= 0 ? "BOOKED" : "AVAILABLE";
+
+			availableItems.push({
+				...asset,
+				status: assetStatus,
+				available_quantity: remainingQuantity,
 			});
 		}
 	}
@@ -288,5 +307,5 @@ export const checkAssetsForOrder = async (platformId: string, companyId: string,
 		);
 	}
 
-	return foundAssets;
+	return availableItems;
 }
