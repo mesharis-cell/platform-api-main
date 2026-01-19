@@ -74,7 +74,7 @@ const getCatalog = async (
     );
   }
 
-  assetConditions.push(eq(assets.status, "AVAILABLE"));
+  // assetConditions.push(eq(assets.status, "AVAILABLE"));
   assetConditions.push(isNull(assets.deleted_at));
 
   // Build Collection Conditions
