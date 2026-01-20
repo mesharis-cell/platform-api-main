@@ -8,7 +8,7 @@ const formatCurrency = (amount: string): string => {
 }
 
 // ============================================================
-// INVOICE PDF - Based on Cost Estimate Design
+// INVOICE PDF - Same Design as Cost Estimate
 // ============================================================
 export async function renderInvoicePDF(data: InvoicePayload & { invoice_number: string; invoice_date: Date }): Promise<Buffer> {
     console.log('=== Starting Invoice PDF Generation ===')
@@ -25,12 +25,12 @@ export async function renderInvoicePDF(data: InvoicePayload & { invoice_number: 
 
             doc.on('end', () => {
                 const buffer = Buffer.concat(chunks)
-                console.log('Simple Invoice PDF generated successfully, size:', buffer.length, 'bytes')
+                console.log('Invoice PDF generated successfully, size:', buffer.length, 'bytes')
                 resolve(buffer)
             })
 
             doc.on('error', (error: Error) => {
-                console.error('=== Simple Invoice PDF Generation Error ===')
+                console.error('=== Invoice PDF Generation Error ===')
                 console.error('Error:', error)
                 reject(error)
             })
@@ -56,27 +56,12 @@ export async function renderInvoicePDF(data: InvoicePayload & { invoice_number: 
 
             doc.moveDown(1)
 
-            // Invoice details in grid
+            // Invoice details in grid (2 boxes - same as cost estimate)
             const detailsY = doc.y
-            const detailBoxWidth = (contentWidth - 20) / 3
-
-            // Invoice Number
-            doc.rect(margin, detailsY, detailBoxWidth, 40)
-                .lineWidth(1)
-                .stroke('#ccc')
-
-            doc.fontSize(7)
-                .font('Helvetica-Bold')
-                .fillColor('#666')
-                .text('INVOICE NO.', margin + 10, detailsY + 8, { width: detailBoxWidth - 20 })
-
-            doc.fontSize(10)
-                .font('Helvetica')
-                .fillColor('#000')
-                .text(data.invoice_number, margin + 10, detailsY + 20, { width: detailBoxWidth - 20 })
+            const detailBoxWidth = (contentWidth - 10) / 2
 
             // Date
-            const dateBoxX = margin + detailBoxWidth + 10
+            const dateBoxX = margin
             doc.rect(dateBoxX, detailsY, detailBoxWidth, 40)
                 .lineWidth(1)
                 .stroke('#ccc')
@@ -359,25 +344,25 @@ export async function renderInvoicePDF(data: InvoicePayload & { invoice_number: 
             doc.y = totalY + totalHeight + 25
 
             // ============================================================
-            // PAYMENT INSTRUCTIONS
+            // IMPORTANT NOTES
             // ============================================================
             doc.fontSize(8)
                 .font('Helvetica-Bold')
                 .fillColor('#000')
-                .text('PAYMENT INSTRUCTIONS', margin, doc.y)
+                .text('IMPORTANT NOTES', margin, doc.y)
 
-            doc.rect(margin, doc.y + 2, 140, 1)
+            doc.rect(margin, doc.y + 2, 100, 1)
                 .fill('#000')
 
             doc.moveDown(1)
 
-            const paymentNotes = [
+            const notes = [
                 'Payment Method: Bank Transfer or Check',
                 'Payment Terms: Net 30 Days',
-                `Payment Reference: ${data.invoice_number}`
+                `Invoice Reference: ${data.invoice_number}`
             ]
 
-            paymentNotes.forEach(note => {
+            notes.forEach(note => {
                 // Bullet point
                 doc.circle(margin + 3, doc.y + 3, 2)
                     .fill('#000')
@@ -401,47 +386,6 @@ export async function renderInvoicePDF(data: InvoicePayload & { invoice_number: 
                     doc.y,
                     { width: contentWidth }
                 )
-
-            // ============================================================
-            // PAID WATERMARK (if applicable)
-            // ============================================================
-            if (data.financial_status === 'PAID') {
-                doc.save()
-
-                // Position watermark in center of page
-                const centerX = pageWidth / 2
-                const centerY = pageHeight / 2
-
-                // Rotate and add watermark
-                doc.translate(centerX, centerY)
-                    .rotate(-45, { origin: [0, 0] })
-
-                // Add semi-transparent background rectangle
-                doc.rect(-120, -27.5, 240, 55)
-                    .fillOpacity(0.03)
-                    .fill('#10B981')
-                    .fillOpacity(1)
-
-                // Add border
-                doc.rect(-120, -27.5, 240, 55)
-                    .lineWidth(3)
-                    .strokeOpacity(0.15)
-                    .stroke('#10B981')
-                    .strokeOpacity(1)
-
-                // Add "PAID" text
-                doc.fontSize(45)
-                    .font('Helvetica-Bold')
-                    .fillOpacity(0.15)
-                    .fillColor('#10B981')
-                    .text('PAID', -120, -20, {
-                        width: 240,
-                        align: 'center'
-                    })
-                    .fillOpacity(1)
-
-                doc.restore()
-            }
 
             // ============================================================
             // FOOTER
@@ -469,7 +413,7 @@ export async function renderInvoicePDF(data: InvoicePayload & { invoice_number: 
 
             doc.end()
         } catch (error) {
-            console.error('=== Simple Invoice PDF Generation Failed ===')
+            console.error('=== Invoice PDF Generation Failed ===')
             console.error('Error:', error)
             if (error instanceof Error) {
                 console.error('Stack:', error.stack)
