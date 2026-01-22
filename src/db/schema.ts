@@ -45,6 +45,7 @@ export const assetStatusEnum = pgEnum('asset_status', [
   'BOOKED',
   'OUT',
   'MAINTENANCE',
+  'TRANSFORMED',
 ])
 // export const assetCategoryEnum = pgEnum('asset_category', [
 //   'FURNITURE',
@@ -61,6 +62,7 @@ export const orderStatusEnum = pgEnum('order_status', [
   'QUOTED',
   'DECLINED',
   'CONFIRMED',
+  'AWAITING_FABRICATION',
   'IN_PREPARATION',
   'READY_FOR_DELIVERY',
   'IN_TRANSIT',
@@ -68,6 +70,7 @@ export const orderStatusEnum = pgEnum('order_status', [
   'IN_USE',
   'AWAITING_RETURN',
   'CLOSED',
+  'CANCELLED',
 ])
 
 export const financialStatusEnum = pgEnum('financial_status', [
@@ -77,6 +80,7 @@ export const financialStatusEnum = pgEnum('financial_status', [
   'PENDING_INVOICE',
   'INVOICED',
   'PAID',
+  'CANCELLED',
 ])
 export const notificationStatusEnum = pgEnum('notification_status', [
   'QUEUED',
@@ -88,6 +92,16 @@ export const scanTypeEnum = pgEnum('scan_type', ['OUTBOUND', 'INBOUND'])
 export const discrepancyReasonEnum = pgEnum('discrepancy_reason', [
   'BROKEN',
   'LOST',
+  'OTHER',
+])
+export const tripTypeEnum = pgEnum('trip_type', ['ONE_WAY', 'ROUND_TRIP'])
+export const vehicleTypeEnum = pgEnum('vehicle_type', ['STANDARD', '7_TON', '10_TON'])
+export const lineItemTypeEnum = pgEnum('line_item_type', ['CATALOG', 'CUSTOM'])
+export const serviceCategoryEnum = pgEnum('service_category', [
+  'ASSEMBLY',
+  'EQUIPMENT',
+  'HANDLING',
+  'RESKIN',
   'OTHER',
 ])
 
@@ -433,6 +447,11 @@ export const assets = pgTable(
     status: assetStatusEnum('status').notNull().default('AVAILABLE'),
     last_scanned_at: timestamp('last_scanned_at'),
     last_scanned_by: uuid('last_scanned_by').references(() => users.id),
+    
+    // Asset transformation tracking (NEW)
+    transformed_from: uuid('transformed_from').references(() => assets.id),
+    transformed_to: uuid('transformed_to').references(() => assets.id),
+    
     created_at: timestamp('created_at').notNull().defaultNow(),
     updated_at: timestamp('updated_at')
       .$onUpdate(() => new Date())
@@ -457,6 +476,8 @@ export const assetsRelations = relations(assets, ({ one, many }) => ({
   order_items: many(orderItems),
   scan_events: many(scanEvents),
   bookings: many(assetBookings),
+  reskin_requests_as_original: many(reskinRequests, { relationName: 'original_asset' }),
+  reskin_requests_as_new: many(reskinRequests, { relationName: 'new_asset' }),
 }))
 
 // ---------------------------------- COLLECTION ------------------------------------------
@@ -531,7 +552,7 @@ export const collectionItemsRelations = relations(collectionItems, ({ one }) => 
   asset: one(assets, { fields: [collectionItems.asset], references: [assets.id] }),
 }))
 
-// ---------------------------------- PRICING TIER -----------------------------------------
+// ---------------------------------- PRICING TIER (DEPRECATED - TO BE REMOVED) -------------
 export const pricingTiers = pgTable(
   'pricing_tiers',
   {
@@ -559,6 +580,110 @@ export const pricingTiers = pgTable(
     unique('pricing_tiers_unique').on(table.platform_id, table.country, table.city, table.volume_min, table.volume_max),
   ]
 )
+
+// ---------------------------------- PRICING CONFIG (NEW) ------------------------------------
+export const pricingConfig = pgTable(
+  'pricing_config',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    platform_id: uuid('platform')
+      .notNull()
+      .references(() => platforms.id, { onDelete: 'cascade' }),
+    company_id: uuid('company').references(() => companies.id, { onDelete: 'cascade' }), // NULL = platform default
+    
+    warehouse_ops_rate: decimal('warehouse_ops_rate', { precision: 10, scale: 2 }).notNull(), // AED per m³
+    
+    is_active: boolean('is_active').notNull().default(true),
+    created_at: timestamp('created_at').notNull().defaultNow(),
+    updated_at: timestamp('updated_at')
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    unique('pricing_config_platform_company_unique').on(table.platform_id, table.company_id),
+    index('pricing_config_platform_company_idx').on(table.platform_id, table.company_id),
+  ]
+)
+
+export const pricingConfigRelations = relations(pricingConfig, ({ one }) => ({
+  platform: one(platforms, { fields: [pricingConfig.platform_id], references: [platforms.id] }),
+  company: one(companies, { fields: [pricingConfig.company_id], references: [companies.id] }),
+}))
+
+// ---------------------------------- TRANSPORT RATES (NEW) ------------------------------------
+export const transportRates = pgTable(
+  'transport_rates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    platform_id: uuid('platform')
+      .notNull()
+      .references(() => platforms.id, { onDelete: 'cascade' }),
+    company_id: uuid('company').references(() => companies.id, { onDelete: 'cascade' }), // NULL = platform-wide
+    
+    emirate: varchar('emirate', { length: 50 }).notNull(),
+    area: varchar('area', { length: 100 }), // Optional sub-region
+    trip_type: tripTypeEnum('trip_type').notNull(),
+    vehicle_type: vehicleTypeEnum('vehicle_type').notNull(),
+    
+    rate: decimal('rate', { precision: 10, scale: 2 }).notNull(), // AED
+    
+    is_active: boolean('is_active').notNull().default(true),
+    created_at: timestamp('created_at').notNull().defaultNow(),
+    updated_at: timestamp('updated_at')
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    unique('transport_rates_unique').on(
+      table.platform_id,
+      table.company_id,
+      table.emirate,
+      table.area,
+      table.trip_type,
+      table.vehicle_type
+    ),
+    index('transport_rates_lookup_idx').on(table.platform_id, table.emirate, table.trip_type, table.vehicle_type),
+    index('transport_rates_company_idx').on(table.company_id),
+  ]
+)
+
+export const transportRatesRelations = relations(transportRates, ({ one }) => ({
+  platform: one(platforms, { fields: [transportRates.platform_id], references: [platforms.id] }),
+  company: one(companies, { fields: [transportRates.company_id], references: [companies.id] }),
+}))
+
+// ---------------------------------- SERVICE TYPES (NEW) --------------------------------------
+export const serviceTypes = pgTable(
+  'service_types',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    platform_id: uuid('platform')
+      .notNull()
+      .references(() => platforms.id, { onDelete: 'cascade' }),
+    
+    name: varchar('name', { length: 100 }).notNull(),
+    category: serviceCategoryEnum('category').notNull(),
+    unit: varchar('unit', { length: 20 }).notNull(), // hour, day, trip, unit
+    default_rate: decimal('default_rate', { precision: 10, scale: 2 }), // Nullable
+    description: text('description'),
+    
+    display_order: integer('display_order').notNull().default(0),
+    is_active: boolean('is_active').notNull().default(true),
+    created_at: timestamp('created_at').notNull().defaultNow(),
+    updated_at: timestamp('updated_at')
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    unique('service_types_platform_name_unique').on(table.platform_id, table.name),
+    index('service_types_platform_active_idx').on(table.platform_id, table.is_active, table.display_order),
+  ]
+)
+
+export const serviceTypesRelations = relations(serviceTypes, ({ one, many }) => ({
+  platform: one(platforms, { fields: [serviceTypes.platform_id], references: [platforms.id] }),
+  order_line_items: many(orderLineItems),
+}))
 
 // ---------------------------------- ORDER ------------------------------------------------
 export const orders = pgTable(
@@ -598,11 +723,18 @@ export const orders = pgTable(
     // Calculations
     calculated_totals: jsonb('calculated_totals').notNull(), // {volume, weight} totals
 
-    // Pricing
+    // Transport (NEW)
+    transport_trip_type: tripTypeEnum('transport_trip_type').notNull().default('ROUND_TRIP'),
+    transport_vehicle_type: vehicleTypeEnum('transport_vehicle_type').notNull().default('STANDARD'),
+
+    // Pricing (DEPRECATED fields - to be removed after migration)
     tier_id: uuid('tier').references(() => pricingTiers.id),
-    logistics_pricing: jsonb('logistics_pricing'), // {base_price, adjusted_price, adjustment_reason, adjusted_at, adjusted_by}
-    platform_pricing: jsonb('platform_pricing'), // {margin_percent, margin_amount, reviewed_at, reviewed_by, notes}
-    final_pricing: jsonb('final_pricing'), // {total_price, quote_sent_at}
+    logistics_pricing: jsonb('logistics_pricing'), // OLD: {base_price, adjusted_price, adjustment_reason, adjusted_at, adjusted_by}
+    platform_pricing: jsonb('platform_pricing'), // OLD: {margin_percent, margin_amount, reviewed_at, reviewed_by, notes}
+    final_pricing: jsonb('final_pricing'), // OLD: {total_price, quote_sent_at}
+    
+    // Pricing (NEW structure)
+    pricing: jsonb('pricing'), // NEW: Complete pricing breakdown (base_operations, transport, line_items, margin, final_total)
 
     // Status tracking
     order_status: orderStatusEnum('order_status').notNull().default('DRAFT'),
@@ -634,8 +766,10 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
   company: one(companies, { fields: [orders.company_id], references: [companies.id] }),
   brand: one(brands, { fields: [orders.brand_id], references: [brands.id] }),
   user: one(users, { fields: [orders.user_id], references: [users.id] }),
-  pricing_tier: one(pricingTiers, { fields: [orders.tier_id], references: [pricingTiers.id] }),
+  pricing_tier: one(pricingTiers, { fields: [orders.tier_id], references: [pricingTiers.id] }), // DEPRECATED
   items: many(orderItems),
+  line_items: many(orderLineItems),
+  reskin_requests: many(reskinRequests),
   scan_events: many(scanEvents),
   asset_bookings: many(assetBookings),
   order_status_history: many(orderStatusHistory),
@@ -670,6 +804,12 @@ export const orderItems = pgTable(
     from_collection: uuid('from_collection').references(() => collections.id),
     from_collection_name: varchar('from_collection_name', { length: 200 }),
 
+    // Reskin request fields (NEW)
+    is_reskin_request: boolean('is_reskin_request').notNull().default(false),
+    reskin_target_brand_id: uuid('reskin_target_brand').references(() => brands.id),
+    reskin_target_brand_custom: varchar('reskin_target_brand_custom', { length: 100 }),
+    reskin_notes: text('reskin_notes'),
+
     created_at: timestamp('created_at').notNull().defaultNow(),
   },
   (table) => [
@@ -681,11 +821,144 @@ export const orderItems = pgTable(
   ]
 );
 
-export const orderItemsRelations = relations(orderItems, ({ one }) => ({
+export const orderItemsRelations = relations(orderItems, ({ one, many }) => ({
   platform: one(platforms, { fields: [orderItems.platform_id], references: [platforms.id] }),
   order: one(orders, { fields: [orderItems.order_id], references: [orders.id] }),
   asset: one(assets, { fields: [orderItems.asset_id], references: [assets.id] }),
   from_collection: one(collections, { fields: [orderItems.from_collection], references: [collections.id] }),
+  reskin_target_brand: one(brands, { fields: [orderItems.reskin_target_brand_id], references: [brands.id] }),
+  reskin_request: one(reskinRequests, { fields: [orderItems.id], references: [reskinRequests.order_item_id] }),
+}))
+
+// ---------------------------------- RESKIN REQUESTS (NEW) ------------------------------------
+export const reskinRequests = pgTable(
+  'reskin_requests',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    platform_id: uuid('platform')
+      .notNull()
+      .references(() => platforms.id, { onDelete: 'cascade' }),
+    order_id: uuid('order')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+    order_item_id: uuid('order_item')
+      .notNull()
+      .references(() => orderItems.id, { onDelete: 'cascade' }),
+    
+    // Original asset (snapshot at request time)
+    original_asset_id: uuid('original_asset')
+      .notNull()
+      .references(() => assets.id),
+    original_asset_name: varchar('original_asset_name', { length: 200 }).notNull(),
+    
+    // Target brand (one required)
+    target_brand_id: uuid('target_brand').references(() => brands.id),
+    target_brand_custom: varchar('target_brand_custom', { length: 100 }),
+    
+    // Client's request (from order creation)
+    client_notes: text('client_notes').notNull(),
+    
+    // Admin additions (during pricing review)
+    admin_notes: text('admin_notes'),
+    
+    // Completion (when fabrication done)
+    new_asset_id: uuid('new_asset').references(() => assets.id),
+    new_asset_name: varchar('new_asset_name', { length: 200 }),
+    completed_at: timestamp('completed_at'),
+    completed_by: uuid('completed_by').references(() => users.id),
+    completion_notes: text('completion_notes'),
+    completion_photos: text('completion_photos').array().default(sql`ARRAY[]::text[]`),
+    
+    // Cancellation
+    cancelled_at: timestamp('cancelled_at'),
+    cancelled_by: uuid('cancelled_by').references(() => users.id),
+    cancellation_reason: text('cancellation_reason'),
+    
+    created_at: timestamp('created_at').notNull().defaultNow(),
+    updated_at: timestamp('updated_at')
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index('reskin_requests_order_idx').on(table.order_id),
+    index('reskin_requests_order_item_idx').on(table.order_item_id),
+    index('reskin_requests_pending_idx').on(table.order_id).where(sql`${table.completed_at} IS NULL AND ${table.cancelled_at} IS NULL`),
+  ]
+)
+
+export const reskinRequestsRelations = relations(reskinRequests, ({ one, many }) => ({
+  platform: one(platforms, { fields: [reskinRequests.platform_id], references: [platforms.id] }),
+  order: one(orders, { fields: [reskinRequests.order_id], references: [orders.id] }),
+  order_item: one(orderItems, { fields: [reskinRequests.order_item_id], references: [orderItems.id] }),
+  original_asset: one(assets, { fields: [reskinRequests.original_asset_id], references: [assets.id], relationName: 'original_asset' }),
+  new_asset: one(assets, { fields: [reskinRequests.new_asset_id], references: [assets.id], relationName: 'new_asset' }),
+  target_brand: one(brands, { fields: [reskinRequests.target_brand_id], references: [brands.id] }),
+  completed_by_user: one(users, { fields: [reskinRequests.completed_by], references: [users.id], relationName: 'reskin_completed_by' }),
+  cancelled_by_user: one(users, { fields: [reskinRequests.cancelled_by], references: [users.id], relationName: 'reskin_cancelled_by' }),
+  line_items: many(orderLineItems),
+}))
+
+// ---------------------------------- ORDER LINE ITEMS (NEW) -----------------------------------
+export const orderLineItems = pgTable(
+  'order_line_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    platform_id: uuid('platform')
+      .notNull()
+      .references(() => platforms.id, { onDelete: 'cascade' }),
+    order_id: uuid('order')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+    
+    // Type linkage (one or neither, not both)
+    service_type_id: uuid('service_type').references(() => serviceTypes.id), // NULL for custom items
+    reskin_request_id: uuid('reskin_request').references(() => reskinRequests.id), // Links custom item to reskin
+    
+    // Item details
+    line_item_type: lineItemTypeEnum('line_item_type').notNull(),
+    category: serviceCategoryEnum('category').notNull(),
+    description: varchar('description', { length: 200 }).notNull(),
+    
+    // Pricing (for CATALOG items)
+    quantity: decimal('quantity', { precision: 10, scale: 2 }),
+    unit: varchar('unit', { length: 20 }),
+    unit_rate: decimal('unit_rate', { precision: 10, scale: 2 }),
+    
+    // Pricing (for both)
+    total: decimal('total', { precision: 10, scale: 2 }).notNull(),
+    
+    // Metadata
+    added_by: uuid('added_by')
+      .notNull()
+      .references(() => users.id),
+    added_at: timestamp('added_at').notNull().defaultNow(),
+    notes: text('notes'),
+    
+    // Voiding (for cancellations, reskin cancellations)
+    is_voided: boolean('is_voided').notNull().default(false),
+    voided_at: timestamp('voided_at'),
+    voided_by: uuid('voided_by').references(() => users.id),
+    void_reason: text('void_reason'),
+    
+    created_at: timestamp('created_at').notNull().defaultNow(),
+    updated_at: timestamp('updated_at')
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index('order_line_items_order_idx').on(table.order_id),
+    index('order_line_items_reskin_idx').on(table.reskin_request_id),
+    index('order_line_items_active_idx').on(table.order_id, table.is_voided),
+  ]
+)
+
+export const orderLineItemsRelations = relations(orderLineItems, ({ one }) => ({
+  platform: one(platforms, { fields: [orderLineItems.platform_id], references: [platforms.id] }),
+  order: one(orders, { fields: [orderLineItems.order_id], references: [orders.id] }),
+  service_type: one(serviceTypes, { fields: [orderLineItems.service_type_id], references: [serviceTypes.id] }),
+  reskin_request: one(reskinRequests, { fields: [orderLineItems.reskin_request_id], references: [reskinRequests.id] }),
+  added_by_user: one(users, { fields: [orderLineItems.added_by], references: [users.id] }),
+  voided_by_user: one(users, { fields: [orderLineItems.voided_by], references: [users.id] }),
 }))
 
 // ---------------------------------- ORDER STATUS HISTORY ---------------------------------
