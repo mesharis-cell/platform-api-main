@@ -1,5 +1,13 @@
-FROM oven/bun:1 AS base
+FROM public.ecr.aws/docker/library/node:20-slim AS base
 WORKDIR /app
+
+RUN apt-get update && \
+    apt-get install -y curl unzip && \
+    curl -fsSL https://bun.sh/install | bash && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV PATH="/root/.bun/bin:${PATH}"
 
 FROM base AS install
 RUN mkdir -p /temp/dev
@@ -26,5 +34,4 @@ COPY --from=prerelease /app/drizzle drizzle
 ENV NODE_ENV=production
 EXPOSE 9000
 
-USER bun
 ENTRYPOINT ["bun", "run", "dist/server.js"]
