@@ -10,6 +10,7 @@ import {
   ReskinStatus,
 } from './reskin-requests.interfaces'
 import { OrderLineItemsServices } from '../order-line-items/order-line-items.services'
+import { generateAssetQRCode } from '../../utils/qr-generator'
 
 // ----------------------------------- LIST RESKIN REQUESTS -----------------------------------
 const listReskinRequests = async (orderId: string, platformId: string) => {
@@ -199,7 +200,7 @@ const completeReskinRequest = async (
       tracking_method: originalAsset.tracking_method,
       total_quantity: originalAsset.total_quantity,
       available_quantity: originalAsset.available_quantity,
-      qr_code: `${new_asset_name.substring(0, 3).toUpperCase()}-${Date.now()}`, // Temporary QR, should be generated properly
+      qr_code: generateAssetQRCode(new_asset_name, originalAsset.company_id),
       
       // Fresh condition
       status: 'AVAILABLE',
