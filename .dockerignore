@@ -22,3 +22,5 @@ vercel.json
 sst.config.ts
 sst-env.d.ts
 package-lock.json
+Dockerrun.aws.json
+dockerrun.zip
