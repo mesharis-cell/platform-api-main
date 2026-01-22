@@ -186,6 +186,44 @@ router.patch(
     OrderControllers.approvePlatformPricing
 );
 
+// ---------------------------------- NEW PRICING WORKFLOW ROUTES ----------------------------------
+
+// Submit for approval (Logistics → Admin)
+router.post(
+    "/:id/submit-for-approval",
+    platformValidator,
+    auth("LOGISTICS"),
+    requirePermission(PERMISSIONS.PRICING_REVIEW),
+    OrderControllers.submitForApproval
+);
+
+// Admin approve quote (Admin → Client)
+router.post(
+    "/:id/admin-approve-quote",
+    platformValidator,
+    auth("ADMIN"),
+    requirePermission(PERMISSIONS.PRICING_ADMIN_APPROVE),
+    OrderControllers.adminApproveQuote
+);
+
+// Return to Logistics (Admin → Logistics)
+router.post(
+    "/:id/return-to-logistics",
+    platformValidator,
+    auth("ADMIN"),
+    requirePermission(PERMISSIONS.PRICING_ADMIN_APPROVE),
+    OrderControllers.returnToLogistics
+);
+
+// Cancel order (Admin only)
+router.post(
+    "/:id/cancel",
+    platformValidator,
+    auth("ADMIN"),
+    requirePermission(PERMISSIONS.ORDERS_CANCEL),
+    OrderControllers.cancelOrder
+);
+
 // ---------------------------------- NESTED ROUTES (NEW) ----------------------------------
 
 // Order Line Items (nested under /order/:orderId/line-items)

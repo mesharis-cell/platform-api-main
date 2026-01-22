@@ -15,7 +15,9 @@ import {
     orderStatusHistory,
     pricingTiers,
     scanEvents,
-    users
+    users,
+    reskinRequests,
+    orderLineItems,
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
@@ -24,6 +26,11 @@ import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
 import { AdjustLogisticsPricingPayload, ApproveStandardPricingPayload, ApprovePlatformPricingPayload, StandardPricing, SubmitOrderPayload, UpdateOrderTimeWindowsPayload, ApproveQuotePayload, DeclineQuotePayload, OrderItem } from "./order.interfaces";
 import { checkAssetsForOrder, isValidTransition, orderQueryValidationConfig, orderSortableFields, PREP_BUFFER_DAYS, RETURN_BUFFER_DAYS, validateInboundScanningComplete, validateRoleBasedTransition } from "./order.utils";
+// NEW: Hybrid pricing imports
+import { PricingCalculationServices } from "../pricing-calculation/pricing-calculation.services";
+import { ReskinRequestsServices } from "../reskin-requests/reskin-requests.services";
+import { OrderCancellationService, CancelOrderPayload } from "./order-cancellation.service";
+import { calculateAndStoreEstimate, shouldAwaitFabrication, recalculateOrderPricing } from "./order-pricing.helpers";
 
 // Import asset availability checker
 import { multipleEmailSender } from "../../utils/email-sender";
@@ -52,7 +59,8 @@ const submitOrderFromCart = async (
     item_count: number;
 }> => {
     // Extract all required fields from the payload
-    const { items, brand_id, event_start_date, event_end_date, venue_name, venue_country, venue_city, venue_address, contact_name, contact_email, contact_phone, venue_access_notes, special_instructions } = payload;
+    const { items, brand_id, transport_trip_type, event_start_date, event_end_date, venue_name, venue_country, venue_city, venue_address, contact_name, contact_email, contact_phone, venue_access_notes, special_instructions } = payload;
+    const tripType = transport_trip_type || 'ROUND_TRIP';
 
     const eventStartDate = dayjs(event_start_date).toDate();
     const eventEndDate = dayjs(event_end_date).toDate();
@@ -103,33 +111,22 @@ const submitOrderFromCart = async (
             handling_tags: asset.handling_tags || [],
             from_collection: item.from_collection_id || null,
             from_collection_name: collectionName,
+            // NEW: Reskin/rebrand fields
+            is_reskin_request: item.is_reskin_request || false,
+            reskin_target_brand_id: item.reskin_target_brand_id || null,
+            reskin_target_brand_custom: item.reskin_target_brand_custom || null,
+            reskin_notes: item.reskin_notes || null,
         });
     }
 
     const calculatedVolume = totalVolume.toFixed(3);
     const calculatedWeight = totalWeight.toFixed(2);
 
-    // Step 4: Find matching pricing tier based on location and volume
+    // Step 4: Calculate pricing estimate (NEW SYSTEM)
     const volume = parseFloat(calculatedVolume);
-    const matchingTiers = await db
-        .select()
-        .from(pricingTiers)
-        .where(
-            and(
-                eq(pricingTiers.platform_id, platformId),
-                sql`LOWER(${pricingTiers.country}) = LOWER(${venue_country})`,
-                sql`LOWER(${pricingTiers.city}) = LOWER(${venue_city})`,
-                eq(pricingTiers.is_active, true),
-                lte(sql`CAST(${pricingTiers.volume_min} AS DECIMAL)`, volume),
-                sql`CAST(${pricingTiers.volume_max} AS DECIMAL) > ${volume}`
-            )
-        )
-        .orderBy(
-            sql`CAST(${pricingTiers.volume_max} AS DECIMAL) - CAST(${pricingTiers.volume_min} AS DECIMAL)`
-        )
-        .limit(1);
-
-    const pricingTier = matchingTiers[0] || null;
+    const marginPercent = parseFloat(company.platform_margin_percent);
+    
+    // Will calculate estimate after order creation (need order_id for line items)
 
     // Step 5: Create the order record
     const orderId = await orderIdGenerator();
@@ -160,16 +157,13 @@ const submitOrderFromCart = async (
                     volume: calculatedVolume,
                     weight: calculatedWeight,
                 },
+                // NEW: Transport fields
+                transport_trip_type: tripType as any,
+                transport_vehicle_type: 'STANDARD', // Default
+                // Pricing will be calculated after order creation
+                pricing: null, // Will be set in next step
                 order_status: "PRICING_REVIEW",
                 financial_status: "PENDING_QUOTE",
-                tier_id: pricingTier?.id || null,
-                ...(pricingTier && { logistics_pricing: { base_price: pricingTier.base_price } }),
-                ...(pricingTier && {
-                    platform_pricing: {
-                        margin_percent: company.platform_margin_percent,
-                        margin_amount: Number(pricingTier.base_price) * (Number(company.platform_margin_percent) / 100)
-                    }
-                }),
             })
             .returning();
 
@@ -191,6 +185,17 @@ const submitOrderFromCart = async (
 
         return order;
     })
+
+    // Step 5.d: Calculate and store pricing estimate (NEW)
+    await calculateAndStoreEstimate(
+        orderResult.id,
+        platformId,
+        companyId,
+        volume,
+        venue_city,
+        tripType,
+        user.id
+    );
 
     // Step 6: Send email to admin, logistics staff and client
     // Step 6.a: Prepare email data
@@ -1894,10 +1899,14 @@ const approveQuote = async (
                 .where(eq(assets.id, asset.id));
         }
 
+        // Check if order has pending reskins (NEW)
+        const hasPendingReskins = await shouldAwaitFabrication(orderId, platformId);
+        const nextStatus = hasPendingReskins ? 'AWAITING_FABRICATION' : 'CONFIRMED';
+
         await tx
             .update(orders)
             .set({
-                order_status: 'CONFIRMED',
+                order_status: nextStatus,
                 financial_status: 'QUOTE_ACCEPTED',
                 updated_at: new Date(),
             })
@@ -1906,8 +1915,10 @@ const approveQuote = async (
         await tx.insert(orderStatusHistory).values({
             platform_id: platformId,
             order_id: orderId,
-            status: 'CONFIRMED',
-            notes: notes || 'Client approved quote',
+            status: nextStatus,
+            notes: hasPendingReskins 
+                ? 'Client approved quote. Order awaiting fabrication completion.'
+                : (notes || 'Client approved quote'),
             updated_by: user.id,
         })
     })
@@ -1918,7 +1929,7 @@ const approveQuote = async (
     return {
         id: order.id,
         order_id: order.order_id,
-        order_status: 'CONFIRMED',
+        order_status: nextStatus,
         financial_status: 'QUOTE_ACCEPTED',
         updated_at: new Date(),
     }
@@ -2130,6 +2141,220 @@ const sendInvoice = async (user: AuthUser, platformId: string, orderId: string) 
     };
 };
 
+// ----------------------------------- SUBMIT FOR APPROVAL (NEW) ------------------------------------
+// Logistics submits order for Admin approval (replaces direct quote sending)
+const submitForApproval = async (
+    orderId: string,
+    user: AuthUser,
+    platformId: string
+) => {
+    // Get order
+    const order = await db.query.orders.findFirst({
+        where: and(
+            eq(orders.id, orderId),
+            eq(orders.platform_id, platformId)
+        ),
+    });
+
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, 'Order not found');
+    }
+
+    if (order.order_status !== 'PRICING_REVIEW') {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Order is not in PRICING_REVIEW status. Current status: ${order.order_status}`
+        );
+    }
+
+    // Recalculate pricing (includes any line items added by Logistics)
+    await recalculateOrderPricing(orderId, platformId, order.company_id, user.id);
+
+    // Update order status
+    await db
+        .update(orders)
+        .set({
+            order_status: 'PENDING_APPROVAL',
+            updated_at: new Date(),
+        })
+        .where(eq(orders.id, orderId));
+
+    // Log status change
+    await db.insert(orderStatusHistory).values({
+        platform_id: platformId,
+        order_id: orderId,
+        status: 'PENDING_APPROVAL',
+        notes: 'Logistics submitted for Admin approval',
+        updated_by: user.id,
+    });
+
+    // TODO: Send notification to Admin
+
+    return {
+        id: order.id,
+        order_id: order.order_id,
+        order_status: 'PENDING_APPROVAL',
+        updated_at: new Date(),
+    };
+};
+
+// ----------------------------------- ADMIN APPROVE QUOTE (NEW) ------------------------------------
+// Admin approves pricing and sends quote to client
+const adminApproveQuote = async (
+    orderId: string,
+    user: AuthUser,
+    platformId: string,
+    marginOverride?: { percent: number; reason: string }
+) => {
+    // Get order
+    const order = await db.query.orders.findFirst({
+        where: and(
+            eq(orders.id, orderId),
+            eq(orders.platform_id, platformId)
+        ),
+        with: {
+            company: true,
+        },
+    });
+
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, 'Order not found');
+    }
+
+    if (order.order_status !== 'PENDING_APPROVAL') {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Order is not in PENDING_APPROVAL status. Current status: ${order.order_status}`
+        );
+    }
+
+    // Recalculate pricing with margin override if provided
+    const marginPercent = marginOverride?.percent ?? parseFloat(order.company.platform_margin_percent);
+    const volume = parseFloat((order.calculated_totals as any).volume);
+    const emirate = PricingCalculationServices.deriveEmirateFromCity((order.venue_location as any).city);
+
+    const finalPricing = await PricingCalculationServices.calculateOrderPricing(
+        platformId,
+        order.company_id,
+        orderId,
+        volume,
+        emirate,
+        order.transport_trip_type,
+        order.transport_vehicle_type,
+        marginPercent,
+        !!marginOverride,
+        marginOverride?.reason || null,
+        user.id
+    );
+
+    // Update order
+    await db
+        .update(orders)
+        .set({
+            order_status: 'QUOTED',
+            financial_status: 'QUOTE_SENT',
+            pricing: finalPricing as any,
+            updated_at: new Date(),
+        })
+        .where(eq(orders.id, orderId));
+
+    // Log status change
+    await db.insert(orderStatusHistory).values({
+        platform_id: platformId,
+        order_id: orderId,
+        status: 'QUOTED',
+        notes: marginOverride
+            ? `Admin approved with margin override (${marginOverride.percent}%): ${marginOverride.reason}`
+            : 'Admin approved quote',
+        updated_by: user.id,
+    });
+
+    // Log financial status change
+    await db.insert(financialStatusHistory).values({
+        platform_id: platformId,
+        order_id: orderId,
+        status: 'QUOTE_SENT',
+        notes: 'Quote sent to client',
+        updated_by: user.id,
+    });
+
+    // TODO: Send QUOTE_READY notification to client
+
+    return {
+        id: order.id,
+        order_id: order.order_id,
+        order_status: 'QUOTED',
+        financial_status: 'QUOTE_SENT',
+        final_total: finalPricing.final_total,
+        updated_at: new Date(),
+    };
+};
+
+// ----------------------------------- RETURN TO LOGISTICS (NEW) ------------------------------------
+// Admin returns order to Logistics for revisions
+const returnToLogistics = async (
+    orderId: string,
+    user: AuthUser,
+    platformId: string,
+    reason: string
+) => {
+    const order = await db.query.orders.findFirst({
+        where: and(
+            eq(orders.id, orderId),
+            eq(orders.platform_id, platformId)
+        ),
+    });
+
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, 'Order not found');
+    }
+
+    if (order.order_status !== 'PENDING_APPROVAL') {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Order is not in PENDING_APPROVAL status. Current status: ${order.order_status}`
+        );
+    }
+
+    // Update order status
+    await db
+        .update(orders)
+        .set({
+            order_status: 'PRICING_REVIEW',
+            updated_at: new Date(),
+        })
+        .where(eq(orders.id, orderId));
+
+    // Log status change
+    await db.insert(orderStatusHistory).values({
+        platform_id: platformId,
+        order_id: orderId,
+        status: 'PRICING_REVIEW',
+        notes: `Admin returned to Logistics: ${reason}`,
+        updated_by: user.id,
+    });
+
+    // TODO: Send notification to Logistics
+
+    return {
+        id: order.id,
+        order_id: order.order_id,
+        order_status: 'PRICING_REVIEW',
+        updated_at: new Date(),
+    };
+};
+
+// ----------------------------------- CANCEL ORDER (NEW) ------------------------------------
+// Wrapper around OrderCancellationService
+const cancelOrder = async (
+    orderId: string,
+    user: AuthUser,
+    platformId: string,
+    payload: CancelOrderPayload
+) => {
+    return await OrderCancellationService.cancelOrder(orderId, platformId, payload, user);
+};
+
 export const OrderServices = {
     submitOrderFromCart,
     getOrders,
@@ -2143,12 +2368,17 @@ export const OrderServices = {
     getPricingReviewOrders,
     getOrderPricingDetails,
     adjustLogisticsPricing,
-    approveStandardPricing,
-    approvePlatformPricing,
+    approveStandardPricing, // DEPRECATED - will be removed
+    approvePlatformPricing, // DEPRECATED - will be removed
     approveQuote,
     declineQuote,
     getClientOrderStatistics,
     sendInvoice,
+    // NEW FUNCTIONS
+    submitForApproval,
+    adminApproveQuote,
+    returnToLogistics,
+    cancelOrder,
 };
 
 

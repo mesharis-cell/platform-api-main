@@ -422,6 +422,81 @@ const sendInvoice = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- SUBMIT FOR APPROVAL (NEW) -----------------------------------
+const submitForApproval = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platform_id;
+    const { id } = req.params;
+
+    const result = await OrderServices.submitForApproval(id, user, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Order submitted for Admin approval.",
+        data: result,
+    });
+});
+
+// ----------------------------------- ADMIN APPROVE QUOTE (NEW) -----------------------------------
+const adminApproveQuote = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platform_id;
+    const { id } = req.params;
+    const { margin_override_percent, margin_override_reason } = req.body;
+
+    const marginOverride = margin_override_percent
+        ? { percent: margin_override_percent, reason: margin_override_reason }
+        : undefined;
+
+    const result = await OrderServices.adminApproveQuote(id, user, platformId, marginOverride);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Quote approved and sent to client.",
+        data: result,
+    });
+});
+
+// ----------------------------------- RETURN TO LOGISTICS (NEW) -----------------------------------
+const returnToLogistics = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platform_id;
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    if (!reason || reason.trim().length < 10) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, 'Reason is required (min 10 characters)');
+    }
+
+    const result = await OrderServices.returnToLogistics(id, user, platformId, reason);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Order returned to Logistics for revision.",
+        data: result,
+    });
+});
+
+// ----------------------------------- CANCEL ORDER (NEW) -----------------------------------
+const cancelOrder = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platform_id;
+    const { id } = req.params;
+    const payload = req.body;
+
+    const result = await OrderServices.cancelOrder(id, user, platformId, payload);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Order cancelled successfully.",
+        data: result,
+    });
+});
+
 export const OrderControllers = {
     submitOrder,
     getOrders,
@@ -436,12 +511,17 @@ export const OrderControllers = {
     getPricingReviewOrders,
     getOrderPricingDetails,
     adjustLogisticsPricing,
-    approveStandardPricing,
-    approvePlatformPricing,
+    approveStandardPricing, // DEPRECATED
+    approvePlatformPricing, // DEPRECATED
     approveQuote,
     declineQuote,
     getOrderStatistics,
     sendInvoice,
+    // NEW CONTROLLERS
+    submitForApproval,
+    adminApproveQuote,
+    returnToLogistics,
+    cancelOrder,
 };
 
 
