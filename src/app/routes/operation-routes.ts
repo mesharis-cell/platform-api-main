@@ -7,6 +7,9 @@ import { CompanyRoutes } from "../modules/company/company.routes";
 import { NotificationLogRoutes } from "../modules/notification-logs/notification-logs.routes";
 import { PlatformRoutes } from "../modules/platform/platform.routes";
 import { PricingTierRoutes } from "../modules/pricing-tier/pricing-tier.routes";
+import { PricingConfigRoutes } from "../modules/pricing-config/pricing-config.routes";
+import { TransportRatesRoutes } from "../modules/transport-rates/transport-rates.routes";
+import { ServiceTypesRoutes } from "../modules/service-types/service-types.routes";
 import { UserRoutes } from "../modules/user/user.routes";
 import { WarehouseRoutes } from "../modules/warehouse/warehouse.routes";
 import { ZoneRoutes } from "../modules/zone/zone.routes";
@@ -47,7 +50,19 @@ const routes = [
   },
   {
     path: "/pricing-tier",
-    route: PricingTierRoutes,
+    route: PricingTierRoutes, // DEPRECATED - will be removed
+  },
+  {
+    path: "/pricing/config",
+    route: PricingConfigRoutes,
+  },
+  {
+    path: "/pricing/transport-rates",
+    route: TransportRatesRoutes,
+  },
+  {
+    path: "/pricing/service-types",
+    route: ServiceTypesRoutes,
   },
   {
     path: "/asset",

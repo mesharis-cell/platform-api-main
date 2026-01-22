@@ -6,6 +6,8 @@ import platformValidator from "../../middleware/platform-validator";
 import { PERMISSIONS } from "../../constants/permissions";
 import { OrderControllers } from "./order.controllers";
 import { orderSchemas } from "./order.schemas";
+import { OrderLineItemsRoutes } from "../order-line-items/order-line-items.routes";
+import { ReskinRequestsRoutes } from "../reskin-requests/reskin-requests.routes";
 
 const router = Router();
 
@@ -183,5 +185,13 @@ router.patch(
     payloadValidator(orderSchemas.approvePlatformPricingSchema),
     OrderControllers.approvePlatformPricing
 );
+
+// ---------------------------------- NESTED ROUTES (NEW) ----------------------------------
+
+// Order Line Items (nested under /order/:orderId/line-items)
+router.use("/:orderId/line-items", OrderLineItemsRoutes);
+
+// Reskin Requests (nested under /order/:orderId/reskin-requests)
+router.use("/:orderId/reskin-requests", ReskinRequestsRoutes);
 
 export const OrderRoutes = router;
