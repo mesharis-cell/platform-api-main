@@ -71,6 +71,14 @@ router.get(
     OrderControllers.getOrderPricingDetails
 );
 
+// Calculate order estimate (NEW)
+router.post(
+    "/estimate",
+    platformValidator,
+    auth("CLIENT"),
+    OrderControllers.calculateEstimate
+);
+
 // Submit order
 router.post(
     "/submit-from-cart",

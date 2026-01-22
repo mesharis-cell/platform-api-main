@@ -497,6 +497,33 @@ const cancelOrder = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- CALCULATE ESTIMATE (NEW) -----------------------------------
+const calculateEstimate = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platform_id;
+    const companyId = user.company_id;
+    const { items, venue_city, transport_trip_type } = req.body;
+
+    if (!items || !venue_city || !transport_trip_type) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, 'items, venue_city, and transport_trip_type are required');
+    }
+
+    const estimate = await OrderServices.calculateOrderEstimate(
+        platformId,
+        companyId,
+        items,
+        venue_city,
+        transport_trip_type
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Estimate calculated successfully.",
+        data: { estimate },
+    });
+});
+
 export const OrderControllers = {
     submitOrder,
     getOrders,
@@ -522,6 +549,7 @@ export const OrderControllers = {
     adminApproveQuote,
     returnToLogistics,
     cancelOrder,
+    calculateEstimate,
 };
 
 

@@ -2355,6 +2355,58 @@ const cancelOrder = async (
     return await OrderCancellationService.cancelOrder(orderId, platformId, payload, user);
 };
 
+// ----------------------------------- CALCULATE ESTIMATE (NEW) ------------------------------------
+// Calculate order estimate before submission (client-facing)
+const calculateOrderEstimate = async (
+    platformId: string,
+    companyId: string,
+    items: Array<{ asset_id: string; quantity: number }>,
+    venueCity: string,
+    tripType: string
+) => {
+    // Get assets to calculate volume
+    const assetIds = items.map(i => i.asset_id);
+    const foundAssets = await db
+        .select()
+        .from(assets)
+        .where(
+            and(
+                inArray(assets.id, assetIds),
+                eq(assets.platform_id, platformId)
+            )
+        );
+
+    // Calculate total volume
+    let totalVolume = 0;
+    for (const item of items) {
+        const asset = foundAssets.find(a => a.id === item.asset_id);
+        if (asset) {
+            totalVolume += parseFloat(asset.volume_per_unit) * item.quantity;
+        }
+    }
+
+    // Get company margin
+    const [company] = await db
+        .select()
+        .from(companies)
+        .where(eq(companies.id, companyId))
+        .limit(1);
+
+    const marginPercent = parseFloat(company.platform_margin_percent);
+
+    // Calculate estimate
+    const estimate = await PricingCalculationServices.calculateOrderEstimate(
+        platformId,
+        companyId,
+        totalVolume,
+        venueCity,
+        tripType,
+        marginPercent
+    );
+
+    return estimate;
+};
+
 export const OrderServices = {
     submitOrderFromCart,
     getOrders,
@@ -2379,6 +2431,7 @@ export const OrderServices = {
     adminApproveQuote,
     returnToLogistics,
     cancelOrder,
+    calculateOrderEstimate,
 };
 
 
