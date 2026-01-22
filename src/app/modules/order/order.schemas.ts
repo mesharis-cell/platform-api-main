@@ -6,7 +6,27 @@ export const orderItemSchema = z.object({
     asset_id: z.uuid("Invalid asset ID"),
     quantity: z.number("Quantity should be a number").int("Quantity should be an integer").positive("Quantity must be a positive integer"),
     from_collection_id: z.uuid("Invalid collection ID").optional(),
-});
+    // Reskin/rebrand fields (NEW)
+    is_reskin_request: z.boolean().optional().default(false),
+    reskin_target_brand_id: z.uuid("Invalid brand ID").optional(),
+    reskin_target_brand_custom: z.string().max(100, "Custom brand name must be under 100 characters").optional(),
+    reskin_notes: z.string().min(10, "Reskin notes must be at least 10 characters").optional(),
+}).refine(
+    (data) => {
+        // If reskin requested, must have target brand and notes
+        if (data.is_reskin_request) {
+            return (
+                (data.reskin_target_brand_id || data.reskin_target_brand_custom) &&
+                data.reskin_notes
+            );
+        }
+        return true;
+    },
+    {
+        message: "Reskin requests require target brand and notes",
+        path: ["is_reskin_request"],
+    }
+);
 
 const submitOrderSchema = z.object({
     body: z.object({
@@ -15,6 +35,9 @@ const submitOrderSchema = z.object({
             .min(1, "At least one item is required"),
 
         brand_id: z.uuid("Invalid brand ID").optional(),
+        transport_trip_type: z.enum(["ONE_WAY", "ROUND_TRIP"], {
+            message: "Trip type must be ONE_WAY or ROUND_TRIP",
+        }).optional().default("ROUND_TRIP"),
         event_start_date: z.string("Event start date is required")
             .refine(
                 (date) => !isNaN(Date.parse(date)),
