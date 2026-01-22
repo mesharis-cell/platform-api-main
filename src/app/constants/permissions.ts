@@ -58,21 +58,33 @@ export const PERMISSIONS = {
     COLLECTIONS_ASSIGN_ASSETS: 'collections:assign_assets', // ✅
     COLLECTIONS_ALL: 'collections:*',
 
-    // ==================== PRICING CONFIGURATION ====================
-    PRICING_TIERS_CREATE: 'pricing_tiers:create', // ✅
-    PRICING_TIERS_READ: 'pricing_tiers:read', // ✅
-    PRICING_TIERS_UPDATE: 'pricing_tiers:update', // ✅
-    PRICING_TIERS_ACTIVATE: 'pricing_tiers:activate', // ✅
-    PRICING_TIERS_DEACTIVATE: 'pricing_tiers:deactivate', // ✅
-    PRICING_TIERS_ALL: 'pricing_tiers:*',
+    // ==================== PRICING CONFIGURATION (DEPRECATED) ====================
+    PRICING_TIERS_CREATE: 'pricing_tiers:create', // ✅ DEPRECATED
+    PRICING_TIERS_READ: 'pricing_tiers:read', // ✅ DEPRECATED
+    PRICING_TIERS_UPDATE: 'pricing_tiers:update', // ✅ DEPRECATED
+    PRICING_TIERS_ACTIVATE: 'pricing_tiers:activate', // ✅ DEPRECATED
+    PRICING_TIERS_DEACTIVATE: 'pricing_tiers:deactivate', // ✅ DEPRECATED
+    PRICING_TIERS_ALL: 'pricing_tiers:*', // DEPRECATED
+
+    // ==================== PRICING CONFIGURATION (NEW) ====================
+    PRICING_CONFIG_READ: 'pricing_config:read',
+    PRICING_CONFIG_UPDATE: 'pricing_config:update',
+    TRANSPORT_RATES_MANAGE: 'transport_rates:manage',
+    SERVICE_TYPES_MANAGE: 'service_types:manage',
+    ORDER_LINE_ITEMS_MANAGE: 'order_line_items:manage',
 
     // ==================== PRICING REVIEW ====================
     PRICING_REVIEW: 'pricing:review', // ✅
-    PRICING_APPROVE_STANDARD: 'pricing:approve_standard', // ✅
+    PRICING_APPROVE_STANDARD: 'pricing:approve_standard', // ✅ DEPRECATED (all go through admin now)
     PRICING_ADJUST: 'pricing:adjust', // ✅
     PRICING_ADMIN_REVIEW_ADJUSTMENT: 'pricing:admin_review_adjustment', // ✅
     PRICING_ADMIN_APPROVE: 'pricing:admin_approve', // ✅
     PRICING_ALL: 'pricing:*',
+    
+    // ==================== RESKIN/REBRAND WORKFLOW ====================
+    RESKIN_REQUESTS_PROCESS: 'reskin_requests:process',
+    RESKIN_REQUESTS_COMPLETE: 'reskin_requests:complete',
+    RESKIN_REQUESTS_CANCEL: 'reskin_requests:cancel',
 
     // ==================== ORDER MANAGEMENT ====================
     ORDERS_CREATE: 'orders:create', // ✅
@@ -82,6 +94,7 @@ export const PERMISSIONS = {
     ORDERS_ADD_TIME_WINDOWS: 'orders:add_time_windows', // ✅
     ORDERS_VIEW_STATUS_HISTORY: 'orders:view_status_history', // ✅
     ORDERS_EXPORT: 'orders:export', // ✅
+    ORDERS_CANCEL: 'orders:cancel',
     ORDERS_ALL: 'orders:*',
 
     // ==================== QUOTES ====================
