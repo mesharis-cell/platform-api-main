@@ -23,10 +23,10 @@ const createPricingTier = async (data: CreatePricingTierPayload) => {
         );
 
         if (overlap) {
-            const overlapMax = overlap.volume_max || 'unlimited';
+            const overlapMax = overlap.volume_max || "unlimited";
             throw new CustomizedError(
                 httpStatus.CONFLICT,
-                `Volume range ${volume_min}-${volume_max || 'unlimited'} m³ overlaps with existing tier (${overlap.volume_min}-${overlapMax} m³) for ${city}, ${country}`
+                `Volume range ${volume_min}-${volume_max || "unlimited"} m³ overlaps with existing tier (${overlap.volume_min}-${overlapMax} m³) for ${city}, ${country}`
             );
         }
 
@@ -34,7 +34,8 @@ const createPricingTier = async (data: CreatePricingTierPayload) => {
         const dbData = {
             ...data,
             volume_min: volume_min.toString(),
-            volume_max: volume_max !== null && volume_max !== undefined ? volume_max.toString() : null,
+            volume_max:
+                volume_max !== null && volume_max !== undefined ? volume_max.toString() : null,
             base_price: base_price.toString(),
         };
 
@@ -45,8 +46,8 @@ const createPricingTier = async (data: CreatePricingTierPayload) => {
         // Step 3: Handle database errors
         const pgError = error.cause || error;
 
-        if (pgError.code === '23505') {
-            if (pgError.constraint === 'pricing_tiers_unique') {
+        if (pgError.code === "23505") {
+            if (pgError.constraint === "pricing_tiers_unique") {
                 throw new CustomizedError(
                     httpStatus.CONFLICT,
                     `Pricing tier with this country, city, and volume range already exists`
@@ -54,7 +55,7 @@ const createPricingTier = async (data: CreatePricingTierPayload) => {
             }
             throw new CustomizedError(
                 httpStatus.CONFLICT,
-                'A pricing tier with these details already exists'
+                "A pricing tier with these details already exists"
             );
         }
 
@@ -71,12 +72,7 @@ const getPricingTierLocations = async (platformId: string) => {
             city: pricingTiers.city,
         })
         .from(pricingTiers)
-        .where(
-            and(
-                eq(pricingTiers.platform_id, platformId),
-                eq(pricingTiers.is_active, true)
-            )
-        );
+        .where(and(eq(pricingTiers.platform_id, platformId), eq(pricingTiers.is_active, true)));
 
     // Step 2: Extract unique countries
     const countries = Array.from(new Set(tiers.map((t) => t.country))).sort();
@@ -105,30 +101,20 @@ const getPricingTierLocations = async (platformId: string) => {
 
 // ----------------------------------- GET PRICING TIERS -------------------------------------
 const getPricingTiers = async (query: Record<string, any>, platformId: string) => {
-    const {
-        search_term,
+    const { search_term, page, limit, sort_by, sort_order, country, city, include_inactive } =
+        query;
+
+    // Step 1: Validate query parameters
+    if (sort_by) queryValidator(pricingTierQueryValidationConfig, "sort_by", sort_by);
+    if (sort_order) queryValidator(pricingTierQueryValidationConfig, "sort_order", sort_order);
+
+    // Step 2: Setup pagination
+    const { pageNumber, limitNumber, skip, sortWith, sortSequence } = paginationMaker({
         page,
         limit,
         sort_by,
         sort_order,
-        country,
-        city,
-        include_inactive,
-    } = query;
-
-    // Step 1: Validate query parameters
-    if (sort_by) queryValidator(pricingTierQueryValidationConfig, "sort_by", sort_by);
-    if (sort_order)
-        queryValidator(pricingTierQueryValidationConfig, "sort_order", sort_order);
-
-    // Step 2: Setup pagination
-    const { pageNumber, limitNumber, skip, sortWith, sortSequence } =
-        paginationMaker({
-            page,
-            limit,
-            sort_by,
-            sort_order,
-        });
+    });
 
     // Step 3: Build WHERE conditions
     const conditions: any[] = [eq(pricingTiers.platform_id, platformId)];
@@ -138,7 +124,7 @@ const getPricingTiers = async (query: Record<string, any>, platformId: string) =
         conditions.push(
             or(
                 ilike(pricingTiers.country, `%${search_term.trim()}%`),
-                ilike(pricingTiers.city, `%${search_term.trim()}%`),
+                ilike(pricingTiers.city, `%${search_term.trim()}%`)
             )
         );
     }
@@ -194,10 +180,7 @@ const getPricingTiers = async (query: Record<string, any>, platformId: string) =
 // ----------------------------------- GET PRICING TIER BY ID --------------------------------
 const getPricingTierById = async (id: string, platformId: string) => {
     // Step 1: Build WHERE conditions
-    const conditions: any[] = [
-        eq(pricingTiers.id, id),
-        eq(pricingTiers.platform_id, platformId),
-    ];
+    const conditions: any[] = [eq(pricingTiers.id, id), eq(pricingTiers.platform_id, platformId)];
 
     // Step 2: Fetch pricing tier
     const [pricingTier] = await db
@@ -234,26 +217,44 @@ const updatePricingTier = async (id: string, data: any, platformId: string, user
 
         // Step 2: Check if user has permission to activate/deactivate pricing tier
         if (data.is_active === false && existingPricingTier.is_active === true) {
-            const isPermission = user.permissions.includes(PERMISSIONS.PRICING_TIERS_DEACTIVATE) || user.permissions.includes(PERMISSIONS.PRICING_TIERS_ALL)
+            const isPermission =
+                user.permissions.includes(PERMISSIONS.PRICING_TIERS_DEACTIVATE) ||
+                user.permissions.includes(PERMISSIONS.PRICING_TIERS_ALL);
             if (!isPermission) {
-                throw new CustomizedError(httpStatus.FORBIDDEN, "You are not authorized to deactivate this pricing tier");
+                throw new CustomizedError(
+                    httpStatus.FORBIDDEN,
+                    "You are not authorized to deactivate this pricing tier"
+                );
             }
         }
 
         if (data.is_active === true && existingPricingTier.is_active === false) {
-            const isPermission = user.permissions.includes(PERMISSIONS.PRICING_TIERS_ACTIVATE) || user.permissions.includes(PERMISSIONS.PRICING_TIERS_ALL)
+            const isPermission =
+                user.permissions.includes(PERMISSIONS.PRICING_TIERS_ACTIVATE) ||
+                user.permissions.includes(PERMISSIONS.PRICING_TIERS_ALL);
             if (!isPermission) {
-                throw new CustomizedError(httpStatus.FORBIDDEN, "You are not authorized to activate this pricing tier");
+                throw new CustomizedError(
+                    httpStatus.FORBIDDEN,
+                    "You are not authorized to activate this pricing tier"
+                );
             }
         }
 
         // Step 3: Check for volume overlap if volume fields are being updated
         const updatedCountry = data.country || existingPricingTier.country;
         const updatedCity = data.city || existingPricingTier.city;
-        const updatedVolumeMin = data.volume_min !== undefined ? data.volume_min : parseFloat(existingPricingTier.volume_min);
-        const updatedVolumeMax = data.volume_max !== undefined
-            ? (data.volume_max !== null ? data.volume_max : null)
-            : (existingPricingTier.volume_max ? parseFloat(existingPricingTier.volume_max) : null);
+        const updatedVolumeMin =
+            data.volume_min !== undefined
+                ? data.volume_min
+                : parseFloat(existingPricingTier.volume_min);
+        const updatedVolumeMax =
+            data.volume_max !== undefined
+                ? data.volume_max !== null
+                    ? data.volume_max
+                    : null
+                : existingPricingTier.volume_max
+                  ? parseFloat(existingPricingTier.volume_max)
+                  : null;
 
         // Only check overlap if volume fields are being changed
         if (data.volume_min !== undefined || data.volume_max !== undefined) {
@@ -267,10 +268,10 @@ const updatePricingTier = async (id: string, data: any, platformId: string, user
             );
 
             if (overlap) {
-                const overlapMax = overlap.volume_max || 'unlimited';
+                const overlapMax = overlap.volume_max || "unlimited";
                 throw new CustomizedError(
                     httpStatus.CONFLICT,
-                    `Volume range ${updatedVolumeMin}-${updatedVolumeMax || 'unlimited'} m³ overlaps with existing tier (${overlap.volume_min}-${overlapMax} m³) for ${updatedCity}, ${updatedCountry}`
+                    `Volume range ${updatedVolumeMin}-${updatedVolumeMax || "unlimited"} m³ overlaps with existing tier (${overlap.volume_min}-${overlapMax} m³) for ${updatedCity}, ${updatedCountry}`
                 );
             }
         }
@@ -301,8 +302,8 @@ const updatePricingTier = async (id: string, data: any, platformId: string, user
         // Step 6: Handle database errors
         const pgError = error.cause || error;
 
-        if (pgError.code === '23505') {
-            if (pgError.constraint === 'pricing_tiers_unique') {
+        if (pgError.code === "23505") {
+            if (pgError.constraint === "pricing_tiers_unique") {
                 throw new CustomizedError(
                     httpStatus.CONFLICT,
                     `Pricing tier with this country, city, and volume range already exists`
@@ -310,7 +311,7 @@ const updatePricingTier = async (id: string, data: any, platformId: string, user
             }
             throw new CustomizedError(
                 httpStatus.CONFLICT,
-                'A pricing tier with these details already exists'
+                "A pricing tier with these details already exists"
             );
         }
 
@@ -321,10 +322,7 @@ const updatePricingTier = async (id: string, data: any, platformId: string, user
 // ----------------------------------- DELETE PRICING TIER -----------------------------------
 const deletePricingTier = async (id: string, platformId: string) => {
     // Step 1: Verify pricing tier exists
-    const conditions: any[] = [
-        eq(pricingTiers.id, id),
-        eq(pricingTiers.platform_id, platformId),
-    ];
+    const conditions: any[] = [eq(pricingTiers.id, id), eq(pricingTiers.platform_id, platformId)];
 
     const [existingPricingTier] = await db
         .select()
@@ -336,11 +334,7 @@ const deletePricingTier = async (id: string, platformId: string) => {
     }
 
     // Step 2: Check if pricing tier is referenced by any orders
-    const [orderReference] = await db
-        .select()
-        .from(orders)
-        .where(eq(orders.tier_id, id))
-        .limit(1);
+    const [orderReference] = await db.select().from(orders).where(eq(orders.tier_id, id)).limit(1);
 
     if (orderReference) {
         throw new CustomizedError(
@@ -350,37 +344,31 @@ const deletePricingTier = async (id: string, platformId: string) => {
     }
 
     // Step 3: Permanently delete pricing tier
-    await db
-        .delete(pricingTiers)
-        .where(eq(pricingTiers.id, id));
+    await db.delete(pricingTiers).where(eq(pricingTiers.id, id));
 
     return null;
 };
 
 // ----------------------------------- CALCULATE PRICING -------------------------------------
-const calculatePricing = async (
-    platformId: string,
-    user: AuthUser,
-    query: Record<string, any>
-) => {
+const calculatePricing = async (platformId: string, user: AuthUser, query: Record<string, any>) => {
     const { country, city, volume } = query;
 
     // Step 1: Validate query parameters
-    if (!country || typeof country !== 'string' || country.trim().length === 0) {
-        throw new Error('country is required');
+    if (!country || typeof country !== "string" || country.trim().length === 0) {
+        throw new Error("country is required");
     }
 
-    if (!city || typeof city !== 'string' || city.trim().length === 0) {
-        throw new Error('city is required');
+    if (!city || typeof city !== "string" || city.trim().length === 0) {
+        throw new Error("city is required");
     }
 
-    if (!volume || typeof volume !== 'string') {
-        throw new Error('volume is required');
+    if (!volume || typeof volume !== "string") {
+        throw new Error("volume is required");
     }
 
     const volumeNumber = parseFloat(volume);
     if (isNaN(volumeNumber) || volumeNumber < 0) {
-        throw new Error('volume must be a positive number');
+        throw new Error("volume must be a positive number");
     }
 
     // Step 2: Find matching pricing tier
@@ -424,7 +412,7 @@ const calculatePricing = async (
         platform_margin_amount: parseFloat(platformMarginAmount.toFixed(2)),
         estimated_total: parseFloat(estimatedTotal.toFixed(2)), // Final estimate with margin
         matched_volume: volume,
-        note: 'This is a flat rate for the volume range, not a per-m³ rate',
+        note: "This is a flat rate for the volume range, not a per-m³ rate",
     };
 };
 
@@ -509,9 +497,7 @@ const findMatchingTier = async (
         )
         .limit(1);
 
-    return matchingTiers.length > 0
-        ? transformPricingTierResponse(matchingTiers[0])
-        : null;
+    return matchingTiers.length > 0 ? transformPricingTierResponse(matchingTiers[0]) : null;
 };
 
 export const PricingTierServices = {

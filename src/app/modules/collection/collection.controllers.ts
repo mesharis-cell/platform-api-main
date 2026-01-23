@@ -2,6 +2,7 @@ import httpStatus from "http-status";
 import catchAsync from "../../shared/catch-async";
 import sendResponse from "../../shared/send-response";
 import { CollectionServices } from "./collection.services";
+import { getRequiredString } from "../../utils/request";
 
 // ----------------------------------- CREATE COLLECTION -----------------------------------
 const createCollection = catchAsync(async (req, res) => {
@@ -42,7 +43,7 @@ const getCollections = catchAsync(async (req, res) => {
 const getCollectionById = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
 
     const result = await CollectionServices.getCollectionById(id, user, platformId);
 
@@ -57,7 +58,7 @@ const getCollectionById = catchAsync(async (req, res) => {
 // ----------------------------------- UPDATE COLLECTION ---------------------------------------
 const updateCollection = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
 
     const result = await CollectionServices.updateCollection(id, req.body, platformId);
 
@@ -72,7 +73,7 @@ const updateCollection = catchAsync(async (req, res) => {
 // ----------------------------------- DELETE COLLECTION ---------------------------------------
 const deleteCollection = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
 
     const result = await CollectionServices.deleteCollection(id, platformId);
 
@@ -87,7 +88,7 @@ const deleteCollection = catchAsync(async (req, res) => {
 // ----------------------------------- ADD COLLECTION ITEM -----------------------------------
 const addCollectionItem = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
 
     const itemData = {
         ...req.body,
@@ -107,7 +108,8 @@ const addCollectionItem = catchAsync(async (req, res) => {
 // ----------------------------------- UPDATE COLLECTION ITEM -----------------------------------
 const updateCollectionItem = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
-    const { id, itemId } = req.params;
+    const id = getRequiredString(req.params.id, "id");
+    const itemId = getRequiredString(req.params.itemId, "itemId");
 
     const result = await CollectionServices.updateCollectionItem(id, itemId, req.body, platformId);
 
@@ -122,7 +124,8 @@ const updateCollectionItem = catchAsync(async (req, res) => {
 // ----------------------------------- DELETE COLLECTION ITEM -----------------------------------
 const deleteCollectionItem = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
-    const { id, itemId } = req.params;
+    const id = getRequiredString(req.params.id, "id");
+    const itemId = getRequiredString(req.params.itemId, "itemId");
 
     const result = await CollectionServices.deleteCollectionItem(id, itemId, platformId);
 
@@ -138,7 +141,7 @@ const deleteCollectionItem = catchAsync(async (req, res) => {
 const checkCollectionAvailability = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
 
     const result = await CollectionServices.checkCollectionAvailability(
         id,

@@ -1,50 +1,50 @@
 type AdjustPriceTemplatePayload = {
-    order_id: string,
-    company_name: string,
-    adjusted_price: number,
-    adjustment_reason: string,
-    view_order_url: string
+    order_id: string;
+    company_name: string;
+    adjusted_price: number;
+    adjustment_reason: string;
+    view_order_url: string;
 };
 
 type SubmitOrderTemplatePayload = {
-    order_id: string,
-    company_name: string,
-    event_start_date: string,
-    event_end_date: string,
-    venue_city: string,
-    total_volume: string,
-    item_count: number,
-    view_order_url: string,
+    order_id: string;
+    company_name: string;
+    event_start_date: string;
+    event_end_date: string;
+    venue_city: string;
+    total_volume: string;
+    item_count: number;
+    view_order_url: string;
     by_role: {
-        greeting: string,
-        message: string,
-        action: string
-    }
+        greeting: string;
+        message: string;
+        action: string;
+    };
 };
 
 type SendInvoiceToClientTemplatePayload = {
-    invoice_number: string,
-    order_id: string,
-    company_name: string,
-    final_total_price: string,
-    download_invoice_url: string
+    invoice_number: string;
+    order_id: string;
+    company_name: string;
+    final_total_price: string;
+    download_invoice_url: string;
 };
 
 type SendInvoiceToAdminTemplatePayload = {
-    invoice_number: string,
-    order_id: string,
-    company_name: string,
-    final_total_price: string,
-    download_invoice_url: string
+    invoice_number: string;
+    order_id: string;
+    company_name: string;
+    final_total_price: string;
+    download_invoice_url: string;
 };
 
 type ForgotPasswordOtpTemplatePayload = {
-    email: string,
-    otp: string
+    email: string;
+    otp: string;
 };
 
 export const emailTemplates = {
-    adjust_price: (data: AdjustPriceTemplatePayload) => (
+    adjust_price: (data: AdjustPriceTemplatePayload) =>
         `
         <!DOCTYPE html>
         <html>
@@ -78,9 +78,8 @@ export const emailTemplates = {
             </table>
         </body>
         </html>
-        `
-    ),
-    submit_order: (data: SubmitOrderTemplatePayload) => (
+        `,
+    submit_order: (data: SubmitOrderTemplatePayload) =>
         `
         <!DOCTYPE html>
         <head>
@@ -169,9 +168,8 @@ export const emailTemplates = {
                 </tr>
             </table>
         </body>
-	    `
-    ),
-    send_invoice_to_client: (data: SendInvoiceToClientTemplatePayload) => (
+	    `,
+    send_invoice_to_client: (data: SendInvoiceToClientTemplatePayload) =>
         `
         <!DOCTYPE html>
         <html>
@@ -212,9 +210,8 @@ export const emailTemplates = {
             </table>
         </body>
         </html>
-		`
-    ),
-    send_invoice_to_admin: (data: SendInvoiceToAdminTemplatePayload) => (
+		`,
+    send_invoice_to_admin: (data: SendInvoiceToAdminTemplatePayload) =>
         `
         <!DOCTYPE html>
         <html>
@@ -244,9 +241,8 @@ export const emailTemplates = {
             </table>
         </body>
         </html>
-		`
-    ),
-    forgot_password_otp: (data: ForgotPasswordOtpTemplatePayload) => (
+		`,
+    forgot_password_otp: (data: ForgotPasswordOtpTemplatePayload) =>
         `
         <!DOCTYPE html>
         <html>
@@ -328,6 +324,5 @@ export const emailTemplates = {
             </table>
         </body>
         </html>
-        `
-    )
+        `,
 };

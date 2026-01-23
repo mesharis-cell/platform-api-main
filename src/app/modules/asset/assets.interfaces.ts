@@ -8,13 +8,23 @@ export type CreateAssetPayload = z.infer<typeof AssetSchemas.createAssetSchema>[
 
 export type UpdateAssetPayload = z.infer<typeof AssetSchemas.updateAssetSchema>["body"];
 
-export type AddConditionHistoryPayload = z.infer<typeof AssetSchemas.addConditionHistorySchema>["body"];
+export type AddConditionHistoryPayload = z.infer<
+    typeof AssetSchemas.addConditionHistorySchema
+>["body"];
 
 export type GenerateQRCodePayload = z.infer<typeof AssetSchemas.generateQRCodeSchema>["body"];
 
-export type CompleteMaintenancePayload = z.infer<typeof AssetSchemas.completeMaintenanceSchema>["body"];
+export type CompleteMaintenancePayload = z.infer<
+    typeof AssetSchemas.completeMaintenanceSchema
+>["body"];
 
-export type SingleAssetAvailabilityResponse = { asset_name: string; total_quantity: number; available_quantity: number; booked_quantity: number; bookings: { order_id: string; quantity: number; blocked_from: Date; blocked_until: Date; }[] }
+export type SingleAssetAvailabilityResponse = {
+    asset_name: string;
+    total_quantity: number;
+    available_quantity: number;
+    booked_quantity: number;
+    bookings: { order_id: string; quantity: number; blocked_from: Date; blocked_until: Date }[];
+};
 
 export type AssetStatus = (typeof assetStatusEnum.enumValues)[number];
 
@@ -24,8 +34,7 @@ export type UnavailableItem = {
     requested: number;
     available: number;
     next_available_date?: Date;
-}
-
+};
 
 // ----------------------------------- BULK UPLOAD INTERFACES ---------------------------------
 
@@ -64,7 +73,7 @@ export interface ValidatedAssetData {
     zone_id: string;
     name: string;
     category: string;
-    tracking_method: 'INDIVIDUAL' | 'BATCH';
+    tracking_method: "INDIVIDUAL" | "BATCH";
     weight_per_unit: number;
     dimensions: {
         length?: number;
@@ -78,7 +87,7 @@ export interface ValidatedAssetData {
     description?: string | null;
     handling_tags: string[];
     images: string[];
-    condition: 'GREEN' | 'ORANGE' | 'RED';
+    condition: "GREEN" | "ORANGE" | "RED";
 }
 
 // Row validation error

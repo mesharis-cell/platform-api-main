@@ -110,11 +110,11 @@
  *     description: |
  *       Authenticates a user with email and password. On successful login, sets HTTP-only cookies for access_token and refresh_token.
  *       The platform ID is required in the X-Platform header to identify which platform the user belongs to.
- *       
+ *
  *       **Cookie Details:**
  *       - `access_token`: Short-lived JWT for API authentication
  *       - `refresh_token`: Long-lived JWT for obtaining new access tokens
- *       
+ *
  *       Both cookies are HTTP-only and have their expiry synced with the JWT expiration.
  *     parameters:
  *       - $ref: '#/components/parameters/PlatformHeader'
@@ -369,7 +369,7 @@
  *     description: |
  *       Allows an authenticated user to reset their own password by providing their current password and new password.
  *       The user must be logged in and provide a valid access token. The platform ID is required in the X-Platform header.
- *       
+ *
  *       **Security Features:**
  *       - Requires authentication (user must be logged in)
  *       - Verifies current password before allowing reset
@@ -583,19 +583,19 @@
  *     summary: Forgot password - OTP-based password reset
  *     description: |
  *       Two-step password reset process using OTP (One-Time Password):
- *       
+ *
  *       **Step 1: Request OTP**
  *       - Send only `email` in the request body
  *       - System generates a 6-digit OTP valid for 5 minutes
  *       - OTP is sent to the user's email address
  *       - Returns OTP details (email and expiration time)
- *       
+ *
  *       **Step 2: Reset Password with OTP**
  *       - Send `email`, `otp`, and `new_password` in the request body
  *       - System verifies OTP validity and expiration
  *       - Updates user password if OTP is valid
  *       - Deletes used OTP from database
- *       
+ *
  *       **Security Features:**
  *       - OTP expires after 5 minutes
  *       - OTP is single-use (deleted after successful reset)
@@ -796,7 +796,7 @@
  *     description: |
  *       Resets user password using the token received via email.
  *       The platform ID is required in the X-Platform header to identify which platform the user belongs to.
- *       
+ *
  *       **Security Features:**
  *       - Validates reset token and expiration (1 hour validity)
  *       - Hashes new password with bcrypt
@@ -880,4 +880,3 @@
  */
 
 export const authSwagger = {};
-

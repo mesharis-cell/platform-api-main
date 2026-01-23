@@ -75,23 +75,21 @@ const getCollections = async (query: Record<string, any>, user: AuthUser, platfo
 
     // Step 1: Validate query parameters
     if (sort_by) queryValidator(collectionQueryValidationConfig, "sort_by", sort_by);
-    if (sort_order)
-        queryValidator(collectionQueryValidationConfig, "sort_order", sort_order);
+    if (sort_order) queryValidator(collectionQueryValidationConfig, "sort_order", sort_order);
 
     // Step 2: Setup pagination
-    const { pageNumber, limitNumber, skip, sortWith, sortSequence } =
-        paginationMaker({
-            page,
-            limit,
-            sort_by,
-            sort_order,
-        });
+    const { pageNumber, limitNumber, skip, sortWith, sortSequence } = paginationMaker({
+        page,
+        limit,
+        sort_by,
+        sort_order,
+    });
 
     // Step 3: Build WHERE conditions
     const conditions: any[] = [eq(collections.platform_id, platformId)];
 
     // Step 3a: Filter by user role (CLIENT users see only their company's collections)
-    if (user.role === 'CLIENT') {
+    if (user.role === "CLIENT") {
         if (user.company_id) {
             conditions.push(eq(collections.company_id, user.company_id));
         } else {
@@ -101,9 +99,7 @@ const getCollections = async (query: Record<string, any>, user: AuthUser, platfo
 
     // Step 3b: Search by collection name
     if (search_term) {
-        conditions.push(
-            ilike(collections.name, `%${search_term.trim()}%`)
-        );
+        conditions.push(ilike(collections.name, `%${search_term.trim()}%`));
     }
 
     // Step 3c: Filter by company ID
@@ -122,12 +118,12 @@ const getCollections = async (query: Record<string, any>, user: AuthUser, platfo
     }
 
     // Step 3f: Filter by active status (default: only active collections)
-    if (include_inactive !== 'true') {
+    if (include_inactive !== "true") {
         conditions.push(eq(collections.is_active, true));
     }
 
     // Step 3g: Filter by deleted status (default: exclude deleted collections)
-    if (include_deleted !== 'true') {
+    if (include_deleted !== "true") {
         conditions.push(isNull(collections.deleted_at));
     }
 
@@ -189,7 +185,7 @@ const getCollectionById = async (id: string, user: AuthUser, platformId: string)
     ];
 
     // Step 2: Filter by user role (CLIENT users can only see their company's collections)
-    if (user.role === 'CLIENT') {
+    if (user.role === "CLIENT") {
         if (user.company_id) {
             conditions.push(eq(collections.company_id, user.company_id));
         } else {
@@ -335,7 +331,11 @@ const deleteCollection = async (id: string, platformId: string) => {
 };
 
 // ----------------------------------- ADD COLLECTION ITEM -----------------------------------
-const addCollectionItem = async (collectionId: string, data: CreateCollectionItemPayload, platformId: string) => {
+const addCollectionItem = async (
+    collectionId: string,
+    data: CreateCollectionItemPayload,
+    platformId: string
+) => {
     try {
         // Step 1: Verify collection exists and user has access
         const conditions: any[] = [
@@ -389,8 +389,8 @@ const addCollectionItem = async (collectionId: string, data: CreateCollectionIte
     } catch (error: any) {
         const pgError = error.cause || error;
 
-        if (pgError.code === '23505') {
-            if (pgError.constraint === 'collection_items_unique') {
+        if (pgError.code === "23505") {
+            if (pgError.constraint === "collection_items_unique") {
                 throw new CustomizedError(
                     httpStatus.CONFLICT,
                     "This asset is already in the collection"
@@ -403,7 +403,12 @@ const addCollectionItem = async (collectionId: string, data: CreateCollectionIte
 };
 
 // ----------------------------------- UPDATE COLLECTION ITEM -----------------------------------
-const updateCollectionItem = async (collectionId: string, itemId: string, data: any, platformId: string) => {
+const updateCollectionItem = async (
+    collectionId: string,
+    itemId: string,
+    data: any,
+    platformId: string
+) => {
     try {
         // Step 1: Verify collection exists and user has access
         const conditions: any[] = [
@@ -426,10 +431,7 @@ const updateCollectionItem = async (collectionId: string, itemId: string, data: 
             .select()
             .from(collectionItems)
             .where(
-                and(
-                    eq(collectionItems.id, itemId),
-                    eq(collectionItems.collection, collectionId)
-                )
+                and(eq(collectionItems.id, itemId), eq(collectionItems.collection, collectionId))
             );
 
         if (!existingItem) {
@@ -473,21 +475,14 @@ const deleteCollectionItem = async (collectionId: string, itemId: string, platfo
     const [existingItem] = await db
         .select()
         .from(collectionItems)
-        .where(
-            and(
-                eq(collectionItems.id, itemId),
-                eq(collectionItems.collection, collectionId)
-            )
-        );
+        .where(and(eq(collectionItems.id, itemId), eq(collectionItems.collection, collectionId)));
 
     if (!existingItem) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Collection item not found");
     }
 
     // Step 3: Delete collection item
-    await db
-        .delete(collectionItems)
-        .where(eq(collectionItems.id, itemId));
+    await db.delete(collectionItems).where(eq(collectionItems.id, itemId));
 
     return null;
 };
@@ -502,7 +497,10 @@ const checkCollectionAvailability = async (
     const { event_start_date, event_end_date } = query;
     // Validate required query parameters
     if (!event_start_date || !event_end_date) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "event_start_date and event_end_date are required in query parameters");
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "event_start_date and event_end_date are required in query parameters"
+        );
     }
 
     // Step 1: Build WHERE conditions
@@ -513,7 +511,7 @@ const checkCollectionAvailability = async (
     ];
 
     // Step 2: Filter by user role (CLIENT users can only check their company's collections)
-    if (user.role === 'CLIENT') {
+    if (user.role === "CLIENT") {
         if (user.company_id) {
             conditions.push(eq(collections.company_id, user.company_id));
         } else {

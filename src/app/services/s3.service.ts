@@ -1,7 +1,12 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import config from '../config';
-import crypto from 'crypto';
+import {
+    S3Client,
+    PutObjectCommand,
+    DeleteObjectCommand,
+    GetObjectCommand,
+} from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import config from "../config";
+import crypto from "crypto";
 
 // Initialize S3 Client
 const s3Client = new S3Client({
@@ -22,14 +27,14 @@ export const uploadFileToS3 = async (
 ): Promise<string> => {
     try {
         // Generate unique file name if not provided
-        const uniqueFileName = fileName || `${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
+        const uniqueFileName = fileName || `${Date.now()}-${crypto.randomBytes(8).toString("hex")}`;
         const key = customKey || `${folder}/${uniqueFileName}`;
 
         const command = new PutObjectCommand({
             Bucket: config.aws_s3_bucket,
             Key: key,
             Body: file,
-            ContentType: contentType || 'application/octet-stream',
+            ContentType: contentType || "application/octet-stream",
         });
 
         await s3Client.send(command);
@@ -38,8 +43,8 @@ export const uploadFileToS3 = async (
         const fileUrl = `https://${config.aws_s3_bucket}.s3.${config.aws_region}.amazonaws.com/${key}`;
         return fileUrl;
     } catch (error) {
-        console.error('Error uploading file to S3:', error);
-        throw new Error('Failed to upload file to S3');
+        console.error("Error uploading file to S3:", error);
+        throw new Error("Failed to upload file to S3");
     }
 };
 
@@ -58,8 +63,8 @@ export const deleteFileFromS3 = async (fileUrl: string): Promise<void> => {
         await s3Client.send(command);
         console.log(`File deleted successfully: ${key}`);
     } catch (error) {
-        console.error('Error deleting file from S3:', error);
-        throw new Error('Failed to delete file from S3');
+        console.error("Error deleting file from S3:", error);
+        throw new Error("Failed to delete file from S3");
     }
 };
 
@@ -82,8 +87,8 @@ export const getPresignedUrl = async (
         const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn });
         return presignedUrl;
     } catch (error) {
-        console.error('Error generating presigned URL:', error);
-        throw new Error('Failed to generate presigned URL');
+        console.error("Error generating presigned URL:", error);
+        throw new Error("Failed to generate presigned URL");
     }
 };
 
@@ -93,7 +98,7 @@ export const uploadPDFToS3 = async (
     fileName: string,
     key?: string
 ): Promise<string> => {
-    return uploadFileToS3(pdfBuffer, 'invoices', `${fileName}.pdf`, 'application/pdf', key);
+    return uploadFileToS3(pdfBuffer, "invoices", `${fileName}.pdf`, "application/pdf", key);
 };
 
 // ------------------------------------ UPLOAD IMAGE TO S3 -----------------------------------
@@ -102,7 +107,7 @@ export const uploadImageToS3 = async (
     fileName: string,
     contentType: string
 ): Promise<string> => {
-    return uploadFileToS3(imageBuffer, 'images', fileName, contentType);
+    return uploadFileToS3(imageBuffer, "images", fileName, contentType);
 };
 
 export const getPDFBufferFromS3 = async (fileUrlOrKey: string): Promise<Buffer> => {
@@ -136,7 +141,7 @@ export const getPDFBufferFromS3 = async (fileUrlOrKey: string): Promise<Buffer> 
 
         return buffer;
     } catch (error) {
-        console.error('Error fetching PDF from S3:', error);
-        throw new Error('Failed to fetch invoice PDF');
+        console.error("Error fetching PDF from S3:", error);
+        throw new Error("Failed to fetch invoice PDF");
     }
 };

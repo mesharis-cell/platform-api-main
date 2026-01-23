@@ -42,7 +42,7 @@ const getPricingTierById = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const { id } = req.params;
 
-    const result = await PricingTierServices.getPricingTierById(id, platformId);
+    const result = await PricingTierServices.getPricingTierById(id as string, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -58,7 +58,12 @@ const updatePricingTier = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const { id } = req.params;
 
-    const result = await PricingTierServices.updatePricingTier(id, req.body, platformId, user);
+    const result = await PricingTierServices.updatePricingTier(
+        id as string,
+        req.body,
+        platformId,
+        user
+    );
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -73,7 +78,7 @@ const deletePricingTier = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const { id } = req.params;
 
-    const result = await PricingTierServices.deletePricingTier(id, platformId);
+    const result = await PricingTierServices.deletePricingTier(id as string, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

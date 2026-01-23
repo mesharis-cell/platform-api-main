@@ -1,12 +1,12 @@
-import nodemailer from 'nodemailer';
-import config from '../config';
+import nodemailer from "nodemailer";
+import config from "../config";
 
 interface EmailOptions {
     to: string;
     subject: string;
     html: string;
     from?: string;
-    attachments?: Array<{ filename: string; content: any }>
+    attachments?: Array<{ filename: string; content: any }>;
 }
 
 // Create reusable transporter
@@ -22,7 +22,6 @@ const createTransporter = () => {
     });
 };
 
-
 export const sendEmail = async (options: EmailOptions): Promise<string> => {
     try {
         const { to, subject, html, from = config.email_from, attachments } = options;
@@ -35,18 +34,18 @@ export const sendEmail = async (options: EmailOptions): Promise<string> => {
             to,
             subject,
             html,
-            attachments
+            attachments,
         });
 
-        console.log('✅ Email sent successfully:', {
+        console.log("✅ Email sent successfully:", {
             messageId: info.messageId,
             to,
             subject,
         });
 
-        return info.messageId
+        return info.messageId;
     } catch (error) {
-        console.error('❌ Error sending email:', error);
+        console.error("❌ Error sending email:", error);
         throw error;
     }
 };

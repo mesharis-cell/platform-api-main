@@ -1,4 +1,4 @@
-export type TimeGrouping = 'month' | 'quarter' | 'year';
+export type TimeGrouping = "month" | "quarter" | "year";
 
 export interface TimePeriodMetrics {
     period: string; // Formatted label (e.g., "Jan 2026", "Q1 2026", "2026")
@@ -47,7 +47,7 @@ export interface MarginSummary {
     };
 }
 
-export type CompanyBreakdownSortBy = 'revenue' | 'margin' | 'orderCount' | 'companyName';
+export type CompanyBreakdownSortBy = "revenue" | "margin" | "orderCount" | "companyName";
 
 export interface CompanyMetrics {
     companyId: string;

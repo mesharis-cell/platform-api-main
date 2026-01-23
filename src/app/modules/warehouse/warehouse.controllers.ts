@@ -44,7 +44,7 @@ const getWarehouseById = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const { id } = req.params;
 
-    const result = await WarehouseServices.getWarehouseById(id, platformId);
+    const result = await WarehouseServices.getWarehouseById(id as string, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -59,7 +59,7 @@ const updateWarehouse = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const { id } = req.params;
 
-    const result = await WarehouseServices.updateWarehouse(id, req.body, platformId);
+    const result = await WarehouseServices.updateWarehouse(id as string, req.body, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -74,7 +74,7 @@ const deleteWarehouse = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const { id } = req.params;
 
-    const result = await WarehouseServices.deleteWarehouse(id, platformId);
+    const result = await WarehouseServices.deleteWarehouse(id as string, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
