@@ -18,6 +18,10 @@ export function createCodeBuildProject(
             artifacts: {
                 type: "CODEPIPELINE",
             },
+            cache: {
+                type: "S3",
+                location: pulumi.interpolate`${config.appName}-pipeline-${config.regions.secondary}-${stage}/docker-cache`,
+            },
             environment: {
                 computeType: config.codeBuild.computeType,
                 image: config.codeBuild.image,
