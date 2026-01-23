@@ -28,7 +28,6 @@ router.post(
     InvoiceControllers.generateInvoice
 );
 
-
 // Get single invoice by ID or invoice_id
 router.get(
     "/:invoiceId",
@@ -47,10 +46,7 @@ router.get(
 );
 
 // Download invoice PDF (direct download)
-router.get(
-    "/download-pdf/:invoiceId",
-    InvoiceControllers.downloadInvoicePDF
-);
+router.get("/download-pdf/:invoiceId", InvoiceControllers.downloadInvoicePDF);
 
 // Confirm payment (ADMIN only)
 router.patch(
@@ -63,9 +59,6 @@ router.patch(
 );
 
 // Download cost estimate PDF (direct download)
-router.get(
-    "/download-cost-estimate-pdf/:orderId",
-    InvoiceControllers.downloadCostEstimatePDF
-);
+router.get("/download-cost-estimate-pdf/:orderId", InvoiceControllers.downloadCostEstimatePDF);
 
 export const InvoiceRoutes = router;

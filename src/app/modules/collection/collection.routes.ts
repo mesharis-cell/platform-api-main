@@ -11,69 +11,85 @@ const router = Router();
 
 // Create collection
 router.post(
-  "/",
-  platformValidator,
-  auth('ADMIN', 'LOGISTICS'),
-  requirePermission(PERMISSIONS.COLLECTIONS_CREATE),
-  payloadValidator(CollectionSchemas.collectionSchema),
-  CollectionControllers.createCollection
+    "/",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.COLLECTIONS_CREATE),
+    payloadValidator(CollectionSchemas.collectionSchema),
+    CollectionControllers.createCollection
 );
 
 // Get all collections
 router.get(
-  "/",
-  platformValidator,
-  auth('ADMIN', 'LOGISTICS', 'CLIENT'),
-  requirePermission(PERMISSIONS.COLLECTIONS_READ),
-  CollectionControllers.getCollections
+    "/",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    requirePermission(PERMISSIONS.COLLECTIONS_READ),
+    CollectionControllers.getCollections
 );
 
 // Get collection by id
 router.get(
-  "/:id",
-  platformValidator,
-  auth('ADMIN', 'LOGISTICS', 'CLIENT'),
-  CollectionControllers.getCollectionById
+    "/:id",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    CollectionControllers.getCollectionById
 );
 
 // Update collection
 router.patch(
-  "/:id",
-  platformValidator,
-  auth('ADMIN', 'LOGISTICS'),
-  requirePermission(PERMISSIONS.COLLECTIONS_UPDATE),
-  payloadValidator(CollectionSchemas.updateCollectionSchema),
-  CollectionControllers.updateCollection
+    "/:id",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.COLLECTIONS_UPDATE),
+    payloadValidator(CollectionSchemas.updateCollectionSchema),
+    CollectionControllers.updateCollection
 );
 
 // Delete collection
 router.delete(
-  "/:id",
-  platformValidator,
-  auth('ADMIN'),
-  requirePermission(PERMISSIONS.COLLECTIONS_DELETE),
-  CollectionControllers.deleteCollection
+    "/:id",
+    platformValidator,
+    auth("ADMIN"),
+    requirePermission(PERMISSIONS.COLLECTIONS_DELETE),
+    CollectionControllers.deleteCollection
 );
 
 // ----------------------------------- COLLECTION ITEMS -----------------------------------
 
 // Add item to collection
 router.post(
-  "/:id/items",
-  platformValidator,
-  auth('ADMIN', 'LOGISTICS'),
-  requirePermission(PERMISSIONS.COLLECTIONS_ASSIGN_ASSETS),
-  payloadValidator(CollectionSchemas.collectionItemSchema),
-  CollectionControllers.addCollectionItem
+    "/:id/items",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.COLLECTIONS_ASSIGN_ASSETS),
+    payloadValidator(CollectionSchemas.collectionItemSchema),
+    CollectionControllers.addCollectionItem
 );
 
 // Update collection item
-router.patch("/:id/items/:itemId", platformValidator, auth('ADMIN', 'LOGISTICS'), payloadValidator(CollectionSchemas.updateCollectionItemSchema), CollectionControllers.updateCollectionItem);
+router.patch(
+    "/:id/items/:itemId",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    payloadValidator(CollectionSchemas.updateCollectionItemSchema),
+    CollectionControllers.updateCollectionItem
+);
 
 // Delete collection item
-router.delete("/:id/items/:itemId", platformValidator, auth('ADMIN', 'LOGISTICS'), CollectionControllers.deleteCollectionItem);
+router.delete(
+    "/:id/items/:itemId",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    CollectionControllers.deleteCollectionItem
+);
 
 // Check collection availability
-router.get("/:id/availability", platformValidator, auth('ADMIN', 'LOGISTICS', 'CLIENT'), CollectionControllers.checkCollectionAvailability);
+router.get(
+    "/:id/availability",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    CollectionControllers.checkCollectionAvailability
+);
 
 export const CollectionRoutes = router;

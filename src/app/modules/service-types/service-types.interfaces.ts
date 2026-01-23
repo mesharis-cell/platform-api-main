@@ -1,12 +1,12 @@
-import z from 'zod'
-import { ServiceTypesSchemas } from './service-types.schemas'
+import z from "zod";
+import { ServiceTypesSchemas } from "./service-types.schemas";
 
 export type CreateServiceTypePayload = z.infer<
-  typeof ServiceTypesSchemas.createServiceTypeSchema
->['body'] & {
-  platform_id: string
-}
+    typeof ServiceTypesSchemas.createServiceTypeSchema
+>["body"] & {
+    platform_id: string;
+};
 
 export type UpdateServiceTypePayload = z.infer<
-  typeof ServiceTypesSchemas.updateServiceTypeSchema
->['body']
+    typeof ServiceTypesSchemas.updateServiceTypeSchema
+>["body"];

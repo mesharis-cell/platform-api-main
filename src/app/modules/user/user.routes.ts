@@ -11,38 +11,33 @@ const router = Router();
 
 // Create user (admin)
 router.post(
-  "/",
-  platformValidator,
-  auth('ADMIN'),
-  requirePermission(PERMISSIONS.USERS_CREATE),
-  payloadValidator(UserSchemas.createUser),
-  UserControllers.createUser
+    "/",
+    platformValidator,
+    auth("ADMIN"),
+    requirePermission(PERMISSIONS.USERS_CREATE),
+    payloadValidator(UserSchemas.createUser),
+    UserControllers.createUser
 );
 
 // Get all users (admin & logistics)
 router.get(
-  "/",
-  platformValidator,
-  auth('ADMIN', 'LOGISTICS'),
-  requirePermission(PERMISSIONS.USERS_READ),
-  UserControllers.getUsers
+    "/",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.USERS_READ),
+    UserControllers.getUsers
 );
 
 // Get single user by ID
-router.get(
-  "/:id",
-  platformValidator,
-  auth('ADMIN', 'LOGISTICS'),
-  UserControllers.getUserById
-);
+router.get("/:id", platformValidator, auth("ADMIN", "LOGISTICS"), UserControllers.getUserById);
 
 // Update user
 router.patch(
-  "/:id",
-  platformValidator,
-  auth("ADMIN"),
-  payloadValidator(UserSchemas.updateUser),
-  UserControllers.updateUser
+    "/:id",
+    platformValidator,
+    auth("ADMIN"),
+    payloadValidator(UserSchemas.updateUser),
+    UserControllers.updateUser
 );
 
 export const UserRoutes = router;

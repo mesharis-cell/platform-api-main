@@ -9,13 +9,7 @@ export const OTPVerifier = async (platformId: string, otpCode: string, email: st
     const [storedOTP] = await db
         .select()
         .from(otp)
-        .where(
-            and(
-                eq(otp.otp, otpCode),
-                eq(otp.email, email),
-                eq(otp.platform_id, platformId)
-            )
-        )
+        .where(and(eq(otp.otp, otpCode), eq(otp.email, email), eq(otp.platform_id, platformId)))
         .limit(1);
 
     if (!storedOTP) {
@@ -36,11 +30,7 @@ export const OTPVerifier = async (platformId: string, otpCode: string, email: st
         await db
             .delete(otp)
             .where(
-                and(
-                    eq(otp.otp, otpCode),
-                    eq(otp.email, email),
-                    eq(otp.platform_id, platformId)
-                )
+                and(eq(otp.otp, otpCode), eq(otp.email, email), eq(otp.platform_id, platformId))
             );
 
         return storedOTP;

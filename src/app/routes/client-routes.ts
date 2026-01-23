@@ -7,24 +7,23 @@ import { OrderRoutes } from "../modules/order/order.routes";
 const router = Router();
 
 const routes = [
-  {
-    path: "/calendar",
-    route: CalendarRoutes,
-  },
-  {
-    path: "/catalog",
-    route: CatalogRoutes,
-  },
-  {
-    path: "/order",
-    route: OrderRoutes,
-  },
-  {
-    path: "/invoice",
-    route: InvoiceRoutes,
-  },
+    {
+        path: "/calendar",
+        route: CalendarRoutes,
+    },
+    {
+        path: "/catalog",
+        route: CatalogRoutes,
+    },
+    {
+        path: "/order",
+        route: OrderRoutes,
+    },
+    {
+        path: "/invoice",
+        route: InvoiceRoutes,
+    },
 ];
-
 
 routes.forEach((route) => router.use(route.path, route.route));
 

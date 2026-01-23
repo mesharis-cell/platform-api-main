@@ -7,17 +7,17 @@
  *     summary: Get invoices list with order information
  *     description: |
  *       Retrieves a paginated list of invoices with associated order and company information.
- *       
+ *
  *       **Features:**
  *       - Pagination support (page, limit)
  *       - Sorting by invoice_id, created_at, or updated_at
  *       - Search by invoice ID
  *       - Filter by order ID, payment status, or company
- *       
+ *
  *       **Access Control:**
  *       - ADMIN and LOGISTICS users can see all invoices
  *       - CLIENT users can only see invoices for their company's orders
- *       
+ *
  *       **Performance:**
  *       - Optimized with proper indexing
  *       - Efficient joins with orders and companies tables
@@ -316,17 +316,17 @@
  *     summary: Get single invoice by ID
  *     description: |
  *       Retrieves a single invoice with order and company information.
- *       
+ *
  *       **Flexible ID Lookup:**
  *       - Accepts both internal UUID and human-readable invoice_id
  *       - Automatic detection of ID format
- *       
+ *
  *       **Includes:**
  *       - Complete invoice details
  *       - Associated order information
  *       - Company details
  *       - Payment status and references
- *       
+ *
  *       **Access Control:**
  *       - ADMIN and LOGISTICS users can access all invoices
  *       - CLIENT users can only access invoices for their company's orders
@@ -587,11 +587,11 @@
  *     description: |
  *       Generates a presigned URL for downloading an invoice PDF.
  *       The URL is valid for 1 hour.
- *       
+ *
  *       **Access Control:**
  *       - ADMIN and LOGISTICS users can access all invoices
  *       - CLIENT users can only access invoices for their company's orders
- *       
+ *
  *       **Use Case:**
  *       - Use this endpoint when you want to redirect users to download the PDF
  *       - The presigned URL can be shared or used in email links
@@ -654,11 +654,11 @@
  *     description: |
  *       Downloads the invoice PDF file directly from the server.
  *       The PDF is streamed to the client as an attachment.
- *       
+ *
  *       **Access Control:**
  *       - ADMIN and LOGISTICS users can download all invoices
  *       - CLIENT users can only download invoices for their company's orders
- *       
+ *
  *       **Use Case:**
  *       - Use this endpoint for direct PDF downloads in the browser
  *       - The browser will prompt to save the file
@@ -711,22 +711,22 @@
  *     summary: Confirm payment for an invoice
  *     description: |
  *       Confirms payment for an invoice by recording payment details and updating the order's financial status to PAID.
- *       
+ *
  *       **Transaction Safety:**
  *       - All updates (invoice, order, status history) are performed in a database transaction
  *       - Ensures data consistency across all related tables
- *       
+ *
  *       **What This Endpoint Does:**
  *       1. Validates the invoice exists and is not already paid
  *       2. Validates payment date (cannot be in the future)
  *       3. Updates invoice with payment details (method, reference, date)
  *       4. Updates order financial status to PAID
  *       5. Creates a financial status history entry for audit trail
- *       
+ *
  *       **Access Control:**
  *       - ADMIN users only
  *       - LOGISTICS and CLIENT users cannot confirm payments
- *       
+ *
  *       **Validation Rules:**
  *       - Invoice must exist
  *       - Invoice must not already be paid
@@ -963,4 +963,3 @@
  *     security:
  *       - BearerAuth: []
  */
-

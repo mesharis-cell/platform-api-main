@@ -52,8 +52,8 @@ const createZone = async (data: CreateZonePayload) => {
         // Step 4: Handle database errors
         const pgError = error.cause || error;
 
-        if (pgError.code === '23505') {
-            if (pgError.constraint === 'zones_warehouse_company_name_unique') {
+        if (pgError.code === "23505") {
+            if (pgError.constraint === "zones_warehouse_company_name_unique") {
                 throw new CustomizedError(
                     httpStatus.CONFLICT,
                     `Zone with name "${data.name}" already exists for this warehouse and company`
@@ -61,7 +61,7 @@ const createZone = async (data: CreateZonePayload) => {
             }
             throw new CustomizedError(
                 httpStatus.CONFLICT,
-                'A zone with these details already exists'
+                "A zone with these details already exists"
             );
         }
 
@@ -79,28 +79,26 @@ const getZones = async (query: Record<string, any>, user: AuthUser, platformId: 
         sort_order,
         warehouse_id,
         company_id,
-        include_inactive
+        include_inactive,
     } = query;
 
     // Step 1: Validate query parameters
     if (sort_by) queryValidator(zoneQueryValidationConfig, "sort_by", sort_by);
-    if (sort_order)
-        queryValidator(zoneQueryValidationConfig, "sort_order", sort_order);
+    if (sort_order) queryValidator(zoneQueryValidationConfig, "sort_order", sort_order);
 
     // Step 2: Setup pagination
-    const { pageNumber, limitNumber, skip, sortWith, sortSequence } =
-        paginationMaker({
-            page,
-            limit,
-            sort_by,
-            sort_order,
-        });
+    const { pageNumber, limitNumber, skip, sortWith, sortSequence } = paginationMaker({
+        page,
+        limit,
+        sort_by,
+        sort_order,
+    });
 
     // Step 3: Build WHERE conditions
     const conditions: any[] = [eq(zones.platform_id, platformId)];
 
     // Step 3a: Filter by user role (CLIENT users see only their company's zones)
-    if (user.role === 'CLIENT') {
+    if (user.role === "CLIENT") {
         if (user.company_id) {
             conditions.push(eq(zones.company_id, user.company_id));
         } else {
@@ -110,9 +108,7 @@ const getZones = async (query: Record<string, any>, user: AuthUser, platformId: 
 
     // Step 3b: Search by zone name
     if (search_term) {
-        conditions.push(
-            ilike(zones.name, `%${search_term.trim()}%`)
-        );
+        conditions.push(ilike(zones.name, `%${search_term.trim()}%`));
     }
 
     // Step 3c: Filter by warehouse ID
@@ -126,7 +122,7 @@ const getZones = async (query: Record<string, any>, user: AuthUser, platformId: 
     }
 
     // Step 3e: Filter by active status (default: only active zones)
-    if (include_inactive !== 'true') {
+    if (include_inactive !== "true") {
         conditions.push(eq(zones.is_active, true));
     }
 
@@ -145,7 +141,7 @@ const getZones = async (query: Record<string, any>, user: AuthUser, platformId: 
                         name: true,
                         country: true,
                         city: true,
-                        address: true
+                        address: true,
                     },
                 },
                 company: {
@@ -183,13 +179,10 @@ const getZones = async (query: Record<string, any>, user: AuthUser, platformId: 
 // ----------------------------------- GET ZONE BY ID --------------------------------
 const getZoneById = async (id: string, user: AuthUser, platformId: string) => {
     // Step 1: Build WHERE conditions
-    const conditions: any[] = [
-        eq(zones.id, id),
-        eq(zones.platform_id, platformId),
-    ];
+    const conditions: any[] = [eq(zones.id, id), eq(zones.platform_id, platformId)];
 
     // Step 2: Filter by user role (CLIENT users can only see their company's zones)
-    if (user.role === 'CLIENT') {
+    if (user.role === "CLIENT") {
         if (user.company_id) {
             conditions.push(eq(zones.company_id, user.company_id));
         } else {
@@ -232,10 +225,7 @@ const getZoneById = async (id: string, user: AuthUser, platformId: string) => {
 const updateZone = async (id: string, data: any, user: AuthUser, platformId: string) => {
     try {
         // Step 1: Verify zone exists and user has access
-        const conditions: any[] = [
-            eq(zones.id, id),
-            eq(zones.platform_id, platformId),
-        ];
+        const conditions: any[] = [eq(zones.id, id), eq(zones.platform_id, platformId)];
 
         const [existingZone] = await db
             .select()
@@ -260,14 +250,25 @@ const updateZone = async (id: string, data: any, user: AuthUser, platformId: str
                 );
 
             if (!warehouse) {
-                throw new CustomizedError(httpStatus.NOT_FOUND, "Warehouse not found or is inactive");
+                throw new CustomizedError(
+                    httpStatus.NOT_FOUND,
+                    "Warehouse not found or is inactive"
+                );
             }
         }
 
         // Step 3: If company_id is being updated, validate it exists
         if (data.company_id && data.company_id !== existingZone.company_id) {
-            if (!(user.permissions.includes(PERMISSIONS.ZONES_ASSIGN_COMPANY) || user.permissions.includes(PERMISSIONS.ZONES_ALL))) {
-                throw new CustomizedError(httpStatus.FORBIDDEN, "You are not authorized to assign company to zone");
+            if (
+                !(
+                    user.permissions.includes(PERMISSIONS.ZONES_ASSIGN_COMPANY) ||
+                    user.permissions.includes(PERMISSIONS.ZONES_ALL)
+                )
+            ) {
+                throw new CustomizedError(
+                    httpStatus.FORBIDDEN,
+                    "You are not authorized to assign company to zone"
+                );
             }
 
             const [company] = await db
@@ -300,8 +301,8 @@ const updateZone = async (id: string, data: any, user: AuthUser, platformId: str
         // Step 5: Handle database errors
         const pgError = error.cause || error;
 
-        if (pgError.code === '23505') {
-            if (pgError.constraint === 'zones_warehouse_company_name_unique') {
+        if (pgError.code === "23505") {
+            if (pgError.constraint === "zones_warehouse_company_name_unique") {
                 throw new CustomizedError(
                     httpStatus.CONFLICT,
                     `Zone with name "${data.name}" already exists for this warehouse and company`
@@ -309,7 +310,7 @@ const updateZone = async (id: string, data: any, user: AuthUser, platformId: str
             }
             throw new CustomizedError(
                 httpStatus.CONFLICT,
-                'A zone with these details already exists'
+                "A zone with these details already exists"
             );
         }
 
@@ -320,10 +321,7 @@ const updateZone = async (id: string, data: any, user: AuthUser, platformId: str
 // ----------------------------------- DELETE ZONE -----------------------------------
 const deleteZone = async (id: string, user: AuthUser, platformId: string) => {
     // Step 1: Verify zone exists and user has access
-    const conditions: any[] = [
-        eq(zones.id, id),
-        eq(zones.platform_id, platformId),
-    ];
+    const conditions: any[] = [eq(zones.id, id), eq(zones.platform_id, platformId)];
 
     const [existingZone] = await db
         .select()

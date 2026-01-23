@@ -21,12 +21,7 @@ router.get(
 );
 
 // Get my orders
-router.get(
-    "/my",
-    platformValidator,
-    auth("CLIENT"),
-    OrderControllers.getMyOrders
-);
+router.get("/my", platformValidator, auth("CLIENT"), OrderControllers.getMyOrders);
 
 // Export orders to CSV
 router.get(
@@ -44,7 +39,6 @@ router.get(
     auth("CLIENT"),
     OrderControllers.getOrderStatistics
 );
-
 
 // Get pricing review orders (Logistics)
 router.get(
@@ -81,12 +75,7 @@ router.get(
 );
 
 // Calculate order estimate (NEW)
-router.post(
-    "/estimate",
-    platformValidator,
-    auth("CLIENT"),
-    OrderControllers.calculateEstimate
-);
+router.post("/estimate", platformValidator, auth("CLIENT"), OrderControllers.calculateEstimate);
 
 // Submit order
 router.post(
@@ -117,7 +106,6 @@ router.patch(
     payloadValidator(orderSchemas.declineQuoteSchema),
     OrderControllers.declineQuote
 );
-
 
 // Progress order status
 router.patch(

@@ -8,7 +8,7 @@
  *     description: |
  *       Records an inbound scan when items are returned to the warehouse after an event.
  *       This stateless endpoint writes directly to scan_events table and updates asset quantities.
- *       
+ *
  *       **Features:**
  *       - QR code-based asset identification
  *       - Condition inspection (GREEN/ORANGE/RED)
@@ -17,7 +17,7 @@
  *       - Condition history tracking
  *       - Real-time progress calculation
  *       - Over-scanning prevention
- *       
+ *
  *       **Permissions Required**: Only ADMIN and LOGISTICS roles can scan items
  *     parameters:
  *       - $ref: '#/components/parameters/PlatformHeader'
@@ -291,13 +291,13 @@
  *     description: |
  *       Retrieves detailed scanning progress for a specific order, showing how many items
  *       have been scanned back into the warehouse versus the total required.
- *       
+ *
  *       **Features:**
  *       - Overall progress percentage
  *       - Per-asset breakdown of scanned vs required quantities
  *       - Completion status for each asset
  *       - Asset tracking method visibility
- *       
+ *
  *       **Permissions Required**: Only ADMIN and LOGISTICS roles can view progress
  *     parameters:
  *       - $ref: '#/components/parameters/PlatformHeader'
@@ -468,7 +468,7 @@
  *       Finalizes the inbound scanning process for an order.
  *       Verifies that all items have been scanned back into the warehouse.
  *       If successful, closes the order and releases all asset bookings.
- *       
+ *
  *       **Permissions Required**: Only ADMIN and LOGISTICS roles can complete scanning
  *     parameters:
  *       - $ref: '#/components/parameters/PlatformHeader'
@@ -600,14 +600,14 @@
  *     description: |
  *       Records an outbound scan when items are being sent out from the warehouse to a client/event.
  *       This stateless endpoint writes directly to scan_events table and updates asset quantities.
- *       
+ *
  *       **Features:**
  *       - QR code-based asset identification
  *       - Support for both INDIVIDUAL and BATCH tracking
  *       - Automatic asset quantity updates
  *       - Real-time validation against order requirements
  *       - Over-scanning prevention
- *       
+ *
  *       **Permissions Required**: Only ADMIN and LOGISTICS roles can scan items
  *     parameters:
  *       - $ref: '#/components/parameters/PlatformHeader'
@@ -828,13 +828,13 @@
  *     description: |
  *       Retrieves detailed scanning progress for a specific order being prepared for dispatch.
  *       Shows how many items have been scanned out from the warehouse versus the total required.
- *       
+ *
  *       **Features:**
  *       - Overall progress percentage
  *       - Per-asset breakdown of scanned vs required quantities
  *       - Completion status for each asset
  *       - Asset tracking method visibility
- *       
+ *
  *       **Permissions Required**: Only ADMIN and LOGISTICS roles can view progress
  *     parameters:
  *       - $ref: '#/components/parameters/PlatformHeader'
@@ -1005,7 +1005,7 @@
  *       Finalizes the outbound scanning process for an order.
  *       Verifies that all required items have been scanned out.
  *       If successful, updates the order status to READY_FOR_DELIVERY.
- *       
+ *
  *       **Permissions Required**: Only ADMIN and LOGISTICS roles can complete scanning
  *     parameters:
  *       - $ref: '#/components/parameters/PlatformHeader'

@@ -162,7 +162,7 @@ const bulkUploadAssets = catchAsync(async (req, res) => {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "File is required");
     }
 
-    if (!file.originalname.endsWith('.csv')) {
+    if (!file.originalname.endsWith(".csv")) {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "File must be a CSV (.csv)");
     }
 
@@ -190,11 +190,7 @@ const addConditionHistory = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
 
-    const result = await AssetServices.addConditionHistory(
-        req.body,
-        user,
-        platformId
-    );
+    const result = await AssetServices.addConditionHistory(req.body, user, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.CREATED,
@@ -223,11 +219,7 @@ const completeMaintenance = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
 
-    const result = await AssetServices.completeMaintenance(
-        req.body,
-        user,
-        platformId
-    );
+    const result = await AssetServices.completeMaintenance(req.body, user, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

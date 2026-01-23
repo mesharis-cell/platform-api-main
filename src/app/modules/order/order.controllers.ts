@@ -3,6 +3,7 @@ import CustomizedError from "../../error/customized-error";
 import catchAsync from "../../shared/catch-async";
 import sendResponse from "../../shared/send-response";
 import { OrderServices } from "./order.services";
+import { getRequiredString } from "../../utils/request";
 
 // ----------------------------------- SUBMIT ORDER ---------------------------------------
 const submitOrder = catchAsync(async (req, res) => {
@@ -17,17 +18,13 @@ const submitOrder = catchAsync(async (req, res) => {
     }
 
     // Submit order
-    const result = await OrderServices.submitOrderFromCart(
-        user,
-        companyId,
-        platformId,
-        req.body
-    );
+    const result = await OrderServices.submitOrderFromCart(user, companyId, platformId, req.body);
 
     sendResponse(res, {
         statusCode: httpStatus.CREATED,
         success: true,
-        message: "Order submitted successfully. You will receive a quote via email within 24-48 hours.",
+        message:
+            "Order submitted successfully. You will receive a quote via email within 24-48 hours.",
         data: result,
     });
 });
@@ -74,69 +71,69 @@ const exportOrders = catchAsync(async (req, res) => {
         ...req.query,
         page: 1,
         limit: 10000, // Max export limit
-        sort_by: 'created_at',
-        sort_order: 'desc',
+        sort_by: "created_at",
+        sort_order: "desc",
     };
 
     const result = await OrderServices.getOrders(query, user, platformId);
 
     // Build CSV headers
     const headers = [
-        'Order ID',
-        'Company',
-        'Brand',
-        'Job Number',
-        'Contact Name',
-        'Contact Email',
-        'Contact Phone',
-        'Event Start',
-        'Event End',
-        'Venue Name',
-        'Venue City',
-        'Venue Country',
-        'Volume (m³)',
-        'Weight (kg)',
-        'Order Status',
-        'Financial Status',
-        'Item Count',
-        'Created At',
+        "Order ID",
+        "Company",
+        "Brand",
+        "Job Number",
+        "Contact Name",
+        "Contact Email",
+        "Contact Phone",
+        "Event Start",
+        "Event End",
+        "Venue Name",
+        "Venue City",
+        "Venue Country",
+        "Volume (m³)",
+        "Weight (kg)",
+        "Order Status",
+        "Financial Status",
+        "Item Count",
+        "Created At",
     ];
 
     // Build CSV rows
     const rows = result.data.map((order) => [
-        order.order_id || '',
-        order.company?.name || '',
-        order.brand?.name || '',
-        order.job_number || '',
-        order.contact_name || '',
-        order.contact_email || '',
-        order.contact_phone || '',
-        order.event_start_date || '',
-        order.event_end_date || '',
-        order.venue_name || '',
-        (order.venue_location as any)?.city || '',
-        (order.venue_location as any)?.country || '',
-        (order.calculated_totals as any)?.volume || '',
-        (order.calculated_totals as any)?.weight || '',
-        order.order_status || '',
-        order.financial_status || '',
+        order.order_id || "",
+        order.company?.name || "",
+        order.brand?.name || "",
+        order.job_number || "",
+        order.contact_name || "",
+        order.contact_email || "",
+        order.contact_phone || "",
+        order.event_start_date || "",
+        order.event_end_date || "",
+        order.venue_name || "",
+        (order.venue_location as any)?.city || "",
+        (order.venue_location as any)?.country || "",
+        (order.calculated_totals as any)?.volume || "",
+        (order.calculated_totals as any)?.weight || "",
+        order.order_status || "",
+        order.financial_status || "",
         order.item_count || 0,
-        order.created_at || '',
+        order.created_at || "",
     ]);
 
     // Convert to CSV
     const csvContent = [
-        headers.join(','),
-        ...rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-    ].join('\n');
+        headers.join(","),
+        ...rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")),
+    ].join("\n");
 
     // Generate filename with timestamp
-    const timestamp = new Date().toISOString().replace(/:/g, '-').split('.')[0];
+    const timestamp = new Date().toISOString().replace(/:/g, "-").split(".")[0];
     const filename = `orders-export-${timestamp}.csv`;
 
     // Set response headers for CSV download
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.status(httpStatus.OK).send(csvContent);
 });
 
@@ -144,7 +141,7 @@ const exportOrders = catchAsync(async (req, res) => {
 const getOrderById = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
 
     const result = await OrderServices.getOrderById(id, user, platformId, req.query);
 
@@ -159,7 +156,7 @@ const getOrderById = catchAsync(async (req, res) => {
 // ----------------------------------- UPDATE JOB NUMBER ----------------------------------
 const updateJobNumber = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
     const { job_number } = req.body;
 
     const result = await OrderServices.updateJobNumber(id, job_number, platformId);
@@ -175,7 +172,7 @@ const updateJobNumber = catchAsync(async (req, res) => {
 // ----------------------------------- GET ORDER SCAN EVENTS ------------------------------
 const getOrderScanEvents = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
-    const { orderId } = req.params;
+    const orderId = getRequiredString(req.params.orderId, "orderId");
 
     const result = await OrderServices.getOrderScanEvents(orderId as string, platformId);
 
@@ -191,14 +188,9 @@ const getOrderScanEvents = catchAsync(async (req, res) => {
 const progressOrderStatus = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
 
-    const result = await OrderServices.progressOrderStatus(
-        id,
-        req.body,
-        user,
-        platformId
-    );
+    const result = await OrderServices.progressOrderStatus(id, req.body, user, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -212,7 +204,7 @@ const progressOrderStatus = catchAsync(async (req, res) => {
 const getOrderStatusHistory = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
 
     const result = await OrderServices.getOrderStatusHistory(id, user, platformId);
 
@@ -227,13 +219,9 @@ const getOrderStatusHistory = catchAsync(async (req, res) => {
 // ----------------------------------- UPDATE TIME WINDOWS --------------------------------
 const updateTimeWindows = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
 
-    const result = await OrderServices.updateOrderTimeWindows(
-        id,
-        req.body,
-        platformId
-    );
+    const result = await OrderServices.updateOrderTimeWindows(id, req.body, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -247,10 +235,7 @@ const updateTimeWindows = catchAsync(async (req, res) => {
 const getPricingReviewOrders = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
 
-    const result = await OrderServices.getPricingReviewOrders(
-        req.query,
-        platformId
-    );
+    const result = await OrderServices.getPricingReviewOrders(req.query, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -264,7 +249,7 @@ const getPricingReviewOrders = catchAsync(async (req, res) => {
 // ----------------------------------- GET ORDER PRICING DETAILS ------------------------------
 const getOrderPricingDetails = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
 
     const result = await OrderServices.getOrderPricingDetails(id, platformId);
 
@@ -280,14 +265,9 @@ const getOrderPricingDetails = catchAsync(async (req, res) => {
 const adjustLogisticsPricing = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
 
-    const result = await OrderServices.adjustLogisticsPricing(
-        id,
-        user,
-        platformId,
-        req.body
-    );
+    const result = await OrderServices.adjustLogisticsPricing(id, user, platformId, req.body);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -301,14 +281,9 @@ const adjustLogisticsPricing = catchAsync(async (req, res) => {
 const approveStandardPricing = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
 
-    const result = await OrderServices.approveStandardPricing(
-        id,
-        user,
-        platformId,
-        req.body
-    );
+    const result = await OrderServices.approveStandardPricing(id, user, platformId, req.body);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -322,14 +297,9 @@ const approveStandardPricing = catchAsync(async (req, res) => {
 const approvePlatformPricing = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
 
-    const result = await OrderServices.approvePlatformPricing(
-        id,
-        user,
-        platformId,
-        req.body
-    );
+    const result = await OrderServices.approvePlatformPricing(id, user, platformId, req.body);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -343,14 +313,9 @@ const approvePlatformPricing = catchAsync(async (req, res) => {
 const approveQuote = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
 
-    const result = await OrderServices.approveQuote(
-        id,
-        user,
-        platformId,
-        req.body
-    );
+    const result = await OrderServices.approveQuote(id, user, platformId, req.body);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -364,14 +329,9 @@ const approveQuote = catchAsync(async (req, res) => {
 const declineQuote = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
 
-    const result = await OrderServices.declineQuote(
-        id,
-        user,
-        platformId,
-        req.body
-    );
+    const result = await OrderServices.declineQuote(id, user, platformId, req.body);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -406,13 +366,9 @@ const getOrderStatistics = catchAsync(async (req, res) => {
 const sendInvoice = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
-    const { orderId } = req.params;
+    const orderId = getRequiredString(req.params.orderId, "orderId");
 
-    const result = await OrderServices.sendInvoice(
-        user,
-        platformId,
-        orderId,
-    );
+    const result = await OrderServices.sendInvoice(user, platformId, orderId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -426,7 +382,7 @@ const sendInvoice = catchAsync(async (req, res) => {
 const submitForApproval = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platform_id;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
 
     const result = await OrderServices.submitForApproval(id, user, platformId);
 
@@ -442,7 +398,7 @@ const submitForApproval = catchAsync(async (req, res) => {
 const adminApproveQuote = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platform_id;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
     const { margin_override_percent, margin_override_reason } = req.body;
 
     const marginOverride = margin_override_percent
@@ -463,11 +419,11 @@ const adminApproveQuote = catchAsync(async (req, res) => {
 const returnToLogistics = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platform_id;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
     const { reason } = req.body;
 
     if (!reason || reason.trim().length < 10) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, 'Reason is required (min 10 characters)');
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Reason is required (min 10 characters)");
     }
 
     const result = await OrderServices.returnToLogistics(id, user, platformId, reason);
@@ -484,7 +440,7 @@ const returnToLogistics = catchAsync(async (req, res) => {
 const cancelOrder = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platform_id;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
     const payload = req.body;
 
     const result = await OrderServices.cancelOrder(id, user, platformId, payload);
@@ -504,28 +460,28 @@ const calculateEstimate = catchAsync(async (req, res) => {
     const companyId = user.company_id;
 
     if (!companyId) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, 'Company ID is required');
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Company ID is required");
     }
 
     const { items, venue_city, transport_trip_type } = req.body;
 
     // Validation
     if (!items || !Array.isArray(items) || items.length === 0) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, 'Items array is required');
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Items array is required");
     }
 
     if (!venue_city) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, 'venue_city is required');
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "venue_city is required");
     }
 
     if (!transport_trip_type) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, 'transport_trip_type is required');
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "transport_trip_type is required");
     }
 
-    if (!['ONE_WAY', 'ROUND_TRIP'].includes(transport_trip_type)) {
+    if (!["ONE_WAY", "ROUND_TRIP"].includes(transport_trip_type)) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            'transport_trip_type must be ONE_WAY or ROUND_TRIP'
+            "transport_trip_type must be ONE_WAY or ROUND_TRIP"
         );
     }
 
@@ -569,9 +525,9 @@ export const OrderControllers = {
     getPendingApprovalOrders: catchAsync(async (req, res) => {
         const platformId = (req as any).platform_id;
         const query = req.query;
-        
+
         const result = await OrderServices.getPendingApprovalOrders(query, platformId);
-        
+
         sendResponse(res, {
             statusCode: httpStatus.OK,
             success: true,
@@ -585,8 +541,7 @@ export const OrderControllers = {
     returnToLogistics,
     cancelOrder,
     calculateEstimate,
-}
-
+};
 
 // {
 //     orderId: result.orderId,

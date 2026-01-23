@@ -11,58 +11,46 @@ import { UserRole } from "../modules/user/user.interfaces";
 import { tokenVerifier } from "../utils/jwt-helpers";
 
 const auth = (...roles: UserRole[]) => {
-  return async (
-    req: Request & { user?: JwtPayload },
-    res: Response,
-    next: NextFunction
-  ) => {
-    try {
-      const platformId = (req as any).platformId;
+    return async (req: Request & { user?: JwtPayload }, res: Response, next: NextFunction) => {
+        try {
+            const platformId = (req as any).platformId;
 
+            let token = req.headers.authorization;
+            if (token?.startsWith("Bearer ")) {
+                token = token.split("Bearer ")[1];
+            }
+            if (!token) {
+                throw new CustomizedError(httpStatus.UNAUTHORIZED, "You are not authorized");
+            }
 
-      let token = req.headers.authorization;
-      if (token?.startsWith("Bearer ")) {
-        token = token.split("Bearer ")[1];
-      }
-      if (!token) {
-        throw new CustomizedError(httpStatus.UNAUTHORIZED, "You are not authorized");
-      }
+            const verifiedUser = tokenVerifier(token, config.jwt_access_secret) as AuthUser;
 
-      const verifiedUser = tokenVerifier(
-        token,
-        config.jwt_access_secret
-      ) as AuthUser;
+            const [user] = await db
+                .select()
+                .from(users)
+                .where(
+                    and(
+                        eq(users.platform_id, platformId),
+                        eq(users.id, verifiedUser?.id),
+                        eq(users.is_active, true)
+                    )
+                );
 
-      const [user] = await db
-        .select()
-        .from(users)
-        .where(
-          and(
-            eq(users.platform_id, platformId),
-            eq(users.id, verifiedUser?.id),
-            eq(users.is_active, true)
-          )
-        );
+            if (!user) {
+                throw new CustomizedError(httpStatus.UNAUTHORIZED, "User not found or inactive");
+            }
 
+            if (roles?.length && !roles.includes(verifiedUser?.role)) {
+                throw new CustomizedError(httpStatus.UNAUTHORIZED, "You are not authorized");
+            }
 
-      if (!user) {
-        throw new CustomizedError(
-          httpStatus.UNAUTHORIZED,
-          "User not found or inactive"
-        );
-      }
+            req.user = user;
 
-      if (roles?.length && !roles.includes(verifiedUser?.role)) {
-        throw new CustomizedError(httpStatus.UNAUTHORIZED, "You are not authorized");
-      }
-
-      req.user = user;
-
-      next();
-    } catch (error: any) {
-      next(error);
-    }
-  };
+            next();
+        } catch (error: any) {
+            next(error);
+        }
+    };
 };
 
 export default auth;

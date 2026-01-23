@@ -242,10 +242,10 @@
  *     summary: Upload assets in bulk via CSV
  *     description: |
  *       Allows ADMIN and LOGISTICS users to upload multiple assets at once using a CSV file.
- *       
+ *
  *       **CSV Structure:**
  *       The CSV file must contain the following columns (exact names):
- *       
+ *
  *       **Required Columns:**
  *       - `platform_id` - UUID of the platform
  *       - `company_id` - UUID of the company
@@ -258,7 +258,7 @@
  *       - `weight_per_unit` - Weight in kilograms (decimal as string, e.g., "3.00")
  *       - `dimensions` - JSON string with width, height, length in cm (e.g., '{"width":60,"height":75,"length":200}')
  *       - `volume_per_unit` - Volume in cubic meters (decimal as string, e.g., "0.900")
- *       
+ *
  *       **Optional Columns:**
  *       - `id` - Auto-generated if not provided
  *       - `brand_id` - UUID of the brand (nullable)
@@ -278,14 +278,14 @@
  *       - `created_at` - Auto-generated
  *       - `updated_at` - Auto-generated
  *       - `deleted_at` - Soft delete timestamp
- *       
+ *
  *       **Validation Process:**
  *       1. CSV file is parsed and structure is validated
  *       2. All required columns must be present
  *       3. Each row is validated for reference IDs (company_id, warehouse_id, zone_id, brand_id)
  *       4. Data types are converted (JSON strings parsed, numbers converted, empty strings to null)
  *       5. All assets are inserted in a single transaction
- *       
+ *
  *       **Important Notes:**
  *       - JSON fields (images, dimensions, handling_tags, condition_history) must be valid JSON strings
  *       - Empty strings for optional fields are converted to null/undefined
@@ -932,7 +932,7 @@
  *       1. **Single Asset Check** - Get detailed availability for one asset
  *       2. **Cart Validation** - Check if multiple assets with quantities are available
  *       3. **Batch Summary** - Get availability summaries for multiple assets
- *       
+ *
  *       CLIENT users can only check their company's assets.
  *     parameters:
  *       - $ref: '#/components/parameters/PlatformHeader'

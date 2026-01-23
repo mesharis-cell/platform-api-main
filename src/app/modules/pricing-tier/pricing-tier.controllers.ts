@@ -58,7 +58,12 @@ const updatePricingTier = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const { id } = req.params;
 
-    const result = await PricingTierServices.updatePricingTier(id as string, req.body, platformId, user);
+    const result = await PricingTierServices.updatePricingTier(
+        id as string,
+        req.body,
+        platformId,
+        user
+    );
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

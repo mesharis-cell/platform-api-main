@@ -1,10 +1,10 @@
 export interface InboundScanPayload {
     qr_code: string;
-    condition: 'GREEN' | 'ORANGE' | 'RED';
+    condition: "GREEN" | "ORANGE" | "RED";
     notes?: string;
     photos?: string[];
     refurb_days_estimate?: number;
-    discrepancy_reason?: 'BROKEN' | 'LOST' | 'OTHER';
+    discrepancy_reason?: "BROKEN" | "LOST" | "OTHER";
     quantity?: number; // For BATCH assets
 }
 
@@ -24,7 +24,7 @@ export interface AssetProgress {
     asset_id: string;
     asset_name: string;
     qr_code: string;
-    tracking_method: 'INDIVIDUAL' | 'BATCH';
+    tracking_method: "INDIVIDUAL" | "BATCH";
     required_quantity: number;
     scanned_quantity: number;
     is_complete: boolean;
@@ -57,7 +57,7 @@ export interface OutboundScanResponse {
     asset: {
         asset_id: string;
         asset_name: string;
-        tracking_method: 'INDIVIDUAL' | 'BATCH';
+        tracking_method: "INDIVIDUAL" | "BATCH";
         scanned_quantity: number;
         required_quantity: number;
         remaining_quantity: number;

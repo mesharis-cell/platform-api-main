@@ -14,15 +14,15 @@
  *     summary: Get calendar events with pagination
  *     description: |
  *       Retrieve orders as calendar events with pagination support.
- *       
+ *
  *       **Access Control:**
  *       - ADMIN and LOGISTICS users can view all calendar events across all companies
  *       - CLIENT users can only view events for their own company
- *       
+ *
  *       **Filtering:**
  *       Events can be filtered by month or year. If both are provided, month takes precedence.
  *       If neither is provided, returns all events (paginated).
- *       
+ *
  *       **Pagination:**
  *       Results are paginated with default limit of 10 items per page.
  *       Events are sorted by event_start_date in ascending order.

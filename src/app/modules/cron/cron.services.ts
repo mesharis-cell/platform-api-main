@@ -1,4 +1,4 @@
-import { and, eq, gte, lt, lte, or, sql } from "drizzle-orm";
+import { and, eq, lt, or, sql } from "drizzle-orm";
 import { db } from "../../../db";
 import { orders, orderStatusHistory, otp } from "../../../db/schema";
 import { getSystemUser } from "../../utils/helper-query";
@@ -43,17 +43,35 @@ const transitionOrdersBasedOnEventDates = async () => {
 
         // Step 4: Combine and group all orders by platform_id
         const allOrdersWithTransition = [
-            ...ordersForEventStart.map(order => ({ order, newStatus: "IN_USE" as const, reason: "event start" })),
-            ...ordersForEventEnd.map(order => ({ order, newStatus: "AWAITING_RETURN" as const, reason: "event end" })),
+            ...ordersForEventStart.map((order) => ({
+                order,
+                newStatus: "IN_USE" as const,
+                reason: "event start",
+            })),
+            ...ordersForEventEnd.map((order) => ({
+                order,
+                newStatus: "AWAITING_RETURN" as const,
+                reason: "event end",
+            })),
         ];
 
-        const ordersByPlatform = allOrdersWithTransition.reduce((acc, { order, newStatus, reason }) => {
-            if (!acc[order.platform_id]) {
-                acc[order.platform_id] = [];
-            }
-            acc[order.platform_id].push({ order, newStatus, reason });
-            return acc;
-        }, {} as Record<string, Array<{ order: typeof ordersForEventStart[0]; newStatus: "IN_USE" | "AWAITING_RETURN"; reason: string }>>);
+        const ordersByPlatform = allOrdersWithTransition.reduce(
+            (acc, { order, newStatus, reason }) => {
+                if (!acc[order.platform_id]) {
+                    acc[order.platform_id] = [];
+                }
+                acc[order.platform_id].push({ order, newStatus, reason });
+                return acc;
+            },
+            {} as Record<
+                string,
+                Array<{
+                    order: (typeof ordersForEventStart)[0];
+                    newStatus: "IN_USE" | "AWAITING_RETURN";
+                    reason: string;
+                }>
+            >
+        );
 
         let eventStartCount = 0;
         let eventEndCount = 0;
@@ -71,22 +89,27 @@ const transitionOrdersBasedOnEventDates = async () => {
             const systemUser = await getSystemUser(platformId);
 
             if (!systemUser) {
-                console.error(`❌ No system user found for platform ID: ${platformId}. Skipping ${platformOrdersWithTransition.length} orders.`);
+                console.error(
+                    `❌ No system user found for platform ID: ${platformId}. Skipping ${platformOrdersWithTransition.length} orders.`
+                );
                 continue;
             }
 
             // Step 5b: Group by status transition for batch updates
-            const ordersByStatus = platformOrdersWithTransition.reduce((acc, item) => {
-                if (!acc[item.newStatus]) {
-                    acc[item.newStatus] = [];
-                }
-                acc[item.newStatus].push(item);
-                return acc;
-            }, {} as Record<string, typeof platformOrdersWithTransition>);
+            const ordersByStatus = platformOrdersWithTransition.reduce(
+                (acc, item) => {
+                    if (!acc[item.newStatus]) {
+                        acc[item.newStatus] = [];
+                    }
+                    acc[item.newStatus].push(item);
+                    return acc;
+                },
+                {} as Record<string, typeof platformOrdersWithTransition>
+            );
 
             // Step 5c: Batch update orders for each status
             for (const [newStatus, items] of Object.entries(ordersByStatus)) {
-                const orderIds = items.map(item => item.order.id);
+                const orderIds = items.map((item) => item.order.id);
 
                 await db
                     .update(orders)
@@ -125,7 +148,6 @@ const transitionOrdersBasedOnEventDates = async () => {
         console.log(
             `✅ Event cron completed: ${eventStartCount} orders → IN_USE, ${eventEndCount} orders → AWAITING_RETURN`
         );
-
     } catch (error: any) {
         console.error("❌ Event cron error:", error);
         throw error;
@@ -147,10 +169,7 @@ const sendPickupReminders = async () => {
         // Step 2: Find orders with pickup windows within 48 hours
         const ordersForReminder = await db.query.orders.findMany({
             where: and(
-                or(
-                    eq(orders.order_status, "IN_USE"),
-                    eq(orders.order_status, "AWAITING_RETURN")
-                ),
+                or(eq(orders.order_status, "IN_USE"), eq(orders.order_status, "AWAITING_RETURN")),
                 sql`(${orders.pickup_window}->>'start')::timestamp >= ${now.toISOString()}`,
                 sql`(${orders.pickup_window}->>'start')::timestamp <= ${in48Hours.toISOString()}`
             ),
@@ -171,13 +190,16 @@ const sendPickupReminders = async () => {
         }
 
         // Step 4: Group orders by platform for efficient processing
-        const ordersByPlatform = ordersForReminder.reduce((acc, order) => {
-            if (!acc[order.platform_id]) {
-                acc[order.platform_id] = [];
-            }
-            acc[order.platform_id].push(order);
-            return acc;
-        }, {} as Record<string, typeof ordersForReminder>);
+        const ordersByPlatform = ordersForReminder.reduce(
+            (acc, order) => {
+                if (!acc[order.platform_id]) {
+                    acc[order.platform_id] = [];
+                }
+                acc[order.platform_id].push(order);
+                return acc;
+            },
+            {} as Record<string, typeof ordersForReminder>
+        );
 
         let remindersSent = 0;
         let remindersSkipped = 0;
@@ -192,7 +214,9 @@ const sendPickupReminders = async () => {
                     // Check if pickup_window exists and has a start time
                     const pickupWindow = order.pickup_window as any;
                     if (!pickupWindow || !pickupWindow.start) {
-                        console.log(`   ⚠ Skipping order ${order.order_id}: No pickup window defined`);
+                        console.log(
+                            `   ⚠ Skipping order ${order.order_id}: No pickup window defined`
+                        );
                         remindersSkipped++;
                         continue;
                     }
@@ -206,7 +230,10 @@ const sendPickupReminders = async () => {
 
                     remindersSent++;
                 } catch (error: any) {
-                    console.error(`   ❌ Failed to send reminder for order ${order.order_id}:`, error.message);
+                    console.error(
+                        `   ❌ Failed to send reminder for order ${order.order_id}:`,
+                        error.message
+                    );
                     remindersSkipped++;
                 }
             }
@@ -216,7 +243,6 @@ const sendPickupReminders = async () => {
         console.log(
             `✅ Pickup reminder cron completed: ${remindersSent} reminders sent, ${remindersSkipped} skipped`
         );
-
     } catch (error: any) {
         console.error("❌ Pickup reminder cron error:", error);
         throw error;
@@ -253,7 +279,6 @@ const deleteExpiredOTPs = async () => {
             deletedCount,
             timestamp: now.toISOString(),
         };
-
     } catch (error: any) {
         console.error("❌ OTP cleanup cron error:", error);
         throw error;

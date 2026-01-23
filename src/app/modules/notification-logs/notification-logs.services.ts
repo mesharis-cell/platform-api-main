@@ -1,10 +1,14 @@
 import { and, desc, eq, or, sql } from "drizzle-orm";
 import { db } from "../../../db";
 import httpStatus from "http-status";
-import { notificationLogs } from "../../../db/schema";
+import { companies, notificationLogs, orders } from "../../../db/schema";
 import { getEmailTemplate } from "../../utils/email-template";
 import { NotificationRecipients, NotificationType } from "./notification-logs.interfaces";
-import { buildNotificationData, getRecipientsForNotification, sendEmailWithLogging } from "./notification-logs.utils";
+import {
+    buildNotificationData,
+    getRecipientsForNotification,
+    sendEmailWithLogging,
+} from "./notification-logs.utils";
 import CustomizedError from "../../error/customized-error";
 
 const sendNotification = async (
@@ -22,7 +26,7 @@ const sendNotification = async (
     const data = await buildNotificationData(order);
 
     // Step 3: Get email template (subject and HTML content)
-    const { subject, html } = await getEmailTemplate(notificationType, data)
+    const { subject, html } = await getEmailTemplate(notificationType, data);
 
     // Step 4: Create notification log entry with QUEUED status
     const [logEntry] = await db
@@ -32,85 +36,68 @@ const sendNotification = async (
             order_id: order.id,
             notification_type: notificationType,
             recipients: JSON.stringify(recipients),
-            status: 'QUEUED',
+            status: "QUEUED",
             attempts: 1,
         })
-        .returning()
+        .returning();
 
     // Step 5: Validate recipients exist
     if (!recipients.to) {
-        console.log(
-            `   ✖ No recipients found for notification type: ${notificationType}`
-        )
-        return
+        console.log(`   ✖ No recipients found for notification type: ${notificationType}`);
+        return;
     }
 
-    let messageId = ''
+    let messageId = "";
     // Step 6: Send email to all primary recipients
     for (const toEmail of recipients.to) {
-        const messageIdRes = await sendEmailWithLogging(
-            toEmail,
-            subject,
-            html
-        )
+        const messageIdRes = await sendEmailWithLogging(toEmail, subject, html);
 
-        messageId = messageIdRes
+        messageId = messageIdRes;
     }
 
     // Step 7: Update notification log status to SENT
     await db
         .update(notificationLogs)
         .set({
-            status: 'SENT',
+            status: "SENT",
             sent_at: new Date(),
             message_id: messageId,
         })
-        .where(eq(notificationLogs.id, logEntry.id))
+        .where(eq(notificationLogs.id, logEntry.id));
 
     // Step 8: Send CC emails if any exist
     if (recipients.cc && recipients.cc.length > 0) {
         for (const ccEmail of recipients.cc) {
-            const ccMessageId = await sendEmailWithLogging(
-                ccEmail,
-                subject,
-                html
-            )
-            console.log(
-                `   ✓ CC sent to: ${ccEmail} (Message ID: ${ccMessageId})`
-            )
+            const ccMessageId = await sendEmailWithLogging(ccEmail, subject, html);
+            console.log(`   ✓ CC sent to: ${ccEmail} (Message ID: ${ccMessageId})`);
         }
     }
 
     // Step 9: Log successful notification completion
     console.log(
         `✅ Notification sent: ${notificationType} for order ${order.order_id} (Total: ${recipients.to.length} primary, ${recipients.cc?.length || 0} CC)`
-    )
+    );
 };
 
 // ----------------------------------- GET FAILED NOTIFICATIONS -----------------------------------
 const getFailedNotifications = async (
     platformId: string,
     filters?: {
-        status?: 'FAILED' | 'RETRYING';
+        status?: "FAILED" | "RETRYING";
         notification_type?: string;
         order_id?: string;
         limit?: number;
         offset?: number;
     }
 ) => {
-    const conditions = [
-        eq(notificationLogs.platform_id, platformId),
-    ];
+    const conditions = [eq(notificationLogs.platform_id, platformId)];
 
     // Filter by status (default to FAILED or RETRYING)
     if (filters?.status) {
         conditions.push(eq(notificationLogs.status, filters.status));
     } else {
         conditions.push(
-            or(
-                eq(notificationLogs.status, 'FAILED'),
-                eq(notificationLogs.status, 'RETRYING')
-            )!
+            or(eq(notificationLogs.status, "FAILED"), eq(notificationLogs.status, "RETRYING"))!
         );
     }
 
@@ -148,21 +135,28 @@ const getFailedNotifications = async (
     const total = Number(totalResult[0].count);
 
     return {
-        notifications: notifications.map((n) => ({
-            id: n.id,
-            order: {
-                id: n.order.id,
-                orderId: n.order.order_id,
-                companyName: n.order.company?.name || "Unknown",
-            },
-            notificationType: n.notification_type,
-            recipients: JSON.parse(n.recipients),
-            status: n.status,
-            attempts: n.attempts,
-            lastAttemptAt: n.last_attempt_at,
-            errorMessage: n.error_message,
-            createdAt: n.created_at,
-        })),
+        notifications: notifications.map((n) => {
+            const order = n.order as typeof orders.$inferSelect & {
+                company?: typeof companies.$inferSelect | null;
+            };
+            const company = order.company;
+
+            return {
+                id: n.id,
+                order: {
+                    id: order.id,
+                    orderId: order.order_id,
+                    companyName: company?.name || "Unknown",
+                },
+                notificationType: n.notification_type,
+                recipients: JSON.parse(n.recipients),
+                status: n.status,
+                attempts: n.attempts,
+                lastAttemptAt: n.last_attempt_at,
+                errorMessage: n.error_message,
+                createdAt: n.created_at,
+            };
+        }),
         total,
     };
 };
@@ -184,8 +178,11 @@ const retryNotification = async (
             throw new CustomizedError(httpStatus.NOT_FOUND, "Notification log entry not found");
         }
 
-        if (logEntry.status !== 'FAILED') {
-            throw new CustomizedError(httpStatus.BAD_REQUEST, "Can only retry FAILED notifications");
+        if (logEntry.status !== "FAILED") {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Can only retry FAILED notifications"
+            );
         }
 
         // Parse recipients
@@ -204,7 +201,7 @@ const retryNotification = async (
         await db
             .update(notificationLogs)
             .set({
-                status: 'RETRYING',
+                status: "RETRYING",
                 attempts: logEntry.attempts + 1,
                 last_attempt_at: new Date(),
             })
@@ -212,17 +209,13 @@ const retryNotification = async (
 
         // Attempt to send
         try {
-            const messageId = await sendEmailWithLogging(
-                recipients.to[0],
-                subject,
-                html
-            );
+            const messageId = await sendEmailWithLogging(recipients.to[0], subject, html);
 
             // Update to SENT
             await db
                 .update(notificationLogs)
                 .set({
-                    status: 'SENT',
+                    status: "SENT",
                     sent_at: new Date(),
                     message_id: messageId,
                     error_message: null,
@@ -236,16 +229,14 @@ const retryNotification = async (
                 }
             }
 
-            console.log(
-                `✅ Notification retry successful: ${logEntry.notification_type}`
-            );
+            console.log(`✅ Notification retry successful: ${logEntry.notification_type}`);
             return { success: true };
         } catch (emailError: any) {
             // Update back to FAILED
             await db
                 .update(notificationLogs)
                 .set({
-                    status: 'FAILED',
+                    status: "FAILED",
                     error_message: emailError.message || "Unknown email error",
                 })
                 .where(eq(notificationLogs.id, notificationLogId));
@@ -261,4 +252,4 @@ export const NotificationLogServices = {
     sendNotification,
     getFailedNotifications,
     retryNotification,
-}
+};

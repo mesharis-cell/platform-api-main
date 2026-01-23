@@ -17,11 +17,7 @@ import config from "../../config";
 import { multipleEmailSender } from "../../utils/email-sender";
 
 // ----------------------------------- GET INVOICE BY ID --------------------------------------
-const getInvoiceById = async (
-    invoiceId: string,
-    user: AuthUser,
-    platformId: string
-) => {
+const getInvoiceById = async (invoiceId: string, user: AuthUser, platformId: string) => {
     // Step 1: Determine if invoiceId is UUID or invoice_id
     const isUUID = invoiceId.match(uuidRegex);
 
@@ -61,7 +57,7 @@ const getInvoiceById = async (
     }
 
     // Step 4: Access control - CLIENT users can only access their company's invoices
-    if (user.role === 'CLIENT') {
+    if (user.role === "CLIENT") {
         if (!user.company_id || !result.company || result.company.id !== user.company_id) {
             throw new CustomizedError(
                 httpStatus.FORBIDDEN,
@@ -86,11 +82,7 @@ const getInvoiceById = async (
 };
 
 // ----------------------------------- DOWNLOAD INVOICE ---------------------------------------
-export const downloadInvoice = async (
-    invoiceId: string,
-    user: AuthUser,
-    platformId: string
-) => {
+export const downloadInvoice = async (invoiceId: string, user: AuthUser, platformId: string) => {
     // Get invoice with access control
     const invoice = await getInvoiceById(invoiceId, user, platformId);
 
@@ -105,11 +97,7 @@ export const downloadInvoice = async (
 };
 
 // ----------------------------------- GET INVOICES -------------------------------------------
-const getInvoices = async (
-    query: Record<string, any>,
-    user: AuthUser,
-    platformId: string
-) => {
+const getInvoices = async (query: Record<string, any>, user: AuthUser, platformId: string) => {
     const {
         search_term,
         page,
@@ -119,32 +107,28 @@ const getInvoices = async (
         order_id,
         invoice_id,
         paid_status,
-        company_id
+        company_id,
     } = query;
 
     // Step 1: Validate query parameters
     if (sort_by) queryValidator(invoiceQueryValidationConfig, "sort_by", sort_by);
-    if (sort_order)
-        queryValidator(invoiceQueryValidationConfig, "sort_order", sort_order);
-    if (paid_status)
-        queryValidator(invoiceQueryValidationConfig, "paid_status", paid_status);
-    if (company_id)
-        queryValidator(invoiceQueryValidationConfig, "company_id", company_id);
+    if (sort_order) queryValidator(invoiceQueryValidationConfig, "sort_order", sort_order);
+    if (paid_status) queryValidator(invoiceQueryValidationConfig, "paid_status", paid_status);
+    if (company_id) queryValidator(invoiceQueryValidationConfig, "company_id", company_id);
 
     // Step 2: Setup pagination
-    const { pageNumber, limitNumber, skip, sortWith, sortSequence } =
-        paginationMaker({
-            page,
-            limit,
-            sort_by,
-            sort_order,
-        });
+    const { pageNumber, limitNumber, skip, sortWith, sortSequence } = paginationMaker({
+        page,
+        limit,
+        sort_by,
+        sort_order,
+    });
 
     // Step 2: Build WHERE conditions
     const conditions: any[] = [eq(invoices.platform_id, platformId)];
 
     // Step 2a: Access control - CLIENT users can only see their company's invoices
-    if (user.role === 'CLIENT') {
+    if (user.role === "CLIENT") {
         if (!user.company_id) {
             throw new CustomizedError(httpStatus.BAD_REQUEST, "Company ID is required");
         }
@@ -155,22 +139,20 @@ const getInvoices = async (
         conditions.push(eq(invoices.invoice_id, invoice_id));
     }
 
-    if (paid_status === 'paid') {
+    if (paid_status === "paid") {
         conditions.push(sql`${invoices.invoice_paid_at} IS NOT NULL`);
-    } else if (paid_status === 'unpaid') {
+    } else if (paid_status === "unpaid") {
         conditions.push(sql`${invoices.invoice_paid_at} IS NULL`);
     }
 
     if (search_term) {
-        conditions.push(
-            ilike(invoices.invoice_id, `%${search_term.trim()}%`),
-        );
+        conditions.push(ilike(invoices.invoice_id, `%${search_term.trim()}%`));
     }
 
     // Step 3: Build order conditions for join
     const orderConditions: any[] = [];
 
-    if (user.role === 'CLIENT' && user.company_id) {
+    if (user.role === "CLIENT" && user.company_id) {
         orderConditions.push(eq(orders.company_id, user.company_id));
     }
 
@@ -178,7 +160,7 @@ const getInvoices = async (
         orderConditions.push(eq(orders.order_id, order_id));
     }
 
-    if (company_id && user.role !== 'CLIENT') {
+    if (company_id && user.role !== "CLIENT") {
         orderConditions.push(eq(orders.company_id, company_id));
     }
 
@@ -209,12 +191,7 @@ const getInvoices = async (
         .from(invoices)
         .innerJoin(orders, eq(invoices.order_id, orders.id))
         .leftJoin(companies, eq(orders.company_id, companies.id))
-        .where(
-            and(
-                ...conditions,
-                ...(orderConditions.length > 0 ? [and(...orderConditions)] : [])
-            )
-        )
+        .where(and(...conditions, ...(orderConditions.length > 0 ? [and(...orderConditions)] : [])))
         .orderBy(orderDirection)
         .limit(limitNumber)
         .offset(skip);
@@ -225,14 +202,11 @@ const getInvoices = async (
         .from(invoices)
         .innerJoin(orders, eq(invoices.order_id, orders.id))
         .where(
-            and(
-                ...conditions,
-                ...(orderConditions.length > 0 ? [and(...orderConditions)] : [])
-            )
+            and(...conditions, ...(orderConditions.length > 0 ? [and(...orderConditions)] : []))
         );
 
     // Step 7: Format results
-    const formattedResults = results.map(item => {
+    const formattedResults = results.map((item) => {
         const { invoice, order, company } = item;
         return {
             id: invoice.id,
@@ -291,12 +265,7 @@ const confirmPayment = async (
         })
         .from(invoices)
         .innerJoin(orders, eq(invoices.order_id, orders.id))
-        .where(
-            and(
-                eq(invoices.order_id, orderId),
-                eq(invoices.platform_id, platformId)
-            )
-        );
+        .where(and(eq(invoices.order_id, orderId), eq(invoices.platform_id, platformId)));
 
     // Step 3: Validate invoice exists
     if (!result) {
@@ -320,10 +289,7 @@ const confirmPayment = async (
     }
 
     if (paymentDate > now) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            "Payment date cannot be in the future"
-        );
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Payment date cannot be in the future");
     }
 
     await db.transaction(async (tx) => {
@@ -342,7 +308,7 @@ const confirmPayment = async (
         await tx
             .update(orders)
             .set({
-                financial_status: 'PAID',
+                financial_status: "PAID",
                 updated_at: new Date(),
             })
             .where(eq(orders.id, result.order.id));
@@ -351,7 +317,7 @@ const confirmPayment = async (
         await tx.insert(financialStatusHistory).values({
             platform_id: platformId,
             order_id: result.order.id,
-            status: 'PAID',
+            status: "PAID",
             notes: payload.notes || `Payment confirmed via ${payload.payment_method}`,
             updated_by: user.id,
         });
@@ -369,15 +335,16 @@ const confirmPayment = async (
 };
 
 // ----------------------------------- INVOICE GENERATE ---------------------------------------
-const generateInvoice = async (platformId: string, user: AuthUser, payload: GenerateInvoicePayload) => {
+const generateInvoice = async (
+    platformId: string,
+    user: AuthUser,
+    payload: GenerateInvoicePayload
+) => {
     const { order_id, regenerate } = payload;
 
     // Step 1: Fetch order with company details
     const order = await db.query.orders.findFirst({
-        where: and(
-            eq(orders.id, order_id),
-            eq(orders.platform_id, platformId)
-        ),
+        where: and(eq(orders.id, order_id), eq(orders.platform_id, platformId)),
         with: {
             company: true,
             items: {
@@ -391,7 +358,7 @@ const generateInvoice = async (platformId: string, user: AuthUser, payload: Gene
                     },
                 },
             },
-        }
+        },
     });
 
     if (!order) {
@@ -399,6 +366,7 @@ const generateInvoice = async (platformId: string, user: AuthUser, payload: Gene
     }
 
     // Step 2: Prepare invoice data
+    const company = order.company as typeof companies.$inferSelect | null;
     const venueLocation = order.venue_location as any;
     const invoiceData = {
         id: order.id,
@@ -408,13 +376,13 @@ const generateInvoice = async (platformId: string, user: AuthUser, payload: Gene
         contact_name: order.contact_name,
         contact_email: order.contact_email,
         contact_phone: order.contact_phone,
-        company_name: order.company.name,
+        company_name: company?.name || "N/A",
         event_start_date: order.event_start_date,
         event_end_date: order.event_end_date,
         venue_name: order.venue_name,
-        venue_country: venueLocation.country || 'N/A',
-        venue_city: venueLocation.city || 'N/A',
-        venue_address: venueLocation.address || 'N/A',
+        venue_country: venueLocation.country || "N/A",
+        venue_city: venueLocation.city || "N/A",
+        venue_address: venueLocation.address || "N/A",
         order_status: order.order_status,
         financial_status: order.financial_status,
         pricing: {
@@ -422,18 +390,21 @@ const generateInvoice = async (platformId: string, user: AuthUser, payload: Gene
             platform_margin_percent: (order.platform_pricing as any)?.margin_percent || 0,
             platform_margin_amount: (order.platform_pricing as any)?.margin_amount || 0,
             final_total_price: (order.final_pricing as any)?.total_price || 0,
-            show_breakdown: false
+            show_breakdown: false,
         },
-        items: order.items.map(item => ({
+        items: order.items.map((item) => ({
             asset_name: item.asset.name,
             quantity: item.quantity,
             handling_tags: item.handling_tags as any,
-            from_collection_name: item.from_collection_name || 'N/A'
-        }))
+            from_collection_name: item.from_collection_name || "N/A",
+        })),
     };
 
     // Step 3: Generate invoice
-    const { invoice_id, invoice_pdf_url, pdf_buffer } = await invoiceGenerator(invoiceData, regenerate);
+    const { invoice_id, invoice_pdf_url, pdf_buffer } = await invoiceGenerator(
+        invoiceData,
+        regenerate
+    );
 
     if (invoice_id && invoice_pdf_url) {
         await sendEmail({
@@ -442,31 +413,33 @@ const generateInvoice = async (platformId: string, user: AuthUser, payload: Gene
             html: emailTemplates.send_invoice_to_client({
                 invoice_number: invoice_id,
                 order_id: order.order_id,
-                company_name: order.company?.name || 'N/A',
+                company_name: company?.name || "N/A",
                 final_total_price: (order.final_pricing as any)?.total_price || 0,
                 download_invoice_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
             }),
             attachments: pdf_buffer
                 ? [
-                    {
-                        filename: `${invoice_id}.pdf`,
-                        content: pdf_buffer,
-                    },
-                ]
+                      {
+                          filename: `${invoice_id}.pdf`,
+                          content: pdf_buffer,
+                      },
+                  ]
                 : undefined,
-        })
+        });
 
         // Send notification to plaform admin
         const platformAdmins = await db
             .select({ email: users.email })
             .from(users)
             .where(
-                and(eq(users.platform_id, platformId),
-                    eq(users.role, 'ADMIN'),
-                    sql`${users.permission_template} = 'PLATFORM_ADMIN' AND ${users.email} NOT LIKE '%@system.internal'`)
-            )
+                and(
+                    eq(users.platform_id, platformId),
+                    eq(users.role, "ADMIN"),
+                    sql`${users.permission_template} = 'PLATFORM_ADMIN' AND ${users.email} NOT LIKE '%@system.internal'`
+                )
+            );
 
-        const platformAdminEmails = platformAdmins.map(admin => admin.email);
+        const platformAdminEmails = platformAdmins.map((admin) => admin.email);
 
         await multipleEmailSender(
             platformAdminEmails,
@@ -474,7 +447,7 @@ const generateInvoice = async (platformId: string, user: AuthUser, payload: Gene
             emailTemplates.send_invoice_to_admin({
                 invoice_number: invoice_id,
                 order_id: order.order_id,
-                company_name: order.company.name,
+                company_name: company?.name || "N/A",
                 final_total_price: (order.final_pricing as any)?.total_price || 0,
                 download_invoice_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
             })
@@ -486,7 +459,7 @@ const generateInvoice = async (platformId: string, user: AuthUser, payload: Gene
         invoice_id,
         invoice_pdf_url,
     };
-}
+};
 
 export const InvoiceServices = {
     getInvoiceById,
