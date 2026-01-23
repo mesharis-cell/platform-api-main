@@ -6,6 +6,7 @@
 import { PricingConfigServices } from '../pricing-config/pricing-config.services'
 import { TransportRatesServices } from '../transport-rates/transport-rates.services'
 import { OrderLineItemsServices } from '../order-line-items/order-line-items.services'
+import { deriveEmirateFromCity as deriveEmirate } from '../../utils/emirate-mapper'
 
 export interface OrderPricingBreakdown {
   base_operations: {
@@ -39,52 +40,9 @@ export interface OrderPricingBreakdown {
 }
 
 // ----------------------------------- DERIVE EMIRATE FROM CITY -----------------------------------
+// Using centralized emirate mapper
 export function deriveEmirateFromCity(city: string): string {
-  const cityLower = city.toLowerCase().trim()
-
-  // Dubai
-  if (cityLower.includes('dubai')) return 'Dubai'
-
-  // Abu Dhabi
-  if (
-    cityLower.includes('abu dhabi') ||
-    cityLower.includes('abudhabi') ||
-    cityLower.includes('mussafah') ||
-    cityLower.includes('khalifa city')
-  )
-    return 'Abu Dhabi'
-
-  // Al Ain
-  if (cityLower.includes('al ain') || cityLower.includes('alain')) return 'Al Ain'
-
-  // Sharjah
-  if (cityLower.includes('sharjah')) return 'Sharjah'
-
-  // Ajman
-  if (cityLower.includes('ajman')) return 'Ajman'
-
-  // Ras Al Khaimah
-  if (
-    cityLower.includes('ras al khaimah') ||
-    cityLower.includes('ras al-khaimah') ||
-    cityLower.includes('rak')
-  )
-    return 'Ras Al Khaimah'
-
-  // Umm Al Quwain
-  if (
-    cityLower.includes('umm al quwain') ||
-    cityLower.includes('umm al-quwain') ||
-    cityLower.includes('uaq')
-  )
-    return 'Umm Al Quwain'
-
-  // Fujairah
-  if (cityLower.includes('fujairah') || cityLower.includes('fujaira'))
-    return 'Fujairah'
-
-  // Default to Dubai if can't determine
-  return 'Dubai'
+  return deriveEmirate(city)
 }
 
 // ----------------------------------- CALCULATE ORDER ESTIMATE -----------------------------------
