@@ -585,10 +585,11 @@ export const OrderControllers = {
     returnToLogistics,
     cancelOrder,
     calculateEstimate,
+    updateOrderVehicle,
 }
 
 // ----------------------------------- UPDATE VEHICLE TYPE (NEW) -----------------------------------
-export const updateOrderVehicle = catchAsync(async (req, res) => {
+const updateOrderVehicle = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platform_id;
     const companyId = user.company_id;
@@ -604,11 +605,6 @@ export const updateOrderVehicle = catchAsync(async (req, res) => {
         data: result,
     });
 });
-
-export const OrderControllers = {
-    ...OrderControllers,
-    updateOrderVehicle,
-};
 
 
 

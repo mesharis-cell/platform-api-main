@@ -7,11 +7,10 @@ import { Request, Response } from 'express'
 import httpStatus from 'http-status'
 import CustomizedError from '../../error/customized-error'
 import { OrderServices } from './order.services'
-import sendResponse from '../../utils/send-response'
-import catchAsync from '../../utils/catch-async'
 
 // ----------------------------------- CALCULATE ORDER ESTIMATE -----------------------------------
-export const calculateOrderEstimate = catchAsync(async (req: Request, res: Response) => {
+export const calculateOrderEstimate = async (req: Request, res: Response) => {
+  try {
   const user = (req as any).user
   const platformId = (req as any).platform_id
   const companyId = user.company_id
@@ -51,13 +50,18 @@ export const calculateOrderEstimate = catchAsync(async (req: Request, res: Respo
     transport_trip_type
   )
 
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
+  return res.status(httpStatus.OK).json({
     success: true,
     message: 'Estimate calculated successfully',
     data: { estimate },
   })
-})
+  } catch (error) {
+    return res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to calculate estimate',
+    })
+  }
+}
 
 export const OrderEstimateController = {
   calculateOrderEstimate,

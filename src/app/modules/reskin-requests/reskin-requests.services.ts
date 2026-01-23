@@ -115,9 +115,6 @@ const processReskinRequest = async (
   // Create custom line item for reskin cost
   const targetBrandName =
     orderItem.reskin_target_brand_custom ||
-    (await db.query.brands.findFirst({
-      where: eq(db.schema.brands.id, orderItem.reskin_target_brand_id!),
-    }))?.name ||
     'Custom Brand'
 
   const lineItem = await OrderLineItemsServices.createCustomLineItem({
@@ -175,6 +172,9 @@ const completeReskinRequest = async (
 
   const originalAsset = reskinRequest.original_asset
 
+  const originalAsset: any = reskinRequest.original_asset
+  const platformId = reskinRequest.platform_id
+
   // Create new asset (copy specs from original)
   const [newAsset] = await db
     .insert(assets)
@@ -193,7 +193,7 @@ const completeReskinRequest = async (
       volume_per_unit: originalAsset.volume_per_unit,
       weight_per_unit: originalAsset.weight_per_unit,
       dimensions: originalAsset.dimensions,
-      packaging: originalAsset.packaging,
+      packaging: originalAsset.packaging || null,
       
       // New identity
       images: completion_photos,
@@ -203,8 +203,8 @@ const completeReskinRequest = async (
       qr_code: generateAssetQRCode(new_asset_name, originalAsset.company_id),
       
       // Fresh condition
-      status: 'AVAILABLE',
-      condition: 'GREEN',
+      status: 'AVAILABLE' as any,
+      condition: 'GREEN' as any,
       condition_notes: null,
       handling_tags: originalAsset.handling_tags,
       
@@ -248,8 +248,8 @@ const completeReskinRequest = async (
   const stillPending = await getPendingReskins(reskinRequest.order_id, platformId)
 
   // If all complete and order is AWAITING_FABRICATION, transition to IN_PREPARATION
-  if (stillPending.length === 0) {
-    const order = reskinRequest.order_item.order
+  if (stillPending.length === 0 && reskinRequest.order_item && (reskinRequest.order_item as any).order) {
+    const order: any = (reskinRequest.order_item as any).order
     if (order.order_status === 'AWAITING_FABRICATION') {
       await db
         .update(orders)
