@@ -20,7 +20,7 @@ const getCompanyConfig = async (req: Request, res: Response) => {
   const { platform_id } = req as any
   const { companyId } = req.params
 
-  const config = await PricingConfigServices.getCompanyConfig(companyId, platform_id)
+  const config = await PricingConfigServices.getCompanyConfig(companyId as string, platform_id)
 
   return res.status(httpStatus.OK).json({
     success: true,
@@ -49,7 +49,7 @@ const setCompanyOverride = async (req: Request, res: Response) => {
   const payload = req.body
 
   const config = await PricingConfigServices.setCompanyOverride(
-    companyId,
+    companyId as string,
     platform_id,
     payload
   )
@@ -66,7 +66,7 @@ const removeCompanyOverride = async (req: Request, res: Response) => {
   const { platform_id } = req as any
   const { companyId } = req.params
 
-  await PricingConfigServices.removeCompanyOverride(companyId, platform_id)
+  await PricingConfigServices.removeCompanyOverride(companyId as string, platform_id)
 
   return res.status(httpStatus.OK).json({
     success: true,

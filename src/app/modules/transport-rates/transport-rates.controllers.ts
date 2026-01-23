@@ -20,7 +20,7 @@ const getTransportRateById = async (req: Request, res: Response) => {
   const { platform_id } = req as any
   const { id } = req.params
 
-  const rate = await TransportRatesServices.getTransportRateById(id, platform_id)
+  const rate = await TransportRatesServices.getTransportRateById(id as string, platform_id)
 
   return res.status(httpStatus.OK).json({
     success: true,
@@ -48,7 +48,7 @@ const updateTransportRate = async (req: Request, res: Response) => {
   const { id } = req.params
   const payload = req.body
 
-  const rate = await TransportRatesServices.updateTransportRate(id, platform_id, payload)
+  const rate = await TransportRatesServices.updateTransportRate(id as string, platform_id, payload)
 
   return res.status(httpStatus.OK).json({
     success: true,
@@ -62,7 +62,7 @@ const deleteTransportRate = async (req: Request, res: Response) => {
   const { platform_id } = req as any
   const { id } = req.params
 
-  await TransportRatesServices.deleteTransportRate(id, platform_id)
+  await TransportRatesServices.deleteTransportRate(id as string, platform_id)
 
   return res.status(httpStatus.OK).json({
     success: true,

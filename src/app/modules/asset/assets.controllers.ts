@@ -46,7 +46,7 @@ const getAssetById = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const { id } = req.params;
 
-    const result = await AssetServices.getAssetById(id, user, platformId);
+    const result = await AssetServices.getAssetById(id as string, user, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -62,7 +62,7 @@ const updateAsset = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const { id } = req.params;
 
-    const result = await AssetServices.updateAsset(id, req.body, user, platformId);
+    const result = await AssetServices.updateAsset(id as string, req.body, user, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -78,7 +78,7 @@ const deleteAsset = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const { id } = req.params;
 
-    const result = await AssetServices.deleteAsset(id, user, platformId);
+    const result = await AssetServices.deleteAsset(id as string, user, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -94,7 +94,7 @@ const getAssetAvailabilityStats = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const { id } = req.params;
 
-    const result = await AssetServices.getAssetAvailabilityStats(id, user, platformId);
+    const result = await AssetServices.getAssetAvailabilityStats(id as string, user, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -110,7 +110,7 @@ const getAssetScanHistory = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const { id } = req.params;
 
-    const result = await AssetServices.getAssetScanHistory(id, user, platformId);
+    const result = await AssetServices.getAssetScanHistory(id as string, user, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

@@ -44,7 +44,7 @@ const getCollectionById = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const { id } = req.params;
 
-    const result = await CollectionServices.getCollectionById(id, user, platformId);
+    const result = await CollectionServices.getCollectionById(id as string, user, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -59,7 +59,7 @@ const updateCollection = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const { id } = req.params;
 
-    const result = await CollectionServices.updateCollection(id, req.body, platformId);
+    const result = await CollectionServices.updateCollection(id as string, req.body, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -74,7 +74,7 @@ const deleteCollection = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const { id } = req.params;
 
-    const result = await CollectionServices.deleteCollection(id, platformId);
+    const result = await CollectionServices.deleteCollection(id as string, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -94,7 +94,7 @@ const addCollectionItem = catchAsync(async (req, res) => {
         collection_id: id,
     };
 
-    const result = await CollectionServices.addCollectionItem(id, itemData, platformId);
+    const result = await CollectionServices.addCollectionItem(id as string, itemData, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.CREATED,
@@ -109,7 +109,7 @@ const updateCollectionItem = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const { id, itemId } = req.params;
 
-    const result = await CollectionServices.updateCollectionItem(id, itemId, req.body, platformId);
+    const result = await CollectionServices.updateCollectionItem(id as string, itemId, req.body, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -124,7 +124,7 @@ const deleteCollectionItem = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const { id, itemId } = req.params;
 
-    const result = await CollectionServices.deleteCollectionItem(id, itemId, platformId);
+    const result = await CollectionServices.deleteCollectionItem(id as string, itemId, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

@@ -20,7 +20,7 @@ const getServiceTypeById = async (req: Request, res: Response) => {
   const { platform_id } = req as any
   const { id } = req.params
 
-  const serviceType = await ServiceTypesServices.getServiceTypeById(id, platform_id)
+  const serviceType = await ServiceTypesServices.getServiceTypeById(id as string, platform_id)
 
   return res.status(httpStatus.OK).json({
     success: true,
@@ -48,7 +48,7 @@ const updateServiceType = async (req: Request, res: Response) => {
   const { id } = req.params
   const payload = req.body
 
-  const serviceType = await ServiceTypesServices.updateServiceType(id, platform_id, payload)
+  const serviceType = await ServiceTypesServices.updateServiceType(id as string, platform_id, payload)
 
   return res.status(httpStatus.OK).json({
     success: true,
@@ -62,7 +62,7 @@ const deleteServiceType = async (req: Request, res: Response) => {
   const { platform_id } = req as any
   const { id } = req.params
 
-  await ServiceTypesServices.deleteServiceType(id, platform_id)
+  await ServiceTypesServices.deleteServiceType(id as string, platform_id)
 
   return res.status(httpStatus.OK).json({
     success: true,

@@ -46,7 +46,7 @@ const getBrandById = catchAsync(async (req, res) => {
   const platformId = (req as any).platformId;
   const { id } = req.params;
 
-  const result = await BrandServices.getBrandById(id, user, platformId);
+    const result = await BrandServices.getBrandById(id as string, user, platformId);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -62,7 +62,7 @@ const updateBrand = catchAsync(async (req, res) => {
   const platformId = (req as any).platformId;
   const { id } = req.params;
 
-  const result = await BrandServices.updateBrand(id, req.body, user, platformId);
+    const result = await BrandServices.updateBrand(id as string, req.body, user, platformId);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -78,7 +78,7 @@ const deleteBrand = catchAsync(async (req, res) => {
   const platformId = (req as any).platformId;
   const { id } = req.params;
 
-  const result = await BrandServices.deleteBrand(id, user, platformId);
+    const result = await BrandServices.deleteBrand(id as string, user, platformId);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,

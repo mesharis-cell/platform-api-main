@@ -45,7 +45,7 @@ const getCompanyById = catchAsync(async (req, res) => {
   const user = (req as any).user;
   const { id } = req.params;
 
-  const result = await CompanyServices.getCompanyById(id, platformId, user);
+  const result = await CompanyServices.getCompanyById(id as string, platformId, user);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -61,7 +61,7 @@ const updateCompany = catchAsync(async (req, res) => {
   const platformId = (req as any).platformId;
   const { id } = req.params;
 
-  const result = await CompanyServices.updateCompany(id, req.body, platformId, user);
+  const result = await CompanyServices.updateCompany(id as string, req.body, platformId, user);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -76,7 +76,7 @@ const deleteCompany = catchAsync(async (req, res) => {
   const platformId = (req as any).platformId;
   const { id } = req.params;
 
-  const result = await CompanyServices.deleteCompany(id, platformId);
+  const result = await CompanyServices.deleteCompany(id as string, platformId);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,

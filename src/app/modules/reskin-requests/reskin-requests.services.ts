@@ -100,7 +100,7 @@ const processReskinRequest = async (
   const [reskinRequest] = await db
     .insert(reskinRequests)
     .values({
-      platform_id,
+      platform_id: platformId, // ✅ FIX: Use function parameter
       order_id: orderId,
       order_item_id: orderItemId,
       original_asset_id: orderItem.asset_id,
@@ -118,7 +118,7 @@ const processReskinRequest = async (
     'Custom Brand'
 
   const lineItem = await OrderLineItemsServices.createCustomLineItem({
-    platform_id,
+    platform_id: platformId, // ✅ FIX: Use function parameter
     order_id: orderId,
     description: `${orderItem.asset_name} Rebrand (${targetBrandName})`,
     category: 'RESKIN',

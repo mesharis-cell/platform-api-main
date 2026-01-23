@@ -75,7 +75,7 @@ const submitOrderFromCart = async (
 
     // Step 2: Check assets availability
     const requiredAssets = items.map((i) => ({ id: i.asset_id, quantity: i.quantity }))
-    const foundAssets = await checkAssetsForOrder(platformId, companyId, requiredAssets, eventStartDate, eventEndDate);
+    const foundAssets: any[] = await checkAssetsForOrder(platformId, companyId, requiredAssets, eventStartDate, eventEndDate);
 
     // Step 3: Calculate order totals (volume and weight)
     const orderItemsData: OrderItem[] = [];
@@ -125,7 +125,7 @@ const submitOrderFromCart = async (
 
     // Step 4: Calculate pricing estimate (NEW SYSTEM)
     const volume = parseFloat(calculatedVolume);
-    const marginPercent = parseFloat(company.platform_margin_percent);
+    const marginPercent = parseFloat((company as any).platform_margin_percent);
     
     // Will calculate estimate after order creation (need order_id for line items)
 
@@ -202,7 +202,7 @@ const submitOrderFromCart = async (
     // Step 6.a: Prepare email data
     const emailData = {
         order_id: orderResult.order_id,
-        company_name: company?.name || 'N/A',
+        company_name: (company as any)?.name || 'N/A',
         event_start_date: formatDateForEmail(event_start_date),
         event_end_date: formatDateForEmail(event_end_date),
         venue_city: venue_city,
@@ -999,14 +999,15 @@ const adjustLogisticsPricing = async (
     };
 
     // Step 5: Update order
+    const orderCompany: any = order.company; // ✅ FIX: Type assertion
     await db
         .update(orders)
         .set({
             logistics_pricing: updatedLogisticsPricing,
             platform_pricing: {
                 ...platformPricing,
-                margin_percent: order.company.platform_margin_percent,
-                margin_amount: Number(updatedLogisticsPricing.adjusted_price) * (Number(order.company.platform_margin_percent) / 100)
+                margin_percent: orderCompany.platform_margin_percent,
+                margin_amount: Number(updatedLogisticsPricing.adjusted_price) * (Number(orderCompany.platform_margin_percent) / 100)
             },
             order_status: 'PENDING_APPROVAL',
             updated_at: new Date(),
@@ -1042,7 +1043,7 @@ const adjustLogisticsPricing = async (
         `Action Required: Order ${order.order_id} - Logistics Pricing Adjustment`,
         emailTemplates.adjust_price({
             order_id: order.order_id,
-            company_name: order.company.name,
+            company_name: (order.company as any).name,
             adjusted_price: updatedLogisticsPricing.adjusted_price,
             adjustment_reason: updatedLogisticsPricing.adjustment_reason,
             view_order_url: `http://localhost:3000/order/${order.order_id}`,
@@ -1062,8 +1063,8 @@ const adjustLogisticsPricing = async (
             name: user.name,
         },
         company: {
-            id: order.company.id,
-            name: order.company.name,
+            id: (order.company as any).id,
+            name: (order.company as any).name,
         },
     };
 };
@@ -1388,9 +1389,9 @@ const getOrderPricingDetails = async (
             calculated_volume: (order.calculated_totals as any)?.volume || null,
             venue_location: order.venue_location,
             company: {
-                id: order.company.id,
-                name: order.company.name,
-                platform_margin_percent: order.company.platform_margin_percent,
+                id: (company as any).id,
+                name: (order.company as any).name,
+                platform_margin_percent: (company as any).platform_margin_percent,
             },
         },
         pricing_tier: order.pricing_tier
@@ -1424,7 +1425,7 @@ const calculateStandardPricing = async (order: any): Promise<StandardPricing> =>
         return {
             pricing_tier_id: null,
             logistics_base_price: null,
-            platform_margin_percent: parseFloat(order.company.platform_margin_percent),
+            platform_margin_percent: parseFloat((company as any).platform_margin_percent),
             platform_margin_amount: null,
             final_total_price: null,
             tier_found: false,
@@ -1466,7 +1467,7 @@ const calculateStandardPricing = async (order: any): Promise<StandardPricing> =>
             return {
                 pricing_tier_id: null,
                 logistics_base_price: null,
-                platform_margin_percent: parseFloat(order.company.platform_margin_percent),
+                platform_margin_percent: parseFloat((company as any).platform_margin_percent),
                 platform_margin_amount: null,
                 final_total_price: null,
                 tier_found: false,
@@ -1475,7 +1476,7 @@ const calculateStandardPricing = async (order: any): Promise<StandardPricing> =>
 
         // Use wildcard tier
         const logisticsBasePrice = parseFloat(wildcardTier.base_price);
-        const platformMarginPercent = parseFloat(order.company.platform_margin_percent);
+        const platformMarginPercent = parseFloat((company as any).platform_margin_percent);
         const platformMarginAmount = logisticsBasePrice * (platformMarginPercent / 100);
         const finalTotalPrice = logisticsBasePrice + platformMarginAmount;
 
@@ -1491,7 +1492,7 @@ const calculateStandardPricing = async (order: any): Promise<StandardPricing> =>
 
     // Calculate standard pricing
     const logisticsBasePrice = parseFloat(tier.base_price);
-    const platformMarginPercent = parseFloat(order.company.platform_margin_percent);
+    const platformMarginPercent = parseFloat((company as any).platform_margin_percent);
     const platformMarginAmount = logisticsBasePrice * (platformMarginPercent / 100);
     const finalTotalPrice = logisticsBasePrice + platformMarginAmount;
 
@@ -1611,7 +1612,7 @@ const approveStandardPricing = async (
         contact_name: order.contact_name,
         contact_email: order.contact_email,
         contact_phone: order.contact_phone,
-        company_name: order.company.name,
+        company_name: (order.company as any).name,
         event_start_date: order.event_start_date,
         event_end_date: order.event_end_date,
         venue_name: order.venue_name,
@@ -1757,7 +1758,7 @@ const approvePlatformPricing = async (
         contact_name: order.contact_name,
         contact_email: order.contact_email,
         contact_phone: order.contact_phone,
-        company_name: order.company.name,
+        company_name: (order.company as any).name,
         event_start_date: order.event_start_date,
         event_end_date: order.event_end_date,
         venue_name: order.venue_name,
@@ -1793,7 +1794,7 @@ const approvePlatformPricing = async (
         `Action Required: Order ${order.order_id} - Logistics Pricing Adjustment`,
         emailTemplates.adjust_price({
             order_id: order.order_id,
-            company_name: order.company.name,
+            company_name: (order.company as any).name,
             adjusted_price: logistics_base_price,
             adjustment_reason: 'Logistics has adjusted the pricing for order',
             view_order_url: `${config.client_url}/order/${order.id}`,
@@ -1900,28 +1901,32 @@ const approveQuote = async (
                 .where(eq(assets.id, asset.id));
         }
 
-        // Check if order has pending reskins (NEW)
-        const hasPendingReskins = await shouldAwaitFabrication(orderId, platformId);
-        const nextStatus = hasPendingReskins ? 'AWAITING_FABRICATION' : 'CONFIRMED';
+        // Check if order has pending reskins (NEW) - MOVE OUTSIDE TRANSACTION
+    })
 
-        await tx
-            .update(orders)
-            .set({
-                order_status: nextStatus,
-                financial_status: 'QUOTE_ACCEPTED',
-                updated_at: new Date(),
-            })
-            .where(eq(orders.id, orderId))
+    // Check for pending reskins AFTER bookings created
+    const hasPendingReskins = await shouldAwaitFabrication(orderId, platformId);
+    const nextStatus = hasPendingReskins ? 'AWAITING_FABRICATION' : 'CONFIRMED';
 
-        await tx.insert(orderStatusHistory).values({
-            platform_id: platformId,
-            order_id: orderId,
-            status: nextStatus,
-            notes: hasPendingReskins 
-                ? 'Client approved quote. Order awaiting fabrication completion.'
-                : (notes || 'Client approved quote'),
-            updated_by: user.id,
+    // Update order status based on reskins
+    await db
+        .update(orders)
+        .set({
+            order_status: nextStatus,
+            financial_status: 'QUOTE_ACCEPTED',
+            updated_at: new Date(),
         })
+        .where(eq(orders.id, orderId))
+
+    // Log status change
+    await db.insert(orderStatusHistory).values({
+        platform_id: platformId,
+        order_id: orderId,
+        status: nextStatus,
+        notes: hasPendingReskins 
+            ? 'Client approved quote. Order awaiting fabrication completion.'
+            : (notes || 'Client approved quote'),
+        updated_by: user.id,
     })
 
     // // Step 7: Send notification
@@ -2230,7 +2235,7 @@ const adminApproveQuote = async (
     }
 
     // Recalculate pricing with margin override if provided
-    const marginPercent = marginOverride?.percent ?? parseFloat(order.company.platform_margin_percent);
+    const marginPercent = marginOverride?.percent ?? parseFloat((company as any).platform_margin_percent);
     const volume = parseFloat((order.calculated_totals as any).volume);
     const emirate = PricingCalculationServices.deriveEmirateFromCity((order.venue_location as any).city);
 
@@ -2393,7 +2398,7 @@ const calculateOrderEstimate = async (
         .where(eq(companies.id, companyId))
         .limit(1);
 
-    const marginPercent = parseFloat(company.platform_margin_percent);
+    const marginPercent = parseFloat((company as any).platform_margin_percent);
 
     // Calculate estimate
     const estimate = await PricingCalculationServices.calculateOrderEstimate(

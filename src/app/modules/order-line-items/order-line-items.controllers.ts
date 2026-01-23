@@ -7,7 +7,7 @@ const listOrderLineItems = async (req: Request, res: Response) => {
   const { platform_id } = req as any
   const { orderId } = req.params
 
-  const items = await OrderLineItemsServices.listOrderLineItems(orderId, platform_id)
+  const items = await OrderLineItemsServices.listOrderLineItems(orderId as string, platform_id)
 
   return res.status(httpStatus.OK).json({
     success: true,
@@ -85,8 +85,8 @@ const voidLineItem = async (req: Request, res: Response) => {
   }
 
   const lineItem = await OrderLineItemsServices.voidLineItem(
-    itemId,
-    orderId,
+    itemId as string,
+    orderId as string,
     platform_id,
     payload
   )

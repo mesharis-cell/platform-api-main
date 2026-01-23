@@ -7,7 +7,7 @@ const listReskinRequests = async (req: Request, res: Response) => {
   const { platform_id } = req as any
   const { orderId } = req.params
 
-  const requests = await ReskinRequestsServices.listReskinRequests(orderId, platform_id)
+  const requests = await ReskinRequestsServices.listReskinRequests(orderId as string, platform_id)
 
   return res.status(httpStatus.OK).json({
     success: true,
@@ -51,7 +51,7 @@ const completeReskinRequest = async (req: Request, res: Response) => {
   }
 
   const result = await ReskinRequestsServices.completeReskinRequest(
-    reskinId,
+    reskinId as string,
     platform_id,
     payload
   )
@@ -75,7 +75,7 @@ const cancelReskinRequest = async (req: Request, res: Response) => {
   }
 
   const result = await ReskinRequestsServices.cancelReskinRequest(
-    reskinId,
+    reskinId as string,
     platform_id,
     payload
   )

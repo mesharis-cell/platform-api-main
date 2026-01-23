@@ -64,6 +64,8 @@ export async function cancelOrder(
     )
   }
 
+  let cancelledReskinsCount = 0; // Store count before transaction ends
+
   await db.transaction(async (tx) => {
     // 1. Update order status
     await tx
@@ -89,6 +91,8 @@ export async function cancelOrder(
           isNull(reskinRequests.cancelled_at)
         )
       )
+
+    cancelledReskinsCount = pendingReskins.length; // Store count
 
     for (const reskin of pendingReskins) {
       // Mark reskin as cancelled
@@ -142,7 +146,7 @@ export async function cancelOrder(
   return {
     success: true,
     order_id: order.order_id,
-    cancelled_reskins: pendingReskins.length,
+    cancelled_reskins: cancelledReskinsCount, // ✅ Now in scope
   }
 }
 

@@ -177,7 +177,7 @@ const getOrderScanEvents = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const { orderId } = req.params;
 
-    const result = await OrderServices.getOrderScanEvents(orderId, platformId);
+    const result = await OrderServices.getOrderScanEvents(orderId as string, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -392,7 +392,7 @@ const getOrderStatistics = catchAsync(async (req, res) => {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Company ID is required");
     }
 
-    const result = await OrderServices.getClientOrderStatistics(companyId, platformId);
+    const result = await OrderServices.getClientOrderStatistics(companyId as string, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
