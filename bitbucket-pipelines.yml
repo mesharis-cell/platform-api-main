@@ -24,7 +24,7 @@ pipelines:
             - git config --global user.name "Bitbucket Pipeline"
             
             # Add GitHub Remote
-            - git remote add github git@github.com:homeofpmg/platform-api-main.git || git remote set-url github git@github.com:homeofpmg/platform-api-main.git
+            - git remote add github git@github.com:mesharis-cell/platform-api-main.git || git remote set-url github git@github.com:mesharis-cell/platform-api-main.git
             
             # Push staging branch to GitHub main
             - echo "Pushing Bitbucket staging to GitHub main..."
