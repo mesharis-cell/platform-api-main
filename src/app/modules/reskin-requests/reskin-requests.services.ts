@@ -170,10 +170,7 @@ const completeReskinRequest = async (
     throw new CustomizedError(httpStatus.BAD_REQUEST, 'Reskin request was cancelled')
   }
 
-  const originalAsset = reskinRequest.original_asset
-
   const originalAsset: any = reskinRequest.original_asset
-  const platformId = reskinRequest.platform_id
 
   // Create new asset (copy specs from original)
   const [newAsset] = await db

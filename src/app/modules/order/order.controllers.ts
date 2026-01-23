@@ -585,28 +585,7 @@ export const OrderControllers = {
     returnToLogistics,
     cancelOrder,
     calculateEstimate,
-    updateOrderVehicle,
 }
-
-// ----------------------------------- UPDATE VEHICLE TYPE (NEW) -----------------------------------
-const updateOrderVehicle = catchAsync(async (req, res) => {
-    const user = (req as any).user;
-    const platformId = (req as any).platform_id;
-    const companyId = user.company_id;
-    const { id } = req.params;
-    const payload = req.body;
-
-    const result = await OrderServices.updateOrderVehicle(id, platformId, companyId, payload, user.id);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Vehicle type updated and transport rate recalculated.",
-        data: result,
-    });
-});
-
-
 
 
 // {
