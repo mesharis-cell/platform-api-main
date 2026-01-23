@@ -31,6 +31,11 @@ export type OrderItem = {
     handling_tags: string[];
     from_collection: string | null;
     from_collection_name: string | null;
+    // NEW: Reskin fields
+    is_reskin_request?: boolean;
+    reskin_target_brand_id?: string | null;
+    reskin_target_brand_custom?: string | null;
+    reskin_notes?: string | null;
 }
 
 // Progress status payload interface
