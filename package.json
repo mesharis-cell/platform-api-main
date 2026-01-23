@@ -21,7 +21,8 @@
     "dependencies": {
         "@aws-sdk/client-s3": "^3.958.0",
         "@aws-sdk/s3-request-presigner": "^3.958.0",
-        "@types/jsonwebtoken": "^9.0.10",
+        "@pulumi/aws": "^7.16.0",
+        "@pulumi/pulumi": "^3.216.0",
         "bcrypt": "^6.0.0",
         "cookie-parser": "^1.4.7",
         "cors": "^2.8.5",
