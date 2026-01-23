@@ -26,6 +26,8 @@ pipelines:
             # Add GitHub Remote
             - git remote add github git@github.com:mesharis-cell/platform-api-main.git || git remote set-url github git@github.com:mesharis-cell/platform-api-main.git
             
-            # Push staging branch to GitHub main
+            # Push staging branch to GitHub main (always force)
             - echo "Pushing Bitbucket staging to GitHub main..."
+            - git fetch --unshallow || true
+            - git push github :main --force || true
             - git push github staging:main --force
