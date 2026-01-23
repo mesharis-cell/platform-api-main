@@ -5,6 +5,10 @@ import { PlatformSchemas } from "./platform.schemas";
 
 const router = Router();
 
-router.post("/", payloadValidator(PlatformSchemas.createPlatform), PlatformControllers.createPlatform);
+router.post(
+    "/",
+    payloadValidator(PlatformSchemas.createPlatform),
+    PlatformControllers.createPlatform
+);
 
 export const PlatformRoutes = router;

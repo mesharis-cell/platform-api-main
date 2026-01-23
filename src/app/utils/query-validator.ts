@@ -3,43 +3,45 @@ import CustomizedError from "../error/customized-error";
 import { uuidRegex } from "../constants/common";
 
 const queryValidator = (
-  queryValidationConfig: Record<string, string[] | string>,
-  key: string,
-  value: string
+    queryValidationConfig: Record<string, string[] | string>,
+    key: string,
+    value: string
 ) => {
-  // Step 1: Get allowed values for the given key from config
-  const allowedValues = queryValidationConfig[key];
+    // Step 1: Get allowed values for the given key from config
+    const allowedValues = queryValidationConfig[key];
 
-  console.log('allowedValues', allowedValues);
+    console.log("allowedValues", allowedValues);
 
-  // Step 2: If no validation rule exists for this key, return immediately (skip validation)
-  if (!allowedValues) return;
+    // Step 2: If no validation rule exists for this key, return immediately (skip validation)
+    if (!allowedValues) return;
 
-  if (allowedValues === 'uuid') {
-    if (!value.match(uuidRegex)) {
-      throw new CustomizedError(
-        httpStatus.BAD_REQUEST,
-        `Invalid value for '${key}': ${value}. Valid UUID format required.`
-      );
+    if (allowedValues === "uuid") {
+        if (!value.match(uuidRegex)) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                `Invalid value for '${key}': ${value}. Valid UUID format required.`
+            );
+        }
     }
-  }
 
-  // Step 3: Normalize value into an array (split by comma if multiple values provided)
-  const values = value.includes(",") ? value.split(",") : [value];
+    // Step 3: Normalize value into an array (split by comma if multiple values provided)
+    const values = value.includes(",") ? value.split(",") : [value];
 
-  // Step 4: Collect all invalid values (those not included in allowedValues)
-  const invalidValues = values.filter((val) => !Array.isArray(allowedValues) || !allowedValues.includes(val));
-
-  // Step 5: If any invalid values exist, throw an error with detailed message
-  if (Array.isArray(allowedValues) && invalidValues.length > 0) {
-    throw new CustomizedError(
-      httpStatus.BAD_REQUEST,
-      `Invalid value(s) for '${key}': ${invalidValues.join(", ")}.
-       Valid values are: ${allowedValues.map((i) => `'${i}'`).join(", ")}`
+    // Step 4: Collect all invalid values (those not included in allowedValues)
+    const invalidValues = values.filter(
+        (val) => !Array.isArray(allowedValues) || !allowedValues.includes(val)
     );
-  }
 
-  // Step 6: If all values are valid, function completes silently (success)
+    // Step 5: If any invalid values exist, throw an error with detailed message
+    if (Array.isArray(allowedValues) && invalidValues.length > 0) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Invalid value(s) for '${key}': ${invalidValues.join(", ")}.
+       Valid values are: ${allowedValues.map((i) => `'${i}'`).join(", ")}`
+        );
+    }
+
+    // Step 6: If all values are valid, function completes silently (success)
 };
 
 export default queryValidator;

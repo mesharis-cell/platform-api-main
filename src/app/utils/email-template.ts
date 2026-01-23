@@ -1,22 +1,22 @@
-import { NotificationData, NotificationType } from "../modules/notification-logs/notification-logs.interfaces";
+import {
+    NotificationData,
+    NotificationType,
+} from "../modules/notification-logs/notification-logs.interfaces";
 
 export async function getEmailTemplate(
-	notificationType: NotificationType,
-	data: NotificationData
+    notificationType: NotificationType,
+    data: NotificationData
 ): Promise<{ subject: string; html: string }> {
-	const baseStyle = `
+    const baseStyle = `
 		margin: 0; padding: 0;
 		font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 		background-color: #f6f9fc;
-	`
+	`;
 
-	const templates: Record<
-		NotificationType,
-		{ subject: string; html: string }
-	> = {
-		ORDER_SUBMITTED: {
-			subject: `Order Submitted: ${data.orderIdReadable}`,
-			html: `
+    const templates: Record<NotificationType, { subject: string; html: string }> = {
+        ORDER_SUBMITTED: {
+            subject: `Order Submitted: ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -39,11 +39,11 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
+        },
 
-		QUOTE_SENT: {
-			subject: `Quote Ready: ${data.orderIdReadable}`,
-			html: `
+        QUOTE_SENT: {
+            subject: `Quote Ready: ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -64,11 +64,11 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
+        },
 
-		INVOICE_GENERATED: {
-			subject: `Invoice Ready: ${data.invoiceNumber}`,
-			html: `
+        INVOICE_GENERATED: {
+            subject: `Invoice Ready: ${data.invoiceNumber}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -90,11 +90,11 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
+        },
 
-		DELIVERED: {
-			subject: `Order Delivered: ${data.orderIdReadable}`,
-			html: `
+        DELIVERED: {
+            subject: `Order Delivered: ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -106,7 +106,7 @@ export async function getEmailTemplate(
 				<div style="background: #f9fafb; border-radius: 8px; padding: 24px; margin: 24px 0;">
 					<p style="margin: 8px 0;"><strong>Order ID:</strong> ${data.orderIdReadable}</p>
 					<p style="margin: 8px 0;"><strong>Venue:</strong> ${data.venueName}</p>
-					${data.pickupWindow ? `<p style="margin: 8px 0;"><strong>Pickup Window:</strong> ${data.pickupWindow}</p>` : ''}
+					${data.pickupWindow ? `<p style="margin: 8px 0;"><strong>Pickup Window:</strong> ${data.pickupWindow}</p>` : ""}
 				</div>
 				<p style="margin: 16px 0;">Please remember to prepare items for return during the scheduled pickup window.</p>
 			</td></tr>
@@ -114,11 +114,11 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
+        },
 
-		PICKUP_REMINDER: {
-			subject: `Pickup Reminder: ${data.orderIdReadable} in 48 Hours`,
-			html: `
+        PICKUP_REMINDER: {
+            subject: `Pickup Reminder: ${data.orderIdReadable} in 48 Hours`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -138,12 +138,12 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
+        },
 
-		// Enhanced templates for all remaining types
-		A2_APPROVED_STANDARD: {
-			subject: `FYI: Standard Pricing Approved for ${data.orderIdReadable}`,
-			html: `
+        // Enhanced templates for all remaining types
+        A2_APPROVED_STANDARD: {
+            subject: `FYI: Standard Pricing Approved for ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -163,10 +163,10 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
-		A2_ADJUSTED_PRICING: {
-			subject: `Action Required: Pricing Adjustment for ${data.orderIdReadable}`,
-			html: `
+        },
+        A2_ADJUSTED_PRICING: {
+            subject: `Action Required: Pricing Adjustment for ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -183,10 +183,10 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
-		QUOTE_APPROVED: {
-			subject: `Quote Approved: ${data.orderIdReadable}`,
-			html: `
+        },
+        QUOTE_APPROVED: {
+            subject: `Quote Approved: ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -207,10 +207,10 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
-		QUOTE_DECLINED: {
-			subject: `Quote Declined: ${data.orderIdReadable}`,
-			html: `
+        },
+        QUOTE_DECLINED: {
+            subject: `Quote Declined: ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -231,10 +231,10 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
-		PAYMENT_CONFIRMED: {
-			subject: `Payment Confirmed: ${data.orderIdReadable}`,
-			html: `
+        },
+        PAYMENT_CONFIRMED: {
+            subject: `Payment Confirmed: ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -255,10 +255,10 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
-		ORDER_CONFIRMED: {
-			subject: `Order Confirmed: ${data.orderIdReadable}`,
-			html: `
+        },
+        ORDER_CONFIRMED: {
+            subject: `Order Confirmed: ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -280,10 +280,10 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
-		READY_FOR_DELIVERY: {
-			subject: `Ready for Delivery: ${data.orderIdReadable}`,
-			html: `
+        },
+        READY_FOR_DELIVERY: {
+            subject: `Ready for Delivery: ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -295,7 +295,7 @@ export async function getEmailTemplate(
 				<div style="background: #f5f3ff; border-radius: 8px; padding: 24px; margin: 24px 0;">
 					<p style="margin: 8px 0;"><strong>Order ID:</strong> ${data.orderIdReadable}</p>
 					<p style="margin: 8px 0;"><strong>Venue:</strong> ${data.venueName}</p>
-					${data.deliveryWindow ? `<p style="margin: 8px 0;"><strong>Delivery Window:</strong> ${data.deliveryWindow}</p>` : ''}
+					${data.deliveryWindow ? `<p style="margin: 8px 0;"><strong>Delivery Window:</strong> ${data.deliveryWindow}</p>` : ""}
 				</div>
 				<p style="margin: 16px 0;">Coordinate with delivery team for dispatch.</p>
 				<a href="${data.orderUrl}" style="display: inline-block; margin: 24px 0; padding: 12px 24px; background: #8b5cf6; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600;">View Order</a>
@@ -304,10 +304,10 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
-		IN_TRANSIT: {
-			subject: `Order In Transit: ${data.orderIdReadable}`,
-			html: `
+        },
+        IN_TRANSIT: {
+            subject: `Order In Transit: ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -319,7 +319,7 @@ export async function getEmailTemplate(
 				<div style="background: #f0f9ff; border-radius: 8px; padding: 24px; margin: 24px 0;">
 					<p style="margin: 8px 0;"><strong>Order ID:</strong> ${data.orderIdReadable}</p>
 					<p style="margin: 8px 0;"><strong>Venue:</strong> ${data.venueName}, ${data.venueCity}</p>
-					${data.deliveryWindow ? `<p style="margin: 8px 0;"><strong>Estimated Delivery:</strong> ${data.deliveryWindow}</p>` : ''}
+					${data.deliveryWindow ? `<p style="margin: 8px 0;"><strong>Estimated Delivery:</strong> ${data.deliveryWindow}</p>` : ""}
 				</div>
 				<p style="margin: 16px 0;">Please ensure someone is available to receive the delivery during the scheduled window.</p>
 				<a href="${data.orderUrl}" style="display: inline-block; margin: 24px 0; padding: 12px 24px; background: #0ea5e9; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600;">Track Order</a>
@@ -328,10 +328,10 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
-		ORDER_CLOSED: {
-			subject: `Order Completed: ${data.orderIdReadable}`,
-			html: `
+        },
+        ORDER_CLOSED: {
+            subject: `Order Completed: ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -352,10 +352,10 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
-		TIME_WINDOWS_UPDATED: {
-			subject: `Delivery Schedule Updated: ${data.orderIdReadable}`,
-			html: `
+        },
+        TIME_WINDOWS_UPDATED: {
+            subject: `Delivery Schedule Updated: ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -366,8 +366,8 @@ export async function getEmailTemplate(
 				<p style="margin: 0 0 16px; font-size: 16px; color: #374151;">The delivery and pickup windows for your order have been updated.</p>
 				<div style="background: #eff6ff; border-radius: 8px; padding: 24px; margin: 24px 0;">
 					<p style="margin: 8px 0;"><strong>Order ID:</strong> ${data.orderIdReadable}</p>
-					${data.deliveryWindow ? `<p style="margin: 8px 0;"><strong>Delivery Window:</strong> ${data.deliveryWindow}</p>` : ''}
-					${data.pickupWindow ? `<p style="margin: 8px 0;"><strong>Pickup Window:</strong> ${data.pickupWindow}</p>` : ''}
+					${data.deliveryWindow ? `<p style="margin: 8px 0;"><strong>Delivery Window:</strong> ${data.deliveryWindow}</p>` : ""}
+					${data.pickupWindow ? `<p style="margin: 8px 0;"><strong>Pickup Window:</strong> ${data.pickupWindow}</p>` : ""}
 				</div>
 				<p style="margin: 16px 0;">Please ensure availability during the scheduled time windows.</p>
 				<a href="${data.orderUrl}" style="display: inline-block; margin: 24px 0; padding: 12px 24px; background: #2563eb; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600;">View Updated Schedule</a>
@@ -376,12 +376,11 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
-	}
+        },
+    };
 
-	return templates[notificationType]
+    return templates[notificationType];
 }
-
 
 // <div style="background: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 8px; padding: 24px; margin: 24px 0;" >
 //     <p style="margin: 8px 0;" > <strong>Order ID: </strong> ${data.orderIdReadable}</p >

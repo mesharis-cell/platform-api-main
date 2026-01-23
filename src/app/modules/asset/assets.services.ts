@@ -1,8 +1,17 @@
 import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, sql } from "drizzle-orm";
 import httpStatus from "http-status";
-import QRCode from 'qrcode';
+import QRCode from "qrcode";
 import { db } from "../../../db";
-import { assetBookings, assets, brands, companies, orders, scanEvents, warehouses, zones } from "../../../db/schema";
+import {
+    assetBookings,
+    assets,
+    brands,
+    companies,
+    orders,
+    scanEvents,
+    warehouses,
+    zones,
+} from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { CSVFileParser, CSVStructureValidator } from "../../utils/csv-utility";
@@ -15,9 +24,14 @@ import {
     CreateAssetPayload,
     GenerateQRCodePayload,
     SingleAssetAvailabilityResponse,
-    UnavailableItem
+    UnavailableItem,
 } from "./assets.interfaces";
-import { ASSET_ALL_COLUMNS, ASSET_REQUIRED_COLUMNS, assetQueryValidationConfig, assetSortableFields } from "./assets.utils";
+import {
+    ASSET_ALL_COLUMNS,
+    ASSET_REQUIRED_COLUMNS,
+    assetQueryValidationConfig,
+    assetSortableFields,
+} from "./assets.utils";
 import { RowValidationResult, validateReferences } from "./assets.validators";
 
 // ----------------------------------- CREATE ASSET ---------------------------------------
@@ -47,12 +61,7 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
             db
                 .select()
                 .from(zones)
-                .where(
-                    and(
-                        eq(zones.id, data.zone_id),
-                        eq(zones.warehouse_id, data.warehouse_id),
-                    )
-                )
+                .where(and(eq(zones.id, data.zone_id), eq(zones.warehouse_id, data.warehouse_id))),
         ]);
 
         if (!company) {
@@ -64,7 +73,10 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
         }
 
         if (!zone) {
-            throw new CustomizedError(httpStatus.NOT_FOUND, "Zone not found or does not belong to the specified warehouse and company");
+            throw new CustomizedError(
+                httpStatus.NOT_FOUND,
+                "Zone not found or does not belong to the specified warehouse and company"
+            );
         }
 
         // Step 2: Validate brand if provided
@@ -72,20 +84,18 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
             const [brand] = await db
                 .select()
                 .from(brands)
-                .where(
-                    and(
-                        eq(brands.id, data.brand_id),
-                        eq(brands.company_id, data.company_id)
-                    )
-                );
+                .where(and(eq(brands.id, data.brand_id), eq(brands.company_id, data.company_id)));
 
             if (!brand) {
-                throw new CustomizedError(httpStatus.NOT_FOUND, "Brand not found or does not belong to the specified company");
+                throw new CustomizedError(
+                    httpStatus.NOT_FOUND,
+                    "Brand not found or does not belong to the specified company"
+                );
             }
         }
 
         // Step 3: Handle INDIVIDUAL tracking with quantity > 1 - Create N separate assets
-        if (data.tracking_method === 'INDIVIDUAL' && data.total_quantity > 1) {
+        if (data.tracking_method === "INDIVIDUAL" && data.total_quantity > 1) {
             const createdAssets: any[] = [];
 
             for (let i = 0; i < data.total_quantity; i++) {
@@ -94,10 +104,10 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
 
                 // Create initial condition history entry
                 const initialConditionHistory = [];
-                if (data.condition_notes || (data.condition && data.condition !== 'GREEN')) {
+                if (data.condition_notes || (data.condition && data.condition !== "GREEN")) {
                     initialConditionHistory.push({
-                        condition: data.condition || 'GREEN',
-                        notes: data.condition_notes || 'Initial condition',
+                        condition: data.condition || "GREEN",
+                        notes: data.condition_notes || "Initial condition",
                         updated_by: user.id,
                         timestamp: new Date().toISOString(),
                     });
@@ -116,7 +126,7 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
                         description: data.description || null,
                         category: data.category,
                         images: data.images || [],
-                        tracking_method: 'INDIVIDUAL',
+                        tracking_method: "INDIVIDUAL",
                         total_quantity: 1, // Each individual unit has quantity 1
                         available_quantity: 1,
                         qr_code: qrCode,
@@ -124,12 +134,12 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
                         weight_per_unit: data.weight_per_unit.toString(),
                         dimensions: data.dimensions || {},
                         volume_per_unit: data.volume_per_unit.toString(),
-                        condition: data.condition || 'GREEN',
+                        condition: data.condition || "GREEN",
                         condition_notes: data.condition_notes || null,
                         refurb_days_estimate: data.refurb_days_estimate || null,
                         condition_history: initialConditionHistory,
                         handling_tags: data.handling_tags || [],
-                        status: data.status || 'AVAILABLE',
+                        status: data.status || "AVAILABLE",
                     })
                     .returning();
 
@@ -151,10 +161,10 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
 
         // Create initial condition history entry
         const initialConditionHistory = [];
-        if (data.condition_notes || (data.condition && data.condition !== 'GREEN')) {
+        if (data.condition_notes || (data.condition && data.condition !== "GREEN")) {
             initialConditionHistory.push({
-                condition: data.condition || 'GREEN',
-                notes: data.condition_notes || 'Initial condition',
+                condition: data.condition || "GREEN",
+                notes: data.condition_notes || "Initial condition",
                 updated_by: user.email,
                 timestamp: new Date().toISOString(),
             });
@@ -170,12 +180,12 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
             images: data.images || [],
             packaging: data.packaging || null,
             dimensions: data.dimensions || {},
-            condition: data.condition || 'GREEN',
+            condition: data.condition || "GREEN",
             condition_notes: data.condition_notes || null,
             refurb_days_estimate: data.refurb_days_estimate || null,
             condition_history: initialConditionHistory,
             handling_tags: data.handling_tags || [],
-            status: data.status || 'AVAILABLE',
+            status: data.status || "AVAILABLE",
         };
 
         const [result] = await db.insert(assets).values(dbData).returning();
@@ -184,16 +194,13 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
         // Step 5: Handle database errors
         const pgError = error.cause || error;
 
-        if (pgError.code === '23505') {
-            if (pgError.constraint === 'assets_qr_code_key') {
-                throw new CustomizedError(
-                    httpStatus.CONFLICT,
-                    `Duplicate QR code found`
-                );
+        if (pgError.code === "23505") {
+            if (pgError.constraint === "assets_qr_code_key") {
+                throw new CustomizedError(httpStatus.CONFLICT, `Duplicate QR code found`);
             }
             throw new CustomizedError(
                 httpStatus.CONFLICT,
-                'An asset with these details already exists'
+                "An asset with these details already exists"
             );
         }
 
@@ -236,7 +243,7 @@ const getAssets = async (query: Record<string, any>, user: AuthUser, platformId:
     const conditions: any[] = [eq(assets.platform_id, platformId)];
 
     // Step 3a: Filter by user role (CLIENT users see only their company's assets)
-    if (user.role === 'CLIENT') {
+    if (user.role === "CLIENT") {
         if (user.company_id) {
             conditions.push(eq(assets.company_id, user.company_id));
         } else {
@@ -282,9 +289,9 @@ const getAssets = async (query: Record<string, any>, user: AuthUser, platformId:
     // Step 3i: Filter by condition (supports multiple values: GREEN,ORANGE,RED)
     if (condition) {
         // Check if condition contains comma (multiple values)
-        if (condition.includes(',')) {
+        if (condition.includes(",")) {
             // Split by comma and trim whitespace
-            const conditionArray = condition.split(',').map((c: string) => c.trim());
+            const conditionArray = condition.split(",").map((c: string) => c.trim());
             conditions.push(inArray(assets.condition, conditionArray));
         } else {
             // Single condition value
@@ -298,7 +305,7 @@ const getAssets = async (query: Record<string, any>, user: AuthUser, platformId:
     }
 
     // Step 3k: Filter by deleted status (default: only active assets)
-    if (include_inactive !== 'true') {
+    if (include_inactive !== "true") {
         conditions.push(isNull(assets.deleted_at));
     }
 
@@ -356,12 +363,24 @@ const getAssets = async (query: Record<string, any>, user: AuthUser, platformId:
     const [redCount] = await db
         .select({ count: sql<number>`count(*)` })
         .from(assets)
-        .where(and(eq(assets.platform_id, platformId), eq(assets.condition, 'RED'), isNull(assets.deleted_at)))
+        .where(
+            and(
+                eq(assets.platform_id, platformId),
+                eq(assets.condition, "RED"),
+                isNull(assets.deleted_at)
+            )
+        );
 
     const [orangeCount] = await db
         .select({ count: sql<number>`count(*)` })
         .from(assets)
-        .where(and(eq(assets.platform_id, platformId), eq(assets.condition, 'ORANGE'), isNull(assets.deleted_at)))
+        .where(
+            and(
+                eq(assets.platform_id, platformId),
+                eq(assets.condition, "ORANGE"),
+                isNull(assets.deleted_at)
+            )
+        );
 
     // Step 6: Return paginated response
     return {
@@ -388,7 +407,7 @@ const getAssetById = async (id: string, user: AuthUser, platformId: string) => {
     ];
 
     // Step 2: Filter by user role (CLIENT users can only see their company's assets)
-    if (user.role === 'CLIENT') {
+    if (user.role === "CLIENT") {
         if (user.company_id) {
             conditions.push(eq(assets.company_id, user.company_id));
         } else {
@@ -438,7 +457,11 @@ const getAssetById = async (id: string, user: AuthUser, platformId: string) => {
 
     // Step 5: Extract latest condition notes from condition_history JSONB
     let latestConditionNotes: string | undefined = undefined;
-    if (asset.condition_history && Array.isArray(asset.condition_history) && asset.condition_history.length > 0) {
+    if (
+        asset.condition_history &&
+        Array.isArray(asset.condition_history) &&
+        asset.condition_history.length > 0
+    ) {
         // Sort condition_history by timestamp desc to get the most recent entry first
         const sortedHistory = [...asset.condition_history].sort((a: any, b: any) => {
             const timeA = new Date(a.timestamp).getTime();
@@ -447,7 +470,7 @@ const getAssetById = async (id: string, user: AuthUser, platformId: string) => {
         });
 
         const latestHistory = sortedHistory[0];
-        if (latestHistory && typeof latestHistory === 'object' && 'notes' in latestHistory) {
+        if (latestHistory && typeof latestHistory === "object" && "notes" in latestHistory) {
             latestConditionNotes = (latestHistory as any).notes;
         }
     }
@@ -471,11 +494,13 @@ const getAssetById = async (id: string, user: AuthUser, platformId: string) => {
             id: asset.zone.id,
             name: asset.zone.name,
         },
-        brand_details: asset.brand ? {
-            id: asset.brand.id,
-            name: asset.brand.name,
-            logo_url: asset.brand.logo_url,
-        } : null,
+        brand_details: asset.brand
+            ? {
+                  id: asset.brand.id,
+                  name: asset.brand.name,
+                  logo_url: asset.brand.logo_url,
+              }
+            : null,
     };
 };
 
@@ -550,7 +575,10 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
                 );
 
             if (!zone) {
-                throw new CustomizedError(httpStatus.NOT_FOUND, "Zone not found or does not belong to the specified warehouse and company");
+                throw new CustomizedError(
+                    httpStatus.NOT_FOUND,
+                    "Zone not found or does not belong to the specified warehouse and company"
+                );
             }
         }
 
@@ -561,22 +589,26 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
             const [brand] = await db
                 .select()
                 .from(brands)
-                .where(
-                    and(
-                        eq(brands.id, data.brand_id),
-                        eq(brands.company_id, targetCompanyId)
-                    )
-                );
+                .where(and(eq(brands.id, data.brand_id), eq(brands.company_id, targetCompanyId)));
 
             if (!brand) {
-                throw new CustomizedError(httpStatus.NOT_FOUND, "Brand not found or does not belong to the specified company");
+                throw new CustomizedError(
+                    httpStatus.NOT_FOUND,
+                    "Brand not found or does not belong to the specified company"
+                );
             }
         }
 
         // Step 6: Validate quantity constraints if either is being updated
         if (data.total_quantity !== undefined || data.available_quantity !== undefined) {
-            const finalTotalQty = data.total_quantity !== undefined ? data.total_quantity : parseInt(existingAsset.total_quantity.toString());
-            const finalAvailableQty = data.available_quantity !== undefined ? data.available_quantity : parseInt(existingAsset.available_quantity.toString());
+            const finalTotalQty =
+                data.total_quantity !== undefined
+                    ? data.total_quantity
+                    : parseInt(existingAsset.total_quantity.toString());
+            const finalAvailableQty =
+                data.available_quantity !== undefined
+                    ? data.available_quantity
+                    : parseInt(existingAsset.available_quantity.toString());
 
             if (finalAvailableQty > finalTotalQty) {
                 throw new CustomizedError(
@@ -598,7 +630,7 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
         // Step 8: Handle condition changes
         if (data.condition !== undefined && data.condition !== existingAsset.condition) {
             // Clear refurb estimate if changing to GREEN
-            if (data.condition === 'GREEN') {
+            if (data.condition === "GREEN") {
                 dbData.refurb_days_estimate = null;
             }
 
@@ -619,27 +651,20 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
         }
 
         // Step 9: Update asset
-        const [result] = await db
-            .update(assets)
-            .set(dbData)
-            .where(eq(assets.id, id))
-            .returning();
+        const [result] = await db.update(assets).set(dbData).where(eq(assets.id, id)).returning();
 
         return result;
     } catch (error: any) {
         // Step 10: Handle database errors
         const pgError = error.cause || error;
 
-        if (pgError.code === '23505') {
-            if (pgError.constraint === 'assets_qr_code_key') {
-                throw new CustomizedError(
-                    httpStatus.CONFLICT,
-                    `Duplicate QR code found`
-                );
+        if (pgError.code === "23505") {
+            if (pgError.constraint === "assets_qr_code_key") {
+                throw new CustomizedError(httpStatus.CONFLICT, `Duplicate QR code found`);
             }
             throw new CustomizedError(
                 httpStatus.CONFLICT,
-                'An asset with these details already exists'
+                "An asset with these details already exists"
             );
         }
 
@@ -682,10 +707,13 @@ const deleteAsset = async (id: string, user: AuthUser, platformId: string) => {
     // Step 3: Check if asset is currently booked
     const bookings = await db.query.assetBookings.findFirst({
         where: eq(assets.id, id),
-    })
+    });
 
     if (bookings) {
-        throw new CustomizedError(httpStatus.CONFLICT, 'Cannot delete asset that has active bookings')
+        throw new CustomizedError(
+            httpStatus.CONFLICT,
+            "Cannot delete asset that has active bookings"
+        );
     }
 
     // Step 4: Soft delete asset (set deleted_at timestamp)
@@ -709,7 +737,7 @@ const getAssetAvailabilityStats = async (id: string, user: AuthUser, platformId:
     ];
 
     // CLIENT users can only see their company's assets
-    if (user.role === 'CLIENT') {
+    if (user.role === "CLIENT") {
         if (user.company_id) {
             conditions.push(eq(assets.company_id, user.company_id));
         } else {
@@ -738,21 +766,18 @@ const getAssetAvailabilityStats = async (id: string, user: AuthUser, platformId:
             and(
                 eq(assetBookings.asset_id, id),
                 inArray(orders.order_status, [
-                    'CONFIRMED',
-                    'IN_PREPARATION',
-                    'READY_FOR_DELIVERY',
-                    'IN_TRANSIT',
-                    'DELIVERED',
-                    'IN_USE',
-                    'AWAITING_RETURN',
+                    "CONFIRMED",
+                    "IN_PREPARATION",
+                    "READY_FOR_DELIVERY",
+                    "IN_TRANSIT",
+                    "DELIVERED",
+                    "IN_USE",
+                    "AWAITING_RETURN",
                 ])
             )
         );
 
-    const bookedQuantity = activeBookings.reduce(
-        (sum, booking) => sum + booking.quantity,
-        0
-    );
+    const bookedQuantity = activeBookings.reduce((sum, booking) => sum + booking.quantity, 0);
 
     // Step 3: Calculate OUT quantity from scan events
     const outboundScans = await db
@@ -760,24 +785,14 @@ const getAssetAvailabilityStats = async (id: string, user: AuthUser, platformId:
             quantity: scanEvents.quantity,
         })
         .from(scanEvents)
-        .where(
-            and(
-                eq(scanEvents.asset_id, id),
-                eq(scanEvents.scan_type, 'OUTBOUND')
-            )
-        );
+        .where(and(eq(scanEvents.asset_id, id), eq(scanEvents.scan_type, "OUTBOUND")));
 
     const inboundScans = await db
         .select({
             quantity: scanEvents.quantity,
         })
         .from(scanEvents)
-        .where(
-            and(
-                eq(scanEvents.asset_id, id),
-                eq(scanEvents.scan_type, 'INBOUND')
-            )
-        );
+        .where(and(eq(scanEvents.asset_id, id), eq(scanEvents.scan_type, "INBOUND")));
 
     const totalOutbound = outboundScans.reduce((sum, scan) => sum + scan.quantity, 0);
     const totalInbound = inboundScans.reduce((sum, scan) => sum + scan.quantity, 0);
@@ -785,7 +800,7 @@ const getAssetAvailabilityStats = async (id: string, user: AuthUser, platformId:
 
     // Step 4: Calculate IN_MAINTENANCE quantity
     let inMaintenanceQuantity = 0;
-    if (asset.condition === 'RED') {
+    if (asset.condition === "RED") {
         inMaintenanceQuantity = totalQuantity;
     }
 
@@ -820,7 +835,7 @@ const getAssetScanHistory = async (id: string, user: AuthUser, platformId: strin
     ];
 
     // CLIENT users can only see their company's assets
-    if (user.role === 'CLIENT') {
+    if (user.role === "CLIENT") {
         if (user.company_id) {
             conditions.push(eq(assets.company_id, user.company_id));
         } else {
@@ -846,19 +861,19 @@ const getAssetScanHistory = async (id: string, user: AuthUser, platformId: strin
                     name: true,
                     qr_code: true,
                     tracking_method: true,
-                }
+                },
             },
             scanned_by_user: {
                 columns: {
                     id: true,
                     name: true,
-                }
+                },
             },
             order: {
                 columns: {
                     id: true,
                     order_id: true,
-                }
+                },
             },
         },
         orderBy: (scanEvents, { desc }) => [desc(scanEvents.scanned_at)],
@@ -883,7 +898,7 @@ const getBatchAvailability = async (assetIds: string[], user: AuthUser, platform
     ];
 
     // CLIENT users can only see their company's assets
-    if (user.role === 'CLIENT') {
+    if (user.role === "CLIENT") {
         if (user.company_id) {
             conditions.push(eq(assets.company_id, user.company_id));
         } else {
@@ -937,7 +952,13 @@ const checkAssetAvailability = async (data: any, user: AuthUser, platformId: str
     if (asset_ids && Array.isArray(asset_ids)) {
         const summaries = await Promise.all(
             asset_ids.map(async (id: string) => {
-                const summary = await getAssetAvailabilitySummary(id, startDate, endDate, user, platformId);
+                const summary = await getAssetAvailabilitySummary(
+                    id,
+                    startDate,
+                    endDate,
+                    user,
+                    platformId
+                );
                 return {
                     asset_id: id,
                     ...summary,
@@ -947,7 +968,10 @@ const checkAssetAvailability = async (data: any, user: AuthUser, platformId: str
         return { assets: summaries };
     }
 
-    throw new CustomizedError(httpStatus.BAD_REQUEST, "Either asset_id, asset_ids, or items array is required");
+    throw new CustomizedError(
+        httpStatus.BAD_REQUEST,
+        "Either asset_id, asset_ids, or items array is required"
+    );
 };
 
 // ----------------------------------- HELPER: GET SINGLE ASSET AVAILABILITY --------------
@@ -966,7 +990,7 @@ const getSingleAssetAvailability = async (
     ];
 
     // Filter by user role (CLIENT users can only see their company's assets)
-    if (user.role === 'CLIENT') {
+    if (user.role === "CLIENT") {
         if (user.company_id) {
             conditions.push(eq(assets.company_id, user.company_id));
         } else {
@@ -1007,7 +1031,7 @@ const getSingleAssetAvailability = async (
         total_quantity: asset.total_quantity,
         available_quantity: availableQuantity,
         booked_quantity: bookedQuantity,
-        bookings: overlappingBookings.map(b => ({
+        bookings: overlappingBookings.map((b) => ({
             order_id: (b.order as any).order_id,
             quantity: b.quantity,
             blocked_from: b.blocked_from,
@@ -1040,7 +1064,9 @@ export const checkMultipleAssetsAvailability = async (
             let nextAvailableDate: Date | undefined;
             if (availability.bookings.length > 0) {
                 const latestBookingEnd = new Date(
-                    Math.max(...availability.bookings.map(b => new Date(b.blocked_until).getTime()))
+                    Math.max(
+                        ...availability.bookings.map((b) => new Date(b.blocked_until).getTime())
+                    )
                 );
                 nextAvailableDate = new Date(latestBookingEnd);
                 nextAvailableDate.setDate(nextAvailableDate.getDate() + 1);
@@ -1070,7 +1096,13 @@ export const getAssetAvailabilitySummary = async (
     user: AuthUser,
     platformId: string
 ) => {
-    const availability = await getSingleAssetAvailability(assetId, startDate, endDate, user, platformId);
+    const availability = await getSingleAssetAvailability(
+        assetId,
+        startDate,
+        endDate,
+        user,
+        platformId
+    );
 
     let message = "";
     let nextAvailableDate: Date | undefined;
@@ -1089,7 +1121,7 @@ export const getAssetAvailabilitySummary = async (
         if (futureBookings.length > 0) {
             nextAvailableDate = new Date(futureBookings[0].blocked_until);
             nextAvailableDate.setDate(nextAvailableDate.getDate() + 1);
-            message = `Fully booked. Available from ${nextAvailableDate.toISOString().split('T')[0]}`;
+            message = `Fully booked. Available from ${nextAvailableDate.toISOString().split("T")[0]}`;
         } else {
             message = "Currently unavailable";
         }
@@ -1120,15 +1152,19 @@ const bulkUploadAssets = async (file: Express.Multer.File, user: AuthUser, platf
     const rows = parseResult.data;
 
     // Step 2: Validate CSV structure
-    const { errors, valid_rows } = CSVStructureValidator(rows, ASSET_ALL_COLUMNS, ASSET_REQUIRED_COLUMNS);
+    const { errors, valid_rows } = CSVStructureValidator(
+        rows,
+        ASSET_ALL_COLUMNS,
+        ASSET_REQUIRED_COLUMNS
+    );
 
     if (errors.length > 0) {
         return {
             statusCode: httpStatus.BAD_REQUEST,
             success: false,
             message: "Invalid CSV structure",
-            data: errors
-        }
+            data: errors,
+        };
     }
 
     // Step 3: Validate reference IDs for each row
@@ -1140,8 +1176,8 @@ const bulkUploadAssets = async (file: Express.Multer.File, user: AuthUser, platf
         if (rowErrors.length > 0) {
             validationErrors.push({
                 rowNumber: row.rowNumber,
-                name: row.name || 'Unknown',
-                errors: rowErrors
+                name: row.name || "Unknown",
+                errors: rowErrors,
             });
         }
     }
@@ -1152,8 +1188,8 @@ const bulkUploadAssets = async (file: Express.Multer.File, user: AuthUser, platf
             statusCode: httpStatus.BAD_REQUEST,
             success: false,
             message: "Reference validation failed",
-            data: validationErrors
-        }
+            data: validationErrors,
+        };
     }
 
     // Step 4: Transform and prepare data for insertion
@@ -1163,8 +1199,8 @@ const bulkUploadAssets = async (file: Express.Multer.File, user: AuthUser, platf
 
         // Helper function to parse JSON strings or return default
         const parseJsonField = (field: any, defaultValue: any) => {
-            if (!field || field === '') return defaultValue;
-            if (typeof field === 'string') {
+            if (!field || field === "") return defaultValue;
+            if (typeof field === "string") {
                 try {
                     return JSON.parse(field);
                 } catch {
@@ -1176,7 +1212,7 @@ const bulkUploadAssets = async (file: Express.Multer.File, user: AuthUser, platf
 
         // Helper function to handle empty strings for optional fields
         const handleOptionalField = (field: any) => {
-            return (field === '' || field === null || field === undefined) ? undefined : field;
+            return field === "" || field === null || field === undefined ? undefined : field;
         };
 
         // Parse JSON fields
@@ -1202,9 +1238,10 @@ const bulkUploadAssets = async (file: Express.Multer.File, user: AuthUser, platf
         }
 
         // Handle optional numeric fields
-        assetData.refurb_days_estimate = assetData.refurb_days_estimate && assetData.refurb_days_estimate !== ''
-            ? parseInt(assetData.refurb_days_estimate.toString())
-            : undefined;
+        assetData.refurb_days_estimate =
+            assetData.refurb_days_estimate && assetData.refurb_days_estimate !== ""
+                ? parseInt(assetData.refurb_days_estimate.toString())
+                : undefined;
 
         // Handle optional string fields (convert empty strings to undefined)
         assetData.brand_id = handleOptionalField(assetData.brand_id);
@@ -1229,18 +1266,25 @@ const bulkUploadAssets = async (file: Express.Multer.File, user: AuthUser, platf
     });
 
     // Step 5: Insert assets into database
-    const insertedAssets = await db.insert(assets).values(assetsToInsert as any).returning();
+    const insertedAssets = (await db
+        .insert(assets)
+        .values(assetsToInsert as any)
+        .returning()) as Array<typeof assets.$inferSelect>;
 
     return {
         statusCode: httpStatus.CREATED,
         success: true,
         message: `${insertedAssets.length} asset(s) uploaded successfully`,
-        data: insertedAssets
+        data: insertedAssets,
     };
 };
 
 // ----------------------------------- ADD CONDITION HISTORY ------------------------------
-const addConditionHistory = async (data: AddConditionHistoryPayload, user: AuthUser, platformId: string) => {
+const addConditionHistory = async (
+    data: AddConditionHistoryPayload,
+    user: AuthUser,
+    platformId: string
+) => {
     // Step 1: Fetch asset (verify exists, platform scope, not deleted)
     const asset = await db.query.assets.findFirst({
         where: and(
@@ -1251,26 +1295,31 @@ const addConditionHistory = async (data: AddConditionHistoryPayload, user: AuthU
     });
 
     if (!asset) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, 'Asset not found');
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found");
     }
 
     // Validate notes requirement
-    if (data.condition && (data.condition === "ORANGE" || data.condition === "RED") && !data.notes) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, 'Notes are required when marking items as Orange or Red');
+    if (
+        data.condition &&
+        (data.condition === "ORANGE" || data.condition === "RED") &&
+        !data.notes
+    ) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Notes are required when marking items as Orange or Red"
+        );
     }
 
     // Validate photos requirement
-    if (
-        data.condition && data.condition === "RED" &&
-        (!data.photos || data.photos.length === 0)
-    ) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, 'At least one damage photo is required when marking items as Red');
+    if (data.condition && data.condition === "RED" && (!data.photos || data.photos.length === 0)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "At least one damage photo is required when marking items as Red"
+        );
     }
 
     // Step 2: Get existing history or initialize empty array
-    const existingHistory = Array.isArray(asset.condition_history)
-        ? asset.condition_history
-        : [];
+    const existingHistory = Array.isArray(asset.condition_history) ? asset.condition_history : [];
 
     // Step 3: Create new history entry
     const newHistory = {
@@ -1279,7 +1328,7 @@ const addConditionHistory = async (data: AddConditionHistoryPayload, user: AuthU
         photos: data.photos || [],
         updated_by: user.id,
         timestamp: new Date().toISOString(),
-    }
+    };
 
     // Step 4: Prepend new entry (newest first)
     const condition_history = [newHistory, ...existingHistory];
@@ -1294,7 +1343,7 @@ const addConditionHistory = async (data: AddConditionHistoryPayload, user: AuthU
         condition: data.condition || asset.condition,
     };
 
-    if (data.condition && data.condition === 'GREEN') {
+    if (data.condition && data.condition === "GREEN") {
         updatedData.refurb_days_estimate = null;
     } else if (data.refurb_days_estimate) {
         updatedData.refurb_days_estimate = data.refurb_days_estimate;
@@ -1319,8 +1368,8 @@ const addConditionHistory = async (data: AddConditionHistoryPayload, user: AuthU
 const generateQRCode = async (data: GenerateQRCodePayload) => {
     // Generate QR code as base64 PNG
     const qrCodeImage = await QRCode.toDataURL(data.qr_code, {
-        errorCorrectionLevel: 'H',
-        type: 'image/png',
+        errorCorrectionLevel: "H",
+        type: "image/png",
         width: 300,
         margin: 2,
     });
@@ -1331,7 +1380,11 @@ const generateQRCode = async (data: GenerateQRCodePayload) => {
 };
 
 // ----------------------------------- COMPLETE MAINTENANCE -------------------------------
-const completeMaintenance = async (data: CompleteMaintenancePayload, user: AuthUser, platformId: string) => {
+const completeMaintenance = async (
+    data: CompleteMaintenancePayload,
+    user: AuthUser,
+    platformId: string
+) => {
     // Step 1: Fetch asset to verify it exists and is in RED condition
     const asset = await db.query.assets.findFirst({
         where: and(
@@ -1342,25 +1395,23 @@ const completeMaintenance = async (data: CompleteMaintenancePayload, user: AuthU
     });
 
     if (!asset) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, 'Asset not found');
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found");
     }
 
     // Step 2: Validate asset is in RED condition
-    if (asset.condition !== 'RED') {
+    if (asset.condition !== "RED") {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            'Only RED condition assets can have maintenance completed'
+            "Only RED condition assets can have maintenance completed"
         );
     }
 
     // Step 3: Get existing history or initialize empty array
-    const existingHistory = Array.isArray(asset.condition_history)
-        ? asset.condition_history
-        : [];
+    const existingHistory = Array.isArray(asset.condition_history) ? asset.condition_history : [];
 
     // Step 4: Create new history entry for maintenance completion
     const newHistory = {
-        condition: 'GREEN' as const,
+        condition: "GREEN" as const,
         notes: data.maintenance_notes,
         photos: [],
         updated_by: user.id,
@@ -1374,8 +1425,8 @@ const completeMaintenance = async (data: CompleteMaintenancePayload, user: AuthU
     const [result] = await db
         .update(assets)
         .set({
-            condition: 'GREEN',
-            status: 'AVAILABLE',
+            condition: "GREEN",
+            status: "AVAILABLE",
             condition_history,
         })
         .where(eq(assets.id, data.asset_id))

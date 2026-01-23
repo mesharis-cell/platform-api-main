@@ -6,13 +6,21 @@ export type SubmitOrderPayload = z.infer<typeof orderSchemas.submitOrderSchema>[
 
 export type OrderItemPayload = z.infer<typeof orderItemSchema>;
 
-export type UpdateOrderTimeWindowsPayload = z.infer<typeof orderSchemas.updateTimeWindowsSchema>["body"];
+export type UpdateOrderTimeWindowsPayload = z.infer<
+    typeof orderSchemas.updateTimeWindowsSchema
+>["body"];
 
-export type AdjustLogisticsPricingPayload = z.infer<typeof orderSchemas.adjustLogisticsPricingSchema>["body"];
+export type AdjustLogisticsPricingPayload = z.infer<
+    typeof orderSchemas.adjustLogisticsPricingSchema
+>["body"];
 
-export type ApproveStandardPricingPayload = z.infer<typeof orderSchemas.approveStandardPricingSchema>["body"];
+export type ApproveStandardPricingPayload = z.infer<
+    typeof orderSchemas.approveStandardPricingSchema
+>["body"];
 
-export type ApprovePlatformPricingPayload = z.infer<typeof orderSchemas.approvePlatformPricingSchema>["body"];
+export type ApprovePlatformPricingPayload = z.infer<
+    typeof orderSchemas.approvePlatformPricingSchema
+>["body"];
 
 export type ApproveQuotePayload = z.infer<typeof orderSchemas.approveQuoteSchema>["body"];
 
@@ -31,7 +39,12 @@ export type OrderItem = {
     handling_tags: string[];
     from_collection: string | null;
     from_collection_name: string | null;
-}
+    // NEW: Reskin fields
+    is_reskin_request?: boolean;
+    reskin_target_brand_id?: string | null;
+    reskin_target_brand_custom?: string | null;
+    reskin_notes?: string | null;
+};
 
 // Progress status payload interface
 export interface ProgressStatusPayload {

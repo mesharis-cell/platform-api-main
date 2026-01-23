@@ -11,7 +11,7 @@ export {
 
 export { createECRRepository } from "./ecr";
 
-export { createArtifactBuckets } from "./s3";
+export { createArtifactBuckets, manageElasticBeanstalkBucketPolicy } from "./s3";
 
 export { createCodeBuildProject, createPipeline } from "./pipeline";
 

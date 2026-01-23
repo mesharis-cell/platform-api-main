@@ -111,12 +111,12 @@ Each feature module follows a consistent pattern:
 ```typescript
 // user.schemas.ts - Validation
 const createUser = z.object({
-  body: z
-    .object({
-      name: z.string({ message: "Name is required" }),
-      email: z.string().email({ message: "Invalid email address" }),
-    })
-    .strict(),
+    body: z
+        .object({
+            name: z.string({ message: "Name is required" }),
+            email: z.string().email({ message: "Invalid email address" }),
+        })
+        .strict(),
 });
 
 // user.interfaces.ts - Types
@@ -124,27 +124,23 @@ export type TCreateUserPayload = z.infer<typeof UserSchemas.createUser>["body"];
 
 // user.services.ts - Business Logic
 const createUser = async (data: TCreateUserPayload) => {
-  const result = await db.insert(users).values(data).returning();
-  return result[0];
+    const result = await db.insert(users).values(data).returning();
+    return result[0];
 };
 
 // user.controllers.ts - Request Handler
 const createUser = catchAsync(async (req, res) => {
-  const result = await UserServices.createUser(req.body);
-  sendResponse(res, {
-    statusCode: httpStatus.CREATED,
-    success: true,
-    message: "User created successfully",
-    data: result,
-  });
+    const result = await UserServices.createUser(req.body);
+    sendResponse(res, {
+        statusCode: httpStatus.CREATED,
+        success: true,
+        message: "User created successfully",
+        data: result,
+    });
 });
 
 // user.routes.ts - Routes
-router.post(
-  "/",
-  validateRequest(UserSchemas.createUser),
-  UserControllers.createUser
-);
+router.post("/", validateRequest(UserSchemas.createUser), UserControllers.createUser);
 ```
 
 ## 🗄️ Database Schema
@@ -155,10 +151,10 @@ Define your database schema using Drizzle ORM in `src/db/schema.ts`:
 import { pgTable, timestamp, uuid, varchar } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  name: varchar("name", { length: 255 }).notNull(),
-  email: varchar("email", { length: 255 }).notNull().unique(),
-  created_at: timestamp("created_at").defaultNow(),
+    id: uuid("id").defaultRandom().primaryKey(),
+    name: varchar("name", { length: 255 }).notNull(),
+    email: varchar("email", { length: 255 }).notNull().unique(),
+    created_at: timestamp("created_at").defaultNow(),
 });
 ```
 
@@ -188,15 +184,15 @@ Example error response:
 
 ```json
 {
-  "success": false,
-  "message": "Validation error",
-  "errorSources": [
-    {
-      "path": "body.email",
-      "message": "Invalid email address"
-    }
-  ],
-  "stack": "..." // Only in development mode
+    "success": false,
+    "message": "Validation error",
+    "errorSources": [
+        {
+            "path": "body.email",
+            "message": "Invalid email address"
+        }
+    ],
+    "stack": "..." // Only in development mode
 }
 ```
 
@@ -224,10 +220,10 @@ Configure your application in `src/app/config/index.ts`:
 
 ```typescript
 export default {
-  node_env: process.env.NODE_ENV,
-  port: process.env.PORT,
-  database_url: process.env.DATABASE_URL,
-  app_name: "Drizzle",
+    node_env: process.env.NODE_ENV,
+    port: process.env.PORT,
+    database_url: process.env.DATABASE_URL,
+    app_name: "Drizzle",
 };
 ```
 
@@ -243,11 +239,11 @@ The `.vscode/settings.json` automatically:
 
 1. Create a new folder in `src/app/modules/[module-name]`
 2. Create the following files:
-   - `[module-name].schemas.ts` - Zod schemas
-   - `[module-name].interfaces.ts` - TypeScript types
-   - `[module-name].services.ts` - Business logic
-   - `[module-name].controllers.ts` - Request handlers
-   - `[module-name].routes.ts` - Route definitions
+    - `[module-name].schemas.ts` - Zod schemas
+    - `[module-name].interfaces.ts` - TypeScript types
+    - `[module-name].services.ts` - Business logic
+    - `[module-name].controllers.ts` - Request handlers
+    - `[module-name].routes.ts` - Route definitions
 3. Register routes in `src/app/routes/index.ts`
 
 ## 🔒 Middleware
@@ -257,11 +253,7 @@ The `.vscode/settings.json` automatically:
 Validates incoming requests using Zod schemas:
 
 ```typescript
-router.post(
-  "/users",
-  validateRequest(UserSchemas.createUser),
-  UserControllers.createUser
-);
+router.post("/users", validateRequest(UserSchemas.createUser), UserControllers.createUser);
 ```
 
 ### CORS
@@ -270,10 +262,10 @@ Configured in `src/app.ts`:
 
 ```typescript
 app.use(
-  cors({
-    origin: ["http://localhost:3000"],
-    credentials: true,
-  })
+    cors({
+        origin: ["http://localhost:3000"],
+        credentials: true,
+    })
 );
 ```
 

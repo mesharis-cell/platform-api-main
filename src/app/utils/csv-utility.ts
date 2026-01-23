@@ -3,12 +3,14 @@ import Papa from "papaparse";
 import CustomizedError from "../error/customized-error";
 
 // ----------------------------------- HELPER: CSV FILE PARSER --------------------------------
-export const CSVFileParser = async (file: Express.Multer.File): Promise<{
+export const CSVFileParser = async (
+    file: Express.Multer.File
+): Promise<{
     data: Record<string, any>[];
     errors: string[];
 }> => {
     return new Promise((resolve) => {
-        const fileContent = file.buffer.toString('utf-8');
+        const fileContent = file.buffer.toString("utf-8");
 
         Papa.parse(fileContent, {
             header: true,
@@ -21,7 +23,9 @@ export const CSVFileParser = async (file: Express.Multer.File): Promise<{
                 // Check for parsing errors
                 if (results.errors.length > 0) {
                     errors.push(
-                        ...results.errors.map((e: any) => `Parse error at row ${e.row}: ${e.message}`)
+                        ...results.errors.map(
+                            (e: any) => `Parse error at row ${e.row}: ${e.message}`
+                        )
                     );
                 }
 
@@ -49,11 +53,16 @@ export const CSVFileParser = async (file: Express.Multer.File): Promise<{
 };
 
 // ----------------------------------- HELPER: VALIDATE CSV STRUCTURE -------------------------
-export const CSVStructureValidator = (rows: Record<string, any>[], allFields: string[], requiredFields: string[], identityField: string = 'name'): { errors: Record<string, any>[], valid_rows: Record<string, any>[] } => {
+export const CSVStructureValidator = (
+    rows: Record<string, any>[],
+    allFields: string[],
+    requiredFields: string[],
+    identityField: string = "name"
+): { errors: Record<string, any>[]; valid_rows: Record<string, any>[] } => {
     const errors = [];
 
     if (rows.length === 0) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, 'CSV file is empty');
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "CSV file is empty");
     }
 
     for (let i = 0; i < rows.length; i++) {
@@ -77,17 +86,18 @@ export const CSVStructureValidator = (rows: Record<string, any>[], allFields: st
 
         if (requiredMissingFields.length > 0 || unknownFields.length > 0) {
             const error = {
-                name: row[identityField] || 'Unkonwn',
-                ...(requiredMissingFields.length > 0 ? { required_fields: requiredMissingFields.join(', ') } : {}),
-                ...(unknownFields.length > 0 ? { unknown_fields: unknownFields.join(', ') } : {}),
+                name: row[identityField] || "Unkonwn",
+                ...(requiredMissingFields.length > 0
+                    ? { required_fields: requiredMissingFields.join(", ") }
+                    : {}),
+                ...(unknownFields.length > 0 ? { unknown_fields: unknownFields.join(", ") } : {}),
             };
             errors.push(error);
         }
-
     }
 
     return {
         errors,
-        valid_rows: rows
-    }
+        valid_rows: rows,
+    };
 };

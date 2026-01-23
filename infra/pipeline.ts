@@ -18,6 +18,10 @@ export function createCodeBuildProject(
             artifacts: {
                 type: "CODEPIPELINE",
             },
+            cache: {
+                type: "S3",
+                location: pulumi.interpolate`${config.appName}-pipeline-${config.regions.secondary}-${stage}/docker-cache`,
+            },
             environment: {
                 computeType: config.codeBuild.computeType,
                 image: config.codeBuild.image,
@@ -57,8 +61,8 @@ export function createPipeline(
     aws: typeof import("@pulumi/aws"),
     awsUsEast1: import("@pulumi/aws").Provider,
     codePipelineRole: import("@pulumi/aws/iam").Role,
-    artifactBucketUsEast1: import("@pulumi/aws/s3").BucketV2,
-    artifactBucketApSouth1: import("@pulumi/aws/s3").BucketV2,
+    artifactBucketUsEast1: import("@pulumi/aws/s3").Bucket,
+    artifactBucketApSouth1: import("@pulumi/aws/s3").Bucket,
     codeBuildProject: import("@pulumi/aws/codebuild").Project,
     connectionArn: string,
     branch: string,

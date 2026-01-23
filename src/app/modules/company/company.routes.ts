@@ -11,48 +11,48 @@ const router = Router();
 
 // Create company
 router.post(
-  "/",
-  platformValidator,
-  auth('ADMIN'),
-  requirePermission(PERMISSIONS.COMPANIES_CREATE),
-  payloadValidator(CompanySchemas.createCompany),
-  CompanyControllers.createCompany
+    "/",
+    platformValidator,
+    auth("ADMIN"),
+    requirePermission(PERMISSIONS.COMPANIES_CREATE),
+    payloadValidator(CompanySchemas.createCompany),
+    CompanyControllers.createCompany
 );
 
 // Get all companies
 router.get(
-  "/",
-  platformValidator,
-  auth('ADMIN', 'LOGISTICS'),
-  requirePermission(PERMISSIONS.COMPANIES_READ),
-  CompanyControllers.getCompanies
+    "/",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.COMPANIES_READ),
+    CompanyControllers.getCompanies
 );
 
 // Get company by id
 router.get(
-  "/:id",
-  platformValidator,
-  auth('ADMIN', 'LOGISTICS', 'CLIENT'),
-  CompanyControllers.getCompanyById
+    "/:id",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    CompanyControllers.getCompanyById
 );
 
 // Update company
 router.patch(
-  "/:id",
-  platformValidator,
-  auth('ADMIN'),
-  requirePermission(PERMISSIONS.COMPANIES_UPDATE),
-  payloadValidator(CompanySchemas.updateCompany),
-  CompanyControllers.updateCompany
+    "/:id",
+    platformValidator,
+    auth("ADMIN"),
+    requirePermission(PERMISSIONS.COMPANIES_UPDATE),
+    payloadValidator(CompanySchemas.updateCompany),
+    CompanyControllers.updateCompany
 );
 
 // Delete company
 router.delete(
-  "/:id",
-  platformValidator,
-  auth('ADMIN'),
-  requirePermission(PERMISSIONS.COMPANIES_ARCHIVE),
-  CompanyControllers.deleteCompany
+    "/:id",
+    platformValidator,
+    auth("ADMIN"),
+    requirePermission(PERMISSIONS.COMPANIES_ARCHIVE),
+    CompanyControllers.deleteCompany
 );
 
 export const CompanyRoutes = router;

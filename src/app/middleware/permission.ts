@@ -9,24 +9,21 @@ const requirePermission = (...requiredPermissions: string[]) => {
             const user = (req as any).user;
 
             if (!user) {
-                throw new CustomizedError(
-                    httpStatus.UNAUTHORIZED,
-                    "User not authenticated"
-                );
+                throw new CustomizedError(httpStatus.UNAUTHORIZED, "User not authenticated");
             }
 
             // Step 2: Get user's permissions array from database
             const userPermissions: string[] = user.permissions || [];
 
             // Step 3: Check if user has permission
-            const hasPermission = requiredPermissions.some(requiredPermission => {
+            const hasPermission = requiredPermissions.some((requiredPermission) => {
                 // Check for exact permission match
                 if (userPermissions.includes(requiredPermission)) {
                     return true;
                 }
 
                 // Check for wildcard permission match
-                const [module] = requiredPermission.split(':');
+                const [module] = requiredPermission.split(":");
                 const wildcardPermission = `${module}:*`;
 
                 // Check if user has wildcard permission for this module
@@ -34,7 +31,7 @@ const requirePermission = (...requiredPermissions: string[]) => {
             });
 
             if (!hasPermission) {
-                const permissionList = requiredPermissions.join(', ');
+                const permissionList = requiredPermissions.join(", ");
                 throw new CustomizedError(
                     httpStatus.FORBIDDEN,
                     `Access denied. Required permission: ${permissionList}`

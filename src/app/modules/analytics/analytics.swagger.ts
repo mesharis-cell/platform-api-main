@@ -15,7 +15,7 @@
  *     description: |
  *       Retrieves time series analytics data including revenue, margins, and order counts.
  *       Data can be grouped by month, quarter, or year.
- *       
+ *
  *       **Access Control:**
  *       - ADMIN users only
  *     parameters:

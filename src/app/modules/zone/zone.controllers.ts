@@ -46,7 +46,7 @@ const getZoneById = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const { id } = req.params;
 
-    const result = await ZoneServices.getZoneById(id, user, platformId);
+    const result = await ZoneServices.getZoneById(id as string, user, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -62,7 +62,7 @@ const updateZone = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const { id } = req.params;
 
-    const result = await ZoneServices.updateZone(id, req.body, user, platformId);
+    const result = await ZoneServices.updateZone(id as string, req.body, user, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -78,7 +78,7 @@ const deleteZone = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const { id } = req.params;
 
-    const result = await ZoneServices.deleteZone(id, user, platformId);
+    const result = await ZoneServices.deleteZone(id as string, user, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

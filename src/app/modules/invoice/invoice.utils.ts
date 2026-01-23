@@ -10,6 +10,6 @@ export const invoiceSortableFields: Record<string, any> = {
 export const invoiceQueryValidationConfig = {
     sort_by: Object.keys(invoiceSortableFields),
     sort_order: sortOrderType,
-    paid_status: ['paid', 'unpaid'],
-    company_id: 'uuid'
+    paid_status: ["paid", "unpaid"],
+    company_id: "uuid",
 };

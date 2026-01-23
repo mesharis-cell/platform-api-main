@@ -19,18 +19,18 @@ const CACHE_TTL = 60000; // 1 minute - refresh cache periodically
 
 // Development origins
 const DEV_ORIGINS = [
-  "http://localhost:3000",
-  "http://localhost:4000",
-  "http://localhost:3001",
-  "http://localhost:3002",
-  "http://localhost:3003",
-  "http://localhost:5173",
-  "http://localhost:5174",
-  "http://127.0.0.1:3000",
-  "http://127.0.0.1:3001",
-  "http://127.0.0.1:5173",
-  "http://localhost:6001",
-  "https://pmg-backend.vercel.app",
+    "http://localhost:3000",
+    "http://localhost:4000",
+    "http://localhost:3001",
+    "http://localhost:3002",
+    "http://localhost:3003",
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001",
+    "http://127.0.0.1:5173",
+    "http://localhost:6001",
+    "https://pmg-backend.vercel.app",
 ];
 
 // Subdomain prefixes for platform domains
@@ -40,66 +40,66 @@ const SUBDOMAIN_PREFIXES = ["admin", "warehouse", "client", "logistics", "api"];
  * Fetches all allowed origins from the database with caching
  */
 async function getAllowedOrigins(): Promise<Set<string>> {
-  const now = Date.now();
+    const now = Date.now();
 
-  // Return cached results if still valid
-  if (now - lastCacheUpdate < CACHE_TTL && allowedOriginsCache.size > 0) {
-    return allowedOriginsCache;
-  }
+    // Return cached results if still valid
+    if (now - lastCacheUpdate < CACHE_TTL && allowedOriginsCache.size > 0) {
+        return allowedOriginsCache;
+    }
 
-  try {
-    // Fetch platform domains and company custom domains in parallel
-    const [platformDomains, customDomains] = await Promise.all([
-      db.select({ domain: platforms.domain }).from(platforms),
-      db.select({ hostname: companyDomains.hostname }).from(companyDomains),
-    ]);
+    try {
+        // Fetch platform domains and company custom domains in parallel
+        const [platformDomains, customDomains] = await Promise.all([
+            db.select({ domain: platforms.domain }).from(platforms),
+            db.select({ hostname: companyDomains.hostname }).from(companyDomains),
+        ]);
 
-    const origins = new Set<string>();
+        const origins = new Set<string>();
 
-    // Add platform domains with all subdomain variations
-    platformDomains.forEach(({ domain }) => {
-      if (domain) {
-        // Add the base domain (both http and https for flexibility)
-        origins.add(`https://${domain}`);
-        origins.add(`http://${domain}`);
+        // Add platform domains with all subdomain variations
+        platformDomains.forEach(({ domain }) => {
+            if (domain) {
+                // Add the base domain (both http and https for flexibility)
+                origins.add(`https://${domain}`);
+                origins.add(`http://${domain}`);
 
-        // Add all subdomain prefixes
-        SUBDOMAIN_PREFIXES.forEach((prefix) => {
-          origins.add(`https://${prefix}.${domain}`);
-          origins.add(`http://${prefix}.${domain}`);
+                // Add all subdomain prefixes
+                SUBDOMAIN_PREFIXES.forEach((prefix) => {
+                    origins.add(`https://${prefix}.${domain}`);
+                    origins.add(`http://${prefix}.${domain}`);
+                });
+            }
         });
-      }
-    });
 
-    // Add custom company domains (e.g., client.diageo.com, custom.example.com)
-    customDomains.forEach(({ hostname }) => {
-      if (hostname) {
-        origins.add(`https://${hostname}`);
-        origins.add(`http://${hostname}`);
-      }
-    });
+        // Add custom company domains (e.g., client.diageo.com, custom.example.com)
+        customDomains.forEach(({ hostname }) => {
+            if (hostname) {
+                origins.add(`https://${hostname}`);
+                origins.add(`http://${hostname}`);
+            }
+        });
 
-    // Add development origins in non-production environments
-    if (config.node_env !== "production") {
-      DEV_ORIGINS.forEach((origin) => origins.add(origin));
+        // Add development origins in non-production environments
+        if (config.node_env !== "production") {
+            DEV_ORIGINS.forEach((origin) => origins.add(origin));
+        }
+
+        // Update cache
+        allowedOriginsCache = origins;
+        lastCacheUpdate = now;
+
+        return origins;
+    } catch (error) {
+        console.error("[CORS] Failed to fetch allowed origins:", error);
+
+        // Return stale cache on error to prevent service disruption
+        if (allowedOriginsCache.size > 0) {
+            return allowedOriginsCache;
+        }
+
+        // If no cache available, allow dev origins as fallback
+        return new Set(DEV_ORIGINS);
     }
-
-    // Update cache
-    allowedOriginsCache = origins;
-    lastCacheUpdate = now;
-
-    return origins;
-  } catch (error) {
-    console.error("[CORS] Failed to fetch allowed origins:", error);
-
-    // Return stale cache on error to prevent service disruption
-    if (allowedOriginsCache.size > 0) {
-      return allowedOriginsCache;
-    }
-
-    // If no cache available, allow dev origins as fallback
-    return new Set(DEV_ORIGINS);
-  }
 }
 
 /**
@@ -107,71 +107,71 @@ async function getAllowedOrigins(): Promise<Set<string>> {
  * Useful when domains are added/updated via admin panel
  */
 export async function refreshCorsCache(): Promise<void> {
-  lastCacheUpdate = 0; // Force cache refresh
-  await getAllowedOrigins();
-  console.log("[CORS] Cache refreshed");
+    lastCacheUpdate = 0; // Force cache refresh
+    await getAllowedOrigins();
+    console.log("[CORS] Cache refreshed");
 }
 
 /**
  * Get current cached origins (for debugging/monitoring)
  */
 export function getCachedOrigins(): string[] {
-  return Array.from(allowedOriginsCache);
+    return Array.from(allowedOriginsCache);
 }
 
 /**
  * CORS origin validator function
  */
 const corsOriginValidator = async (
-  origin: string | undefined,
-  callback: (err: Error | null, allow?: string | boolean) => void
+    origin: string | undefined,
+    callback: (err: Error | null, allow?: string | boolean) => void
 ) => {
-  // Allow requests with no origin (Postman, server-to-server, mobile apps)
-  if (!origin) {
-    return callback(null, true);
-  }
-
-  try {
-    const allowedOrigins = await getAllowedOrigins();
-
-    if (allowedOrigins.has(origin)) {
-      // Origin is allowed - reflect it back
-      callback(null, origin);
-    } else {
-      // Log blocked origins for monitoring (only in development)
-      if (config.node_env !== "production") {
-        console.log(`[CORS] Blocked origin: ${origin}`);
-      }
-      callback(new Error(`Origin ${origin} not allowed by CORS policy`));
+    // Allow requests with no origin (Postman, server-to-server, mobile apps)
+    if (!origin) {
+        return callback(null, true);
     }
-  } catch (error) {
-    console.error("[CORS] Error during origin validation:", error);
-    // On error, deny the request for security
-    callback(new Error("CORS validation failed"));
-  }
+
+    try {
+        const allowedOrigins = await getAllowedOrigins();
+
+        if (allowedOrigins.has(origin)) {
+            // Origin is allowed - reflect it back
+            callback(null, origin);
+        } else {
+            // Log blocked origins for monitoring (only in development)
+            if (config.node_env !== "production") {
+                console.log(`[CORS] Blocked origin: ${origin}`);
+            }
+            callback(new Error(`Origin ${origin} not allowed by CORS policy`));
+        }
+    } catch (error) {
+        console.error("[CORS] Error during origin validation:", error);
+        // On error, deny the request for security
+        callback(new Error("CORS validation failed"));
+    }
 };
 
 /**
  * CORS configuration options
  */
 const corsOptions = {
-  origin: corsOriginValidator,
-  credentials: true, // Required for cookies/JWT in Authorization header
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: [
-    "Content-Type",
-    "Authorization",
-    "x-platform", // Platform identifier header
-    "x-requested-with",
-    "x-refresh-token",
-  ],
-  exposedHeaders: [
-    "x-total-count", // For pagination
-    "x-page-count",
-  ],
-  // IMPORTANT: Keep maxAge short to prevent stale CORS responses across subdomains
-  // Browsers cache preflight by origin, but CDNs might not respect Vary: Origin correctly
-  maxAge: 600, // 10 minutes (was 24 hours - caused cross-subdomain caching issues)
+    origin: corsOriginValidator,
+    credentials: true, // Required for cookies/JWT in Authorization header
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: [
+        "Content-Type",
+        "Authorization",
+        "x-platform", // Platform identifier header
+        "x-requested-with",
+        "x-refresh-token",
+    ],
+    exposedHeaders: [
+        "x-total-count", // For pagination
+        "x-page-count",
+    ],
+    // IMPORTANT: Keep maxAge short to prevent stale CORS responses across subdomains
+    // Browsers cache preflight by origin, but CDNs might not respect Vary: Origin correctly
+    maxAge: 600, // 10 minutes (was 24 hours - caused cross-subdomain caching issues)
 };
 
 /**

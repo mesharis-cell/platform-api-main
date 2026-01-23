@@ -4,8 +4,7 @@ import config from "../app/config";
 import * as schema from "./schema";
 
 const pool = new Pool({
-  connectionString: config.database_url,
+    connectionString: config.database_url,
 });
 
 export const db = drizzle(pool, { schema });
-

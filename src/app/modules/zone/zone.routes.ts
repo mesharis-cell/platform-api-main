@@ -13,7 +13,7 @@ const router = Router();
 router.post(
     "/",
     platformValidator,
-    auth('ADMIN', 'LOGISTICS'),
+    auth("ADMIN", "LOGISTICS"),
     requirePermission(PERMISSIONS.ZONES_CREATE),
     payloadValidator(zoneSchemas.zoneSchema),
     ZoneControllers.createZone
@@ -23,7 +23,7 @@ router.post(
 router.get(
     "/",
     platformValidator,
-    auth('ADMIN', 'LOGISTICS', 'CLIENT'),
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
     requirePermission(PERMISSIONS.ZONES_READ),
     ZoneControllers.getZones
 );
@@ -32,7 +32,7 @@ router.get(
 router.get(
     "/:id",
     platformValidator,
-    auth('ADMIN', 'LOGISTICS', 'CLIENT'),
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
     ZoneControllers.getZoneById
 );
 
@@ -40,7 +40,7 @@ router.get(
 router.patch(
     "/:id",
     platformValidator,
-    auth('ADMIN', 'LOGISTICS'),
+    auth("ADMIN", "LOGISTICS"),
     requirePermission(PERMISSIONS.ZONES_UPDATE),
     payloadValidator(zoneSchemas.updateZoneSchema),
     ZoneControllers.updateZone
@@ -50,7 +50,7 @@ router.patch(
 router.delete(
     "/:id",
     platformValidator,
-    auth('ADMIN'),
+    auth("ADMIN"),
     requirePermission(PERMISSIONS.ZONES_DELETE),
     ZoneControllers.deleteZone
 );

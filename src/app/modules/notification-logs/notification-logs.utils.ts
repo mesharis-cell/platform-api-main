@@ -1,10 +1,14 @@
-import { and, eq, sql } from "drizzle-orm"
-import { db } from "../../../db"
-import { users } from "../../../db/schema"
-import config from "../../config"
-import { sendEmail } from "../../services/email.service"
-import { formatDateForEmail, formatTimeWindow } from "../../utils/date-time"
-import { NotificationData, NotificationRecipients, NotificationType } from "./notification-logs.interfaces"
+import { and, eq, sql } from "drizzle-orm";
+import { db } from "../../../db";
+import { users } from "../../../db/schema";
+import config from "../../config";
+import { sendEmail } from "../../services/email.service";
+import { formatDateForEmail, formatTimeWindow } from "../../utils/date-time";
+import {
+    NotificationData,
+    NotificationRecipients,
+    NotificationType,
+} from "./notification-logs.interfaces";
 
 // ----------------------------------- GET NOTIFICATION TYPE FOR TRANSITION -----------------------
 export function getNotificationTypeForTransition(
@@ -13,27 +17,27 @@ export function getNotificationTypeForTransition(
 ): string | null {
     // Map status transitions to notification types
     const transitionMap: Record<string, string> = {
-        'DRAFT->SUBMITTED': 'ORDER_SUBMITTED',
-        'SUBMITTED->PRICING_REVIEW': '', // No notification needed
-        'PRICING_REVIEW->QUOTED': 'QUOTE_SENT', // A2 approved standard pricing, goes direct to client
-        'PRICING_REVIEW->PENDING_APPROVAL': 'A2_ADJUSTED_PRICING', // A2 adjusted price, needs PMG review
-        'PENDING_APPROVAL->QUOTED': 'QUOTE_SENT', // PMG approved, send to client
-        'QUOTED->CONFIRMED': 'QUOTE_APPROVED', // Direct to CONFIRMED
-        'QUOTED->DECLINED': 'QUOTE_DECLINED',
-        'CONFIRMED->IN_PREPARATION': 'ORDER_CONFIRMED',
-        'IN_PREPARATION->READY_FOR_DELIVERY': 'READY_FOR_DELIVERY',
-        'READY_FOR_DELIVERY->IN_TRANSIT': 'IN_TRANSIT',
-        'IN_TRANSIT->DELIVERED': 'DELIVERED',
-        'DELIVERED->IN_USE': '', // No notification needed
-        'IN_USE->AWAITING_RETURN': '', // No notification needed (PICKUP_REMINDER sent via cron 48h before)
-        'AWAITING_RETURN->CLOSED': 'ORDER_CLOSED',
+        "DRAFT->SUBMITTED": "ORDER_SUBMITTED",
+        "SUBMITTED->PRICING_REVIEW": "", // No notification needed
+        "PRICING_REVIEW->QUOTED": "QUOTE_SENT", // A2 approved standard pricing, goes direct to client
+        "PRICING_REVIEW->PENDING_APPROVAL": "A2_ADJUSTED_PRICING", // A2 adjusted price, needs PMG review
+        "PENDING_APPROVAL->QUOTED": "QUOTE_SENT", // PMG approved, send to client
+        "QUOTED->CONFIRMED": "QUOTE_APPROVED", // Direct to CONFIRMED
+        "QUOTED->DECLINED": "QUOTE_DECLINED",
+        "CONFIRMED->IN_PREPARATION": "ORDER_CONFIRMED",
+        "IN_PREPARATION->READY_FOR_DELIVERY": "READY_FOR_DELIVERY",
+        "READY_FOR_DELIVERY->IN_TRANSIT": "IN_TRANSIT",
+        "IN_TRANSIT->DELIVERED": "DELIVERED",
+        "DELIVERED->IN_USE": "", // No notification needed
+        "IN_USE->AWAITING_RETURN": "", // No notification needed (PICKUP_REMINDER sent via cron 48h before)
+        "AWAITING_RETURN->CLOSED": "ORDER_CLOSED",
     };
 
     const key = `${fromStatus}->${toStatus}`;
     const notificationType = transitionMap[key];
 
     // Return null if empty string (no notification) or undefined (not in map)
-    return notificationType && notificationType !== '' ? notificationType : null;
+    return notificationType && notificationType !== "" ? notificationType : null;
 }
 
 // ----------------------------------- GET RECIPIENTS FOR NOTIFICATION ----------------------------
@@ -49,15 +53,13 @@ export const getRecipientsForNotification = async (
         .where(
             and(
                 eq(users.platform_id, platformId),
-                eq(users.role, 'ADMIN'),
+                eq(users.role, "ADMIN"),
                 sql`${users.email} NOT LIKE '%@system.internal'`
             )
-        )
+        );
 
-    const adminEmails = admins.map(a => a.email)
-    console.log(
-        `   📋 Found ${adminEmails.length} Admin(s): ${adminEmails.join(', ') || 'none'}`
-    )
+    const adminEmails = admins.map((a) => a.email);
+    console.log(`   📋 Found ${adminEmails.length} Admin(s): ${adminEmails.join(", ") || "none"}`);
 
     // Get Logistics
     const logistics = await db
@@ -66,19 +68,19 @@ export const getRecipientsForNotification = async (
         .where(
             and(
                 eq(users.platform_id, platformId),
-                eq(users.role, 'LOGISTICS'),
+                eq(users.role, "LOGISTICS"),
                 sql`${users.email} NOT LIKE '%@system.internal'`
             )
-        )
+        );
 
-    const logisticsEmails = logistics.map(s => s.email)
+    const logisticsEmails = logistics.map((s) => s.email);
     console.log(
-        `   📋 Found ${logisticsEmails.length} Logistics: ${logisticsEmails.join(', ') || 'none'}`
-    )
+        `   📋 Found ${logisticsEmails.length} Logistics: ${logisticsEmails.join(", ") || "none"}`
+    );
 
     // Client email
-    const clientEmail = order.contact_email
-    console.log(`   📋 Client email: ${clientEmail || 'not set'}`)
+    const clientEmail = order.contact_email;
+    console.log(`   📋 Client email: ${clientEmail || "not set"}`);
 
     // Notification Matrix (based on req.md Email Notification Matrix)
     const matrix: Record<NotificationType, NotificationRecipients> = {
@@ -99,10 +101,10 @@ export const getRecipientsForNotification = async (
         PICKUP_REMINDER: { to: [...adminEmails, ...logisticsEmails, clientEmail] },
         ORDER_CLOSED: { to: adminEmails }, // PMG only, no CC to A2
         TIME_WINDOWS_UPDATED: { to: [clientEmail, ...adminEmails] },
-    }
+    };
 
-    return matrix[notificationType]
-}
+    return matrix[notificationType];
+};
 
 // ----------------------------------- BUILD NOTIFICATION DATA ------------------------------------
 export const buildNotificationData = async (order: any): Promise<NotificationData> => {
@@ -113,40 +115,34 @@ export const buildNotificationData = async (order: any): Promise<NotificationDat
         platformId: order.platform_id,
         orderId: order.id,
         orderIdReadable: order.order_id,
-        companyName: order.company?.name || 'Unknown Company',
-        contactName: order.contact_name || 'Valued Customer',
+        companyName: order.company?.name || "Unknown Company",
+        contactName: order.contact_name || "Valued Customer",
         eventStartDate: order.event_start_date
             ? formatDateForEmail(new Date(order.event_start_date))
-            : '',
+            : "",
         eventEndDate: order.event_end_date
             ? formatDateForEmail(new Date(order.event_end_date))
-            : '',
-        venueName: order.venue_name || '',
-        venueCity: order.venue_location?.city || '',
+            : "",
+        venueName: order.venue_name || "",
+        venueCity: order.venue_location?.city || "",
         finalTotalPrice: order.final_pricing?.total_price
             ? Number(order.final_pricing.total_price).toFixed(2)
-            : '',
-        invoiceNumber: order.invoiceNumber || '',
-        deliveryWindow: formatTimeWindow(
-            order.delivery_window?.start,
-            order.delivery_window?.end
-        ),
-        pickupWindow: formatTimeWindow(
-            order.pickup_window?.start,
-            order.pickup_window?.end
-        ),
+            : "",
+        invoiceNumber: order.invoiceNumber || "",
+        deliveryWindow: formatTimeWindow(order.delivery_window?.start, order.delivery_window?.end),
+        pickupWindow: formatTimeWindow(order.pickup_window?.start, order.pickup_window?.end),
         orderUrl: `${clientUrl}/orders/${order.order_id}`,
         serverUrl: serverUrl,
-        supportEmail: 'support@assetfulfillment.com',
-        supportPhone: '+971 XX XXX XXXX',
+        supportEmail: "support@assetfulfillment.com",
+        supportPhone: "+971 XX XXX XXXX",
         // Additional fields for enhanced templates
         // adjustmentReason: order.a2_adjustment_reason || undefined,
         // a2AdjustedPrice: order.a2_adjusted_price
         //     ? Number(order.a2_adjusted_price).toFixed(2)
         //     : undefined,
         // declineReason: order.declineReason || undefined,
-    }
-}
+    };
+};
 
 // ----------------------------------- SEND EMAIL WITH LOGGING ------------------------------------
 export async function sendEmailWithLogging(
@@ -171,7 +167,7 @@ export async function sendEmailWithLogging(
         to,
         subject,
         html,
-    })
+    });
 
-    return messageId
+    return messageId;
 }

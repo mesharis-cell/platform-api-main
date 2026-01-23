@@ -7,11 +7,6 @@ import platformValidator from "../../middleware/platform-validator";
 const router = Router();
 
 // Browse catalog
-router.get(
-  "/",
-  platformValidator,
-  auth("CLIENT"),
-  CatalogControllers.getCatalog
-);
+router.get("/", platformValidator, auth("CLIENT"), CatalogControllers.getCatalog);
 
 export const CatalogRoutes = router;

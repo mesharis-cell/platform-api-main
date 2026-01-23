@@ -18,8 +18,8 @@ const createWarehouse = async (data: CreateWarehousePayload) => {
         // Step 2: Handle database errors
         const pgError = error.cause || error;
 
-        if (pgError.code === '23505') {
-            if (pgError.constraint === 'warehouses_platform_name_unique') {
+        if (pgError.code === "23505") {
+            if (pgError.constraint === "warehouses_platform_name_unique") {
                 throw new CustomizedError(
                     httpStatus.CONFLICT,
                     `Warehouse with name "${data.name}" already exists for this platform`
@@ -27,7 +27,7 @@ const createWarehouse = async (data: CreateWarehousePayload) => {
             }
             throw new CustomizedError(
                 httpStatus.CONFLICT,
-                'A warehouse with these details already exists'
+                "A warehouse with these details already exists"
             );
         }
 
@@ -37,30 +37,20 @@ const createWarehouse = async (data: CreateWarehousePayload) => {
 
 // ----------------------------------- GET WAREHOUSES -------------------------------------
 const getWarehouses = async (query: Record<string, any>, platformId: string) => {
-    const {
-        search_term,
+    const { search_term, page, limit, sort_by, sort_order, country, city, include_inactive } =
+        query;
+
+    // Step 1: Validate query parameters
+    if (sort_by) queryValidator(warehouseQueryValidationConfig, "sort_by", sort_by);
+    if (sort_order) queryValidator(warehouseQueryValidationConfig, "sort_order", sort_order);
+
+    // Step 2: Setup pagination
+    const { pageNumber, limitNumber, skip, sortWith, sortSequence } = paginationMaker({
         page,
         limit,
         sort_by,
         sort_order,
-        country,
-        city,
-        include_inactive
-    } = query;
-
-    // Step 1: Validate query parameters
-    if (sort_by) queryValidator(warehouseQueryValidationConfig, "sort_by", sort_by);
-    if (sort_order)
-        queryValidator(warehouseQueryValidationConfig, "sort_order", sort_order);
-
-    // Step 2: Setup pagination
-    const { pageNumber, limitNumber, skip, sortWith, sortSequence } =
-        paginationMaker({
-            page,
-            limit,
-            sort_by,
-            sort_order,
-        });
+    });
 
     // Step 3: Build WHERE conditions
     const conditions: any[] = [eq(warehouses.platform_id, platformId)];
@@ -87,7 +77,7 @@ const getWarehouses = async (query: Record<string, any>, platformId: string) => 
     }
 
     // Step 3d: Filter by active status (default: only active warehouses)
-    if (include_inactive !== 'true') {
+    if (include_inactive !== "true") {
         conditions.push(eq(warehouses.is_active, true));
     }
 
@@ -126,10 +116,7 @@ const getWarehouses = async (query: Record<string, any>, platformId: string) => 
 // ----------------------------------- GET WAREHOUSE BY ID --------------------------------
 const getWarehouseById = async (id: string, platformId: string) => {
     // Step 1: Build WHERE conditions
-    const conditions: any[] = [
-        eq(warehouses.id, id),
-        eq(warehouses.platform_id, platformId),
-    ];
+    const conditions: any[] = [eq(warehouses.id, id), eq(warehouses.platform_id, platformId)];
 
     // Step 2: Fetch warehouse
     const warehouse = await db.query.warehouses.findFirst({
@@ -148,10 +135,7 @@ const getWarehouseById = async (id: string, platformId: string) => {
 const updateWarehouse = async (id: string, data: any, platformId: string) => {
     try {
         // Step 1: Verify warehouse exists
-        const conditions: any[] = [
-            eq(warehouses.id, id),
-            eq(warehouses.platform_id, platformId),
-        ];
+        const conditions: any[] = [eq(warehouses.id, id), eq(warehouses.platform_id, platformId)];
 
         const [existingWarehouse] = await db
             .select()
@@ -176,8 +160,8 @@ const updateWarehouse = async (id: string, data: any, platformId: string) => {
         // Step 3: Handle database errors
         const pgError = error.cause || error;
 
-        if (pgError.code === '23505') {
-            if (pgError.constraint === 'warehouses_platform_name_unique') {
+        if (pgError.code === "23505") {
+            if (pgError.constraint === "warehouses_platform_name_unique") {
                 throw new CustomizedError(
                     httpStatus.CONFLICT,
                     `Warehouse with name "${data.name}" already exists for this platform`
@@ -185,7 +169,7 @@ const updateWarehouse = async (id: string, data: any, platformId: string) => {
             }
             throw new CustomizedError(
                 httpStatus.CONFLICT,
-                'A warehouse with these details already exists'
+                "A warehouse with these details already exists"
             );
         }
 
@@ -196,10 +180,7 @@ const updateWarehouse = async (id: string, data: any, platformId: string) => {
 // ----------------------------------- DELETE WAREHOUSE -----------------------------------
 const deleteWarehouse = async (id: string, platformId: string) => {
     // Step 1: Verify warehouse exists
-    const conditions: any[] = [
-        eq(warehouses.id, id),
-        eq(warehouses.platform_id, platformId),
-    ];
+    const conditions: any[] = [eq(warehouses.id, id), eq(warehouses.platform_id, platformId)];
 
     const [existingWarehouse] = await db
         .select()
@@ -210,7 +191,7 @@ const deleteWarehouse = async (id: string, platformId: string) => {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Warehouse not found");
     }
 
-    // Step 2: Mark warehouse as active/inactive 
+    // Step 2: Mark warehouse as active/inactive
     await db
         .update(warehouses)
         .set({

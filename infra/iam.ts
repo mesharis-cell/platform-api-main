@@ -34,6 +34,41 @@ export function createInstanceProfileRole(aws: typeof import("@pulumi/aws"), sta
         policyArn: "arn:aws:iam::aws:policy/AWSElasticBeanstalkWorkerTier",
     });
 
+    new aws.iam.RolePolicyAttachment(resourceName("role-policy-attachment-multicontainer", stage), {
+        role: instanceProfileRole.name,
+        policyArn: "arn:aws:iam::aws:policy/AWSElasticBeanstalkMulticontainerDocker",
+    });
+
+    new aws.iam.RolePolicy(resourceName("eb-ec2-s3-policy", stage), {
+        role: instanceProfileRole.id,
+        policy: JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [
+                {
+                    Effect: "Allow",
+                    Action: [
+                        "s3:GetObjectAcl",
+                        "s3:PutObjectAcl",
+                        "s3:GetObject",
+                        "s3:PutObject",
+                        "s3:DeleteObject",
+                    ],
+                    Resource: "arn:aws:s3:::elasticbeanstalk-*/*",
+                },
+                {
+                    Effect: "Allow",
+                    Action: ["s3:ListBucket", "s3:GetBucketLocation"],
+                    Resource: "arn:aws:s3:::elasticbeanstalk-*",
+                },
+                {
+                    Effect: "Allow",
+                    Action: ["ec2:DescribeImages"],
+                    Resource: "*",
+                },
+            ],
+        }),
+    });
+
     return instanceProfileRole;
 }
 
@@ -83,6 +118,97 @@ export function createServiceRole(aws: typeof import("@pulumi/aws"), stage: stri
             policyArn: "arn:aws:iam::aws:policy/service-role/AWSElasticBeanstalkEnhancedHealth",
         }
     );
+
+    new aws.iam.RolePolicyAttachment(
+        resourceName("role-policy-attachment-eb-managed-updates", stage),
+        {
+            role: serviceRole.name,
+            policyArn:
+                "arn:aws:iam::aws:policy/AWSElasticBeanstalkManagedUpdatesCustomerRolePolicy",
+        }
+    );
+
+    new aws.iam.RolePolicy(resourceName("eb-service-ec2-policy", stage), {
+        role: serviceRole.id,
+        policy: JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [
+                {
+                    Effect: "Allow",
+                    Action: [
+                        "ec2:DescribeImages",
+                        "ec2:DescribeKeyPairs",
+                        "ec2:DescribeSecurityGroups",
+                        "ec2:DescribeSubnets",
+                        "ec2:DescribeVpcs",
+                        "ec2:DescribeInstanceAttribute",
+                        "ec2:DescribeInstanceStatus",
+                        "ec2:DescribeInstances",
+                        "ec2:DescribeAccountAttributes",
+                        "ec2:DescribeAvailabilityZones",
+                    ],
+                    Resource: "*",
+                },
+                {
+                    Effect: "Allow",
+                    Action: [
+                        "s3:GetObjectAcl",
+                        "s3:PutObjectAcl",
+                        "s3:GetObject",
+                        "s3:PutObject",
+                        "s3:DeleteObject",
+                        "s3:CreateBucket",
+                        "s3:GetBucketVersioning",
+                        "s3:PutBucketVersioning",
+                    ],
+                    Resource: "arn:aws:s3:::elasticbeanstalk-*/*",
+                },
+                {
+                    Effect: "Allow",
+                    Action: ["s3:ListBucket", "s3:GetBucketLocation", "s3:GetBucketPolicy"],
+                    Resource: "arn:aws:s3:::elasticbeanstalk-*",
+                },
+                {
+                    Effect: "Allow",
+                    Action: ["s3:ListAllMyBuckets"],
+                    Resource: "*",
+                },
+                {
+                    Effect: "Allow",
+                    Action: [
+                        "cloudformation:DescribeStacks",
+                        "cloudformation:DescribeStackEvents",
+                        "cloudformation:DescribeStackResources",
+                        "cloudformation:GetTemplate",
+                    ],
+                    Resource: "*",
+                },
+                {
+                    Effect: "Allow",
+                    Action: [
+                        "ecs:DescribeClusters",
+                        "ecs:DescribeContainerInstances",
+                        "ecs:DescribeServices",
+                        "ecs:DescribeTasks",
+                        "ecs:ListClusters",
+                        "ecs:ListContainerInstances",
+                        "ecs:ListServices",
+                        "ecs:ListTasks",
+                    ],
+                    Resource: "*",
+                },
+                {
+                    Effect: "Allow",
+                    Action: [
+                        "elasticloadbalancing:DescribeLoadBalancers",
+                        "elasticloadbalancing:DescribeTargetGroups",
+                        "elasticloadbalancing:DescribeTargetHealth",
+                    ],
+                    Resource: "*",
+                },
+            ],
+        }),
+    });
 
     return serviceRole;
 }
@@ -249,21 +375,92 @@ export function createCodePipelineRole(
                 {
                     "Effect": "Allow",
                     "Action": [
+                        "s3:CreateBucket",
+                        "s3:GetObject",
+                        "s3:GetObjectAcl",
+                        "s3:GetObjectVersion",
+                        "s3:PutObject",
+                        "s3:PutObjectAcl",
+                        "s3:DeleteObject",
+                        "s3:ListBucket",
+                        "s3:GetBucketLocation",
+                        "s3:GetBucketPolicy",
+                        "s3:PutBucketPolicy",
+                        "s3:GetBucketVersioning",
+                        "s3:PutBucketVersioning",
+                        "s3:GetBucketAcl",
+                        "s3:PutBucketAcl"
+                    ],
+                    "Resource": [
+                        "arn:aws:s3:::elasticbeanstalk-*",
+                        "arn:aws:s3:::elasticbeanstalk-*/*"
+                    ]
+                },
+                {
+                    "Effect": "Allow",
+                    "Action": [
                         "autoscaling:DescribeAutoScalingGroups",
                         "autoscaling:DescribeLaunchConfigurations",
                         "autoscaling:DescribeScalingActivities",
                         "autoscaling:ResumeProcesses",
                         "autoscaling:SuspendProcesses",
+                        "autoscaling:PutNotificationConfiguration",
+                        "autoscaling:DeleteNotificationConfiguration",
+                        "ec2:DescribeImages",
                         "ec2:DescribeInstances",
                         "ec2:DescribeInstanceStatus",
+                        "ec2:DescribeLaunchTemplates",
+                        "ec2:DescribeLaunchTemplateVersions",
+                        "ec2:DescribeSecurityGroups",
+                        "ec2:DescribeSubnets",
+                        "ec2:DescribeVpcs",
+                        "ec2:DescribeAccountAttributes",
+                        "ec2:DescribeAvailabilityZones",
+                        "elasticloadbalancing:DescribeLoadBalancers",
+                        "elasticloadbalancing:DescribeTargetGroups",
+                        "elasticloadbalancing:DescribeTargetHealth",
+                        "elasticloadbalancing:DescribeListeners",
+                        "elasticloadbalancing:DescribeRules",
+                        "elasticloadbalancing:DescribeInstanceHealth",
+                        "elasticloadbalancing:RegisterTargets",
+                        "elasticloadbalancing:DeregisterTargets",
                         "cloudformation:GetTemplate",
                         "cloudformation:DescribeStackResource",
                         "cloudformation:DescribeStackResources",
                         "cloudformation:DescribeStackEvents",
                         "cloudformation:DescribeStacks",
-                        "cloudformation:UpdateStack"
+                        "cloudformation:UpdateStack",
+                        "cloudformation:CreateStack",
+                        "cloudformation:DeleteStack",
+                        "cloudformation:ContinueUpdateRollback",
+                        "logs:CreateLogGroup",
+                        "logs:CreateLogStream",
+                        "logs:PutLogEvents",
+                        "logs:DescribeLogGroups",
+                        "logs:DescribeLogStreams",
+                        "sns:CreateTopic",
+                        "sns:DeleteTopic",
+                        "sns:GetTopicAttributes",
+                        "sns:SetTopicAttributes",
+                        "sns:Subscribe",
+                        "sns:Unsubscribe",
+                        "sqs:CreateQueue",
+                        "sqs:DeleteQueue",
+                        "sqs:GetQueueAttributes",
+                        "sqs:SetQueueAttributes"
                     ],
                     "Resource": "*"
+                },
+                {
+                    "Effect": "Allow",
+                    "Action": [
+                        "iam:PassRole"
+                    ],
+                    "Resource": [
+                        "arn:aws:iam::*:role/aws-elasticbeanstalk-*",
+                        "arn:aws:iam::*:role/${resourceName("elasticbeanstalk-service-role", stage)}",
+                        "arn:aws:iam::*:role/${resourceName("eb-ec2-role", stage)}"
+                    ]
                 }
             ]
         }`,

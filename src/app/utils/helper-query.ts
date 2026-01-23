@@ -17,12 +17,14 @@ export const getPlatformAdminEmails = async (platformId: string): Promise<string
         .select({ email: users.email })
         .from(users)
         .where(
-            and(eq(users.platform_id, platformId),
-                eq(users.role, 'ADMIN'),
-                sql`${users.permission_template} = 'PLATFORM_ADMIN' AND ${users.email} NOT LIKE '%@system.internal'`)
-        )
+            and(
+                eq(users.platform_id, platformId),
+                eq(users.role, "ADMIN"),
+                sql`${users.permission_template} = 'PLATFORM_ADMIN' AND ${users.email} NOT LIKE '%@system.internal'`
+            )
+        );
 
-    const platformAdminEmails = platformAdmins.map(admin => admin.email);
+    const platformAdminEmails = platformAdmins.map((admin) => admin.email);
     return platformAdminEmails;
 };
 
@@ -32,15 +34,18 @@ export const getPlatformLogisticsStaffEmails = async (platformId: string): Promi
         .select({ email: users.email })
         .from(users)
         .where(
-            and(eq(users.platform_id, platformId),
-                eq(users.role, 'LOGISTICS'),
+            and(
+                eq(users.platform_id, platformId),
+                eq(users.role, "LOGISTICS"),
                 sql`(
                     ${users.permission_template} = 'LOGISTICS_STAFF'
                     OR 'orders:receive_notifications' = ANY(${users.permissions})
                 ) AND ${users.email} NOT LIKE '%@system.internal'`
             )
-        )
+        );
 
-    const platformLogisticsStaffEmails = platformLogisticsStaff.map(logisticsStaff => logisticsStaff.email);
+    const platformLogisticsStaffEmails = platformLogisticsStaff.map(
+        (logisticsStaff) => logisticsStaff.email
+    );
     return platformLogisticsStaffEmails;
 };

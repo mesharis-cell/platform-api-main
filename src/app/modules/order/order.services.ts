@@ -15,15 +15,43 @@ import {
     orderStatusHistory,
     pricingTiers,
     scanEvents,
-    users
+    users,
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { sendEmail } from "../../services/email.service";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
-import { AdjustLogisticsPricingPayload, ApproveStandardPricingPayload, ApprovePlatformPricingPayload, StandardPricing, SubmitOrderPayload, UpdateOrderTimeWindowsPayload, ApproveQuotePayload, DeclineQuotePayload, OrderItem } from "./order.interfaces";
-import { checkAssetsForOrder, isValidTransition, orderQueryValidationConfig, orderSortableFields, PREP_BUFFER_DAYS, RETURN_BUFFER_DAYS, validateInboundScanningComplete, validateRoleBasedTransition } from "./order.utils";
+import {
+    AdjustLogisticsPricingPayload,
+    ApproveStandardPricingPayload,
+    ApprovePlatformPricingPayload,
+    StandardPricing,
+    SubmitOrderPayload,
+    UpdateOrderTimeWindowsPayload,
+    ApproveQuotePayload,
+    DeclineQuotePayload,
+    OrderItem,
+} from "./order.interfaces";
+import {
+    checkAssetsForOrder,
+    isValidTransition,
+    orderQueryValidationConfig,
+    orderSortableFields,
+    PREP_BUFFER_DAYS,
+    RETURN_BUFFER_DAYS,
+    validateInboundScanningComplete,
+    validateRoleBasedTransition,
+} from "./order.utils";
+// NEW: Hybrid pricing imports
+import { PricingCalculationServices } from "../pricing-calculation/pricing-calculation.services";
+import { OrderCancellationService, CancelOrderPayload } from "./order-cancellation.service";
+import {
+    calculateAndStoreEstimate,
+    shouldAwaitFabrication,
+    recalculateOrderPricing,
+} from "./order-pricing.helpers";
+import { OrderVehicleService } from "./order-update-vehicle.service";
 
 // Import asset availability checker
 import { multipleEmailSender } from "../../utils/email-sender";
@@ -52,21 +80,46 @@ const submitOrderFromCart = async (
     item_count: number;
 }> => {
     // Extract all required fields from the payload
-    const { items, brand_id, event_start_date, event_end_date, venue_name, venue_country, venue_city, venue_address, contact_name, contact_email, contact_phone, venue_access_notes, special_instructions } = payload;
+    const {
+        items,
+        brand_id,
+        transport_trip_type,
+        event_start_date,
+        event_end_date,
+        venue_name,
+        venue_country,
+        venue_city,
+        venue_address,
+        contact_name,
+        contact_email,
+        contact_phone,
+        venue_access_notes,
+        special_instructions,
+    } = payload;
+    const tripType = transport_trip_type || "ROUND_TRIP";
 
     const eventStartDate = dayjs(event_start_date).toDate();
     const eventEndDate = dayjs(event_end_date).toDate();
 
     // Step 1: Verify company exists and belongs to the platform
-    const [company] = await db.select().from(companies).where(and(eq(companies.id, companyId), eq(companies.platform_id, platformId)));
+    const [company] = await db
+        .select()
+        .from(companies)
+        .where(and(eq(companies.id, companyId), eq(companies.platform_id, platformId)));
 
     if (!company) {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Company not found");
     }
 
     // Step 2: Check assets availability
-    const requiredAssets = items.map((i) => ({ id: i.asset_id, quantity: i.quantity }))
-    const foundAssets = await checkAssetsForOrder(platformId, companyId, requiredAssets, eventStartDate, eventEndDate);
+    const requiredAssets = items.map((i) => ({ id: i.asset_id, quantity: i.quantity }));
+    const foundAssets: any[] = await checkAssetsForOrder(
+        platformId,
+        companyId,
+        requiredAssets,
+        eventStartDate,
+        eventEndDate
+    );
 
     // Step 3: Calculate order totals (volume and weight)
     const orderItemsData: OrderItem[] = [];
@@ -86,7 +139,12 @@ const submitOrderFromCart = async (
             const [collection] = await db
                 .select()
                 .from(collections)
-                .where(and(eq(collections.id, item.from_collection_id), eq(collections.platform_id, platformId)));
+                .where(
+                    and(
+                        eq(collections.id, item.from_collection_id),
+                        eq(collections.platform_id, platformId)
+                    )
+                );
             collectionName = collection?.name || null;
         }
 
@@ -103,33 +161,20 @@ const submitOrderFromCart = async (
             handling_tags: asset.handling_tags || [],
             from_collection: item.from_collection_id || null,
             from_collection_name: collectionName,
+            // NEW: Reskin/rebrand fields
+            is_reskin_request: item.is_reskin_request || false,
+            reskin_target_brand_id: item.reskin_target_brand_id || null,
+            reskin_target_brand_custom: item.reskin_target_brand_custom || null,
+            reskin_notes: item.reskin_notes || null,
         });
     }
 
     const calculatedVolume = totalVolume.toFixed(3);
     const calculatedWeight = totalWeight.toFixed(2);
 
-    // Step 4: Find matching pricing tier based on location and volume
+    // Step 4: Calculate pricing estimate (NEW SYSTEM)
     const volume = parseFloat(calculatedVolume);
-    const matchingTiers = await db
-        .select()
-        .from(pricingTiers)
-        .where(
-            and(
-                eq(pricingTiers.platform_id, platformId),
-                sql`LOWER(${pricingTiers.country}) = LOWER(${venue_country})`,
-                sql`LOWER(${pricingTiers.city}) = LOWER(${venue_city})`,
-                eq(pricingTiers.is_active, true),
-                lte(sql`CAST(${pricingTiers.volume_min} AS DECIMAL)`, volume),
-                sql`CAST(${pricingTiers.volume_max} AS DECIMAL) > ${volume}`
-            )
-        )
-        .orderBy(
-            sql`CAST(${pricingTiers.volume_max} AS DECIMAL) - CAST(${pricingTiers.volume_min} AS DECIMAL)`
-        )
-        .limit(1);
-
-    const pricingTier = matchingTiers[0] || null;
+    // Will calculate estimate after order creation (need order_id for line items)
 
     // Step 5: Create the order record
     const orderId = await orderIdGenerator();
@@ -160,23 +205,20 @@ const submitOrderFromCart = async (
                     volume: calculatedVolume,
                     weight: calculatedWeight,
                 },
+                // NEW: Transport fields
+                transport_trip_type: tripType as any,
+                transport_vehicle_type: "STANDARD", // Default
+                // Pricing will be calculated after order creation
+                pricing: null, // Will be set in next step
                 order_status: "PRICING_REVIEW",
                 financial_status: "PENDING_QUOTE",
-                tier_id: pricingTier?.id || null,
-                ...(pricingTier && { logistics_pricing: { base_price: pricingTier.base_price } }),
-                ...(pricingTier && {
-                    platform_pricing: {
-                        margin_percent: company.platform_margin_percent,
-                        margin_amount: Number(pricingTier.base_price) * (Number(company.platform_margin_percent) / 100)
-                    }
-                }),
             })
             .returning();
 
         // Step 5.b: Insert order items
         const itemsToInsert = orderItemsData.map((item) => ({
             ...item,
-            order_id: order.id
+            order_id: order.id,
         }));
         await tx.insert(orderItems).values(itemsToInsert);
 
@@ -187,16 +229,27 @@ const submitOrderFromCart = async (
             status: "PRICING_REVIEW",
             notes: `Order created`,
             updated_by: user.id,
-        })
+        });
 
         return order;
-    })
+    });
+
+    // Step 5.d: Calculate and store pricing estimate (NEW)
+    await calculateAndStoreEstimate(
+        orderResult.id,
+        platformId,
+        companyId,
+        volume,
+        venue_city,
+        tripType,
+        user.id
+    );
 
     // Step 6: Send email to admin, logistics staff and client
     // Step 6.a: Prepare email data
     const emailData = {
         order_id: orderResult.order_id,
-        company_name: company?.name || 'N/A',
+        company_name: (company as any)?.name || "N/A",
         event_start_date: formatDateForEmail(event_start_date),
         event_end_date: formatDateForEmail(event_end_date),
         venue_city: venue_city,
@@ -207,25 +260,31 @@ const submitOrderFromCart = async (
 
     // Step 6.b: Send email to admin
     const platformAdminEmails = await getPlatformAdminEmails(platformId);
-    await multipleEmailSender(platformAdminEmails, `New Order Submitted: ${emailData.order_id}`, emailTemplates.submit_order({
-        ...emailData,
-        by_role: {
-            greeting: "Platform Admin",
-            message: "A new order has been submitted and requires review.",
-            action: "Review this order in the admin dashboard and monitor the pricing workflow.",
-        }
-    }));
+    await multipleEmailSender(
+        platformAdminEmails,
+        `New Order Submitted: ${emailData.order_id}`,
+        emailTemplates.submit_order({
+            ...emailData,
+            by_role: {
+                greeting: "Platform Admin",
+                message: "A new order has been submitted and requires review.",
+                action: "Review this order in the admin dashboard and monitor the pricing workflow.",
+            },
+        })
+    );
 
     // Step 6.c: Send email to logistics staff
     const logisticsStaffEmails = await getPlatformLogisticsStaffEmails(platformId);
-    await multipleEmailSender(logisticsStaffEmails, `New Order Submitted: ${emailData.order_id}`,
+    await multipleEmailSender(
+        logisticsStaffEmails,
+        `New Order Submitted: ${emailData.order_id}`,
         emailTemplates.submit_order({
             ...emailData,
             by_role: {
                 greeting: "Logistics Team",
                 message: "A new order has been submitted and requires pricing review.",
                 action: "Review the order details and provide pricing within 24-48 hours.",
-            }
+            },
         })
     );
 
@@ -239,7 +298,7 @@ const submitOrderFromCart = async (
                 greeting: "Client",
                 message: "Your order has been successfully submitted.",
                 action: "You will receive a quote via email within 24-48 hours. Track your order status in the dashboard.",
-            }
+            },
         }),
     });
 
@@ -274,19 +333,18 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
     if (sort_order) queryValidator(orderQueryValidationConfig, "sort_order", sort_order);
 
     // Step 2: Setup pagination
-    const { pageNumber, limitNumber, skip, sortWith, sortSequence } =
-        paginationMaker({
-            page,
-            limit,
-            sort_by,
-            sort_order,
-        });
+    const { pageNumber, limitNumber, skip, sortWith, sortSequence } = paginationMaker({
+        page,
+        limit,
+        sort_by,
+        sort_order,
+    });
 
     // Step 3: Build WHERE conditions
     const conditions: any[] = [eq(orders.platform_id, platformId)];
 
     // Step 3a: Filter by user role (CLIENT users see only their company's orders)
-    if (user.role === 'CLIENT') {
+    if (user.role === "CLIENT") {
         if (user.company_id) {
             conditions.push(eq(orders.company_id, user.company_id));
         } else {
@@ -295,7 +353,7 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
     }
 
     // Step 3b: Optional filters
-    if (user.role !== 'CLIENT' && company_id) {
+    if (user.role !== "CLIENT" && company_id) {
         conditions.push(eq(orders.company_id, company_id));
     }
 
@@ -304,12 +362,12 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
     }
 
     if (order_status) {
-        queryValidator(orderQueryValidationConfig, 'order_status', order_status);
+        queryValidator(orderQueryValidationConfig, "order_status", order_status);
         conditions.push(eq(orders.order_status, order_status));
     }
 
     if (financial_status) {
-        queryValidator(orderQueryValidationConfig, 'financial_status', financial_status);
+        queryValidator(orderQueryValidationConfig, "financial_status", financial_status);
         conditions.push(eq(orders.financial_status, financial_status));
     }
 
@@ -378,7 +436,7 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
         .where(and(...conditions));
 
     // Step 7: Get item counts for each order
-    const orderIds = results.map(r => r.order.id);
+    const orderIds = results.map((r) => r.order.id);
     let itemCounts: Record<string, number> = {};
     let itemPreviews: Record<string, string[]> = {};
 
@@ -392,7 +450,7 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
             .where(inArray(orderItems.order_id, orderIds));
 
         // Group by order_id
-        itemResults.forEach(item => {
+        itemResults.forEach((item) => {
             if (!itemCounts[item.order_id]) {
                 itemCounts[item.order_id] = 0;
                 itemPreviews[item.order_id] = [];
@@ -405,7 +463,7 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
     }
 
     // Step 8: Map results
-    const ordersData = results.map(r => ({
+    const ordersData = results.map((r) => ({
         id: r.order.id,
         order_id: r.order.order_id,
         company: r.company,
@@ -463,19 +521,18 @@ const getMyOrders = async (query: Record<string, any>, user: AuthUser, platformI
     if (sort_order) queryValidator(orderQueryValidationConfig, "sort_order", sort_order);
 
     // Step 2: Setup pagination
-    const { pageNumber, limitNumber, skip, sortWith, sortSequence } =
-        paginationMaker({
-            page,
-            limit,
-            sort_by,
-            sort_order,
-        });
+    const { pageNumber, limitNumber, skip, sortWith, sortSequence } = paginationMaker({
+        page,
+        limit,
+        sort_by,
+        sort_order,
+    });
 
     // Step 3: Build WHERE conditions
     const conditions: any[] = [eq(orders.platform_id, platformId), eq(orders.user_id, user.id)];
 
     // Step 3a: Filter by user role (CLIENT users see only their company's orders)
-    if (user.role === 'CLIENT') {
+    if (user.role === "CLIENT") {
         if (user.company_id) {
             conditions.push(eq(orders.company_id, user.company_id));
         } else {
@@ -488,12 +545,12 @@ const getMyOrders = async (query: Record<string, any>, user: AuthUser, platformI
     }
 
     if (order_status) {
-        queryValidator(orderQueryValidationConfig, 'order_status', order_status);
+        queryValidator(orderQueryValidationConfig, "order_status", order_status);
         conditions.push(eq(orders.order_status, order_status));
     }
 
     if (financial_status) {
-        queryValidator(orderQueryValidationConfig, 'financial_status', financial_status);
+        queryValidator(orderQueryValidationConfig, "financial_status", financial_status);
         conditions.push(eq(orders.financial_status, financial_status));
     }
 
@@ -563,7 +620,7 @@ const getMyOrders = async (query: Record<string, any>, user: AuthUser, platformI
         ...r.order,
         company: r.company,
         brand: r.brand,
-    }))
+    }));
 
     return {
         data: formattedData,
@@ -576,7 +633,12 @@ const getMyOrders = async (query: Record<string, any>, user: AuthUser, platformI
 };
 
 // ----------------------------------- GET ORDER BY ID ----------------------------------------
-const getOrderById = async (orderId: string, user: AuthUser, platformId: string, query: Record<string, any>) => {
+const getOrderById = async (
+    orderId: string,
+    user: AuthUser,
+    platformId: string,
+    query: Record<string, any>
+) => {
     const { quote } = query;
 
     // Step 1: Check if orderId is a valid UUID
@@ -585,13 +647,10 @@ const getOrderById = async (orderId: string, user: AuthUser, platformId: string,
     // Step 2: Build where condition based on input type
     const whereCondition = isUUID
         ? and(
-            or(eq(orders.id, orderId), eq(orders.order_id, orderId)),
-            eq(orders.platform_id, platformId)
-        )
-        : and(
-            eq(orders.order_id, orderId),
-            eq(orders.platform_id, platformId)
-        );
+              or(eq(orders.id, orderId), eq(orders.order_id, orderId)),
+              eq(orders.platform_id, platformId)
+          )
+        : and(eq(orders.order_id, orderId), eq(orders.platform_id, platformId));
 
     // Step 3: Fetch order with relations
     const result = await db
@@ -600,7 +659,7 @@ const getOrderById = async (orderId: string, user: AuthUser, platformId: string,
             company: {
                 id: companies.id,
                 name: companies.name,
-                platform_margin_percent: companies.platform_margin_percent
+                platform_margin_percent: companies.platform_margin_percent,
             },
             brand: {
                 id: brands.id,
@@ -626,17 +685,17 @@ const getOrderById = async (orderId: string, user: AuthUser, platformId: string,
     const orderData = result[0];
 
     // Check access based on user role
-    if (user.role === 'CLIENT') {
+    if (user.role === "CLIENT") {
         if (user.company_id !== orderData.order.company_id) {
             throw new CustomizedError(httpStatus.FORBIDDEN, "You don't have access to this order");
         }
     }
 
     if (
-        quote === 'true' &&
-        orderData.order.order_status !== 'QUOTED' &&
-        orderData.order.order_status !== 'CONFIRMED' &&
-        orderData.order.order_status !== 'DECLINED'
+        quote === "true" &&
+        orderData.order.order_status !== "QUOTED" &&
+        orderData.order.order_status !== "CONFIRMED" &&
+        orderData.order.order_status !== "DECLINED"
     ) {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Order does not have a quote yet");
     }
@@ -676,10 +735,9 @@ const getOrderById = async (orderId: string, user: AuthUser, platformId: string,
     const invoice = await db
         .select()
         .from(invoices)
-        .where(and(
-            eq(invoices.order_id, orderData.order.id),
-            eq(invoices.platform_id, platformId)
-        ));
+        .where(
+            and(eq(invoices.order_id, orderData.order.id), eq(invoices.platform_id, platformId))
+        );
 
     return {
         ...orderData.order,
@@ -689,33 +747,29 @@ const getOrderById = async (orderId: string, user: AuthUser, platformId: string,
         items: itemResults,
         financial_status_history: financialHistory,
         order_status_history: orderHistory,
-        invoice: invoice.length > 0 ? invoice.map((i) => ({
-            id: i.id,
-            invoice_id: i.invoice_id,
-            invoice_pdf_url: i.invoice_pdf_url,
-            invoice_paid_at: i.invoice_paid_at,
-            payment_method: i.payment_method,
-            payment_reference: i.payment_reference,
-            created_at: i.created_at,
-            updated_at: i.updated_at,
-        }))[0] : null,
+        invoice:
+            invoice.length > 0
+                ? invoice.map((i) => ({
+                      id: i.id,
+                      invoice_id: i.invoice_id,
+                      invoice_pdf_url: i.invoice_pdf_url,
+                      invoice_paid_at: i.invoice_paid_at,
+                      payment_method: i.payment_method,
+                      payment_reference: i.payment_reference,
+                      created_at: i.created_at,
+                      updated_at: i.updated_at,
+                  }))[0]
+                : null,
     };
 };
 
 // ----------------------------------- UPDATE JOB NUMBER --------------------------------------
-const updateJobNumber = async (
-    orderId: string,
-    jobNumber: string | null,
-    platformId: string
-) => {
+const updateJobNumber = async (orderId: string, jobNumber: string | null, platformId: string) => {
     // Step 1: Verify order exists
     const [order] = await db
         .select()
         .from(orders)
-        .where(and(
-            eq(orders.id, orderId),
-            eq(orders.platform_id, platformId)
-        ));
+        .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)));
 
     if (!order) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
@@ -726,7 +780,7 @@ const updateJobNumber = async (
         .update(orders)
         .set({
             job_number: jobNumber,
-            updated_at: new Date()
+            updated_at: new Date(),
         })
         .where(eq(orders.id, orderId))
         .returning();
@@ -745,10 +799,7 @@ const getOrderScanEvents = async (orderId: string, platformId: string) => {
     const [order] = await db
         .select()
         .from(orders)
-        .where(and(
-            eq(orders.order_id, orderId),
-            eq(orders.platform_id, platformId)
-        ));
+        .where(and(eq(orders.order_id, orderId), eq(orders.platform_id, platformId)));
 
     if (!order) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
@@ -782,9 +833,9 @@ const getOrderScanEvents = async (orderId: string, platformId: string) => {
         scanned_by_user: event.scannedByUser,
         order: {
             id: order.id,
-            order_id: order.order_id
-        }
-    }))
+            order_id: order.order_id,
+        },
+    }));
 
     // Step 5: Return results
     return formattedResult;
@@ -799,16 +850,16 @@ const progressOrderStatus = async (
 ) => {
     const { new_status, notes } = payload;
 
-    if (new_status === 'CONFIRMED') {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "Only client can confirm order by approve quote");
+    if (new_status === "CONFIRMED") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Only client can confirm order by approve quote"
+        );
     }
 
     // Step 1: Get order with company details and items
     const order = await db.query.orders.findFirst({
-        where: and(
-            eq(orders.id, orderId),
-            eq(orders.platform_id, platformId)
-        ),
+        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
         with: {
             company: {
                 columns: {
@@ -834,15 +885,11 @@ const progressOrderStatus = async (
     }
 
     // Step 2: Check company access for CLIENT users
-    if (user.role === 'CLIENT') {
+    if (user.role === "CLIENT") {
         if (user.company_id !== order.company_id) {
-            throw new CustomizedError(
-                httpStatus.FORBIDDEN,
-                "You do not have access to this order"
-            );
+            throw new CustomizedError(httpStatus.FORBIDDEN, "You do not have access to this order");
         }
     }
-
 
     // Step 3: Validate state transition
     const currentStatus = order.order_status;
@@ -864,47 +911,45 @@ const progressOrderStatus = async (
     }
 
     // Step 4.5: Validate date-based transitions
-    const today = dayjs().startOf('day');
+    const today = dayjs().startOf("day");
 
     // Check if transitioning from DELIVERED to IN_USE
-    if (currentStatus === 'DELIVERED' && new_status === 'IN_USE') {
-        const eventStartDate = dayjs(order.event_start_date).startOf('day');
+    if (currentStatus === "DELIVERED" && new_status === "IN_USE") {
+        const eventStartDate = dayjs(order.event_start_date).startOf("day");
 
         if (today.isBefore(eventStartDate)) {
             throw new CustomizedError(
                 httpStatus.BAD_REQUEST,
-                `Cannot mark order as IN_USE before event start date (${eventStartDate.format('YYYY-MM-DD')}). Current date: ${today.format('YYYY-MM-DD')}`
+                `Cannot mark order as IN_USE before event start date (${eventStartDate.format("YYYY-MM-DD")}). Current date: ${today.format("YYYY-MM-DD")}`
             );
         }
     }
 
     // Check if transitioning from IN_USE to AWAITING_RETURN
-    if (currentStatus === 'IN_USE' && new_status === 'AWAITING_RETURN') {
-        const eventEndDate = dayjs(order.event_end_date).startOf('day');
+    if (currentStatus === "IN_USE" && new_status === "AWAITING_RETURN") {
+        const eventEndDate = dayjs(order.event_end_date).startOf("day");
 
         if (today.isBefore(eventEndDate)) {
             throw new CustomizedError(
                 httpStatus.BAD_REQUEST,
-                `Cannot mark order as AWAITING_RETURN before event end date (${eventEndDate.format('YYYY-MM-DD')}). Current date: ${today.format('YYYY-MM-DD')}`
+                `Cannot mark order as AWAITING_RETURN before event end date (${eventEndDate.format("YYYY-MM-DD")}). Current date: ${today.format("YYYY-MM-DD")}`
             );
         }
     }
 
-    if (new_status === 'CLOSED') {
+    if (new_status === "CLOSED") {
         // Validate that all items have been scanned in (inbound)
         const allItemsScanned = await validateInboundScanningComplete(orderId);
 
         if (!allItemsScanned) {
             throw new CustomizedError(
                 httpStatus.BAD_REQUEST,
-                'Cannot close order: Inbound scanning is not complete. All items must be scanned in before closing the order.'
+                "Cannot close order: Inbound scanning is not complete. All items must be scanned in before closing the order."
             );
         }
 
         // Release assets
-        await db
-            .delete(assetBookings)
-            .where(eq(assetBookings.order_id, orderId));
+        await db.delete(assetBookings).where(eq(assetBookings.order_id, orderId));
     }
 
     // Step 5: Update order status
@@ -926,16 +971,17 @@ const progressOrderStatus = async (
     });
 
     // Step 7: Get updated order
-    const [updatedOrder] = await db
-        .select()
-        .from(orders)
-        .where(eq(orders.id, orderId));
+    const [updatedOrder] = await db.select().from(orders).where(eq(orders.id, orderId));
 
     // Step 8: Trigger notification if applicable (asynchronously, don't block response)
     const notificationType = getNotificationTypeForTransition(currentStatus, new_status);
 
     if (notificationType) {
-        await NotificationLogServices.sendNotification(platformId, notificationType as NotificationType, updatedOrder);
+        await NotificationLogServices.sendNotification(
+            platformId,
+            notificationType as NotificationType,
+            updatedOrder
+        );
         console.log(`📧 Notification sent: ${notificationType} for order ${order.order_id}`);
     }
 
@@ -957,25 +1003,19 @@ const adjustLogisticsPricing = async (
 ) => {
     // Step 1: Fetch order and verify it exists
     const order = await db.query.orders.findFirst({
-        where: and(
-            eq(orders.id, orderId),
-            eq(orders.platform_id, platformId)
-        ),
+        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
         with: {
             company: true,
         },
     });
 
     if (!order) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, 'Order not found');
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
     }
 
     // Step 2: Verify order is in PRICING_REVIEW status
-    if (order.order_status !== 'PRICING_REVIEW') {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            'Order is not in PRICING_REVIEW status'
-        );
+    if (order.order_status !== "PRICING_REVIEW") {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Order is not in PRICING_REVIEW status");
     }
 
     // Step 3: Get base price from logistics_pricing or calculate from tier
@@ -993,42 +1033,45 @@ const adjustLogisticsPricing = async (
     };
 
     // Step 5: Update order
+    const orderCompany: any = order.company; // ✅ FIX: Type assertion
     await db
         .update(orders)
         .set({
             logistics_pricing: updatedLogisticsPricing,
             platform_pricing: {
                 ...platformPricing,
-                margin_percent: order.company.platform_margin_percent,
-                margin_amount: Number(updatedLogisticsPricing.adjusted_price) * (Number(order.company.platform_margin_percent) / 100)
+                margin_percent: orderCompany.platform_margin_percent,
+                margin_amount:
+                    Number(updatedLogisticsPricing.adjusted_price) *
+                    (Number(orderCompany.platform_margin_percent) / 100),
             },
-            order_status: 'PENDING_APPROVAL',
+            order_status: "PENDING_APPROVAL",
             updated_at: new Date(),
         })
         .where(eq(orders.id, orderId));
 
     // Step 6: Log status change in order_status_history
-    await db
-        .insert(orderStatusHistory)
-        .values({
-            platform_id: platformId,
-            order_id: orderId,
-            status: 'PENDING_APPROVAL',
-            notes: `Logistics pricing adjusted: ${payload.adjustment_reason}`,
-            updated_by: user.id,
-        });
+    await db.insert(orderStatusHistory).values({
+        platform_id: platformId,
+        order_id: orderId,
+        status: "PENDING_APPROVAL",
+        notes: `Logistics pricing adjusted: ${payload.adjustment_reason}`,
+        updated_by: user.id,
+    });
 
     // Step 7: Send notification to plaform admin
     const platformAdmins = await db
         .select({ email: users.email })
         .from(users)
         .where(
-            and(eq(users.platform_id, platformId),
-                eq(users.role, 'ADMIN'),
-                sql`${users.permission_template} = 'PLATFORM_ADMIN' AND ${users.email} NOT LIKE '%@system.internal'`)
-        )
+            and(
+                eq(users.platform_id, platformId),
+                eq(users.role, "ADMIN"),
+                sql`${users.permission_template} = 'PLATFORM_ADMIN' AND ${users.email} NOT LIKE '%@system.internal'`
+            )
+        );
 
-    const platformAdminEmails = platformAdmins.map(admin => admin.email);
+    const platformAdminEmails = platformAdmins.map((admin) => admin.email);
 
     // TODO: Change URL
     await multipleEmailSender(
@@ -1036,7 +1079,7 @@ const adjustLogisticsPricing = async (
         `Action Required: Order ${order.order_id} - Logistics Pricing Adjustment`,
         emailTemplates.adjust_price({
             order_id: order.order_id,
-            company_name: order.company.name,
+            company_name: (order.company as any).name,
             adjusted_price: updatedLogisticsPricing.adjusted_price,
             adjustment_reason: updatedLogisticsPricing.adjustment_reason,
             view_order_url: `http://localhost:3000/order/${order.order_id}`,
@@ -1046,7 +1089,7 @@ const adjustLogisticsPricing = async (
     return {
         id: order.id,
         order_id: order.order_id,
-        order_status: 'PENDING_APPROVAL',
+        order_status: "PENDING_APPROVAL",
         base_price: updatedLogisticsPricing.base_price,
         adjusted_price: updatedLogisticsPricing.adjusted_price,
         adjustment_reason: updatedLogisticsPricing.adjustment_reason,
@@ -1056,12 +1099,11 @@ const adjustLogisticsPricing = async (
             name: user.name,
         },
         company: {
-            id: order.company.id,
-            name: order.company.name,
+            id: (order.company as any).id,
+            name: (order.company as any).name,
         },
     };
 };
-
 
 // ----------------------------------- GET ORDER STATUS HISTORY -------------------------------
 const getOrderStatusHistory = async (orderId: string, user: AuthUser, platformId: string) => {
@@ -1074,17 +1116,14 @@ const getOrderStatusHistory = async (orderId: string, user: AuthUser, platformId
             company_id: orders.company_id,
         })
         .from(orders)
-        .where(and(
-            eq(orders.id, orderId),
-            eq(orders.platform_id, platformId)
-        ));
+        .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)));
 
     if (!order) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
     }
 
     // Step 2: Check company access (clients can only see own company)
-    if (user.role === 'CLIENT') {
+    if (user.role === "CLIENT") {
         if (user.company_id !== order.company_id) {
             throw new CustomizedError(httpStatus.FORBIDDEN, "You do not have access to this order");
         }
@@ -1126,10 +1165,7 @@ const updateOrderTimeWindows = async (
     const [order] = await db
         .select()
         .from(orders)
-        .where(and(
-            eq(orders.id, orderId),
-            eq(orders.platform_id, platformId)
-        ));
+        .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)));
 
     if (!order) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
@@ -1138,7 +1174,10 @@ const updateOrderTimeWindows = async (
     // Step 2: Validate order status (immutable statuses)
     const immutableStatuses = ["IN_TRANSIT", "DELIVERED", "IN_USE", "AWAITING_RETURN", "CLOSED"];
     if (immutableStatuses.includes(order.order_status)) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "Cannot update time windows after order is in transit");
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Cannot update time windows after order is in transit"
+        );
     }
 
     // Step 3: Update order
@@ -1158,7 +1197,11 @@ const updateOrderTimeWindows = async (
         .returning();
 
     // Step 4: Send notification (Asynchronous)
-    await NotificationLogServices.sendNotification(platformId, "TIME_WINDOWS_UPDATED", updatedOrder);
+    await NotificationLogServices.sendNotification(
+        platformId,
+        "TIME_WINDOWS_UPDATED",
+        updatedOrder
+    );
 
     return {
         id: updatedOrder.id,
@@ -1170,38 +1213,32 @@ const updateOrderTimeWindows = async (
 };
 
 // ----------------------------------- GET PRICING REVIEW ORDERS ------------------------------
-const getPricingReviewOrders = async (
-    query: any,
-    platformId: string
-) => {
-    const {
-        search_term,
-        page,
-        limit,
-        sort_by,
-        sort_order,
-        company_id,
-        date_from,
-        date_to,
-    } = query;
+const getPricingReviewOrders = async (query: any, platformId: string) => {
+    const { search_term, page, limit, sort_by, sort_order, company_id, date_from, date_to } = query;
 
     // Step 1: Validate query parameters
     if (sort_by) queryValidator(orderQueryValidationConfig, "sort_by", sort_by);
     if (sort_order) queryValidator(orderQueryValidationConfig, "sort_order", sort_order);
 
     // Step 2: Setup pagination
-    const { pageNumber, limitNumber, skip, sortWith, sortSequence } =
-        paginationMaker({
-            page,
-            limit,
-            sort_by,
-            sort_order,
-        });
+    const { pageNumber, limitNumber, skip, sortWith, sortSequence } = paginationMaker({
+        page,
+        limit,
+        sort_by,
+        sort_order,
+    });
 
     // Step 3: Build WHERE conditions
-    const conditions: any[] = [eq(orders.platform_id, platformId), eq(orders.order_status, "PRICING_REVIEW")];
+    const conditions: any[] = [
+        eq(orders.platform_id, platformId),
+        eq(orders.order_status, "PRICING_REVIEW"),
+    ];
 
     // Step 3b: Optional filters
+    if (search_term && search_term.trim().length > 0) {
+        conditions.push(ilike(orders.order_id, `%${search_term.trim()}%`));
+    }
+
     if (company_id) {
         conditions.push(eq(orders.company_id, company_id));
     }
@@ -1248,7 +1285,7 @@ const getPricingReviewOrders = async (
             company: {
                 id: companies.id,
                 name: companies.name,
-            }
+            },
         })
         .from(orders)
         .leftJoin(companies, eq(orders.company_id, companies.id))
@@ -1264,80 +1301,82 @@ const getPricingReviewOrders = async (
         .where(and(...conditions));
 
     // Step 7: Enhance with standard pricing suggestion
-    const enhancedResults = await Promise.all(results.map(async (result) => {
-        const order = result.order;
-        let standardPricing = null;
+    const enhancedResults = await Promise.all(
+        results.map(async (result) => {
+            const order = result.order;
+            let standardPricing = null;
 
-        // Try to find matching pricing tier
-        let tierToUse = null;
+            // Try to find matching pricing tier
+            let tierToUse = null;
 
-        if (order.tier_id) {
-            // Use assigned tier
-            const [tier] = await db
-                .select()
-                .from(pricingTiers)
-                .where(eq(pricingTiers.id, order.tier_id))
-                .limit(1);
-            tierToUse = tier;
-        } else if (order.calculated_totals && order.venue_location) {
-            // Try to find matching tier based on location and volume
-            const calculatedTotals = order.calculated_totals as any;
-            const venueLocation = order.venue_location as any;
-
-            if (calculatedTotals.volume && venueLocation.country && venueLocation.city) {
-                const volume = parseFloat(calculatedTotals.volume);
-
-                const matchingTiers = await db
+            if (order.tier_id) {
+                // Use assigned tier
+                const [tier] = await db
                     .select()
                     .from(pricingTiers)
-                    .where(
-                        and(
-                            eq(pricingTiers.platform_id, platformId),
-                            sql`LOWER(${pricingTiers.country}) = LOWER(${venueLocation.country})`,
-                            sql`LOWER(${pricingTiers.city}) = LOWER(${venueLocation.city})`,
-                            eq(pricingTiers.is_active, true),
-                            lte(pricingTiers.volume_min, volume.toString()),
-                            sql`(${pricingTiers.volume_max} IS NULL OR CAST(${pricingTiers.volume_max} AS DECIMAL) > ${volume})`
-                        )
-                    )
+                    .where(eq(pricingTiers.id, order.tier_id))
                     .limit(1);
+                tierToUse = tier;
+            } else if (order.calculated_totals && order.venue_location) {
+                // Try to find matching tier based on location and volume
+                const calculatedTotals = order.calculated_totals as any;
+                const venueLocation = order.venue_location as any;
 
-                tierToUse = matchingTiers[0];
+                if (calculatedTotals.volume && venueLocation.country && venueLocation.city) {
+                    const volume = parseFloat(calculatedTotals.volume);
+
+                    const matchingTiers = await db
+                        .select()
+                        .from(pricingTiers)
+                        .where(
+                            and(
+                                eq(pricingTiers.platform_id, platformId),
+                                sql`LOWER(${pricingTiers.country}) = LOWER(${venueLocation.country})`,
+                                sql`LOWER(${pricingTiers.city}) = LOWER(${venueLocation.city})`,
+                                eq(pricingTiers.is_active, true),
+                                lte(pricingTiers.volume_min, volume.toString()),
+                                sql`(${pricingTiers.volume_max} IS NULL OR CAST(${pricingTiers.volume_max} AS DECIMAL) > ${volume})`
+                            )
+                        )
+                        .limit(1);
+
+                    tierToUse = matchingTiers[0];
+                }
             }
-        }
 
-        if (tierToUse) {
-            // Use flat rate from tier (NOT per-m³ multiplication)
-            const basePrice = parseFloat(tierToUse.base_price);
+            if (tierToUse) {
+                // Use flat rate from tier (NOT per-m³ multiplication)
+                const basePrice = parseFloat(tierToUse.base_price);
 
-            standardPricing = {
-                basePrice,
-                tierInfo: {
-                    country: tierToUse.country,
-                    city: tierToUse.city,
-                    volume_range: `${tierToUse.volume_min}-${tierToUse.volume_max || '∞'} m³`,
+                standardPricing = {
+                    basePrice,
+                    tierInfo: {
+                        country: tierToUse.country,
+                        city: tierToUse.city,
+                        volume_range: `${tierToUse.volume_min}-${tierToUse.volume_max || "∞"} m³`,
+                    },
+                };
+            }
+
+            return {
+                id: order.id,
+                order_id: order.order_id,
+                company: {
+                    id: result.company?.id,
+                    name: result.company?.name,
                 },
+                contact_name: order.contact_name,
+                event_start_date: order.event_start_date,
+                venue_name: order.venue_name,
+                venue_location: order.venue_location,
+                calculated_volume: (order.calculated_totals as any)?.volume,
+                calculated_weight: (order.calculated_totals as any)?.weight,
+                status: order.order_status,
+                createdAt: order.created_at,
+                standard_pricing: standardPricing,
             };
-        }
-
-        return {
-            id: order.id,
-            order_id: order.order_id,
-            company: {
-                id: result.company?.id,
-                name: result.company?.name,
-            },
-            contact_name: order.contact_name,
-            event_start_date: order.event_start_date,
-            venue_name: order.venue_name,
-            venue_location: order.venue_location,
-            calculated_volume: (order.calculated_totals as any)?.volume,
-            calculated_weight: (order.calculated_totals as any)?.weight,
-            status: order.order_status,
-            createdAt: order.created_at,
-            standard_pricing: standardPricing,
-        };
-    }));
+        })
+    );
 
     return {
         data: enhancedResults,
@@ -1349,18 +1388,11 @@ const getPricingReviewOrders = async (
     };
 };
 
-
 // ----------------------------------- GET ORDER PRICING DETAILS ------------------------------
-const getOrderPricingDetails = async (
-    orderId: string,
-    platformId: string
-) => {
+const getOrderPricingDetails = async (orderId: string, platformId: string) => {
     // Step 1: Fetch order with relations
     const order = await db.query.orders.findFirst({
-        where: and(
-            eq(orders.id, orderId),
-            eq(orders.platform_id, platformId)
-        ),
+        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
         with: {
             company: true,
             pricing_tier: true,
@@ -1368,8 +1400,11 @@ const getOrderPricingDetails = async (
     });
 
     if (!order) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, 'Order not found');
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
     }
+
+    const company = order.company as typeof companies.$inferSelect | null;
+    const pricingTier = order.pricing_tier as typeof pricingTiers.$inferSelect | null;
 
     // Step 2: Calculate standard pricing using helper function
     const standardPricing = await calculateStandardPricing(order);
@@ -1382,35 +1417,36 @@ const getOrderPricingDetails = async (
             calculated_volume: (order.calculated_totals as any)?.volume || null,
             venue_location: order.venue_location,
             company: {
-                id: order.company.id,
-                name: order.company.name,
-                platform_margin_percent: order.company.platform_margin_percent,
+                id: company?.id || "",
+                name: company?.name || "N/A",
+                platform_margin_percent: company?.platform_margin_percent || "0",
             },
         },
-        pricing_tier: order.pricing_tier
+        pricing_tier: pricingTier
             ? {
-                id: order.pricing_tier.id,
-                country: order.pricing_tier.country,
-                city: order.pricing_tier.city,
-                volume_min: order.pricing_tier.volume_min,
-                volume_max: order.pricing_tier.volume_max,
-                base_price: order.pricing_tier.base_price,
-            }
+                  id: pricingTier.id,
+                  country: pricingTier.country,
+                  city: pricingTier.city,
+                  volume_min: pricingTier.volume_min,
+                  volume_max: pricingTier.volume_max,
+                  base_price: pricingTier.base_price,
+              }
             : null,
         standard_pricing: standardPricing,
         current_pricing: {
             logistics_pricing: order.logistics_pricing || null,
             platform_pricing: order.platform_pricing || null,
-            final_pricing: order.final_pricing || null
+            final_pricing: order.final_pricing || null,
         },
     };
 };
 
 // ----------------------------------- HELPER: CALCULATE STANDARD PRICING ---------------------
 const calculateStandardPricing = async (order: any): Promise<StandardPricing> => {
+    const company = order.company as typeof companies.$inferSelect | null;
     const calculatedTotals = order.calculated_totals as any;
     const venueLocation = order.venue_location as any;
-    const volume = parseFloat(calculatedTotals?.volume || '0');
+    const volume = parseFloat(calculatedTotals?.volume || "0");
     const venueCity = venueLocation?.city;
     const venueCountry = venueLocation?.country;
 
@@ -1418,7 +1454,7 @@ const calculateStandardPricing = async (order: any): Promise<StandardPricing> =>
         return {
             pricing_tier_id: null,
             logistics_base_price: null,
-            platform_margin_percent: parseFloat(order.company.platform_margin_percent),
+            platform_margin_percent: parseFloat(company?.platform_margin_percent || "0"),
             platform_margin_amount: null,
             final_total_price: null,
             tier_found: false,
@@ -1432,10 +1468,7 @@ const calculateStandardPricing = async (order: any): Promise<StandardPricing> =>
             eq(sql`LOWER(${pricingTiers.country})`, venueCountry.toLowerCase()),
             eq(sql`LOWER(${pricingTiers.city})`, venueCity.toLowerCase()),
             lte(pricingTiers.volume_min, volume.toString()),
-            or(
-                isNull(pricingTiers.volume_max),
-                gte(pricingTiers.volume_max, volume.toString())
-            ),
+            or(isNull(pricingTiers.volume_max), gte(pricingTiers.volume_max, volume.toString())),
             eq(pricingTiers.is_active, true)
         ),
     });
@@ -1446,7 +1479,7 @@ const calculateStandardPricing = async (order: any): Promise<StandardPricing> =>
             where: and(
                 eq(pricingTiers.platform_id, order.platform_id),
                 eq(sql`LOWER(${pricingTiers.country})`, venueCountry.toLowerCase()),
-                eq(pricingTiers.city, '*'),
+                eq(pricingTiers.city, "*"),
                 lte(pricingTiers.volume_min, volume.toString()),
                 or(
                     isNull(pricingTiers.volume_max),
@@ -1460,7 +1493,7 @@ const calculateStandardPricing = async (order: any): Promise<StandardPricing> =>
             return {
                 pricing_tier_id: null,
                 logistics_base_price: null,
-                platform_margin_percent: parseFloat(order.company.platform_margin_percent),
+                platform_margin_percent: parseFloat((company as any).platform_margin_percent),
                 platform_margin_amount: null,
                 final_total_price: null,
                 tier_found: false,
@@ -1469,7 +1502,7 @@ const calculateStandardPricing = async (order: any): Promise<StandardPricing> =>
 
         // Use wildcard tier
         const logisticsBasePrice = parseFloat(wildcardTier.base_price);
-        const platformMarginPercent = parseFloat(order.company.platform_margin_percent);
+        const platformMarginPercent = parseFloat(company?.platform_margin_percent || "0");
         const platformMarginAmount = logisticsBasePrice * (platformMarginPercent / 100);
         const finalTotalPrice = logisticsBasePrice + platformMarginAmount;
 
@@ -1485,7 +1518,7 @@ const calculateStandardPricing = async (order: any): Promise<StandardPricing> =>
 
     // Calculate standard pricing
     const logisticsBasePrice = parseFloat(tier.base_price);
-    const platformMarginPercent = parseFloat(order.company.platform_margin_percent);
+    const platformMarginPercent = parseFloat(company?.platform_margin_percent || "0");
     const platformMarginAmount = logisticsBasePrice * (platformMarginPercent / 100);
     const finalTotalPrice = logisticsBasePrice + platformMarginAmount;
 
@@ -1499,7 +1532,6 @@ const calculateStandardPricing = async (order: any): Promise<StandardPricing> =>
     };
 };
 
-
 // ----------------------------------- APPROVE STANDARD PRICING -----------------------------------
 const approveStandardPricing = async (
     orderId: string,
@@ -1509,10 +1541,7 @@ const approveStandardPricing = async (
 ) => {
     // Step 1: Fetch order with company details
     const order = await db.query.orders.findFirst({
-        where: and(
-            eq(orders.id, orderId),
-            eq(orders.platform_id, platformId)
-        ),
+        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
         with: {
             company: true,
             items: {
@@ -1529,11 +1558,11 @@ const approveStandardPricing = async (
     });
 
     if (!order) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, 'Order not found');
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
     }
 
     // Step 2: Verify order is in PRICING_REVIEW status
-    if (order.order_status !== 'PRICING_REVIEW') {
+    if (order.order_status !== "PRICING_REVIEW") {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
             `Order is not in PRICING_REVIEW status. Current status: ${order.order_status}`
@@ -1547,7 +1576,7 @@ const approveStandardPricing = async (
     if (!standardPricing.tier_found) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            'No pricing tier found for this order. Please adjust pricing manually.'
+            "No pricing tier found for this order. Please adjust pricing manually."
         );
     }
 
@@ -1578,25 +1607,23 @@ const approveStandardPricing = async (
                 logistics_pricing: logisticsPricing,
                 platform_pricing: platformPricing,
                 final_pricing: finalPricing,
-                order_status: 'QUOTED',
-                financial_status: 'QUOTE_SENT',
+                order_status: "QUOTED",
+                financial_status: "QUOTE_SENT",
                 updated_at: new Date(),
             })
             .where(eq(orders.id, orderId));
 
         // Step 7: Log status change in order_status_history
-        await tx
-            .insert(orderStatusHistory)
-            .values({
-                platform_id: platformId,
-                order_id: orderId,
-                status: 'QUOTED',
-                notes: payload.notes || 'Standard pricing approved',
-                updated_by: user.id,
-            });
-    })
+        await tx.insert(orderStatusHistory).values({
+            platform_id: platformId,
+            order_id: orderId,
+            status: "QUOTED",
+            notes: payload.notes || "Standard pricing approved",
+            updated_by: user.id,
+        });
+    });
 
-    const venueLocation = order.venue_location as any
+    const venueLocation = order.venue_location as any;
     const estimateData = {
         id: order.id,
         user_id: user.id,
@@ -1605,13 +1632,13 @@ const approveStandardPricing = async (
         contact_name: order.contact_name,
         contact_email: order.contact_email,
         contact_phone: order.contact_phone,
-        company_name: order.company.name,
+        company_name: (order.company as any).name,
         event_start_date: order.event_start_date,
         event_end_date: order.event_end_date,
         venue_name: order.venue_name,
-        venue_country: venueLocation.country || 'N/A',
-        venue_city: venueLocation.city || 'N/A',
-        venue_address: venueLocation.address || 'N/A',
+        venue_country: venueLocation.country || "N/A",
+        venue_city: venueLocation.city || "N/A",
+        venue_address: venueLocation.address || "N/A",
         order_status: order.order_status,
         financial_status: order.financial_status,
         pricing: {
@@ -1619,31 +1646,31 @@ const approveStandardPricing = async (
             platform_margin_percent: (order.platform_pricing as any)?.margin_percent || 0,
             platform_margin_amount: (order.platform_pricing as any)?.margin_amount || 0,
             final_total_price: (order.final_pricing as any)?.total_price || 0,
-            show_breakdown: false
+            show_breakdown: false,
         },
-        items: order.items.map(item => ({
+        items: order.items.map((item) => ({
             asset_name: item.asset.name,
             quantity: item.quantity,
             handling_tags: item.handling_tags as any,
-            from_collection_name: item.from_collection_name || 'N/A'
-        }))
-    }
+            from_collection_name: item.from_collection_name || "N/A",
+        })),
+    };
 
     // Step 3: Generate cost estimate
-    await costEstimateGenerator(estimateData)
+    await costEstimateGenerator(estimateData);
 
     // Send A2 standard approval notification to PLATFORM ADMIN (FYI)
-    await NotificationLogServices.sendNotification(platformId, 'A2_APPROVED_STANDARD', order)
+    await NotificationLogServices.sendNotification(platformId, "A2_APPROVED_STANDARD", order);
 
     // Send quote to client
-    await NotificationLogServices.sendNotification(platformId, 'QUOTE_SENT', order)
+    await NotificationLogServices.sendNotification(platformId, "QUOTE_SENT", order);
 
     // Step 8: Return pricing details
     return {
         id: order.id,
         order_id: order.order_id,
-        order_status: 'QUOTED',
-        financial_status: 'QUOTE_SENT',
+        order_status: "QUOTED",
+        financial_status: "QUOTE_SENT",
         pricing: {
             logistics_base_price: standardPricing.logistics_base_price,
             platform_margin_percent: standardPricing.platform_margin_percent,
@@ -1655,7 +1682,6 @@ const approveStandardPricing = async (
     };
 };
 
-
 // ----------------------------------- APPROVE PLATFORM PRICING -----------------------------------
 const approvePlatformPricing = async (
     orderId: string,
@@ -1666,10 +1692,7 @@ const approvePlatformPricing = async (
     const { logistics_base_price, platform_margin_percent, notes } = payload;
     // Step 1: Fetch order with company details
     const order = await db.query.orders.findFirst({
-        where: and(
-            eq(orders.id, orderId),
-            eq(orders.platform_id, platformId)
-        ),
+        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
         with: {
             company: true,
             items: {
@@ -1686,11 +1709,11 @@ const approvePlatformPricing = async (
     });
 
     if (!order) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, 'Order not found');
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
     }
 
     // Step 2: Verify order is in PENDING_APPROVAL status
-    if (order.order_status !== 'PENDING_APPROVAL') {
+    if (order.order_status !== "PENDING_APPROVAL") {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
             `Order is not in PENDING_APPROVAL status. Current status: ${order.order_status}`
@@ -1723,26 +1746,24 @@ const approvePlatformPricing = async (
             .set({
                 platform_pricing: platformPricing,
                 final_pricing: finalPricing,
-                order_status: 'QUOTED',
-                financial_status: 'QUOTE_SENT',
+                order_status: "QUOTED",
+                financial_status: "QUOTE_SENT",
                 updated_at: new Date(),
             })
             .where(eq(orders.id, orderId));
 
         // Step 8: Log status change in order_status_history
-        await tx
-            .insert(orderStatusHistory)
-            .values({
-                platform_id: platformId,
-                order_id: orderId,
-                status: 'QUOTED',
-                notes: notes || 'Platform approved adjusted pricing',
-                updated_by: user.id,
-            });
-    })
+        await tx.insert(orderStatusHistory).values({
+            platform_id: platformId,
+            order_id: orderId,
+            status: "QUOTED",
+            notes: notes || "Platform approved adjusted pricing",
+            updated_by: user.id,
+        });
+    });
 
     // TODO: Send quote notification email
-    const venueLocation = order.venue_location as any
+    const venueLocation = order.venue_location as any;
     const estimateData = {
         id: order.id,
         user_id: user.id,
@@ -1751,35 +1772,35 @@ const approvePlatformPricing = async (
         contact_name: order.contact_name,
         contact_email: order.contact_email,
         contact_phone: order.contact_phone,
-        company_name: order.company.name,
+        company_name: (order.company as any).name,
         event_start_date: order.event_start_date,
         event_end_date: order.event_end_date,
         venue_name: order.venue_name,
-        venue_country: venueLocation.country || 'N/A',
-        venue_city: venueLocation.city || 'N/A',
-        venue_address: venueLocation.address || 'N/A',
+        venue_country: venueLocation.country || "N/A",
+        venue_city: venueLocation.city || "N/A",
+        venue_address: venueLocation.address || "N/A",
         order_status: order.order_status,
         financial_status: order.financial_status,
         pricing: {
-            logistics_base_price: String(logistics_base_price) || '0',
-            platform_margin_percent: String(platform_margin_percent) || '0',
-            platform_margin_amount: String(platformMarginAmount) || '0',
-            final_total_price: String(finalTotalPrice) || '0',
-            show_breakdown: false
+            logistics_base_price: String(logistics_base_price) || "0",
+            platform_margin_percent: String(platform_margin_percent) || "0",
+            platform_margin_amount: String(platformMarginAmount) || "0",
+            final_total_price: String(finalTotalPrice) || "0",
+            show_breakdown: false,
         },
-        items: order.items.map(item => ({
+        items: order.items.map((item) => ({
             asset_name: item.asset.name,
             quantity: item.quantity,
             handling_tags: item.handling_tags as any,
-            from_collection_name: item.from_collection_name || 'N/A'
-        }))
-    }
+            from_collection_name: item.from_collection_name || "N/A",
+        })),
+    };
 
     // Step 3: Generate cost estimate
-    await costEstimateGenerator(estimateData)
+    await costEstimateGenerator(estimateData);
 
     // Send notification to plaform admin
-    const platformAdminEmails = await getPlatformAdminEmails(platformId)
+    const platformAdminEmails = await getPlatformAdminEmails(platformId);
 
     // TODO: Change URL
     await multipleEmailSender(
@@ -1787,9 +1808,9 @@ const approvePlatformPricing = async (
         `Action Required: Order ${order.order_id} - Logistics Pricing Adjustment`,
         emailTemplates.adjust_price({
             order_id: order.order_id,
-            company_name: order.company.name,
+            company_name: (order.company as any).name,
             adjusted_price: logistics_base_price,
-            adjustment_reason: 'Logistics has adjusted the pricing for order',
+            adjustment_reason: "Logistics has adjusted the pricing for order",
             view_order_url: `${config.client_url}/order/${order.id}`,
         })
     );
@@ -1798,8 +1819,8 @@ const approvePlatformPricing = async (
     return {
         id: order.id,
         order_id: order.order_id,
-        order_status: 'QUOTED',
-        financial_status: 'QUOTE_SENT',
+        order_status: "QUOTED",
+        financial_status: "QUOTE_SENT",
         pricing: {
             logistics_adjusted_price: logistics_base_price,
             platform_margin_percent: platform_margin_percent,
@@ -1826,10 +1847,7 @@ const approveQuote = async (
     const { notes } = payload;
     // Step 1: Fetch order with company details
     const order = await db.query.orders.findFirst({
-        where: and(
-            eq(orders.id, orderId),
-            eq(orders.platform_id, platformId)
-        ),
+        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
         with: {
             company: true,
             items: {
@@ -1839,40 +1857,52 @@ const approveQuote = async (
                             id: true,
                             name: true,
                             refurb_days_estimate: true,
-                            tracking_method: true
+                            tracking_method: true,
                         },
                     },
                 },
             },
-        }
+        },
     });
 
     if (!order || user.company_id !== order.company_id) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, 'Order not found or you do not have access to this order');
+        throw new CustomizedError(
+            httpStatus.NOT_FOUND,
+            "Order not found or you do not have access to this order"
+        );
     }
 
     // Step 2: Verify order is in QUOTED status
-    if (order.order_status !== 'QUOTED') {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, 'Order is not in QUOTED status')
+    if (order.order_status !== "QUOTED") {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Order is not in QUOTED status");
     }
 
     // Step 3: Verify order has event dates
     if (!order.event_start_date || !order.event_end_date) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, 'Order must have event dates')
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Order must have event dates");
     }
 
     // Step 4: Check assets availability
-    const requiredAssets = order.items.map(item => ({ id: item.asset_id, quantity: item.quantity }))
+    const requiredAssets = order.items.map((item) => ({
+        id: item.asset_id,
+        quantity: item.quantity,
+    }));
 
-    const foundAssets = await checkAssetsForOrder(platformId, order.company_id, requiredAssets, order.event_start_date, order.event_end_date);
+    const foundAssets = await checkAssetsForOrder(
+        platformId,
+        order.company_id,
+        requiredAssets,
+        order.event_start_date,
+        order.event_end_date
+    );
 
     // Step 5: Prepare asset bookings data
-    const assetBookingItems = foundAssets.map(item => {
-        const totalPrepDays = PREP_BUFFER_DAYS + (item.refurb_days_estimate || 0)
-        const blockedFrom = dayjs(order.event_start_date).subtract(totalPrepDays, 'day').toDate()
-        const blockedUntil = dayjs(order.event_end_date).add(RETURN_BUFFER_DAYS, 'day').toDate()
+    const assetBookingItems = foundAssets.map((item) => {
+        const totalPrepDays = PREP_BUFFER_DAYS + (item.refurb_days_estimate || 0);
+        const blockedFrom = dayjs(order.event_start_date).subtract(totalPrepDays, "day").toDate();
+        const blockedUntil = dayjs(order.event_end_date).add(RETURN_BUFFER_DAYS, "day").toDate();
 
-        const requiredAsset = requiredAssets.find(a => a.id === item.id)
+        const requiredAsset = requiredAssets.find((a) => a.id === item.id);
 
         return {
             asset_id: item.id,
@@ -1880,8 +1910,8 @@ const approveQuote = async (
             quantity: requiredAsset?.quantity || 0,
             blocked_from: blockedFrom,
             blocked_until: blockedUntil,
-        }
-    })
+        };
+    });
 
     // Step 6: Insert asset bookings data, update order and asset status and create order history
     await db.transaction(async (tx) => {
@@ -1894,23 +1924,33 @@ const approveQuote = async (
                 .where(eq(assets.id, asset.id));
         }
 
-        await tx
-            .update(orders)
-            .set({
-                order_status: 'CONFIRMED',
-                financial_status: 'QUOTE_ACCEPTED',
-                updated_at: new Date(),
-            })
-            .where(eq(orders.id, orderId))
+        // Check if order has pending reskins (NEW) - MOVE OUTSIDE TRANSACTION
+    });
 
-        await tx.insert(orderStatusHistory).values({
-            platform_id: platformId,
-            order_id: orderId,
-            status: 'CONFIRMED',
-            notes: notes || 'Client approved quote',
-            updated_by: user.id,
+    // Check for pending reskins AFTER bookings created
+    const hasPendingReskins = await shouldAwaitFabrication(orderId, platformId);
+    const nextStatus = hasPendingReskins ? "AWAITING_FABRICATION" : "CONFIRMED";
+
+    // Update order status based on reskins
+    await db
+        .update(orders)
+        .set({
+            order_status: nextStatus,
+            financial_status: "QUOTE_ACCEPTED",
+            updated_at: new Date(),
         })
-    })
+        .where(eq(orders.id, orderId));
+
+    // Log status change
+    await db.insert(orderStatusHistory).values({
+        platform_id: platformId,
+        order_id: orderId,
+        status: nextStatus,
+        notes: hasPendingReskins
+            ? "Client approved quote. Order awaiting fabrication completion."
+            : notes || "Client approved quote",
+        updated_by: user.id,
+    });
 
     // // Step 7: Send notification
     // await NotificationLogServices.sendNotification(platformId, 'QUOTE_APPROVED', order);
@@ -1918,10 +1958,10 @@ const approveQuote = async (
     return {
         id: order.id,
         order_id: order.order_id,
-        order_status: 'CONFIRMED',
-        financial_status: 'QUOTE_ACCEPTED',
+        order_status: nextStatus,
+        financial_status: "QUOTE_ACCEPTED",
         updated_at: new Date(),
-    }
+    };
 };
 
 // ----------------------------------- DECLINE QUOTE ----------------------------------------------
@@ -1935,21 +1975,21 @@ const declineQuote = async (
 
     // Step 1: Fetch order with company details
     const order = await db.query.orders.findFirst({
-        where: and(
-            eq(orders.id, orderId),
-            eq(orders.platform_id, platformId)
-        ),
+        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
         with: {
             company: true,
-        }
+        },
     });
 
     if (!order || user.company_id !== order.company_id) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, 'Order not found or you do not have access to this order');
+        throw new CustomizedError(
+            httpStatus.NOT_FOUND,
+            "Order not found or you do not have access to this order"
+        );
     }
 
     // Step 2: Verify order is in QUOTED status
-    if (order.order_status !== 'QUOTED') {
+    if (order.order_status !== "QUOTED") {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
             `Order is not in QUOTED status. Current status: ${order.order_status}`
@@ -1960,42 +2000,36 @@ const declineQuote = async (
     await db
         .update(orders)
         .set({
-            order_status: 'DECLINED',
+            order_status: "DECLINED",
             updated_at: new Date(),
         })
-        .where(and(
-            eq(orders.id, orderId),
-            eq(orders.platform_id, platformId)
-        ));
+        .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)));
 
     // Step 5: Log status change in order_status_history
-    await db
-        .insert(orderStatusHistory)
-        .values({
-            platform_id: platformId,
-            order_id: orderId,
-            status: 'DECLINED',
-            notes: `Client declined quote: ${decline_reason}`,
-            updated_by: user.id,
-        });
+    await db.insert(orderStatusHistory).values({
+        platform_id: platformId,
+        order_id: orderId,
+        status: "DECLINED",
+        notes: `Client declined quote: ${decline_reason}`,
+        updated_by: user.id,
+    });
 
     // Step 6: Send decline notification (asynchronous, non-blocking)
-    await NotificationLogServices.sendNotification(platformId, 'QUOTE_DECLINED', order);
+    await NotificationLogServices.sendNotification(platformId, "QUOTE_DECLINED", order);
 
     // Step 7: Return updated order details
     return {
         id: order.id,
         order_id: order.order_id,
-        order_status: 'DECLINED',
+        order_status: "DECLINED",
         updated_at: new Date(),
     };
 };
 
-
 // ----------------------------------- GET CLIENT ORDER STATISTICS ----------------------------
 const getClientOrderStatistics = async (companyId: string, platformId: string) => {
     // Get today's date for upcoming events filter
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Date().toISOString().split("T")[0];
 
     // Base condition for all queries
     const baseCondition = and(
@@ -2021,15 +2055,15 @@ const getClientOrderStatistics = async (companyId: string, platformId: string) =
 
     // Define status categories
     const activeOrderStatuses = [
-        'CONFIRMED',
-        'IN_PREPARATION',
-        'READY_FOR_DELIVERY',
-        'IN_TRANSIT',
-        'DELIVERED',
-        'IN_USE',
-        'AWAITING_RETURN',
+        "CONFIRMED",
+        "IN_PREPARATION",
+        "READY_FOR_DELIVERY",
+        "IN_TRANSIT",
+        "DELIVERED",
+        "IN_USE",
+        "AWAITING_RETURN",
     ];
-    const upcomingEventStatuses = ['CONFIRMED', 'IN_PREPARATION'];
+    const upcomingEventStatuses = ["CONFIRMED", "IN_PREPARATION"];
 
     // Process counts in memory
     let activeOrdersCount = 0;
@@ -2044,7 +2078,7 @@ const getClientOrderStatistics = async (companyId: string, platformId: string) =
         }
 
         // Count pending quotes
-        if (order.order_status === 'QUOTED') {
+        if (order.order_status === "QUOTED") {
             pendingQuotesCount++;
         }
 
@@ -2058,7 +2092,7 @@ const getClientOrderStatistics = async (companyId: string, platformId: string) =
         }
 
         // Count awaiting return
-        if (order.order_status === 'AWAITING_RETURN') {
+        if (order.order_status === "AWAITING_RETURN") {
             awaitingReturnCount++;
         }
     }
@@ -2073,7 +2107,7 @@ const getClientOrderStatistics = async (companyId: string, platformId: string) =
             upcoming_events: upcomingEventsCount,
             awaiting_return: awaitingReturnCount,
         },
-        recent_orders: recentOrders.map(order => ({
+        recent_orders: recentOrders.map((order) => ({
             id: order.id,
             order_id: order.order_id,
             venue_name: order.venue_name,
@@ -2088,35 +2122,32 @@ const getClientOrderStatistics = async (companyId: string, platformId: string) =
 const sendInvoice = async (user: AuthUser, platformId: string, orderId: string) => {
     // Step 1: Fetch order with company details
     const order = await db.query.orders.findFirst({
-        where: and(
-            eq(orders.id, orderId),
-            eq(orders.platform_id, platformId)
-        ),
+        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
         with: {
             company: true,
-        }
+        },
     });
 
     // Step 2: Verify order exists
     if (!order) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, 'Order not found');
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
     }
 
     // Step 3: Verify order is in QUOTED status
-    if (order.financial_status === 'INVOICED') {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, 'Order is already invoiced');
+    if (order.financial_status === "INVOICED") {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Order is already invoiced");
     }
 
     // Step 4: Verify order is in CLOSED status
-    if (order.order_status !== 'CLOSED') {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, 'Order is not in CLOSED status');
+    if (order.order_status !== "CLOSED") {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Order is not in CLOSED status");
     }
 
     // Step 5: Update order financial status to INVOICED
     await db
         .update(orders)
         .set({
-            financial_status: 'INVOICED',
+            financial_status: "INVOICED",
             updated_at: new Date(),
         })
         .where(eq(orders.id, orderId));
@@ -2125,8 +2156,330 @@ const sendInvoice = async (user: AuthUser, platformId: string, orderId: string) 
     return {
         id: order.id,
         order_id: order.order_id,
-        financial_status: 'INVOICED',
+        financial_status: "INVOICED",
         updated_at: new Date(),
+    };
+};
+
+// ----------------------------------- SUBMIT FOR APPROVAL (NEW) ------------------------------------
+// Logistics submits order for Admin approval (replaces direct quote sending)
+const submitForApproval = async (orderId: string, user: AuthUser, platformId: string) => {
+    // Get order
+    const order = await db.query.orders.findFirst({
+        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
+    });
+
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    }
+
+    if (order.order_status !== "PRICING_REVIEW") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Order is not in PRICING_REVIEW status. Current status: ${order.order_status}`
+        );
+    }
+
+    // Recalculate pricing (includes any line items added by Logistics)
+    await recalculateOrderPricing(orderId, platformId, order.company_id, user.id);
+
+    // Update order status
+    await db
+        .update(orders)
+        .set({
+            order_status: "PENDING_APPROVAL",
+            updated_at: new Date(),
+        })
+        .where(eq(orders.id, orderId));
+
+    // Log status change
+    await db.insert(orderStatusHistory).values({
+        platform_id: platformId,
+        order_id: orderId,
+        status: "PENDING_APPROVAL",
+        notes: "Logistics submitted for Admin approval",
+        updated_by: user.id,
+    });
+
+    // TODO: Send notification to Admin
+
+    return {
+        id: order.id,
+        order_id: order.order_id,
+        order_status: "PENDING_APPROVAL",
+        updated_at: new Date(),
+    };
+};
+
+// ----------------------------------- ADMIN APPROVE QUOTE (NEW) ------------------------------------
+// Admin approves pricing and sends quote to client
+const adminApproveQuote = async (
+    orderId: string,
+    user: AuthUser,
+    platformId: string,
+    marginOverride?: { percent: number; reason: string }
+) => {
+    // Get order
+    const order = await db.query.orders.findFirst({
+        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
+        with: {
+            company: true,
+        },
+    });
+
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    }
+
+    if (order.order_status !== "PENDING_APPROVAL") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Order is not in PENDING_APPROVAL status. Current status: ${order.order_status}`
+        );
+    }
+
+    // Recalculate pricing with margin override if provided
+    const company = order.company as typeof companies.$inferSelect | null;
+    const marginPercent =
+        marginOverride?.percent ?? parseFloat(company?.platform_margin_percent || "0");
+    const volume = parseFloat((order.calculated_totals as any).volume);
+    const emirate = PricingCalculationServices.deriveEmirateFromCity(
+        (order.venue_location as any).city
+    );
+
+    const finalPricing = await PricingCalculationServices.calculateOrderPricing(
+        platformId,
+        order.company_id,
+        orderId,
+        volume,
+        emirate,
+        order.transport_trip_type,
+        order.transport_vehicle_type,
+        marginPercent,
+        !!marginOverride,
+        marginOverride?.reason || null,
+        user.id
+    );
+
+    // Update order
+    await db
+        .update(orders)
+        .set({
+            order_status: "QUOTED",
+            financial_status: "QUOTE_SENT",
+            pricing: finalPricing as any,
+            updated_at: new Date(),
+        })
+        .where(eq(orders.id, orderId));
+
+    // Log status change
+    await db.insert(orderStatusHistory).values({
+        platform_id: platformId,
+        order_id: orderId,
+        status: "QUOTED",
+        notes: marginOverride
+            ? `Admin approved with margin override (${marginOverride.percent}%): ${marginOverride.reason}`
+            : "Admin approved quote",
+        updated_by: user.id,
+    });
+
+    // Log financial status change
+    await db.insert(financialStatusHistory).values({
+        platform_id: platformId,
+        order_id: orderId,
+        status: "QUOTE_SENT",
+        notes: "Quote sent to client",
+        updated_by: user.id,
+    });
+
+    // TODO: Send QUOTE_READY notification to client
+
+    return {
+        id: order.id,
+        order_id: order.order_id,
+        order_status: "QUOTED",
+        financial_status: "QUOTE_SENT",
+        final_total: finalPricing.final_total,
+        updated_at: new Date(),
+    };
+};
+
+// ----------------------------------- RETURN TO LOGISTICS (NEW) ------------------------------------
+// Admin returns order to Logistics for revisions
+const returnToLogistics = async (
+    orderId: string,
+    user: AuthUser,
+    platformId: string,
+    reason: string
+) => {
+    const order = await db.query.orders.findFirst({
+        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
+    });
+
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    }
+
+    if (order.order_status !== "PENDING_APPROVAL") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Order is not in PENDING_APPROVAL status. Current status: ${order.order_status}`
+        );
+    }
+
+    // Update order status
+    await db
+        .update(orders)
+        .set({
+            order_status: "PRICING_REVIEW",
+            updated_at: new Date(),
+        })
+        .where(eq(orders.id, orderId));
+
+    // Log status change
+    await db.insert(orderStatusHistory).values({
+        platform_id: platformId,
+        order_id: orderId,
+        status: "PRICING_REVIEW",
+        notes: `Admin returned to Logistics: ${reason}`,
+        updated_by: user.id,
+    });
+
+    // TODO: Send notification to Logistics
+
+    return {
+        id: order.id,
+        order_id: order.order_id,
+        order_status: "PRICING_REVIEW",
+        updated_at: new Date(),
+    };
+};
+
+// ----------------------------------- CANCEL ORDER (NEW) ------------------------------------
+// Wrapper around OrderCancellationService
+const cancelOrder = async (
+    orderId: string,
+    user: AuthUser,
+    platformId: string,
+    payload: CancelOrderPayload
+) => {
+    return await OrderCancellationService.cancelOrder(orderId, platformId, payload, user);
+};
+
+// ----------------------------------- CALCULATE ESTIMATE (NEW) ------------------------------------
+// Calculate order estimate before submission (client-facing)
+const calculateOrderEstimate = async (
+    platformId: string,
+    companyId: string,
+    items: Array<{ asset_id: string; quantity: number }>,
+    venueCity: string,
+    tripType: string
+) => {
+    // Get assets to calculate volume
+    const assetIds = items.map((i) => i.asset_id);
+    const foundAssets = await db
+        .select()
+        .from(assets)
+        .where(and(inArray(assets.id, assetIds), eq(assets.platform_id, platformId)));
+
+    // Calculate total volume
+    let totalVolume = 0;
+    for (const item of items) {
+        const asset = foundAssets.find((a) => a.id === item.asset_id);
+        if (asset) {
+            totalVolume += parseFloat(asset.volume_per_unit) * item.quantity;
+        }
+    }
+
+    // Get company margin
+    const [company] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1);
+
+    const marginPercent = parseFloat((company as any).platform_margin_percent);
+
+    // Calculate estimate
+    const estimate = await PricingCalculationServices.calculateOrderEstimate(
+        platformId,
+        companyId,
+        totalVolume,
+        venueCity,
+        tripType,
+        marginPercent
+    );
+
+    return estimate;
+};
+
+// ----------------------------------- GET PENDING APPROVAL ORDERS (NEW) ------------------------------------
+// Get orders waiting for Admin approval
+const getPendingApprovalOrders = async (query: any, platformId: string) => {
+    const { search_term, page, limit, sort_by, sort_order, company_id, date_from, date_to } = query;
+
+    // Setup pagination
+    const { pageNumber, limitNumber, skip, sortWith, sortSequence } = paginationMaker({
+        page,
+        limit,
+        sort_by,
+        sort_order,
+    });
+
+    // Build WHERE conditions
+    const conditions: any[] = [
+        eq(orders.platform_id, platformId),
+        eq(orders.order_status, "PENDING_APPROVAL"),
+    ];
+
+    if (search_term && search_term.trim().length > 0) {
+        conditions.push(ilike(orders.order_id, `%${search_term.trim()}%`));
+    }
+
+    if (company_id) {
+        conditions.push(eq(orders.company_id, company_id));
+    }
+
+    if (date_from) {
+        const fromDate = new Date(date_from);
+        if (!isNaN(fromDate.getTime())) {
+            conditions.push(gte(orders.created_at, fromDate));
+        }
+    }
+
+    if (date_to) {
+        const toDate = new Date(date_to);
+        if (!isNaN(toDate.getTime())) {
+            conditions.push(lte(orders.created_at, toDate));
+        }
+    }
+
+    // Determine sort order
+    const orderByColumn = orderSortableFields[sortWith] || orders.created_at;
+    const orderDirection = sortSequence === "asc" ? asc(orderByColumn) : desc(orderByColumn);
+
+    // Execute queries
+    const [result, total] = await Promise.all([
+        db.query.orders.findMany({
+            where: and(...conditions),
+            with: {
+                company: { columns: { id: true, name: true } },
+                items: { with: { asset: true } },
+                reskin_requests: true,
+            },
+            orderBy: orderDirection,
+            limit: limitNumber,
+            offset: skip,
+        }),
+        db
+            .select({ count: count() })
+            .from(orders)
+            .where(and(...conditions)),
+    ]);
+
+    return {
+        meta: {
+            page: pageNumber,
+            limit: limitNumber,
+            total: total[0].count,
+        },
+        data: result,
     };
 };
 
@@ -2141,15 +2494,20 @@ export const OrderServices = {
     getOrderStatusHistory,
     updateOrderTimeWindows,
     getPricingReviewOrders,
+    getPendingApprovalOrders,
     getOrderPricingDetails,
     adjustLogisticsPricing,
-    approveStandardPricing,
-    approvePlatformPricing,
+    approveStandardPricing, // DEPRECATED - will be removed
+    approvePlatformPricing, // DEPRECATED - will be removed
     approveQuote,
     declineQuote,
     getClientOrderStatistics,
     sendInvoice,
+    // NEW FUNCTIONS
+    submitForApproval,
+    adminApproveQuote,
+    returnToLogistics,
+    cancelOrder,
+    calculateOrderEstimate,
+    updateOrderVehicle: OrderVehicleService.updateOrderVehicle,
 };
-
-
-

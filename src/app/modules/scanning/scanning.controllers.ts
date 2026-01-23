@@ -2,19 +2,15 @@ import httpStatus from "http-status";
 import catchAsync from "../../shared/catch-async";
 import sendResponse from "../../shared/send-response";
 import { ScanningServices } from "./scanning.services";
+import { getRequiredString } from "../../utils/request";
 
 // ----------------------------------- INBOUND SCAN -----------------------------------
 const inboundScan = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
-    const { order_id } = req.params;
+    const orderId = getRequiredString(req.params.order_id, "order_id");
 
-    const result = await ScanningServices.inboundScan(
-        order_id,
-        req.body,
-        user,
-        platformId
-    );
+    const result = await ScanningServices.inboundScan(orderId, req.body, user, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -31,13 +27,9 @@ const inboundScan = catchAsync(async (req, res) => {
 const getInboundProgress = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
-    const { order_id } = req.params;
+    const orderId = getRequiredString(req.params.order_id, "order_id");
 
-    const result = await ScanningServices.getInboundProgress(
-        order_id,
-        user,
-        platformId
-    );
+    const result = await ScanningServices.getInboundProgress(orderId, user, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -51,13 +43,9 @@ const getInboundProgress = catchAsync(async (req, res) => {
 const completeInboundScan = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
-    const { order_id } = req.params;
+    const orderId = getRequiredString(req.params.order_id, "order_id");
 
-    const result = await ScanningServices.completeInboundScan(
-        order_id,
-        user,
-        platformId
-    );
+    const result = await ScanningServices.completeInboundScan(orderId, user, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -77,14 +65,9 @@ const outboundScan = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
 
     const user = (req as any).user;
-    const { order_id } = req.params;
+    const orderId = getRequiredString(req.params.order_id, "order_id");
 
-    const result = await ScanningServices.outboundScan(
-        order_id,
-        req.body,
-        user,
-        platformId
-    );
+    const result = await ScanningServices.outboundScan(orderId, req.body, user, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -98,13 +81,9 @@ const outboundScan = catchAsync(async (req, res) => {
 const getOutboundProgress = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
-    const { order_id } = req.params;
+    const orderId = getRequiredString(req.params.order_id, "order_id");
 
-    const result = await ScanningServices.getOutboundProgress(
-        order_id,
-        user,
-        platformId
-    );
+    const result = await ScanningServices.getOutboundProgress(orderId, user, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -118,13 +97,9 @@ const getOutboundProgress = catchAsync(async (req, res) => {
 const completeOutboundScan = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
-    const { order_id } = req.params;
+    const orderId = getRequiredString(req.params.order_id, "order_id");
 
-    const result = await ScanningServices.completeOutboundScan(
-        order_id,
-        user,
-        platformId
-    );
+    const result = await ScanningServices.completeOutboundScan(orderId, user, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

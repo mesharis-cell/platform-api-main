@@ -13,7 +13,7 @@ const router = Router();
 router.post(
     "/",
     platformValidator,
-    auth('ADMIN'),
+    auth("ADMIN"),
     requirePermission(PERMISSIONS.PRICING_TIERS_CREATE),
     payloadValidator(PricingTierSchemas.pricingTierSchema),
     PricingTierControllers.createPricingTier
@@ -23,7 +23,7 @@ router.post(
 router.get(
     "/",
     platformValidator,
-    auth('ADMIN', 'LOGISTICS'),
+    auth("ADMIN", "LOGISTICS"),
     requirePermission(PERMISSIONS.PRICING_TIERS_READ),
     PricingTierControllers.getPricingTiers
 );
@@ -32,7 +32,7 @@ router.get(
 router.get(
     "/locations",
     platformValidator,
-    auth('ADMIN', 'LOGISTICS', "CLIENT"),
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
     PricingTierControllers.getPricingTierLocations
 );
 
@@ -40,7 +40,7 @@ router.get(
 router.get(
     "/calculate",
     platformValidator,
-    auth('ADMIN', 'LOGISTICS', 'CLIENT'),
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
     PricingTierControllers.calculatePricing
 );
 
@@ -48,7 +48,7 @@ router.get(
 router.get(
     "/:id",
     platformValidator,
-    auth('ADMIN', 'LOGISTICS'),
+    auth("ADMIN", "LOGISTICS"),
     PricingTierControllers.getPricingTierById
 );
 
@@ -56,17 +56,13 @@ router.get(
 router.patch(
     "/:id",
     platformValidator,
-    auth('ADMIN'),
+    auth("ADMIN"),
     requirePermission(PERMISSIONS.PRICING_TIERS_UPDATE),
     payloadValidator(PricingTierSchemas.updatePricingTierSchema),
     PricingTierControllers.updatePricingTier
 );
 
 // Delete pricing tier
-router.delete("/:id",
-    platformValidator,
-    auth('ADMIN'),
-    PricingTierControllers.deletePricingTier
-);
+router.delete("/:id", platformValidator, auth("ADMIN"), PricingTierControllers.deletePricingTier);
 
 export const PricingTierRoutes = router;

@@ -6,6 +6,8 @@ import platformValidator from "../../middleware/platform-validator";
 import { PERMISSIONS } from "../../constants/permissions";
 import { OrderControllers } from "./order.controllers";
 import { orderSchemas } from "./order.schemas";
+import { OrderLineItemsRoutes } from "../order-line-items/order-line-items.routes";
+import { ReskinRequestsRoutes } from "../reskin-requests/reskin-requests.routes";
 
 const router = Router();
 
@@ -19,12 +21,7 @@ router.get(
 );
 
 // Get my orders
-router.get(
-    "/my",
-    platformValidator,
-    auth("CLIENT"),
-    OrderControllers.getMyOrders
-);
+router.get("/my", platformValidator, auth("CLIENT"), OrderControllers.getMyOrders);
 
 // Export orders to CSV
 router.get(
@@ -43,14 +40,22 @@ router.get(
     OrderControllers.getOrderStatistics
 );
 
-
-// Get pricing review orders
+// Get pricing review orders (Logistics)
 router.get(
     "/pricing-review",
     platformValidator,
-    auth("ADMIN"),
+    auth("ADMIN", "LOGISTICS"),
     requirePermission(PERMISSIONS.PRICING_REVIEW),
     OrderControllers.getPricingReviewOrders
+);
+
+// Get pending approval orders (Admin)
+router.get(
+    "/pending-approval",
+    platformValidator,
+    auth("ADMIN"),
+    requirePermission(PERMISSIONS.PRICING_ADMIN_APPROVE),
+    OrderControllers.getPendingApprovalOrders
 );
 
 // Get order by ID
@@ -68,6 +73,9 @@ router.get(
     auth("ADMIN", "LOGISTICS"),
     OrderControllers.getOrderPricingDetails
 );
+
+// Calculate order estimate (NEW)
+router.post("/estimate", platformValidator, auth("CLIENT"), OrderControllers.calculateEstimate);
 
 // Submit order
 router.post(
@@ -98,7 +106,6 @@ router.patch(
     payloadValidator(orderSchemas.declineQuoteSchema),
     OrderControllers.declineQuote
 );
-
 
 // Progress order status
 router.patch(
@@ -183,5 +190,62 @@ router.patch(
     payloadValidator(orderSchemas.approvePlatformPricingSchema),
     OrderControllers.approvePlatformPricing
 );
+
+// ---------------------------------- NEW PRICING WORKFLOW ROUTES ----------------------------------
+
+// Update vehicle type (Logistics) - TODO: Implement controller
+// router.patch(
+//     "/:id/vehicle",
+//     platformValidator,
+//     auth("ADMIN", "LOGISTICS"),
+//     requirePermission(PERMISSIONS.PRICING_REVIEW),
+//     payloadValidator(orderSchemas.updateVehicleSchema),
+//     OrderControllers.updateOrderVehicle
+// );
+
+// Submit for approval (Logistics → Admin)
+router.post(
+    "/:id/submit-for-approval",
+    platformValidator,
+    auth("LOGISTICS"),
+    requirePermission(PERMISSIONS.PRICING_REVIEW),
+    OrderControllers.submitForApproval
+);
+
+// Admin approve quote (Admin → Client)
+router.post(
+    "/:id/admin-approve-quote",
+    platformValidator,
+    auth("ADMIN"),
+    requirePermission(PERMISSIONS.PRICING_ADMIN_APPROVE),
+    OrderControllers.adminApproveQuote
+);
+
+// Return to Logistics (Admin → Logistics)
+router.post(
+    "/:id/return-to-logistics",
+    platformValidator,
+    auth("ADMIN"),
+    requirePermission(PERMISSIONS.PRICING_ADMIN_APPROVE),
+    OrderControllers.returnToLogistics
+);
+
+// Cancel order (Admin only)
+router.post(
+    "/:id/cancel",
+    platformValidator,
+    auth("ADMIN"),
+    requirePermission(PERMISSIONS.ORDERS_CANCEL),
+    payloadValidator(orderSchemas.cancelOrderSchema),
+    OrderControllers.cancelOrder
+);
+
+// ---------------------------------- NESTED ROUTES (NEW) ----------------------------------
+
+// Order Line Items (nested under /order/:orderId/line-items)
+router.use("/:orderId/line-items", OrderLineItemsRoutes);
+
+// Reskin Requests (nested under /order/:orderId/reskin-requests)
+router.use("/:orderId/reskin-requests", ReskinRequestsRoutes);
 
 export const OrderRoutes = router;

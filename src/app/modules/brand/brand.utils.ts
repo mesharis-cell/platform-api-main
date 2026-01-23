@@ -11,4 +11,3 @@ export const brandQueryValidationConfig = {
     sort_by: Object.keys(brandSortableFields),
     sort_order: sortOrderType,
 };
-

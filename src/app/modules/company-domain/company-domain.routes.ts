@@ -4,10 +4,7 @@ import { CompanyDomainSchemas } from "./company-domain.schemas";
 
 const router = Router();
 
-router.post(
-  "/",
-  payloadValidator(CompanyDomainSchemas.createCompanyDomain),
-);
+router.post("/", payloadValidator(CompanyDomainSchemas.createCompanyDomain));
 router.get("/");
 router.get("/:id");
 router.put("/:id", payloadValidator(CompanyDomainSchemas.updateCompanyDomain));

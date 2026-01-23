@@ -365,9 +365,9 @@
  *       Calculates the A2 base price and estimated total (including platform margin) for a given volume and location.
  *       This is a utility endpoint for order creation. The endpoint finds the matching pricing tier based on country, city, and volume,
  *       then applies the company's platform margin to calculate the estimated total.
- *       
+ *
  *       **Access:** Any authenticated user (ADMIN, LOGISTICS, CLIENT) can use this endpoint.
- *       
+ *
  *       **Note:** This returns a flat rate for the volume range, not a per-m³ rate.
  *     parameters:
  *       - $ref: '#/components/parameters/PlatformHeader'

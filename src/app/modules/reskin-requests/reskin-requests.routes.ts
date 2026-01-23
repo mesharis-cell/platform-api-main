@@ -1,0 +1,50 @@
+import { Router } from "express";
+import auth from "../../middleware/auth";
+import payloadValidator from "../../middleware/payload-validator";
+import platformValidator from "../../middleware/platform-validator";
+import requirePermission from "../../middleware/permission";
+import { PERMISSIONS } from "../../constants/permissions";
+import { ReskinRequestsControllers } from "./reskin-requests.controllers";
+import { ReskinRequestsSchemas } from "./reskin-requests.schemas";
+
+const router = Router({ mergeParams: true }); // mergeParams to access :orderId
+
+// List reskin requests for an order
+router.get(
+    "/",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    ReskinRequestsControllers.listReskinRequests
+);
+
+// Process reskin request (Admin only - creates reskin_requests record and cost line item)
+router.post(
+    "/:orderItemId/process",
+    platformValidator,
+    auth("ADMIN"),
+    requirePermission(PERMISSIONS.RESKIN_REQUESTS_PROCESS),
+    payloadValidator(ReskinRequestsSchemas.processReskinRequestSchema),
+    ReskinRequestsControllers.processReskinRequest
+);
+
+// Complete reskin request (Admin only - creates new asset, marks complete)
+router.post(
+    "/:reskinId/complete",
+    platformValidator,
+    auth("ADMIN"),
+    requirePermission(PERMISSIONS.RESKIN_REQUESTS_COMPLETE),
+    payloadValidator(ReskinRequestsSchemas.completeReskinRequestSchema),
+    ReskinRequestsControllers.completeReskinRequest
+);
+
+// Cancel reskin request (Admin only - voids line item, optional order cancellation)
+router.post(
+    "/:reskinId/cancel",
+    platformValidator,
+    auth("ADMIN"),
+    requirePermission(PERMISSIONS.RESKIN_REQUESTS_CANCEL),
+    payloadValidator(ReskinRequestsSchemas.cancelReskinRequestSchema),
+    ReskinRequestsControllers.cancelReskinRequest
+);
+
+export const ReskinRequestsRoutes = router;

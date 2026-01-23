@@ -28,6 +28,7 @@ export default $config({
             createCodePipelineRole,
             createECRRepository,
             createArtifactBuckets,
+            manageElasticBeanstalkBucketPolicy,
             createCodeBuildProject,
             createPipeline,
             createElasticBeanstalkApp,
@@ -117,6 +118,17 @@ export default $config({
             stage,
             app.name,
             env.name
+        );
+
+        manageElasticBeanstalkBucketPolicy(
+            aws,
+            pulumi,
+            "ap-south-1",
+            awsAccountId,
+            codePipelineRole,
+            serviceRole,
+            instanceProfileRole,
+            stage
         );
 
         return {
