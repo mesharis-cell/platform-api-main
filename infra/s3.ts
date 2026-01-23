@@ -5,37 +5,21 @@ export function createArtifactBuckets(
     awsUsEast1: import("@pulumi/aws").Provider,
     stage: string
 ) {
-    const artifactBucketUsEast1 = new aws.s3.BucketV2(
+    const artifactBucketUsEast1 = new aws.s3.Bucket(
         resourceName("pipeline-us-east-1", stage),
         {
             bucket: resourceName("pipeline-us-east-1", stage),
-        },
-        { provider: awsUsEast1 }
-    );
-
-    new aws.s3.BucketVersioningV2(
-        resourceName("pipeline-us-east-1-versioning", stage),
-        {
-            bucket: artifactBucketUsEast1.id,
-            versioningConfiguration: {
-                status: "Enabled",
+            versioning: {
+                enabled: true,
             },
-        },
-        { provider: awsUsEast1 }
-    );
-
-    new aws.s3.BucketServerSideEncryptionConfigurationV2(
-        resourceName("pipeline-us-east-1-encryption", stage),
-        {
-            bucket: artifactBucketUsEast1.id,
-            rules: [
-                {
+            serverSideEncryptionConfiguration: {
+                rule: {
                     applyServerSideEncryptionByDefault: {
                         sseAlgorithm: "AES256",
                     },
                     bucketKeyEnabled: true,
                 },
-            ],
+            },
         },
         { provider: awsUsEast1 }
     );
@@ -52,31 +36,20 @@ export function createArtifactBuckets(
         { provider: awsUsEast1 }
     );
 
-    const artifactBucketApSouth1 = new aws.s3.BucketV2(resourceName("pipeline-ap-south-1", stage), {
+    const artifactBucketApSouth1 = new aws.s3.Bucket(resourceName("pipeline-ap-south-1", stage), {
         bucket: resourceName("pipeline-ap-south-1", stage),
-    });
-
-    new aws.s3.BucketVersioningV2(resourceName("pipeline-ap-south-1-versioning", stage), {
-        bucket: artifactBucketApSouth1.id,
-        versioningConfiguration: {
-            status: "Enabled",
+        versioning: {
+            enabled: true,
+        },
+        serverSideEncryptionConfiguration: {
+            rule: {
+                applyServerSideEncryptionByDefault: {
+                    sseAlgorithm: "AES256",
+                },
+                bucketKeyEnabled: true,
+            },
         },
     });
-
-    new aws.s3.BucketServerSideEncryptionConfigurationV2(
-        resourceName("pipeline-ap-south-1-encryption", stage),
-        {
-            bucket: artifactBucketApSouth1.id,
-            rules: [
-                {
-                    applyServerSideEncryptionByDefault: {
-                        sseAlgorithm: "AES256",
-                    },
-                    bucketKeyEnabled: true,
-                },
-            ],
-        }
-    );
 
     new aws.s3.BucketPublicAccessBlock(
         resourceName("pipeline-ap-south-1-public-access-block", stage),
