@@ -46,13 +46,22 @@ router.get(
 );
 
 
-// Get pricing review orders
+// Get pricing review orders (Logistics)
 router.get(
     "/pricing-review",
     platformValidator,
-    auth("ADMIN"),
+    auth("ADMIN", "LOGISTICS"),
     requirePermission(PERMISSIONS.PRICING_REVIEW),
     OrderControllers.getPricingReviewOrders
+);
+
+// Get pending approval orders (Admin)
+router.get(
+    "/pending-approval",
+    platformValidator,
+    auth("ADMIN"),
+    requirePermission(PERMISSIONS.PRICING_ADMIN_APPROVE),
+    OrderControllers.getPendingApprovalOrders
 );
 
 // Get order by ID

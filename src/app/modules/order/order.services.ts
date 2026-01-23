@@ -2408,6 +2408,89 @@ const calculateOrderEstimate = async (
     return estimate;
 };
 
+// ----------------------------------- GET PENDING APPROVAL ORDERS (NEW) ------------------------------------
+// Get orders waiting for Admin approval
+const getPendingApprovalOrders = async (
+    query: any,
+    platformId: string
+) => {
+    const {
+        search_term,
+        page,
+        limit,
+        sort_by,
+        sort_order,
+        company_id,
+        date_from,
+        date_to,
+    } = query;
+
+    // Setup pagination
+    const { pageNumber, limitNumber, skip, sortWith, sortSequence } =
+        paginationMaker({
+            page,
+            limit,
+            sort_by,
+            sort_order,
+        });
+
+    // Build WHERE conditions
+    const conditions: any[] = [
+        eq(orders.platform_id, platformId),
+        eq(orders.order_status, "PENDING_APPROVAL")
+    ];
+
+    if (company_id) {
+        conditions.push(eq(orders.company_id, company_id));
+    }
+
+    if (date_from) {
+        const fromDate = new Date(date_from);
+        if (!isNaN(fromDate.getTime())) {
+            conditions.push(gte(orders.created_at, fromDate));
+        }
+    }
+
+    if (date_to) {
+        const toDate = new Date(date_to);
+        if (!isNaN(toDate.getTime())) {
+            conditions.push(lte(orders.created_at, toDate));
+        }
+    }
+
+    // Determine sort order
+    const orderByColumn = orderSortableFields[sortWith] || orders.created_at;
+    const orderDirection = sortSequence === "asc" ? asc(orderByColumn) : desc(orderByColumn);
+
+    // Execute queries
+    const [result, total] = await Promise.all([
+        db.query.orders.findMany({
+            where: and(...conditions),
+            with: {
+                company: { columns: { id: true, name: true } },
+                items: { with: { asset: true } },
+                reskin_requests: true,
+            },
+            orderBy: orderDirection,
+            limit: limitNumber,
+            offset: skip,
+        }),
+        db
+            .select({ count: count() })
+            .from(orders)
+            .where(and(...conditions)),
+    ]);
+
+    return {
+        meta: {
+            page: pageNumber,
+            limit: limitNumber,
+            total: total[0].count,
+        },
+        data: result,
+    };
+};
+
 export const OrderServices = {
     submitOrderFromCart,
     getOrders,
@@ -2419,6 +2502,7 @@ export const OrderServices = {
     getOrderStatusHistory,
     updateOrderTimeWindows,
     getPricingReviewOrders,
+    getPendingApprovalOrders,
     getOrderPricingDetails,
     adjustLogisticsPricing,
     approveStandardPricing, // DEPRECATED - will be removed

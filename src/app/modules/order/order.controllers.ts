@@ -545,6 +545,20 @@ export const OrderControllers = {
     getOrderStatistics,
     sendInvoice,
     // NEW CONTROLLERS
+    getPendingApprovalOrders: catchAsync(async (req, res) => {
+        const platformId = (req as any).platform_id;
+        const query = req.query;
+        
+        const result = await OrderServices.getPendingApprovalOrders(query, platformId);
+        
+        sendResponse(res, {
+            statusCode: httpStatus.OK,
+            success: true,
+            message: "Pending approval orders fetched successfully",
+            data: result.data,
+            meta: result.meta,
+        });
+    }),
     submitForApproval,
     adminApproveQuote,
     returnToLogistics,
