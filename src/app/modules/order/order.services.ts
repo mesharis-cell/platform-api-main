@@ -31,6 +31,7 @@ import { PricingCalculationServices } from "../pricing-calculation/pricing-calcu
 import { ReskinRequestsServices } from "../reskin-requests/reskin-requests.services";
 import { OrderCancellationService, CancelOrderPayload } from "./order-cancellation.service";
 import { calculateAndStoreEstimate, shouldAwaitFabrication, recalculateOrderPricing } from "./order-pricing.helpers";
+import { OrderVehicleService, UpdateVehiclePayload } from "./order-update-vehicle.service";
 
 // Import asset availability checker
 import { multipleEmailSender } from "../../utils/email-sender";
@@ -2432,6 +2433,7 @@ export const OrderServices = {
     returnToLogistics,
     cancelOrder,
     calculateOrderEstimate,
+    updateOrderVehicle: OrderVehicleService.updateOrderVehicle,
 };
 
 

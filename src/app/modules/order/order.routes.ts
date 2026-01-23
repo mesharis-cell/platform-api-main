@@ -196,6 +196,15 @@ router.patch(
 
 // ---------------------------------- NEW PRICING WORKFLOW ROUTES ----------------------------------
 
+// Update vehicle type (Logistics)
+router.patch(
+    "/:id/vehicle",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.PRICING_REVIEW),
+    OrderControllers.updateOrderVehicle
+);
+
 // Submit for approval (Logistics → Admin)
 router.post(
     "/:id/submit-for-approval",
