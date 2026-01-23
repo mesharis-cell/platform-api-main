@@ -1,61 +1,17 @@
 # =============================================================================
 # Bitbucket to GitHub Sync Pipeline
 # =============================================================================
-# Purpose: Automatically mirror all pushes from Bitbucket to GitHub
-# Trigger: Every push to any branch
+# Purpose: Push staging branch to GitHub main
+# Trigger: ONLY on push to staging branch
 # =============================================================================
 
 image: alpine/git
 
-definitions:
-  steps:
-    - step: &sync-to-github
-        name: Sync to GitHub
-        script:
-          # ---------------------------------------------------------------------
-          # SSH Setup
-          # ---------------------------------------------------------------------
-          - mkdir -p ~/.ssh
-          - echo "$GITHUB_SSH_KEY" > ~/.ssh/id_ed25519
-          - chmod 600 ~/.ssh/id_ed25519
-          - ssh-keyscan -t ed25519,rsa github.com >> ~/.ssh/known_hosts
-          
-          # ---------------------------------------------------------------------
-          # Git Configuration
-          # ---------------------------------------------------------------------
-          - git config --global user.email "pipeline@bitbucket.org"
-          - git config --global user.name "Bitbucket Pipeline"
-          
-          # ---------------------------------------------------------------------
-          # Add GitHub Remote
-          # ---------------------------------------------------------------------
-          - git remote add github git@github.com:homeofpmg/platform-api-main.git || git remote set-url github git@github.com:homeofpmg/platform-api-main.git
-          
-          # ---------------------------------------------------------------------
-          # Push Current Branch
-          # ---------------------------------------------------------------------
-          - echo "Syncing branch $BITBUCKET_BRANCH to GitHub..."
-          - git push github $BITBUCKET_BRANCH --force
-          
-          # ---------------------------------------------------------------------
-          # Sync Tags (if any exist)
-          # ---------------------------------------------------------------------
-          - git push github --tags || true
-
 pipelines:
-  # ---------------------------------------------------------------------------
-  # Default Pipeline - Runs on all branches
-  # ---------------------------------------------------------------------------
-  default:
-    - step: *sync-to-github
-
-  # ---------------------------------------------------------------------------
-  # Main Branch Pipeline - Full mirror including all refs
-  # ---------------------------------------------------------------------------
   branches:
-    main:
+    staging:
       - step:
-          name: Full Mirror to GitHub
+          name: Sync Staging to GitHub Main
           script:
             # SSH Setup
             - mkdir -p ~/.ssh
@@ -70,20 +26,6 @@ pipelines:
             # Add GitHub Remote
             - git remote add github git@github.com:homeofpmg/platform-api-main.git || git remote set-url github git@github.com:homeofpmg/platform-api-main.git
             
-            # Fetch full history (Bitbucket clones are shallow by default)
-            - git fetch --unshallow || true
-            - git fetch origin '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*' || true
-            
-            # Full mirror push (all branches, all tags)
-            - echo "Performing full mirror to GitHub..."
-            - git push github --mirror
-
-  # ---------------------------------------------------------------------------
-  # Pull Request Pipeline - Skip sync for PRs (optional)
-  # ---------------------------------------------------------------------------
-  pull-requests:
-    '**':
-      - step:
-          name: Skip Sync for PRs
-          script:
-            - echo "Skipping GitHub sync for pull request builds"
+            # Push staging branch to GitHub main
+            - echo "Pushing Bitbucket staging to GitHub main..."
+            - git push github staging:main --force
