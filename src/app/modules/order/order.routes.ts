@@ -202,6 +202,7 @@ router.patch(
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
     requirePermission(PERMISSIONS.PRICING_REVIEW),
+    payloadValidator(orderSchemas.updateVehicleSchema),
     OrderControllers.updateOrderVehicle
 );
 
@@ -238,6 +239,7 @@ router.post(
     platformValidator,
     auth("ADMIN"),
     requirePermission(PERMISSIONS.ORDERS_CANCEL),
+    payloadValidator(orderSchemas.cancelOrderSchema),
     OrderControllers.cancelOrder
 );
 

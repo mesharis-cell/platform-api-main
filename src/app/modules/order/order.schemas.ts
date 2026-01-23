@@ -178,6 +178,29 @@ const declineQuoteSchema = z.object({
     }).strict(),
 });
 
+const updateVehicleSchema = z.object({
+    body: z.object({
+        vehicle_type: z.enum(['STANDARD', '7_TON', '10_TON'], {
+            message: "Vehicle type must be STANDARD, 7_TON, or 10_TON",
+        }),
+        reason: z
+            .string("Reason should be a text")
+            .min(10, "Reason must be at least 10 characters"),
+    }).strict(),
+});
+
+const cancelOrderSchema = z.object({
+    body: z.object({
+        reason: z.enum(['client_requested', 'asset_unavailable', 'pricing_dispute', 'event_cancelled', 'fabrication_failed', 'other'], {
+            message: "Invalid cancellation reason",
+        }),
+        notes: z
+            .string("Notes should be a text")
+            .min(10, "Notes must be at least 10 characters"),
+        notify_client: z.boolean().default(true),
+    }).strict(),
+});
+
 
 export const orderSchemas = {
     submitOrderSchema,
@@ -189,6 +212,8 @@ export const orderSchemas = {
     approvePlatformPricingSchema,
     approveQuoteSchema,
     declineQuoteSchema,
+    updateVehicleSchema,
+    cancelOrderSchema,
 };
 
 
