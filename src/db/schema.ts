@@ -64,6 +64,7 @@ export const orderStatusEnum = pgEnum("order_status", [
     "DELIVERED",
     "IN_USE",
     "AWAITING_RETURN",
+    "RETURN_IN_TRANSIT",
     "CLOSED",
     "CANCELLED",
 ]);
@@ -71,6 +72,7 @@ export const orderStatusEnum = pgEnum("order_status", [
 export const financialStatusEnum = pgEnum("financial_status", [
     "PENDING_QUOTE",
     "QUOTE_SENT",
+    "QUOTE_REVISED",
     "QUOTE_ACCEPTED",
     "PENDING_INVOICE",
     "INVOICED",
@@ -761,6 +763,9 @@ export const orders = pgTable(
         delivery_photos: text("delivery_photos")
             .array()
             .default(sql`ARRAY[]::text[]`),
+        truck_photos: text("truck_photos")
+            .array()
+            .default(sql`ARRAY[]::text[]`), // Outbound truck loading photos
 
         // Timestamps
         created_at: timestamp("created_at").notNull().defaultNow(),

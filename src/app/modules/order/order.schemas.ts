@@ -36,6 +36,19 @@ export const orderItemSchema = z
         }
     );
 
+const addOrderItemSchema = z.object({
+    body: z.object({
+        asset_id: z.string().uuid("Invalid asset ID"),
+        quantity: z.number().int().positive("Quantity must be positive"),
+    }),
+});
+
+const updateOrderItemQuantitySchema = z.object({
+    body: z.object({
+        quantity: z.number().int().positive("Quantity must be positive"),
+    }),
+});
+
 const submitOrderSchema = z.object({
     body: z
         .object({
@@ -288,4 +301,6 @@ export const orderSchemas = {
     declineQuoteSchema,
     updateVehicleSchema,
     cancelOrderSchema,
+    addOrderItemSchema,
+    updateOrderItemQuantitySchema,
 };

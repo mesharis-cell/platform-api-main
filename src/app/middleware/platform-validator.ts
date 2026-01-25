@@ -51,6 +51,7 @@ const platformValidator = async (req: Request, res: Response, next: NextFunction
 
         // Attach platform ID to request object for easy access
         (req as any).platformId = platformId;
+        (req as any).platform_id = platformId;
 
         next();
     } catch (error) {

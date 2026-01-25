@@ -365,9 +365,27 @@ const generateInvoice = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
     }
 
-    // Step 2: Prepare invoice data
+    // Step 2: Validate order can be invoiced
+    const allowedStatuses = ["CONFIRMED", "AWAITING_FABRICATION", "IN_PREPARATION", "READY_FOR_DELIVERY", "IN_TRANSIT", "DELIVERED", "IN_USE", "AWAITING_RETURN", "RETURN_IN_TRANSIT", "CLOSED"];
+    if (!allowedStatuses.includes(order.order_status)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Cannot generate invoice for order in ${order.order_status} status`
+        );
+    }
+
+    if (order.financial_status === "INVOICED" && !regenerate) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Order is already invoiced");
+    }
+
+    // Step 3: Prepare invoice data using new pricing structure
     const company = order.company as typeof companies.$inferSelect | null;
     const venueLocation = order.venue_location as any;
+    const pricing = order.pricing as any;
+    
+    // Use new pricing if available, fall back to legacy
+    const finalTotalPrice = pricing?.final_total || (order.final_pricing as any)?.total_price || 0;
+
     const invoiceData = {
         id: order.id,
         user_id: user.id,
@@ -386,11 +404,11 @@ const generateInvoice = async (
         order_status: order.order_status,
         financial_status: order.financial_status,
         pricing: {
-            logistics_base_price: (order.logistics_pricing as any)?.base_price || 0,
-            platform_margin_percent: (order.platform_pricing as any)?.margin_percent || 0,
-            platform_margin_amount: (order.platform_pricing as any)?.margin_amount || 0,
-            final_total_price: (order.final_pricing as any)?.total_price || 0,
-            show_breakdown: false,
+            logistics_base_price: pricing?.base_operations?.total || (order.logistics_pricing as any)?.base_price || 0,
+            platform_margin_percent: pricing?.margin?.percent || (order.platform_pricing as any)?.margin_percent || 0,
+            platform_margin_amount: pricing?.margin?.amount || (order.platform_pricing as any)?.margin_amount || 0,
+            final_total_price: finalTotalPrice,
+            show_breakdown: !!pricing, // Show breakdown if using new pricing
         },
         items: order.items.map((item) => ({
             asset_name: item.asset.name,
@@ -400,7 +418,25 @@ const generateInvoice = async (
         })),
     };
 
-    // Step 3: Generate invoice
+    // Step 4: Update order financial status to INVOICED
+    await db
+        .update(orders)
+        .set({
+            financial_status: "INVOICED",
+            updated_at: new Date(),
+        })
+        .where(eq(orders.id, order.id));
+
+    // Step 5: Log financial status change
+    await db.insert(financialStatusHistory).values({
+        platform_id: platformId,
+        order_id: order.id,
+        status: "INVOICED",
+        notes: regenerate ? "Invoice regenerated" : "Invoice generated",
+        updated_by: user.id,
+    });
+
+    // Step 6: Generate invoice
     const { invoice_id, invoice_pdf_url, pdf_buffer } = await invoiceGenerator(
         invoiceData,
         regenerate
@@ -414,7 +450,7 @@ const generateInvoice = async (
                 invoice_number: invoice_id,
                 order_id: order.order_id,
                 company_name: company?.name || "N/A",
-                final_total_price: (order.final_pricing as any)?.total_price || 0,
+                final_total_price: finalTotalPrice,
                 download_invoice_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
             }),
             attachments: pdf_buffer
@@ -448,7 +484,7 @@ const generateInvoice = async (
                 invoice_number: invoice_id,
                 order_id: order.order_id,
                 company_name: company?.name || "N/A",
-                final_total_price: (order.final_pricing as any)?.total_price || 0,
+                final_total_price: finalTotalPrice,
                 download_invoice_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
             })
         );

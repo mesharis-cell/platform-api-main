@@ -58,6 +58,15 @@ const inboundScan = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
     }
 
+    // Step 1b: Validate order status allows inbound scanning
+    const INBOUND_ALLOWED_STATUSES = ["AWAITING_RETURN", "RETURN_IN_TRANSIT"];
+    if (!INBOUND_ALLOWED_STATUSES.includes(order.order_status)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Inbound scanning not allowed in status: ${order.order_status}. Order must be in AWAITING_RETURN or RETURN_IN_TRANSIT.`
+        );
+    }
+
     // Step 2: Find asset by QR code
     const asset = await db.query.assets.findFirst({
         where: and(eq(assets.qr_code, qr_code), eq(assets.platform_id, platformId)),
@@ -65,6 +74,31 @@ const inboundScan = async (
 
     if (!asset) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found with this QR code");
+    }
+
+    if (asset.status === "TRANSFORMED") {
+        if (!asset.transformed_to) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Asset has been transformed and is no longer scannable"
+            );
+        }
+
+        const newAsset = await db.query.assets.findFirst({
+            where: eq(assets.id, asset.transformed_to),
+        });
+
+        if (newAsset) {
+            return {
+                message: "Asset has been transformed. Please scan the new asset QR code.",
+                asset,
+                redirect_asset: {
+                    id: newAsset.id,
+                    name: newAsset.name,
+                    qr_code: newAsset.qr_code,
+                },
+            };
+        }
     }
 
     // Step 3: Check if asset is in this order
@@ -279,10 +313,10 @@ const completeInboundScan = async (
     }
 
     // Step 2: Validate order status
-    if (order.order_status !== "AWAITING_RETURN") {
+    if (!["AWAITING_RETURN", "RETURN_IN_TRANSIT"].includes(order.order_status)) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            `Cannot complete inbound scan. Order status must be AWAITING_RETURN, current: ${order.order_status}`
+            `Cannot complete inbound scan. Order status must be AWAITING_RETURN or RETURN_IN_TRANSIT, current: ${order.order_status}`
         );
     }
 
@@ -327,19 +361,8 @@ const completeInboundScan = async (
             updated_by: user.id,
         });
 
-        // Step 8: Update asset status and available quantity
-        const freeAssets = order.items.map((i) => ({
-            id: i.asset_id,
-            status: "AVAILABLE",
-            available_quantity: i.asset.available_quantity + i.quantity,
-        }));
-
-        for (const asset of freeAssets) {
-            await tx
-                .update(assets)
-                .set({ status: "AVAILABLE", available_quantity: asset.available_quantity })
-                .where(eq(assets.id, asset.id));
-        }
+        // Note: available_quantity is already incremented per-scan in inboundScan
+        // We only need to ensure status is AVAILABLE (already set during inbound scans)
     });
 
     // Step 9: Send notification
@@ -432,6 +455,38 @@ const outboundScan = async (
 
     if (!asset) {
         throw new CustomizedError(httpStatus.NOT_FOUND, `Asset not found with QR code: ${qr_code}`);
+    }
+
+    if (asset.status === "TRANSFORMED") {
+        if (!asset.transformed_to) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Asset has been transformed and is no longer scannable"
+            );
+        }
+
+        const newAsset = await db.query.assets.findFirst({
+            where: eq(assets.id, asset.transformed_to),
+        });
+
+        if (newAsset) {
+            return {
+                success: false,
+                asset: {
+                    asset_id: asset.id,
+                    asset_name: asset.name,
+                    tracking_method: asset.tracking_method,
+                    scanned_quantity: 0,
+                    required_quantity: 0,
+                    remaining_quantity: 0,
+                },
+                redirect_asset: {
+                    id: newAsset.id,
+                    name: newAsset.name,
+                    qr_code: newAsset.qr_code,
+                },
+            };
+        }
     }
 
     // Step 4: Check if asset is in this order
@@ -673,6 +728,46 @@ const getOutboundProgress = async (
     };
 };
 
+// ----------------------------------- UPLOAD TRUCK PHOTOS -------------------------------------
+const uploadTruckPhotos = async (
+    orderId: string,
+    photos: string[],
+    user: AuthUser,
+    platformId: string
+) => {
+    // Step 1: Get order
+    const order = await db.query.orders.findFirst({
+        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
+    });
+
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    }
+
+    // Step 2: Validate order status (should be during outbound scanning)
+    if (!["IN_PREPARATION", "READY_FOR_DELIVERY"].includes(order.order_status)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Truck photos can only be uploaded during outbound scanning"
+        );
+    }
+
+    // Step 3: Store photos in order metadata or create a separate record
+    // For now, we'll update the order with truck_photos field
+    await db
+        .update(orders)
+        .set({
+            truck_photos: photos,
+            updated_at: new Date(),
+        })
+        .where(eq(orders.id, orderId));
+
+    return {
+        order_id: order.order_id,
+        photos_count: photos.length,
+    };
+};
+
 export const ScanningServices = {
     inboundScan,
     getInboundProgress,
@@ -680,4 +775,5 @@ export const ScanningServices = {
     outboundScan,
     completeOutboundScan,
     getOutboundProgress,
+    uploadTruckPhotos,
 };

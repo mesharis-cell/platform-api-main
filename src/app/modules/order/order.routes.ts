@@ -161,47 +161,17 @@ router.get(
     OrderControllers.getOrderScanEvents
 );
 
-// Adjust logistics pricing
-router.patch(
-    "/:id/adjust-pricing",
-    platformValidator,
-    auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.PRICING_ADJUST),
-    payloadValidator(orderSchemas.adjustLogisticsPricingSchema),
-    OrderControllers.adjustLogisticsPricing
-);
-
-// Approve standard pricing
-router.patch(
-    "/:id/approve-standard-pricing",
-    platformValidator,
-    auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.PRICING_APPROVE_STANDARD),
-    payloadValidator(orderSchemas.approveStandardPricingSchema),
-    OrderControllers.approveStandardPricing
-);
-
-// Approve platform pricing
-router.patch(
-    "/:id/approve-platform-pricing",
-    platformValidator,
-    auth("ADMIN"),
-    requirePermission(PERMISSIONS.PRICING_ADMIN_APPROVE),
-    payloadValidator(orderSchemas.approvePlatformPricingSchema),
-    OrderControllers.approvePlatformPricing
-);
-
 // ---------------------------------- NEW PRICING WORKFLOW ROUTES ----------------------------------
 
 // Update vehicle type (Logistics) - TODO: Implement controller
-// router.patch(
-//     "/:id/vehicle",
-//     platformValidator,
-//     auth("ADMIN", "LOGISTICS"),
-//     requirePermission(PERMISSIONS.PRICING_REVIEW),
-//     payloadValidator(orderSchemas.updateVehicleSchema),
-//     OrderControllers.updateOrderVehicle
-// );
+router.patch(
+    "/:id/vehicle",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.PRICING_REVIEW),
+    payloadValidator(orderSchemas.updateVehicleSchema),
+    OrderControllers.updateOrderVehicle
+);
 
 // Submit for approval (Logistics → Admin)
 router.post(
@@ -247,5 +217,36 @@ router.use("/:orderId/line-items", OrderLineItemsRoutes);
 
 // Reskin Requests (nested under /order/:orderId/reskin-requests)
 router.use("/:orderId/reskin-requests", ReskinRequestsRoutes);
+
+// ---------------------------------- ORDER ITEM ADJUSTMENTS (NEW) -----------------------------
+
+// Add order item during review
+router.post(
+    "/:id/items",
+    platformValidator,
+    auth("LOGISTICS"),
+    requirePermission(PERMISSIONS.PRICING_REVIEW),
+    payloadValidator(orderSchemas.addOrderItemSchema),
+    OrderControllers.addOrderItem
+);
+
+// Remove order item during review
+router.delete(
+    "/:id/items/:item_id",
+    platformValidator,
+    auth("LOGISTICS"),
+    requirePermission(PERMISSIONS.PRICING_REVIEW),
+    OrderControllers.removeOrderItem
+);
+
+// Update order item quantity during review
+router.patch(
+    "/:id/items/:item_id/quantity",
+    platformValidator,
+    auth("LOGISTICS"),
+    requirePermission(PERMISSIONS.PRICING_REVIEW),
+    payloadValidator(orderSchemas.updateOrderItemQuantitySchema),
+    OrderControllers.updateOrderItemQuantity
+);
 
 export const OrderRoutes = router;

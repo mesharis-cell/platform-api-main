@@ -11,6 +11,17 @@ const inboundScan = catchAsync(async (req, res) => {
     const orderId = getRequiredString(req.params.order_id, "order_id");
 
     const result = await ScanningServices.inboundScan(orderId, req.body, user, platformId);
+    if (result.redirect_asset) {
+        return sendResponse(res, {
+            statusCode: httpStatus.CONFLICT,
+            success: false,
+            message: result.message,
+            data: {
+                asset: result.asset,
+                redirect_asset: result.redirect_asset,
+            },
+        });
+    }
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -68,6 +79,17 @@ const outboundScan = catchAsync(async (req, res) => {
     const orderId = getRequiredString(req.params.order_id, "order_id");
 
     const result = await ScanningServices.outboundScan(orderId, req.body, user, platformId);
+    if (result.redirect_asset) {
+        return sendResponse(res, {
+            statusCode: httpStatus.CONFLICT,
+            success: false,
+            message: "Asset has been transformed. Please scan the new asset QR code.",
+            data: {
+                asset: result.asset,
+                redirect_asset: result.redirect_asset,
+            },
+        });
+    }
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -112,6 +134,22 @@ const completeOutboundScan = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- UPLOAD TRUCK PHOTOS ------------------------------------
+const uploadTruckPhotos = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+    const orderId = getRequiredString(req.params.order_id, "order_id");
+
+    const result = await ScanningServices.uploadTruckPhotos(orderId, req.body.photos, user, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Truck photos uploaded successfully",
+        data: result,
+    });
+});
+
 export const ScanningControllers = {
     inboundScan,
     getInboundProgress,
@@ -119,4 +157,5 @@ export const ScanningControllers = {
     outboundScan,
     completeOutboundScan,
     getOutboundProgress,
+    uploadTruckPhotos,
 };

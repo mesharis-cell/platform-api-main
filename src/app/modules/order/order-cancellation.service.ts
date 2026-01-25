@@ -16,6 +16,7 @@ import {
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
+import { NotificationLogServices } from "../notification-logs/notification-logs.services";
 
 export interface CancelOrderPayload {
     reason:
@@ -51,7 +52,7 @@ export async function cancelOrder(
     payload: CancelOrderPayload,
     user: AuthUser
 ) {
-    const { reason, notes } = payload;
+    const { reason, notes, notify_client } = payload;
 
     // Get order
     const order = await db.query.orders.findFirst({
@@ -142,12 +143,30 @@ export async function cancelOrder(
         });
     });
 
-    // 6. Send notifications
-    // TODO: Implement notification logic
-    // if (notify_client) {
-    //   await sendNotification('ORDER_CANCELLED', { order, reason, notes, recipient: 'client' })
-    // }
-    // await sendNotification('ORDER_CANCELLED', { order, reason, notes, recipient: 'logistics' })
+    const orderForNotification = await db.query.orders.findFirst({
+        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
+        with: { company: true },
+    });
+
+    if (orderForNotification) {
+        if (notify_client) {
+            await NotificationLogServices.sendNotification(
+                platformId,
+                "ORDER_CANCELLED",
+                orderForNotification,
+                { to: [orderForNotification.contact_email] },
+                { cancellation_reason: reason, cancellation_notes: notes }
+            );
+        }
+
+        await NotificationLogServices.sendNotification(
+            platformId,
+            "ORDER_CANCELLED",
+            orderForNotification,
+            undefined,
+            { cancellation_reason: reason, cancellation_notes: notes }
+        );
+    }
 
     return {
         success: true,

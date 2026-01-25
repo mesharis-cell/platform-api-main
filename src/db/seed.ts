@@ -168,6 +168,9 @@ const seededData = {
     collectionItems: [] as any[],
     orders: [] as any[],
     orderItems: [] as any[],
+    reskinRequests: [] as any[],
+    orderLineItems: [] as any[],
+    ordersWithReskin: [] as string[], // Track which order IDs should have reskin
 };
 
 // ============================================================
@@ -1443,36 +1446,38 @@ async function seedOrders() {
     const clientUsers = seededData.users.filter((u) => u.role === "CLIENT");
 
     // Order statuses to create
-    const orderStatuses: Array<{ status: any; financial: any; daysAgo: number }> = [
-        { status: "DRAFT", financial: "PENDING_QUOTE", daysAgo: 1 },
-        { status: "DRAFT", financial: "PENDING_QUOTE", daysAgo: 2 },
-        { status: "SUBMITTED", financial: "PENDING_QUOTE", daysAgo: 3 },
-        { status: "SUBMITTED", financial: "PENDING_QUOTE", daysAgo: 4 },
-        { status: "PRICING_REVIEW", financial: "PENDING_QUOTE", daysAgo: 5 },
-        { status: "PRICING_REVIEW", financial: "PENDING_QUOTE", daysAgo: 6 },
-        { status: "PRICING_REVIEW", financial: "PENDING_QUOTE", daysAgo: 7 },
-        { status: "PENDING_APPROVAL", financial: "PENDING_QUOTE", daysAgo: 8 },
-        { status: "PENDING_APPROVAL", financial: "PENDING_QUOTE", daysAgo: 9 },
-        { status: "QUOTED", financial: "QUOTE_SENT", daysAgo: 10 },
-        { status: "QUOTED", financial: "QUOTE_SENT", daysAgo: 11 },
-        { status: "QUOTED", financial: "QUOTE_SENT", daysAgo: 12 },
-        { status: "CONFIRMED", financial: "QUOTE_ACCEPTED", daysAgo: 15 },
-        { status: "CONFIRMED", financial: "QUOTE_ACCEPTED", daysAgo: 16 },
-        { status: "IN_PREPARATION", financial: "QUOTE_ACCEPTED", daysAgo: 18 },
-        { status: "IN_PREPARATION", financial: "QUOTE_ACCEPTED", daysAgo: 19 },
-        { status: "READY_FOR_DELIVERY", financial: "INVOICED", daysAgo: 20 },
-        { status: "IN_TRANSIT", financial: "INVOICED", daysAgo: 22 },
-        { status: "DELIVERED", financial: "INVOICED", daysAgo: 25 },
-        { status: "DELIVERED", financial: "PAID", daysAgo: 28 },
-        { status: "AWAITING_RETURN", financial: "PAID", daysAgo: 30 },
-        { status: "AWAITING_RETURN", financial: "PAID", daysAgo: 32 },
-        { status: "CLOSED", financial: "PAID", daysAgo: 35 },
-        { status: "CLOSED", financial: "PAID", daysAgo: 40 },
-        { status: "CANCELLED", financial: "CANCELLED", daysAgo: 14 },
+    const orderStatuses: Array<{status: any, financial: any, daysAgo: number, hasReskin?: boolean}> = [
+        { status: 'DRAFT', financial: 'PENDING_QUOTE', daysAgo: 1 },
+        { status: 'DRAFT', financial: 'PENDING_QUOTE', daysAgo: 2 },
+        { status: 'SUBMITTED', financial: 'PENDING_QUOTE', daysAgo: 3 },
+        { status: 'SUBMITTED', financial: 'PENDING_QUOTE', daysAgo: 4 },
+        { status: 'PRICING_REVIEW', financial: 'PENDING_QUOTE', daysAgo: 5 },
+        { status: 'PRICING_REVIEW', financial: 'PENDING_QUOTE', daysAgo: 6 },
+        { status: 'PRICING_REVIEW', financial: 'PENDING_QUOTE', daysAgo: 7 },
+        { status: 'PENDING_APPROVAL', financial: 'PENDING_QUOTE', daysAgo: 8 },
+        { status: 'PENDING_APPROVAL', financial: 'PENDING_QUOTE', daysAgo: 9 },
+        { status: 'QUOTED', financial: 'QUOTE_SENT', daysAgo: 10 },
+        { status: 'QUOTED', financial: 'QUOTE_SENT', daysAgo: 11 },
+        { status: 'QUOTED', financial: 'QUOTE_SENT', daysAgo: 12 },
+        { status: 'CONFIRMED', financial: 'QUOTE_ACCEPTED', daysAgo: 15, hasReskin: true }, // Has reskin request
+        { status: 'CONFIRMED', financial: 'QUOTE_ACCEPTED', daysAgo: 16 },
+        { status: 'AWAITING_FABRICATION', financial: 'QUOTE_ACCEPTED', daysAgo: 17, hasReskin: true }, // Reskin in progress
+        { status: 'AWAITING_FABRICATION', financial: 'QUOTE_ACCEPTED', daysAgo: 17.5, hasReskin: true }, // Reskin in progress
+        { status: 'IN_PREPARATION', financial: 'QUOTE_ACCEPTED', daysAgo: 18 },
+        { status: 'IN_PREPARATION', financial: 'QUOTE_ACCEPTED', daysAgo: 19 },
+        { status: 'READY_FOR_DELIVERY', financial: 'INVOICED', daysAgo: 20 },
+        { status: 'IN_TRANSIT', financial: 'INVOICED', daysAgo: 22 },
+        { status: 'DELIVERED', financial: 'INVOICED', daysAgo: 25 },
+        { status: 'DELIVERED', financial: 'PAID', daysAgo: 28 },
+        { status: 'AWAITING_RETURN', financial: 'PAID', daysAgo: 30 },
+        { status: 'AWAITING_RETURN', financial: 'PAID', daysAgo: 32 },
+        { status: 'CLOSED', financial: 'PAID', daysAgo: 35 },
+        { status: 'CLOSED', financial: 'PAID', daysAgo: 40 },
+        { status: 'CANCELLED', financial: 'CANCELLED', daysAgo: 14 },
     ];
 
     for (let i = 0; i < orderStatuses.length; i++) {
-        const { status, financial, daysAgo } = orderStatuses[i];
+        const { status, financial, daysAgo, hasReskin } = orderStatuses[i];
         const user = randomItem(clientUsers);
         const company = seededData.companies.find((c) => c.id === user.company_id);
         if (!company) continue;
@@ -1483,22 +1488,84 @@ async function seedOrders() {
 
         const createdDate = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
         const eventStart = new Date(Date.now() + (Math.random() * 60 + 10) * 24 * 60 * 60 * 1000); // 10-70 days from now
-        const eventEnd = new Date(
-            eventStart.getTime() + (Math.random() * 5 + 1) * 24 * 60 * 60 * 1000
-        ); // 1-6 days duration
-
-        // Calculate pricing
+        const eventEnd = new Date(eventStart.getTime() + (Math.random() * 5 + 1) * 24 * 60 * 60 * 1000); // 1-6 days duration
+        
+        // Calculate volume/weight
         const volume = (Math.random() * 50 + 10).toFixed(3); // 10-60 m³
         const weight = (parseFloat(volume) * (Math.random() * 50 + 100)).toFixed(2); // 100-150 kg/m³
-        const basePrice = parseFloat(volume) * 150; // 150 AED per m³
-        const adjustedPrice =
-            status !== "DRAFT" && status !== "SUBMITTED"
-                ? basePrice * (0.95 + Math.random() * 0.15)
-                : null;
+        
+        // Determine vehicle type based on volume
+        const vehicleType = parseFloat(volume) > 30 ? '10_TON' : parseFloat(volume) > 15 ? '7_TON' : 'STANDARD';
+        const tripType = 'ROUND_TRIP';
+        const emirate = randomItem(['Dubai', 'Abu Dhabi', 'Sharjah']);
+        
+        // Get pricing config rate (150 AED/m³ default)
+        const warehouseOpsRate = 150.00;
+        
+        // Calculate base operations
+        const baseOpsTotal = parseFloat(volume) * warehouseOpsRate;
+        
+        // Get transport rate (simulate lookup)
+        const transportRate = vehicleType === '10_TON' ? 2160 : vehicleType === '7_TON' ? 1440 : 900; // ROUND_TRIP rates
+        
+        // For orders with pricing, calculate line items totals
+        let catalogTotal = 0;
+        let customTotal = 0;
+        
+        if (hasReskin && !['DRAFT', 'SUBMITTED', 'PRICING_REVIEW'].includes(status)) {
+            // Reskin costs (custom, no margin)
+            customTotal = Math.random() * 2000 + 1000; // 1000-3000 AED for reskins
+            // Assembly/handling costs (catalog, with margin)
+            catalogTotal = Math.random() * 500 + 200; // 200-700 AED
+        } else if (!['DRAFT', 'SUBMITTED', 'PRICING_REVIEW'].includes(status)) {
+            // Normal orders - just catalog items
+            catalogTotal = Math.random() * 500 + 100; // 100-600 AED
+        }
+        
+        // Calculate logistics subtotal (base ops + transport + catalog items)
+        const logisticsSubtotal = baseOpsTotal + transportRate + catalogTotal;
+        
+        // Calculate margin (on logistics subtotal only, NOT on custom items)
         const marginPercent = parseFloat(company.platform_margin_percent);
-        const marginAmount = adjustedPrice ? (adjustedPrice * marginPercent) / 100 : null;
-        const finalPrice = adjustedPrice && marginAmount ? adjustedPrice + marginAmount : null;
-
+        const marginAmount = logisticsSubtotal * (marginPercent / 100);
+        
+        // Calculate final total
+        const finalTotal = logisticsSubtotal + marginAmount + customTotal;
+        
+        // Build NEW pricing structure (only for orders past SUBMITTED)
+        const newPricing = !['DRAFT', 'SUBMITTED'].includes(status) ? {
+            base_operations: {
+                volume: parseFloat(volume),
+                rate: warehouseOpsRate,
+                total: parseFloat(baseOpsTotal.toFixed(2)),
+            },
+            transport: {
+                trip_type: tripType,
+                vehicle_type: vehicleType,
+                rate: transportRate,
+                total: transportRate,
+                emirate: emirate,
+                area: null,
+                vehicle_changed: false,
+                original_vehicle_type: null,
+                vehicle_change_reason: null,
+            },
+            line_items: {
+                catalog_total: parseFloat(catalogTotal.toFixed(2)),
+                custom_total: parseFloat(customTotal.toFixed(2)),
+            },
+            logistics_subtotal: parseFloat(logisticsSubtotal.toFixed(2)),
+            margin: {
+                percent: marginPercent,
+                amount: parseFloat(marginAmount.toFixed(2)),
+                is_override: false,
+                override_reason: null,
+            },
+            final_total: parseFloat(finalTotal.toFixed(2)),
+            calculated_at: new Date(createdDate.getTime() + 36 * 60 * 60 * 1000).toISOString(),
+            calculated_by: seededData.users.find(u => u.role === 'ADMIN')?.id || null,
+        } : null;
+        
         orders.push({
             platform_id: platform1.id,
             order_id: generateOrderId(createdDate, i + 1),
@@ -1562,62 +1629,13 @@ async function seedOrders() {
                 volume: volume,
                 weight: weight,
             },
-            transport_trip_type: "ROUND_TRIP" as TripType,
-            transport_vehicle_type: (parseFloat(volume) > 30
-                ? "10_TON"
-                : parseFloat(volume) > 15
-                  ? "7_TON"
-                  : "STANDARD") as VehicleType,
+            transport_trip_type: tripType as any,
+            transport_vehicle_type: vehicleType as any,
             tier_id: null, // DEPRECATED
-            logistics_pricing:
-                status !== "DRAFT" && status !== "SUBMITTED"
-                    ? {
-                          base_price: basePrice.toFixed(2),
-                          adjusted_price: adjustedPrice?.toFixed(2) || null,
-                          adjustment_reason:
-                              adjustedPrice && adjustedPrice !== basePrice
-                                  ? "Adjusted for complexity and special handling requirements"
-                                  : null,
-                          adjusted_at: new Date(createdDate.getTime() + 24 * 60 * 60 * 1000),
-                          adjusted_by:
-                              seededData.users.find((u) => u.role === "LOGISTICS")?.id || null,
-                      }
-                    : null,
-            platform_pricing: [
-                "PENDING_APPROVAL",
-                "QUOTED",
-                "CONFIRMED",
-                "IN_PREPARATION",
-                "READY_FOR_DELIVERY",
-                "IN_TRANSIT",
-                "DELIVERED",
-                "AWAITING_RETURN",
-                "CLOSED",
-            ].includes(status)
-                ? {
-                      margin_percent: marginPercent.toString(),
-                      margin_amount: marginAmount?.toFixed(2) || null,
-                      reviewed_at: new Date(createdDate.getTime() + 48 * 60 * 60 * 1000),
-                      reviewed_by: seededData.users.find((u) => u.role === "ADMIN")?.id || null,
-                      notes: "Standard margin applied",
-                  }
-                : null,
-            final_pricing: [
-                "QUOTED",
-                "CONFIRMED",
-                "IN_PREPARATION",
-                "READY_FOR_DELIVERY",
-                "IN_TRANSIT",
-                "DELIVERED",
-                "AWAITING_RETURN",
-                "CLOSED",
-            ].includes(status)
-                ? {
-                      total_price: finalPrice?.toFixed(2) || null,
-                      quote_sent_at: new Date(createdDate.getTime() + 48 * 60 * 60 * 1000),
-                  }
-                : null,
-            pricing: null, // NEW pricing structure (not yet implemented)
+            logistics_pricing: null, // DEPRECATED - using new pricing structure
+            platform_pricing: null, // DEPRECATED - using new pricing structure
+            final_pricing: null, // DEPRECATED - using new pricing structure
+            pricing: newPricing, // NEW hybrid pricing structure
             order_status: status,
             financial_status: financial,
             scanning_data: {},
@@ -1634,7 +1652,15 @@ async function seedOrders() {
 
     const inserted = await db.insert(schema.orders).values(orders).returning();
     seededData.orders = inserted;
-    console.log(`✓ Created ${inserted.length} orders across all statuses`);
+    
+    // Track which orders should have reskin requests
+    for (let i = 0; i < orderStatuses.length; i++) {
+        if (orderStatuses[i].hasReskin) {
+            seededData.ordersWithReskin.push(inserted[i].id);
+        }
+    }
+    
+    console.log(`✓ Created ${inserted.length} orders across all statuses (${seededData.ordersWithReskin.length} with reskin requests)`);
 }
 
 async function seedOrderItems() {
@@ -1643,22 +1669,27 @@ async function seedOrderItems() {
     const orderItems = [];
 
     for (const order of seededData.orders) {
-        const companyAssets = seededData.assets.filter(
-            (a) => a.company_id === order.company_id && a.status === "AVAILABLE"
-        );
-
+        const companyAssets = seededData.assets.filter(a => a.company_id === order.company_id && a.status === 'AVAILABLE');
+        const companyBrands = seededData.brands.filter(b => b.company_id === order.company_id);
+        const hasReskin = seededData.ordersWithReskin.includes(order.id);
+        
         // 5-8 items per order
         const itemCount = Math.floor(Math.random() * 4) + 5;
         const selectedAssets = companyAssets
             .sort(() => Math.random() - 0.5)
             .slice(0, Math.min(itemCount, companyAssets.length));
-
-        for (const asset of selectedAssets) {
-            const quantity =
-                asset.tracking_method === "BATCH" ? Math.floor(Math.random() * 10) + 1 : 1;
+        
+        for (let idx = 0; idx < selectedAssets.length; idx++) {
+            const asset = selectedAssets[idx];
+            const quantity = asset.tracking_method === 'BATCH' ? Math.floor(Math.random() * 10) + 1 : 1;
             const volumePerUnit = parseFloat(asset.volume_per_unit);
             const weightPerUnit = parseFloat(asset.weight_per_unit);
-
+            
+            // For reskin orders, mark 2 items as reskin requests
+            const isReskinItem = hasReskin && idx < 2;
+            const targetBrand = isReskinItem && companyBrands.length > 0 ? randomItem(companyBrands) : null;
+            const useCustomBrand = isReskinItem && Math.random() > 0.7; // 30% custom brand
+            
             orderItems.push({
                 platform_id: order.platform_id,
                 order_id: order.id,
@@ -1671,19 +1702,167 @@ async function seedOrderItems() {
                 total_weight: (weightPerUnit * quantity).toFixed(2),
                 condition_notes: null,
                 handling_tags: asset.handling_tags,
-                from_collection: null, // TODO: Link some items to collections
+                from_collection: null,
                 from_collection_name: null,
-                is_reskin_request: false,
-                reskin_target_brand_id: null,
-                reskin_target_brand_custom: null,
-                reskin_notes: null,
+                is_reskin_request: isReskinItem,
+                reskin_target_brand_id: isReskinItem && !useCustomBrand ? targetBrand?.id || null : null,
+                reskin_target_brand_custom: isReskinItem && useCustomBrand ? 'Custom Brand X' : null,
+                reskin_notes: isReskinItem ? 'Please apply new branding as per attached mockup' : null,
             });
         }
     }
 
     const inserted = await db.insert(schema.orderItems).values(orderItems).returning();
     seededData.orderItems = inserted;
-    console.log(`✓ Created ${inserted.length} order items`);
+    console.log(`✓ Created ${inserted.length} order items (${inserted.filter(i => i.is_reskin_request).length} reskin requests)`);
+}
+
+async function seedReskinRequests() {
+    console.log('🎨 Seeding reskin requests...');
+    
+    const reskinRequests = [];
+    const adminUsers = seededData.users.filter(u => u.role === 'ADMIN');
+    
+    // Get all order items that are reskin requests
+    const reskinOrderItems = seededData.orderItems.filter(i => i.is_reskin_request);
+    
+    for (const item of reskinOrderItems) {
+        const order = seededData.orders.find(o => o.id === item.order_id);
+        if (!order) continue;
+        
+        const originalAsset = seededData.assets.find(a => a.id === item.asset_id);
+        if (!originalAsset) continue;
+        
+        const createdDate = new Date(order.created_at.getTime() + 12 * 60 * 60 * 1000); // 12 hours after order
+        
+        // Determine if completed (for AWAITING_FABRICATION with later date)
+        const isCompleted = order.order_status !== 'AWAITING_FABRICATION';
+        
+        reskinRequests.push({
+            platform_id: order.platform_id,
+            order_id: order.id,
+            order_item_id: item.id,
+            original_asset_id: item.asset_id,
+            original_asset_name: item.asset_name,
+            original_brand_id: originalAsset.brand_id,
+            target_brand_id: item.reskin_target_brand_id,
+            target_brand_custom: item.reskin_target_brand_custom,
+            client_notes: item.reskin_notes || 'Please apply new branding as per mockup. Timeline is critical for event.',
+            admin_notes: isCompleted ? 'Fabrication completed successfully. New asset ready for delivery.' : 'In fabrication queue. Estimated 7 days completion.',
+            new_asset_id: isCompleted ? originalAsset.id : null, // In real scenario, would be a new asset ID
+            new_asset_name: isCompleted ? item.asset_name : null,
+            completed_at: isCompleted ? new Date(createdDate.getTime() + 7 * 24 * 60 * 60 * 1000) : null,
+            completed_by: isCompleted ? randomItem(adminUsers).id : null,
+            completion_notes: isCompleted ? 'Quality checked and approved for delivery' : null,
+            completion_photos: isCompleted ? [
+                `https://placehold.co/800x600/10b981/FFFFFF?text=${encodeURIComponent('Completed\\n' + item.asset_name)}`,
+            ] : [],
+            cancelled_at: null,
+            cancelled_by: null,
+            cancellation_reason: null,
+        });
+    }
+    
+    const inserted = await db.insert(schema.reskinRequests).values(reskinRequests).returning();
+    seededData.reskinRequests = inserted;
+    console.log(`✓ Created ${inserted.length} reskin requests`);
+}
+
+async function seedOrderLineItems() {
+    console.log('💰 Seeding order line items (reskin costs, assembly, etc.)...');
+    
+    const lineItems = [];
+    const adminUsers = seededData.users.filter(u => u.role === 'ADMIN');
+    const logisticsUsers = seededData.users.filter(u => u.role === 'LOGISTICS');
+    
+    for (const order of seededData.orders) {
+        // Only add line items for orders past PRICING_REVIEW
+        if (!['PENDING_APPROVAL', 'QUOTED', 'CONFIRMED', 'AWAITING_FABRICATION', 'IN_PREPARATION', 'READY_FOR_DELIVERY', 'IN_TRANSIT', 'DELIVERED', 'AWAITING_RETURN', 'CLOSED'].includes(order.order_status)) {
+            continue;
+        }
+        
+        // Get pricing totals from order
+        const pricing = order.pricing as any;
+        if (!pricing) continue;
+        
+        const catalogTarget = pricing.line_items.catalog_total;
+        const customTarget = pricing.line_items.custom_total;
+        
+        const addedDate = new Date(order.created_at.getTime() + 36 * 60 * 60 * 1000);
+        
+        // Add reskin line items for reskin requests (CUSTOM - no margin)
+        const orderReskinRequests = seededData.reskinRequests.filter(r => r.order_id === order.id);
+        if (orderReskinRequests.length > 0 && customTarget > 0) {
+            // Distribute custom_total across reskin requests
+            const costPerReskin = customTarget / orderReskinRequests.length;
+            
+            for (const reskinReq of orderReskinRequests) {
+                lineItems.push({
+                    platform_id: order.platform_id,
+                    order_id: order.id,
+                    service_type_id: null,
+                    reskin_request_id: reskinReq.id,
+                    line_item_type: 'CUSTOM',
+                    category: 'RESKIN',
+                    description: `Rebrand: ${reskinReq.original_asset_name}`,
+                    quantity: null,
+                    unit: null,
+                    unit_rate: null,
+                    total: costPerReskin.toFixed(2),
+                    added_by: randomItem(adminUsers).id,
+                    added_at: addedDate,
+                    notes: 'Custom fabrication and branding application',
+                    is_voided: false,
+                    voided_at: null,
+                    voided_by: null,
+                    void_reason: null,
+                });
+            }
+        }
+        
+        // Add catalog service items (assembly, handling, etc.) - margin applied
+        if (catalogTarget > 0) {
+            const numServices = Math.floor(Math.random() * 2) + 1;
+            const availableServices = seededData.serviceTypes.filter(s => s.default_rate);
+            
+            if (availableServices.length > 0) {
+                // Distribute catalog_total across services
+                const costPerService = catalogTarget / numServices;
+                
+                for (let i = 0; i < numServices; i++) {
+                    const service = randomItem(availableServices);
+                    const rate = parseFloat(service.default_rate);
+                    const qty = Math.max(1, Math.floor(costPerService / rate));
+                    const total = (qty * rate).toFixed(2);
+                    
+                    lineItems.push({
+                        platform_id: order.platform_id,
+                        order_id: order.id,
+                        service_type_id: service.id,
+                        reskin_request_id: null,
+                        line_item_type: 'CATALOG',
+                        category: service.category,
+                        description: service.name,
+                        quantity: qty.toString(),
+                        unit: service.unit,
+                        unit_rate: service.default_rate,
+                        total: total,
+                        added_by: randomItem(logisticsUsers).id,
+                        added_at: addedDate,
+                        notes: null,
+                        is_voided: false,
+                        voided_at: null,
+                        voided_by: null,
+                        void_reason: null,
+                    });
+                }
+            }
+        }
+    }
+    
+    const inserted = await db.insert(schema.orderLineItems).values(lineItems).returning();
+    seededData.orderLineItems = inserted;
+    console.log(`✓ Created ${inserted.length} order line items (${inserted.filter(i => i.category === 'RESKIN').length} reskin costs)`);
 }
 
 async function seedAssetBookings() {
@@ -2020,97 +2199,22 @@ async function seedNotificationLogs() {
 
 function getStatusProgression(finalStatus: string): string[] {
     const progressions: Record<string, string[]> = {
-        DRAFT: ["DRAFT"],
-        SUBMITTED: ["DRAFT", "SUBMITTED"],
-        PRICING_REVIEW: ["DRAFT", "SUBMITTED", "PRICING_REVIEW"],
-        PENDING_APPROVAL: ["DRAFT", "SUBMITTED", "PRICING_REVIEW", "PENDING_APPROVAL"],
-        QUOTED: ["DRAFT", "SUBMITTED", "PRICING_REVIEW", "PENDING_APPROVAL", "QUOTED"],
-        DECLINED: [
-            "DRAFT",
-            "SUBMITTED",
-            "PRICING_REVIEW",
-            "PENDING_APPROVAL",
-            "QUOTED",
-            "DECLINED",
-        ],
-        CONFIRMED: [
-            "DRAFT",
-            "SUBMITTED",
-            "PRICING_REVIEW",
-            "PENDING_APPROVAL",
-            "QUOTED",
-            "CONFIRMED",
-        ],
-        IN_PREPARATION: [
-            "DRAFT",
-            "SUBMITTED",
-            "PRICING_REVIEW",
-            "PENDING_APPROVAL",
-            "QUOTED",
-            "CONFIRMED",
-            "IN_PREPARATION",
-        ],
-        READY_FOR_DELIVERY: [
-            "DRAFT",
-            "SUBMITTED",
-            "PRICING_REVIEW",
-            "PENDING_APPROVAL",
-            "QUOTED",
-            "CONFIRMED",
-            "IN_PREPARATION",
-            "READY_FOR_DELIVERY",
-        ],
-        IN_TRANSIT: [
-            "DRAFT",
-            "SUBMITTED",
-            "PRICING_REVIEW",
-            "PENDING_APPROVAL",
-            "QUOTED",
-            "CONFIRMED",
-            "IN_PREPARATION",
-            "READY_FOR_DELIVERY",
-            "IN_TRANSIT",
-        ],
-        DELIVERED: [
-            "DRAFT",
-            "SUBMITTED",
-            "PRICING_REVIEW",
-            "PENDING_APPROVAL",
-            "QUOTED",
-            "CONFIRMED",
-            "IN_PREPARATION",
-            "READY_FOR_DELIVERY",
-            "IN_TRANSIT",
-            "DELIVERED",
-        ],
-        AWAITING_RETURN: [
-            "DRAFT",
-            "SUBMITTED",
-            "PRICING_REVIEW",
-            "PENDING_APPROVAL",
-            "QUOTED",
-            "CONFIRMED",
-            "IN_PREPARATION",
-            "READY_FOR_DELIVERY",
-            "IN_TRANSIT",
-            "DELIVERED",
-            "AWAITING_RETURN",
-        ],
-        CLOSED: [
-            "DRAFT",
-            "SUBMITTED",
-            "PRICING_REVIEW",
-            "PENDING_APPROVAL",
-            "QUOTED",
-            "CONFIRMED",
-            "IN_PREPARATION",
-            "READY_FOR_DELIVERY",
-            "IN_TRANSIT",
-            "DELIVERED",
-            "AWAITING_RETURN",
-            "CLOSED",
-        ],
-        CANCELLED: ["DRAFT", "SUBMITTED", "CANCELLED"],
+        'DRAFT': ['DRAFT'],
+        'SUBMITTED': ['DRAFT', 'SUBMITTED'],
+        'PRICING_REVIEW': ['DRAFT', 'SUBMITTED', 'PRICING_REVIEW'],
+        'PENDING_APPROVAL': ['DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL'],
+        'QUOTED': ['DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL', 'QUOTED'],
+        'DECLINED': ['DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL', 'QUOTED', 'DECLINED'],
+        'CONFIRMED': ['DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL', 'QUOTED', 'CONFIRMED'],
+        'AWAITING_FABRICATION': ['DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL', 'QUOTED', 'CONFIRMED', 'AWAITING_FABRICATION'],
+        'IN_PREPARATION': ['DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL', 'QUOTED', 'CONFIRMED', 'IN_PREPARATION'],
+        'READY_FOR_DELIVERY': ['DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL', 'QUOTED', 'CONFIRMED', 'IN_PREPARATION', 'READY_FOR_DELIVERY'],
+        'IN_TRANSIT': ['DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL', 'QUOTED', 'CONFIRMED', 'IN_PREPARATION', 'READY_FOR_DELIVERY', 'IN_TRANSIT'],
+        'DELIVERED': ['DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL', 'QUOTED', 'CONFIRMED', 'IN_PREPARATION', 'READY_FOR_DELIVERY', 'IN_TRANSIT', 'DELIVERED'],
+        'AWAITING_RETURN': ['DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL', 'QUOTED', 'CONFIRMED', 'IN_PREPARATION', 'READY_FOR_DELIVERY', 'IN_TRANSIT', 'DELIVERED', 'AWAITING_RETURN'],
+        'RETURN_IN_TRANSIT': ['DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL', 'QUOTED', 'CONFIRMED', 'IN_PREPARATION', 'READY_FOR_DELIVERY', 'IN_TRANSIT', 'DELIVERED', 'AWAITING_RETURN', 'RETURN_IN_TRANSIT'],
+        'CLOSED': ['DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL', 'QUOTED', 'CONFIRMED', 'IN_PREPARATION', 'READY_FOR_DELIVERY', 'IN_TRANSIT', 'DELIVERED', 'AWAITING_RETURN', 'RETURN_IN_TRANSIT', 'CLOSED'],
+        'CANCELLED': ['DRAFT', 'SUBMITTED', 'CANCELLED'],
     };
 
     return progressions[finalStatus] || ["DRAFT"];
@@ -2118,20 +2222,14 @@ function getStatusProgression(finalStatus: string): string[] {
 
 function getFinancialProgression(finalStatus: string): string[] {
     const progressions: Record<string, string[]> = {
-        PENDING_QUOTE: ["PENDING_QUOTE"],
-        QUOTE_SENT: ["PENDING_QUOTE", "QUOTE_SENT"],
-        QUOTE_ACCEPTED: ["PENDING_QUOTE", "QUOTE_SENT", "QUOTE_ACCEPTED"],
-        PENDING_INVOICE: ["PENDING_QUOTE", "QUOTE_SENT", "QUOTE_ACCEPTED", "PENDING_INVOICE"],
-        INVOICED: ["PENDING_QUOTE", "QUOTE_SENT", "QUOTE_ACCEPTED", "PENDING_INVOICE", "INVOICED"],
-        PAID: [
-            "PENDING_QUOTE",
-            "QUOTE_SENT",
-            "QUOTE_ACCEPTED",
-            "PENDING_INVOICE",
-            "INVOICED",
-            "PAID",
-        ],
-        CANCELLED: ["PENDING_QUOTE", "CANCELLED"],
+        'PENDING_QUOTE': ['PENDING_QUOTE'],
+        'QUOTE_SENT': ['PENDING_QUOTE', 'QUOTE_SENT'],
+        'QUOTE_REVISED': ['PENDING_QUOTE', 'QUOTE_SENT', 'QUOTE_REVISED'],
+        'QUOTE_ACCEPTED': ['PENDING_QUOTE', 'QUOTE_SENT', 'QUOTE_ACCEPTED'],
+        'PENDING_INVOICE': ['PENDING_QUOTE', 'QUOTE_SENT', 'QUOTE_ACCEPTED', 'PENDING_INVOICE'],
+        'INVOICED': ['PENDING_QUOTE', 'QUOTE_SENT', 'QUOTE_ACCEPTED', 'PENDING_INVOICE', 'INVOICED'],
+        'PAID': ['PENDING_QUOTE', 'QUOTE_SENT', 'QUOTE_ACCEPTED', 'PENDING_INVOICE', 'INVOICED', 'PAID'],
+        'CANCELLED': ['PENDING_QUOTE', 'CANCELLED'],
     };
 
     return progressions[finalStatus] || ["PENDING_QUOTE"];
@@ -2139,19 +2237,21 @@ function getFinancialProgression(finalStatus: string): string[] {
 
 function getStatusNote(status: string): string {
     const notes: Record<string, string> = {
-        DRAFT: "Order created",
-        SUBMITTED: "Order submitted by client",
-        PRICING_REVIEW: "Under logistics review",
-        PENDING_APPROVAL: "Awaiting admin approval",
-        QUOTED: "Quote sent to client",
-        CONFIRMED: "Client approved quote",
-        IN_PREPARATION: "Items being prepared",
-        READY_FOR_DELIVERY: "Ready for pickup",
-        IN_TRANSIT: "En route to venue",
-        DELIVERED: "Delivered to venue",
-        AWAITING_RETURN: "Event complete, awaiting pickup",
-        CLOSED: "Order complete",
-        CANCELLED: "Order cancelled",
+        'DRAFT': 'Order created',
+        'SUBMITTED': 'Order submitted by client',
+        'PRICING_REVIEW': 'Under logistics review',
+        'PENDING_APPROVAL': 'Awaiting admin approval',
+        'QUOTED': 'Quote sent to client',
+        'CONFIRMED': 'Client approved quote',
+        'AWAITING_FABRICATION': 'Awaiting fabrication completion',
+        'IN_PREPARATION': 'Items being prepared',
+        'READY_FOR_DELIVERY': 'Ready for pickup',
+        'IN_TRANSIT': 'En route to venue',
+        'DELIVERED': 'Delivered to venue',
+        'AWAITING_RETURN': 'Event complete, awaiting pickup',
+        'RETURN_IN_TRANSIT': 'Items returning to warehouse',
+        'CLOSED': 'Order complete',
+        'CANCELLED': 'Order cancelled',
     };
 
     return notes[status] || "Status updated";
@@ -2159,13 +2259,14 @@ function getStatusNote(status: string): string {
 
 function getFinancialNote(status: string): string {
     const notes: Record<string, string> = {
-        PENDING_QUOTE: "Awaiting pricing",
-        QUOTE_SENT: "Quote delivered to client",
-        QUOTE_ACCEPTED: "Client accepted quote",
-        PENDING_INVOICE: "Preparing invoice",
-        INVOICED: "Invoice generated and sent",
-        PAID: "Payment received",
-        CANCELLED: "Order cancelled",
+        'PENDING_QUOTE': 'Awaiting pricing',
+        'QUOTE_SENT': 'Quote delivered to client',
+        'QUOTE_REVISED': 'Quote revised, awaiting acknowledgment',
+        'QUOTE_ACCEPTED': 'Client accepted quote',
+        'PENDING_INVOICE': 'Preparing invoice',
+        'INVOICED': 'Invoice generated and sent',
+        'PAID': 'Payment received',
+        'CANCELLED': 'Order cancelled',
     };
 
     return notes[status] || "Financial status updated";
@@ -2273,6 +2374,8 @@ async function main() {
         // Phase 4: Orders & workflow
         await seedOrders();
         await seedOrderItems();
+        await seedReskinRequests();
+        await seedOrderLineItems();
         await seedAssetBookings();
 
         // Phase 5: Scanning & tracking (with damage photos)
@@ -2303,10 +2406,12 @@ async function main() {
         console.log(`  - Pricing Configs: ${seededData.pricingConfigs.length}`);
         console.log(`  - Transport Rates: ${seededData.transportRates.length}`);
         console.log(`  - Service Types: ${seededData.serviceTypes.length}`);
-        console.log(`  - Orders: ${seededData.orders.length}`);
-        console.log(`  - Order Items: ${seededData.orderItems.length}`);
-
-        console.log("\n🖼️  Image Summary:");
+        console.log(`  - Orders: ${seededData.orders.length} (${seededData.orders.filter(o => o.order_status === 'AWAITING_FABRICATION').length} awaiting fabrication)`);
+        console.log(`  - Order Items: ${seededData.orderItems.length} (${seededData.orderItems.filter(i => i.is_reskin_request).length} reskin requests)`);
+        console.log(`  - Reskin Requests: ${seededData.reskinRequests.length}`);
+        console.log(`  - Order Line Items: ${seededData.orderLineItems.length} (${seededData.orderLineItems.filter(i => i.category === 'RESKIN').length} reskin costs)`);
+        
+        console.log('\n🖼️  Image Summary:');
         console.log(`  - Asset images: ${seededData.assets.length * 3}`);
         console.log(`  - Collection images: ${seededData.collections.length * 2}`);
         console.log(`  - Brand logos: ${seededData.brands.length}`);

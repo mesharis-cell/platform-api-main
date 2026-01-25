@@ -22,7 +22,6 @@ export interface UpdateVehiclePayload {
 export async function updateOrderVehicle(
     orderId: string,
     platformId: string,
-    companyId: string,
     payload: UpdateVehiclePayload,
     userId: string
 ) {
@@ -59,7 +58,7 @@ export async function updateOrderVehicle(
     );
     const newRate = await TransportRatesServices.getTransportRate(
         platformId,
-        companyId,
+        order.company_id,
         emirate,
         order.transport_trip_type,
         vehicle_type

@@ -17,7 +17,12 @@ export interface ScanProgressResponse {
 export interface InboundScanResponse {
     message: string;
     asset: any;
-    progress: ScanProgressResponse;
+    progress?: ScanProgressResponse;
+    redirect_asset?: {
+        id: string;
+        name: string;
+        qr_code: string;
+    };
 }
 
 export interface AssetProgress {
@@ -62,10 +67,15 @@ export interface OutboundScanResponse {
         required_quantity: number;
         remaining_quantity: number;
     };
-    progress: {
+    progress?: {
         total_items: number;
         items_scanned: number;
         percent_complete: number;
+    };
+    redirect_asset?: {
+        id: string;
+        name: string;
+        qr_code: string;
     };
 }
 
