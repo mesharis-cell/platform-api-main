@@ -19,7 +19,14 @@ export const outboundScanSchema = z.object({
     }),
 });
 
+export const uploadTruckPhotosSchema = z.object({
+    body: z.object({
+        photos: z.array(z.string()).min(1, { message: "At least one photo is required" }),
+    }),
+});
+
 export const ScanningSchemas = {
     inboundScanSchema,
     outboundScanSchema,
+    uploadTruckPhotosSchema,
 };

@@ -12,6 +12,35 @@ export async function getEmailTemplate(
 		font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 		background-color: #f6f9fc;
 	`;
+    const formatAmount = (value?: number | string | null) =>
+        value === undefined || value === null ? "—" : Number(value).toFixed(2);
+    const lineItemsHtml =
+        data.line_items && data.line_items.length > 0
+            ? data.line_items
+                  .map(
+                      (item) =>
+                          `<p style="margin: 6px 0;"><strong>${item.description}:</strong> ${formatAmount(item.total)} AED</p>`
+                  )
+                  .join("")
+            : `<p style="margin: 6px 0; color: #6b7280;">No additional line items</p>`;
+    const pricingBreakdownHtml = data.pricing
+        ? `
+            <p style="margin: 6px 0;"><strong>Logistics & Handling:</strong> ${formatAmount(
+                data.pricing.base_operations?.total
+            )} AED</p>
+            <p style="margin: 6px 0;"><strong>Transport (${data.pricing.transport?.emirate || "—"}, ${
+                data.pricing.transport?.trip_type || "—"
+            }):</strong> ${formatAmount(data.pricing.transport?.final_rate)} AED</p>
+            ${lineItemsHtml}
+            <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 12px 0;">
+            <p style="margin: 6px 0;"><strong>Subtotal:</strong> ${formatAmount(
+                data.pricing.logistics_subtotal
+            )} AED</p>
+            <p style="margin: 6px 0;"><strong>Service Fee:</strong> ${formatAmount(
+                data.pricing.margin?.amount
+            )} AED</p>
+        `
+        : "";
 
     const templates: Record<NotificationType, { subject: string; html: string }> = {
         ORDER_SUBMITTED: {
@@ -51,14 +80,44 @@ export async function getEmailTemplate(
 		<table width="600" cellpadding="0" cellspacing="0" style="background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
 			<tr><td style="padding: 40px;">
 				<h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Your Quote is Ready</h1>
-				<p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Your quote for order ${data.orderIdReadable} has been prepared.</p>
+				<p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Your quote for order ${data.orderIdReadable} is ready for review.</p>
 				<div style="background: #f9fafb; border-radius: 8px; padding: 24px; margin: 24px 0;">
 					<p style="margin: 8px 0;"><strong>Order ID:</strong> ${data.orderIdReadable}</p>
 					<p style="margin: 8px 0;"><strong>Company:</strong> ${data.companyName}</p>
-					<p style="margin: 8px 0; font-size: 18px; font-weight: bold; color: #111827;">Total Price: ${data.finalTotalPrice} AED</p>
+                    ${pricingBreakdownHtml}
+					<p style="margin: 8px 0; font-size: 18px; font-weight: bold; color: #111827;">Total: ${formatAmount(
+                        data.pricing?.final_total || data.finalTotalPrice
+                    )} AED</p>
 				</div>
 				<p style="margin: 16px 0; color: #dc2626; font-weight: 600;">⚠️ Action Required: Please review and approve or decline the quote.</p>
 				<a href="${data.orderUrl}" style="display: inline-block; margin: 24px 0; padding: 12px 24px; background: #2563eb; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600;">View Quote</a>
+			</td></tr>
+		</table>
+	</td></tr></table>
+</body></html>
+			`,
+        },
+
+        QUOTE_REVISED: {
+            subject: `Revised Quote: ${data.orderIdReadable}`,
+            html: `
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"></head>
+<body style="${baseStyle}">
+	<table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding: 40px 20px;">
+		<table width="600" cellpadding="0" cellspacing="0" style="background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+			<tr><td style="padding: 40px;">
+				<h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Your Quote Has Been Revised</h1>
+				<p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Your quote for order ${data.orderIdReadable} has been updated.</p>
+				<div style="background: #f9fafb; border-radius: 8px; padding: 24px; margin: 24px 0;">
+					<p style="margin: 8px 0;"><strong>Previous Total:</strong> ${formatAmount(
+                        data.previous_total
+                    )} AED</p>
+					<p style="margin: 8px 0;"><strong>New Total:</strong> ${formatAmount(data.new_total)} AED</p>
+					${data.revision_reason ? `<p style="margin: 8px 0;"><strong>Reason:</strong> ${data.revision_reason}</p>` : ""}
+				</div>
+				<p style="margin: 16px 0; color: #dc2626; font-weight: 600;">⚠️ Action Required: Please review and acknowledge the revised quote to proceed.</p>
+				<a href="${data.orderUrl}" style="display: inline-block; margin: 24px 0; padding: 12px 24px; background: #2563eb; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600;">View Revised Quote</a>
 			</td></tr>
 		</table>
 	</td></tr></table>
@@ -85,6 +144,56 @@ export async function getEmailTemplate(
 				<p style="margin: 16px 0; color: #dc2626; font-weight: 600;">⚠️ Payment Required: Please process payment to proceed with fulfillment.</p>
 				<a href="${data.serverUrl}/client/v1/invoice/download-pdf/${data.invoiceNumber}?pid=${data.platformId}" style="display: inline-block; margin: 24px 0; padding: 12px 24px; background: #2563eb; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600;">Download Cost Estimate PDF</a>
 				<p style="margin: 16px 0; font-size: 14px; color: #6b7280;">Or view order details: <a href="${data.orderUrl}" style="color: #2563eb; text-decoration: underline;">View Order</a></p>
+			</td></tr>
+		</table>
+	</td></tr></table>
+</body></html>
+			`,
+        },
+
+        ORDER_CANCELLED: {
+            subject: `Order Cancelled: ${data.orderIdReadable}`,
+            html: `
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"></head>
+<body style="${baseStyle}">
+	<table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding: 40px 20px;">
+		<table width="600" cellpadding="0" cellspacing="0" style="background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+			<tr><td style="padding: 40px;">
+				<h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #dc2626;">Order Cancelled</h1>
+				<p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Order ${data.orderIdReadable} has been cancelled.</p>
+				<div style="background: #fef2f2; border-radius: 8px; padding: 24px; margin: 24px 0;">
+					${data.cancellation_reason ? `<p style="margin: 8px 0;"><strong>Reason:</strong> ${data.cancellation_reason}</p>` : ""}
+					${data.cancellation_notes ? `<p style="margin: 8px 0;"><strong>Notes:</strong> ${data.cancellation_notes}</p>` : ""}
+				</div>
+				<a href="${data.orderUrl}" style="display: inline-block; margin: 24px 0; padding: 12px 24px; background: #2563eb; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600;">View Order</a>
+			</td></tr>
+		</table>
+	</td></tr></table>
+</body></html>
+			`,
+        },
+
+        FABRICATION_COMPLETE: {
+            subject: `Fabrication Complete: ${data.orderIdReadable}`,
+            html: `
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"></head>
+<body style="${baseStyle}">
+	<table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding: 40px 20px;">
+		<table width="600" cellpadding="0" cellspacing="0" style="background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+			<tr><td style="padding: 40px;">
+				<h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #10b981;">Fabrication Complete</h1>
+				<p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Fabrication for order ${data.orderIdReadable} is complete and ready for preparation.</p>
+				<div style="background: #f0fdf4; border-radius: 8px; padding: 24px; margin: 24px 0;">
+					${data.fabrication_items?.length ? data.fabrication_items
+                        .map(
+                            (item) =>
+                                `<p style="margin: 8px 0;"><strong>${item.original_asset_name}</strong> → ${item.new_asset_name} (QR: ${item.new_qr_code})</p>`
+                        )
+                        .join("") : `<p style="margin: 8px 0;">All rebranding items complete.</p>`}
+				</div>
+				<a href="${data.orderUrl}" style="display: inline-block; margin: 24px 0; padding: 12px 24px; background: #2563eb; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600;">View Order</a>
 			</td></tr>
 		</table>
 	</td></tr></table>

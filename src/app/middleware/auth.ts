@@ -41,7 +41,7 @@ const auth = (...roles: UserRole[]) => {
             }
 
             if (roles?.length && !roles.includes(verifiedUser?.role)) {
-                throw new CustomizedError(httpStatus.UNAUTHORIZED, "You are not authorized");
+                throw new CustomizedError(httpStatus.FORBIDDEN, "You do not have permission to perform this action");
             }
 
             req.user = user;

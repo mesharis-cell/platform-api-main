@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../../../db";
-import { users } from "../../../db/schema";
+import { orderLineItems, users } from "../../../db/schema";
 import config from "../../config";
 import { sendEmail } from "../../services/email.service";
 import { formatDateForEmail, formatTimeWindow } from "../../utils/date-time";
@@ -19,9 +19,8 @@ export function getNotificationTypeForTransition(
     const transitionMap: Record<string, string> = {
         "DRAFT->SUBMITTED": "ORDER_SUBMITTED",
         "SUBMITTED->PRICING_REVIEW": "", // No notification needed
-        "PRICING_REVIEW->QUOTED": "QUOTE_SENT", // A2 approved standard pricing, goes direct to client
-        "PRICING_REVIEW->PENDING_APPROVAL": "A2_ADJUSTED_PRICING", // A2 adjusted price, needs PMG review
-        "PENDING_APPROVAL->QUOTED": "QUOTE_SENT", // PMG approved, send to client
+        "PRICING_REVIEW->PENDING_APPROVAL": "A2_ADJUSTED_PRICING", // Logistics submitted to Admin
+        "PENDING_APPROVAL->QUOTED": "QUOTE_SENT", // Admin approved, send to client
         "QUOTED->CONFIRMED": "QUOTE_APPROVED", // Direct to CONFIRMED
         "QUOTED->DECLINED": "QUOTE_DECLINED",
         "CONFIRMED->IN_PREPARATION": "ORDER_CONFIRMED",
@@ -30,7 +29,7 @@ export function getNotificationTypeForTransition(
         "IN_TRANSIT->DELIVERED": "DELIVERED",
         "DELIVERED->IN_USE": "", // No notification needed
         "IN_USE->AWAITING_RETURN": "", // No notification needed (PICKUP_REMINDER sent via cron 48h before)
-        "AWAITING_RETURN->CLOSED": "ORDER_CLOSED",
+        "RETURN_IN_TRANSIT->CLOSED": "ORDER_CLOSED",
     };
 
     const key = `${fromStatus}->${toStatus}`;
@@ -88,6 +87,7 @@ export const getRecipientsForNotification = async (
         A2_APPROVED_STANDARD: { to: adminEmails }, // PMG only (FYI) - no CC to A2
         A2_ADJUSTED_PRICING: { to: adminEmails }, // PMG only (Action Required) - no CC to A2
         QUOTE_SENT: { to: [clientEmail], cc: adminEmails },
+        QUOTE_REVISED: { to: [clientEmail], cc: adminEmails },
         QUOTE_APPROVED: { to: [...adminEmails, ...logisticsEmails] }, // PMG + A2, no CC to client
         QUOTE_DECLINED: { to: [...adminEmails, ...logisticsEmails] }, // PMG + A2, no CC to client
         INVOICE_GENERATED: { to: [clientEmail], cc: adminEmails },
@@ -95,6 +95,8 @@ export const getRecipientsForNotification = async (
             to: [...adminEmails, ...logisticsEmails],
         }, // PMG + A2, no CC to client
         ORDER_CONFIRMED: { to: [...adminEmails, ...logisticsEmails, clientEmail] },
+        ORDER_CANCELLED: { to: [...adminEmails, ...logisticsEmails] },
+        FABRICATION_COMPLETE: { to: logisticsEmails, cc: adminEmails },
         READY_FOR_DELIVERY: { to: adminEmails }, // PMG only (FYI) - no CC to A2
         IN_TRANSIT: { to: [clientEmail], cc: [...adminEmails] }, // Client + PMG FYI, no A2
         DELIVERED: { to: [...adminEmails, ...logisticsEmails, clientEmail] },
@@ -110,6 +112,22 @@ export const getRecipientsForNotification = async (
 export const buildNotificationData = async (order: any): Promise<NotificationData> => {
     const clientUrl = config.client_url;
     const serverUrl = config.server_url;
+    const pricing = order.pricing as any;
+    const finalTotal =
+        pricing?.final_total !== undefined && pricing?.final_total !== null
+            ? Number(pricing.final_total)
+            : order.final_pricing?.total_price
+            ? Number(order.final_pricing.total_price)
+            : null;
+
+    const lineItems = await db
+        .select({
+            description: orderLineItems.description,
+            total: orderLineItems.total,
+            category: orderLineItems.category,
+        })
+        .from(orderLineItems)
+        .where(and(eq(orderLineItems.order_id, order.id), eq(orderLineItems.is_voided, false)));
 
     return {
         platformId: order.platform_id,
@@ -125,9 +143,7 @@ export const buildNotificationData = async (order: any): Promise<NotificationDat
             : "",
         venueName: order.venue_name || "",
         venueCity: order.venue_location?.city || "",
-        finalTotalPrice: order.final_pricing?.total_price
-            ? Number(order.final_pricing.total_price).toFixed(2)
-            : "",
+        finalTotalPrice: finalTotal !== null ? finalTotal.toFixed(2) : "",
         invoiceNumber: order.invoiceNumber || "",
         deliveryWindow: formatTimeWindow(order.delivery_window?.start, order.delivery_window?.end),
         pickupWindow: formatTimeWindow(order.pickup_window?.start, order.pickup_window?.end),
@@ -135,6 +151,28 @@ export const buildNotificationData = async (order: any): Promise<NotificationDat
         serverUrl: serverUrl,
         supportEmail: "support@assetfulfillment.com",
         supportPhone: "+971 XX XXX XXXX",
+        pricing: pricing
+            ? {
+                  base_operations: pricing.base_operations,
+                  transport: pricing.transport
+                      ? {
+                            emirate: pricing.transport.emirate,
+                            trip_type: pricing.transport.trip_type,
+                            vehicle_type: pricing.transport.vehicle_type,
+                            final_rate: Number(pricing.transport.final_rate),
+                        }
+                      : undefined,
+                  line_items: pricing.line_items,
+                  logistics_subtotal: pricing.logistics_subtotal,
+                  margin: pricing.margin,
+                  final_total: finalTotal ?? undefined,
+              }
+            : undefined,
+        line_items: lineItems.map((item) => ({
+            description: item.description,
+            total: Number(item.total),
+            category: item.category,
+        })),
         // Additional fields for enhanced templates
         // adjustmentReason: order.a2_adjustment_reason || undefined,
         // a2AdjustedPrice: order.a2_adjusted_price

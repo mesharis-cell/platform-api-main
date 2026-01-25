@@ -3,7 +3,7 @@ import { db } from "../../../db";
 import httpStatus from "http-status";
 import { companies, notificationLogs, orders } from "../../../db/schema";
 import { getEmailTemplate } from "../../utils/email-template";
-import { NotificationRecipients, NotificationType } from "./notification-logs.interfaces";
+import { NotificationData, NotificationRecipients, NotificationType } from "./notification-logs.interfaces";
 import {
     buildNotificationData,
     getRecipientsForNotification,
@@ -15,7 +15,8 @@ const sendNotification = async (
     platformId: string,
     notificationType: NotificationType,
     order: any,
-    overrideRecipients?: Partial<NotificationRecipients>
+    overrideRecipients?: Partial<NotificationRecipients>,
+    overrideData?: Partial<NotificationData>
 ) => {
     // Step 1: Determine recipients (use override or fetch based on notification type)
     const recipients =
@@ -24,9 +25,10 @@ const sendNotification = async (
 
     // Step 2: Build notification data from order details
     const data = await buildNotificationData(order);
+    const mergedData = { ...data, ...overrideData };
 
     // Step 3: Get email template (subject and HTML content)
-    const { subject, html } = await getEmailTemplate(notificationType, data);
+    const { subject, html } = await getEmailTemplate(notificationType, mergedData);
 
     // Step 4: Create notification log entry with QUEUED status
     const [logEntry] = await db

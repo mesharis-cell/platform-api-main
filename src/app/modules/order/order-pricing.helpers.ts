@@ -113,8 +113,12 @@ export async function recalculateOrderPricing(
 
     // Get current margin
     const [company] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1);
-
-    const marginPercent = parseFloat(company.platform_margin_percent);
+    const existingPricing = order.pricing as any;
+    const marginOverride = !!existingPricing?.margin?.is_override;
+    const marginPercent = marginOverride
+        ? parseFloat(existingPricing.margin.percent)
+        : parseFloat(company.platform_margin_percent);
+    const marginOverrideReason = marginOverride ? existingPricing.margin.override_reason : null;
 
     // Calculate new pricing
     const newPricing = await PricingCalculationServices.calculateOrderPricing(
@@ -126,8 +130,8 @@ export async function recalculateOrderPricing(
         order.transport_trip_type,
         order.transport_vehicle_type,
         marginPercent,
-        false,
-        null,
+        marginOverride,
+        marginOverrideReason,
         userId
     );
 

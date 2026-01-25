@@ -63,17 +63,19 @@ export const orderIdGenerator = async (): Promise<string> => {
 export const VALID_STATE_TRANSITIONS: Record<string, string[]> = {
     DRAFT: ["SUBMITTED"],
     SUBMITTED: ["PRICING_REVIEW"],
-    PRICING_REVIEW: ["QUOTED", "PENDING_APPROVAL"],
+    PRICING_REVIEW: ["PENDING_APPROVAL"],
     PENDING_APPROVAL: ["QUOTED"],
     QUOTED: ["CONFIRMED", "DECLINED"],
     DECLINED: [],
-    CONFIRMED: ["IN_PREPARATION"],
+    CONFIRMED: ["AWAITING_FABRICATION", "IN_PREPARATION"],
+    AWAITING_FABRICATION: ["IN_PREPARATION"],
     IN_PREPARATION: ["READY_FOR_DELIVERY"],
     READY_FOR_DELIVERY: ["IN_TRANSIT"],
     IN_TRANSIT: ["DELIVERED"],
     DELIVERED: ["IN_USE"],
     IN_USE: ["AWAITING_RETURN"],
-    AWAITING_RETURN: ["CLOSED"],
+    AWAITING_RETURN: ["RETURN_IN_TRANSIT"],
+    RETURN_IN_TRANSIT: ["CLOSED"],
     CLOSED: [],
 };
 
@@ -113,7 +115,8 @@ export function validateRoleBasedTransition(
             "IN_TRANSIT->DELIVERED",
             "DELIVERED->IN_USE",
             "IN_USE->AWAITING_RETURN",
-            "AWAITING_RETURN->CLOSED",
+            "AWAITING_RETURN->RETURN_IN_TRANSIT",
+            "RETURN_IN_TRANSIT->CLOSED",
         ];
 
         const transitionKey = `${fromStatus}->${toStatus}`;

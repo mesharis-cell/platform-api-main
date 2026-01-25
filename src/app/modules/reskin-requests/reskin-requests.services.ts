@@ -1,8 +1,18 @@
 import { and, eq, isNull } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { reskinRequests, orderItems, assets, orders, orderLineItems } from "../../../db/schema";
+import {
+    reskinRequests,
+    orderItems,
+    assets,
+    orders,
+    orderLineItems,
+    orderStatusHistory,
+    financialStatusHistory,
+    users,
+} from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
+import { AuthUser } from "../../interface/common";
 import {
     ProcessReskinRequestPayload,
     CompleteReskinRequestPayload,
@@ -11,6 +21,9 @@ import {
 } from "./reskin-requests.interfaces";
 import { OrderLineItemsServices } from "../order-line-items/order-line-items.services";
 import { generateAssetQRCode } from "../../utils/qr-generator";
+import { OrderCancellationService } from "../order/order-cancellation.service";
+import { recalculateOrderPricing } from "../order/order-pricing.helpers";
+import { NotificationLogServices } from "../notification-logs/notification-logs.services";
 
 // ----------------------------------- LIST RESKIN REQUESTS -----------------------------------
 const listReskinRequests = async (orderId: string, platformId: string) => {
@@ -248,11 +261,40 @@ const completeReskinRequest = async (
                 .update(orders)
                 .set({
                     order_status: "IN_PREPARATION",
+                    updated_at: new Date(),
                 })
                 .where(eq(orders.id, order.id));
 
-            // TODO: Log to order_status_history
-            // TODO: Send notification to logistics
+            await db.insert(orderStatusHistory).values({
+                platform_id: platformId,
+                order_id: order.id,
+                status: "IN_PREPARATION",
+                notes: "All fabrication complete, ready for preparation",
+                updated_by: completed_by,
+            });
+
+            const orderForNotification = await db.query.orders.findFirst({
+                where: eq(orders.id, order.id),
+                with: { company: true },
+            });
+
+            if (orderForNotification) {
+                await NotificationLogServices.sendNotification(
+                    platformId,
+                    "FABRICATION_COMPLETE",
+                    orderForNotification,
+                    undefined,
+                    {
+                        fabrication_items: [
+                            {
+                                original_asset_name: originalAsset.name,
+                                new_asset_name: new_asset_name,
+                                new_qr_code: newAsset.qr_code,
+                            },
+                        ],
+                    }
+                );
+            }
         }
     }
 
@@ -329,25 +371,118 @@ const cancelReskinRequest = async (
         })
         .where(eq(orderItems.id, reskinRequest.order_item_id));
 
-    // Handle order action
+    const orderRecord = await db.query.orders.findFirst({
+        where: eq(orders.id, reskinRequest.order_id),
+        with: { company: true },
+    });
+
+    if (!orderRecord) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    }
+
     if (order_action === "cancel_order") {
-        // Cancel entire order (will be implemented in order.services.ts)
-        // For now, just return and let the controller handle it
-        return {
-            action: "cancel_order",
-            order_id: reskinRequest.order_id,
+        const [userRecord] = await db
+            .select()
+            .from(users)
+            .where(eq(users.id, cancelled_by))
+            .limit(1);
+
+        if (!userRecord) {
+            throw new CustomizedError(httpStatus.NOT_FOUND, "User not found");
+        }
+
+        const authUser: AuthUser = {
+            id: userRecord.id,
+            name: userRecord.name,
+            email: userRecord.email,
+            role: userRecord.role as any,
+            company_id: userRecord.company_id,
+            platform_id: userRecord.platform_id,
+            permissions: userRecord.permissions || [],
+            iat: 0,
+            exp: 0,
         };
-    } else {
-        // Continue with original asset
-        // TODO: Recalculate order pricing
-        // TODO: Set financial_status = QUOTE_REVISED if already confirmed
-        // TODO: Send QUOTE_REVISED notification to client
+
+        const cancellationResult = await OrderCancellationService.cancelOrder(
+            reskinRequest.order_id,
+            platformId,
+            {
+                reason: "fabrication_failed",
+                notes: `Reskin cancelled: ${cancellation_reason}`,
+                notify_client: true,
+            },
+            authUser
+        );
 
         return {
-            action: "continue",
-            order_id: reskinRequest.order_id,
+            action: "cancel_order",
+            ...cancellationResult,
         };
     }
+
+    const previousTotal = (orderRecord.pricing as any)?.final_total || null;
+    const updatedPricing = await recalculateOrderPricing(
+        orderRecord.id,
+        platformId,
+        orderRecord.company_id,
+        cancelled_by
+    );
+
+    const shouldReviseQuote = ["QUOTED", "CONFIRMED", "AWAITING_FABRICATION", "IN_PREPARATION"].includes(
+        orderRecord.order_status
+    );
+    const nextOrderStatus = shouldReviseQuote ? "QUOTED" : orderRecord.order_status;
+    const nextFinancialStatus = shouldReviseQuote ? "QUOTE_REVISED" : orderRecord.financial_status;
+
+    await db
+        .update(orders)
+        .set({
+            order_status: nextOrderStatus,
+            financial_status: nextFinancialStatus,
+            pricing: updatedPricing as any,
+            updated_at: new Date(),
+        })
+        .where(eq(orders.id, orderRecord.id));
+
+    if (nextOrderStatus !== orderRecord.order_status) {
+        await db.insert(orderStatusHistory).values({
+            platform_id: platformId,
+            order_id: orderRecord.id,
+            status: nextOrderStatus as any,
+            notes: `Quote revised after reskin cancellation: ${cancellation_reason}`,
+            updated_by: cancelled_by,
+        });
+    }
+
+    if (nextFinancialStatus !== orderRecord.financial_status) {
+        await db.insert(financialStatusHistory).values({
+            platform_id: platformId,
+            order_id: orderRecord.id,
+            status: nextFinancialStatus as any,
+            notes: `Quote revised after reskin cancellation: ${cancellation_reason}`,
+            updated_by: cancelled_by,
+        });
+    }
+
+    if (shouldReviseQuote) {
+        await NotificationLogServices.sendNotification(
+            platformId,
+            "QUOTE_REVISED",
+            orderRecord,
+            undefined,
+            {
+                previous_total: previousTotal,
+                new_total: updatedPricing.final_total,
+                revision_reason: cancellation_reason,
+            }
+        );
+    }
+
+    return {
+        action: "continue",
+        order_id: reskinRequest.order_id,
+        pricing: updatedPricing,
+    };
 };
 
 // ----------------------------------- HELPER: GET RESKIN STATUS -----------------------------------

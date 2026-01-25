@@ -1,6 +1,6 @@
 import { and, eq, lt, or, sql } from "drizzle-orm";
 import { db } from "../../../db";
-import { orders, orderStatusHistory, otp } from "../../../db/schema";
+import { orders, orderStatusHistory, otp, notificationLogs } from "../../../db/schema";
 import { getSystemUser } from "../../utils/helper-query";
 import { NotificationLogServices } from "../notification-logs/notification-logs.services";
 
@@ -208,7 +208,7 @@ const sendPickupReminders = async () => {
         for (const [platformId, platformOrders] of Object.entries(ordersByPlatform)) {
             console.log(`📧 Processing ${platformOrders.length} orders for platform ${platformId}`);
 
-            // Step 5a: Send notification for each order
+            // Step 5a: Send notification for each order (with idempotency)
             for (const order of platformOrders) {
                 try {
                     // Check if pickup_window exists and has a start time
@@ -216,6 +216,27 @@ const sendPickupReminders = async () => {
                     if (!pickupWindow || !pickupWindow.start) {
                         console.log(
                             `   ⚠ Skipping order ${order.order_id}: No pickup window defined`
+                        );
+                        remindersSkipped++;
+                        continue;
+                    }
+
+                    // Idempotency: Check if reminder was already sent
+                    const [existingReminder] = await db
+                        .select()
+                        .from(notificationLogs)
+                        .where(
+                            and(
+                                eq(notificationLogs.order_id, order.id),
+                                eq(notificationLogs.notification_type, "PICKUP_REMINDER"),
+                                eq(notificationLogs.status, "SENT")
+                            )
+                        )
+                        .limit(1);
+
+                    if (existingReminder) {
+                        console.log(
+                            `   ⚠ Skipping order ${order.order_id}: Pickup reminder already sent`
                         );
                         remindersSkipped++;
                         continue;

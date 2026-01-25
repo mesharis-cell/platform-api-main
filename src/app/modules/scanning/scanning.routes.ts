@@ -58,6 +58,16 @@ router.get(
     ScanningControllers.getOutboundProgress
 );
 
+// Upload truck photos
+router.post(
+    "/outbound/:order_id/truck-photos",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.SCANNING_SCAN_OUT),
+    payloadValidator(ScanningSchemas.uploadTruckPhotosSchema),
+    ScanningControllers.uploadTruckPhotos
+);
+
 // Complete outbound scan
 router.post(
     "/outbound/:order_id/complete",
