@@ -1829,24 +1829,24 @@ const adminApproveQuote = async (
         );
     }
 
-    const unprocessedReskins = await db
-        .select({ id: orderItems.id })
-        .from(orderItems)
-        .leftJoin(reskinRequests, eq(reskinRequests.order_item_id, orderItems.id))
-        .where(
-            and(
-                eq(orderItems.order_id, orderId),
-                eq(orderItems.is_reskin_request, true),
-                isNull(reskinRequests.id)
-            )
-        );
+    // const unprocessedReskins = await db
+    //     .select({ id: orderItems.id })
+    //     .from(orderItems)
+    //     .leftJoin(reskinRequests, eq(reskinRequests.order_item_id, orderItems.id))
+    //     .where(
+    //         and(
+    //             eq(orderItems.order_id, orderId),
+    //             eq(orderItems.is_reskin_request, true),
+    //             isNull(reskinRequests.id)
+    //         )
+    //     );
 
-    if (unprocessedReskins.length > 0) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            "All rebrand requests must be processed before approving the quote"
-        );
-    }
+    // if (unprocessedReskins.length > 0) {
+    //     throw new CustomizedError(
+    //         httpStatus.BAD_REQUEST,
+    //         "All rebrand requests must be processed before approving the quote"
+    //     );
+    // }
 
     // Recalculate pricing with margin override if provided
     const company = order.company as typeof companies.$inferSelect | null;
