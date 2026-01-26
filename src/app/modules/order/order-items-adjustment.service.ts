@@ -6,9 +6,8 @@
 import { and, eq } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { orders, orderItems, assets, orderStatusHistory } from "../../../db/schema";
+import { orders, orderItems, assets, orderStatusHistory, reskinRequests } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
-import { AuthUser } from "../../interface/common";
 import { recalculateOrderPricing } from "./order-pricing.helpers";
 
 /**
@@ -46,8 +45,8 @@ export async function removeOrderItem(
     // Cannot remove if it has an active reskin request
     const reskinRequest = await db.query.reskinRequests.findFirst({
         where: and(
-            eq(db.schema.reskinRequests.order_item_id, orderItemId),
-            eq(db.schema.reskinRequests.cancelled_at, null as any)
+            eq(reskinRequests.order_item_id, orderItemId),
+            eq(reskinRequests.cancelled_at, null as any)
         ),
     });
 

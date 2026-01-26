@@ -13,7 +13,6 @@ import {
     orderItems,
     orders,
     orderStatusHistory,
-    pricingTiers,
     reskinRequests,
     scanEvents,
     users,
@@ -25,9 +24,6 @@ import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
 import {
     AdjustLogisticsPricingPayload,
-    ApproveStandardPricingPayload,
-    ApprovePlatformPricingPayload,
-    StandardPricing,
     SubmitOrderPayload,
     UpdateOrderTimeWindowsPayload,
     ApproveQuotePayload,
@@ -65,7 +61,6 @@ import { NotificationLogServices } from "../notification-logs/notification-logs.
 import { getNotificationTypeForTransition } from "../notification-logs/notification-logs.utils";
 import { orderIdGenerator } from "./order.utils";
 import { uuidRegex } from "../../constants/common";
-import { costEstimateGenerator } from "../../utils/cost-estimate";
 import { getPlatformAdminEmails, getPlatformLogisticsStaffEmails } from "../../utils/helper-query";
 import config from "../../config";
 import { formatDateForEmail } from "../../utils/date-time";
@@ -422,12 +417,10 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
                 id: brands.id,
                 name: brands.name,
             },
-            tier: pricingTiers,
         })
         .from(orders)
         .leftJoin(companies, eq(orders.company_id, companies.id))
         .leftJoin(brands, eq(orders.brand_id, brands.id))
-        .leftJoin(pricingTiers, eq(orders.tier_id, pricingTiers.id))
         .where(and(...conditions))
         .orderBy(sortSequence === "asc" ? asc(sortField) : desc(sortField))
         .limit(limitNumber)
@@ -484,8 +477,6 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
         calculated_totals: r.order.calculated_totals,
         order_status: r.order.order_status,
         financial_status: r.order.financial_status,
-        pricing_tier_id: r.order.tier_id,
-        pricing_tier: r.tier,
         created_at: r.order.created_at,
         updated_at: r.order.updated_at,
         item_count: itemCounts[r.order.id] || 0,
@@ -651,9 +642,9 @@ const getOrderById = async (
     // Step 2: Build where condition based on input type
     const whereCondition = isUUID
         ? and(
-              or(eq(orders.id, orderId), eq(orders.order_id, orderId)),
-              eq(orders.platform_id, platformId)
-          )
+            or(eq(orders.id, orderId), eq(orders.order_id, orderId)),
+            eq(orders.platform_id, platformId)
+        )
         : and(eq(orders.order_id, orderId), eq(orders.platform_id, platformId));
 
     // Step 3: Fetch order with relations
@@ -761,15 +752,15 @@ const getOrderById = async (
         invoice:
             invoice.length > 0
                 ? invoice.map((i) => ({
-                      id: i.id,
-                      invoice_id: i.invoice_id,
-                      invoice_pdf_url: i.invoice_pdf_url,
-                      invoice_paid_at: i.invoice_paid_at,
-                      payment_method: i.payment_method,
-                      payment_reference: i.payment_reference,
-                      created_at: i.created_at,
-                      updated_at: i.updated_at,
-                  }))[0]
+                    id: i.id,
+                    invoice_id: i.invoice_id,
+                    invoice_pdf_url: i.invoice_pdf_url,
+                    invoice_paid_at: i.invoice_paid_at,
+                    payment_method: i.payment_method,
+                    payment_reference: i.payment_reference,
+                    created_at: i.created_at,
+                    updated_at: i.updated_at,
+                }))[0]
                 : null,
     };
 };
@@ -1413,402 +1404,6 @@ const getOrderPricingDetails = async (orderId: string, platformId: string) => {
     };
 };
 
-// ----------------------------------- HELPER: CALCULATE STANDARD PRICING ---------------------
-const calculateStandardPricing = async (order: any): Promise<StandardPricing> => {
-    const company = order.company as typeof companies.$inferSelect | null;
-    const calculatedTotals = order.calculated_totals as any;
-    const venueLocation = order.venue_location as any;
-    const volume = parseFloat(calculatedTotals?.volume || "0");
-    const venueCity = venueLocation?.city;
-    const venueCountry = venueLocation?.country;
-
-    if (!venueCity || !venueCountry) {
-        return {
-            pricing_tier_id: null,
-            logistics_base_price: null,
-            platform_margin_percent: parseFloat(company?.platform_margin_percent || "0"),
-            platform_margin_amount: null,
-            final_total_price: null,
-            tier_found: false,
-        };
-    }
-
-    // Find matching pricing tier (case-insensitive city match)
-    const tier = await db.query.pricingTiers.findFirst({
-        where: and(
-            eq(pricingTiers.platform_id, order.platform_id),
-            eq(sql`LOWER(${pricingTiers.country})`, venueCountry.toLowerCase()),
-            eq(sql`LOWER(${pricingTiers.city})`, venueCity.toLowerCase()),
-            lte(pricingTiers.volume_min, volume.toString()),
-            or(isNull(pricingTiers.volume_max), gte(pricingTiers.volume_max, volume.toString())),
-            eq(pricingTiers.is_active, true)
-        ),
-    });
-
-    if (!tier) {
-        // Try wildcard city match
-        const wildcardTier = await db.query.pricingTiers.findFirst({
-            where: and(
-                eq(pricingTiers.platform_id, order.platform_id),
-                eq(sql`LOWER(${pricingTiers.country})`, venueCountry.toLowerCase()),
-                eq(pricingTiers.city, "*"),
-                lte(pricingTiers.volume_min, volume.toString()),
-                or(
-                    isNull(pricingTiers.volume_max),
-                    gte(pricingTiers.volume_max, volume.toString())
-                ),
-                eq(pricingTiers.is_active, true)
-            ),
-        });
-
-        if (!wildcardTier) {
-            return {
-                pricing_tier_id: null,
-                logistics_base_price: null,
-                platform_margin_percent: parseFloat((company as any).platform_margin_percent),
-                platform_margin_amount: null,
-                final_total_price: null,
-                tier_found: false,
-            };
-        }
-
-        // Use wildcard tier
-        const logisticsBasePrice = parseFloat(wildcardTier.base_price);
-        const platformMarginPercent = parseFloat(company?.platform_margin_percent || "0");
-        const platformMarginAmount = logisticsBasePrice * (platformMarginPercent / 100);
-        const finalTotalPrice = logisticsBasePrice + platformMarginAmount;
-
-        return {
-            pricing_tier_id: wildcardTier.id,
-            logistics_base_price: parseFloat(logisticsBasePrice.toFixed(2)),
-            platform_margin_percent: parseFloat(platformMarginPercent.toFixed(2)),
-            platform_margin_amount: parseFloat(platformMarginAmount.toFixed(2)),
-            final_total_price: parseFloat(finalTotalPrice.toFixed(2)),
-            tier_found: true,
-        };
-    }
-
-    // Calculate standard pricing
-    const logisticsBasePrice = parseFloat(tier.base_price);
-    const platformMarginPercent = parseFloat(company?.platform_margin_percent || "0");
-    const platformMarginAmount = logisticsBasePrice * (platformMarginPercent / 100);
-    const finalTotalPrice = logisticsBasePrice + platformMarginAmount;
-
-    return {
-        pricing_tier_id: tier.id,
-        logistics_base_price: parseFloat(logisticsBasePrice.toFixed(2)),
-        platform_margin_percent: parseFloat(platformMarginPercent.toFixed(2)),
-        platform_margin_amount: parseFloat(platformMarginAmount.toFixed(2)),
-        final_total_price: parseFloat(finalTotalPrice.toFixed(2)),
-        tier_found: true,
-    };
-};
-
-// ----------------------------------- APPROVE STANDARD PRICING -----------------------------------
-const approveStandardPricing = async (
-    orderId: string,
-    user: AuthUser,
-    platformId: string,
-    payload: ApproveStandardPricingPayload
-) => {
-    // Step 1: Fetch order with company details
-    const order = await db.query.orders.findFirst({
-        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
-        with: {
-            company: true,
-            items: {
-                with: {
-                    asset: {
-                        columns: {
-                            id: true,
-                            name: true,
-                        },
-                    },
-                },
-            },
-        },
-    });
-
-    if (!order) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
-    }
-
-    // Step 2: Verify order is in PRICING_REVIEW status
-    if (order.order_status !== "PRICING_REVIEW") {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            `Order is not in PRICING_REVIEW status. Current status: ${order.order_status}`
-        );
-    }
-
-    // Step 3: Calculate standard pricing
-    const standardPricing = await calculateStandardPricing(order);
-
-    // Step 4: Verify pricing tier was found
-    if (!standardPricing.tier_found) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            "No pricing tier found for this order. Please adjust pricing manually."
-        );
-    }
-
-    // Step 5: Prepare pricing objects
-    const logisticsPricing = {
-        base_price: standardPricing.logistics_base_price,
-    };
-
-    const platformPricing = {
-        margin_percent: standardPricing.platform_margin_percent,
-        margin_amount: standardPricing.platform_margin_amount,
-        reviewed_at: new Date().toISOString(),
-        reviewed_by: user.id,
-        notes: payload.notes || null,
-    };
-
-    const finalPricing = {
-        total_price: standardPricing.final_total_price,
-        quote_sent_at: new Date().toISOString(),
-    };
-
-    db.transaction(async (tx) => {
-        // Step 6: Update order with standard pricing
-        await tx
-            .update(orders)
-            .set({
-                tier_id: standardPricing.pricing_tier_id,
-                logistics_pricing: logisticsPricing,
-                platform_pricing: platformPricing,
-                final_pricing: finalPricing,
-                order_status: "QUOTED",
-                financial_status: "QUOTE_SENT",
-                updated_at: new Date(),
-            })
-            .where(eq(orders.id, orderId));
-
-        // Step 7: Log status change in order_status_history
-        await tx.insert(orderStatusHistory).values({
-            platform_id: platformId,
-            order_id: orderId,
-            status: "QUOTED",
-            notes: payload.notes || "Standard pricing approved",
-            updated_by: user.id,
-        });
-    });
-
-    const venueLocation = order.venue_location as any;
-    const estimateData = {
-        id: order.id,
-        user_id: user.id,
-        platform_id: order.platform_id,
-        order_id: order.order_id,
-        contact_name: order.contact_name,
-        contact_email: order.contact_email,
-        contact_phone: order.contact_phone,
-        company_name: (order.company as any).name,
-        event_start_date: order.event_start_date,
-        event_end_date: order.event_end_date,
-        venue_name: order.venue_name,
-        venue_country: venueLocation.country || "N/A",
-        venue_city: venueLocation.city || "N/A",
-        venue_address: venueLocation.address || "N/A",
-        order_status: order.order_status,
-        financial_status: order.financial_status,
-        pricing: {
-            logistics_base_price: (order.logistics_pricing as any)?.base_price || 0,
-            platform_margin_percent: (order.platform_pricing as any)?.margin_percent || 0,
-            platform_margin_amount: (order.platform_pricing as any)?.margin_amount || 0,
-            final_total_price: (order.final_pricing as any)?.total_price || 0,
-            show_breakdown: false,
-        },
-        items: order.items.map((item) => ({
-            asset_name: item.asset.name,
-            quantity: item.quantity,
-            handling_tags: item.handling_tags as any,
-            from_collection_name: item.from_collection_name || "N/A",
-        })),
-    };
-
-    // Step 3: Generate cost estimate
-    await costEstimateGenerator(estimateData);
-
-    // Send A2 standard approval notification to PLATFORM ADMIN (FYI)
-    await NotificationLogServices.sendNotification(platformId, "A2_APPROVED_STANDARD", order);
-
-    // Send quote to client
-    await NotificationLogServices.sendNotification(platformId, "QUOTE_SENT", order);
-
-    // Step 8: Return pricing details
-    return {
-        id: order.id,
-        order_id: order.order_id,
-        order_status: "QUOTED",
-        financial_status: "QUOTE_SENT",
-        pricing: {
-            logistics_base_price: standardPricing.logistics_base_price,
-            platform_margin_percent: standardPricing.platform_margin_percent,
-            platform_margin_amount: standardPricing.platform_margin_amount,
-            final_total_price: standardPricing.final_total_price,
-        },
-        tier_id: standardPricing.pricing_tier_id,
-        quote_sent_at: finalPricing.quote_sent_at,
-    };
-};
-
-// ----------------------------------- APPROVE PLATFORM PRICING -----------------------------------
-const approvePlatformPricing = async (
-    orderId: string,
-    user: AuthUser,
-    platformId: string,
-    payload: ApprovePlatformPricingPayload
-) => {
-    const { logistics_base_price, platform_margin_percent, notes } = payload;
-    // Step 1: Fetch order with company details
-    const order = await db.query.orders.findFirst({
-        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
-        with: {
-            company: true,
-            items: {
-                with: {
-                    asset: {
-                        columns: {
-                            id: true,
-                            name: true,
-                        },
-                    },
-                },
-            },
-        },
-    });
-
-    if (!order) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
-    }
-
-    // Step 2: Verify order is in PENDING_APPROVAL status
-    if (order.order_status !== "PENDING_APPROVAL") {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            `Order is not in PENDING_APPROVAL status. Current status: ${order.order_status}`
-        );
-    }
-
-    // Step 4: Calculate platform margin and final pricing
-    const platformMarginAmount = logistics_base_price * (platform_margin_percent / 100);
-    const finalTotalPrice = logistics_base_price + platformMarginAmount;
-
-    // Step 5: Update platform_pricing with review details
-    const platformPricing = {
-        margin_percent: platform_margin_percent,
-        margin_amount: parseFloat(platformMarginAmount.toFixed(2)),
-        reviewed_at: new Date().toISOString(),
-        reviewed_by: user.id,
-        notes: notes || null,
-    };
-
-    // Step 6: Update final_pricing
-    const finalPricing = {
-        total_price: parseFloat(finalTotalPrice.toFixed(2)),
-        quote_sent_at: new Date().toISOString(),
-    };
-
-    db.transaction(async (tx) => {
-        // Step 7: Update order with platform approval
-        await tx
-            .update(orders)
-            .set({
-                platform_pricing: platformPricing,
-                final_pricing: finalPricing,
-                order_status: "QUOTED",
-                financial_status: "QUOTE_SENT",
-                updated_at: new Date(),
-            })
-            .where(eq(orders.id, orderId));
-
-        // Step 8: Log status change in order_status_history
-        await tx.insert(orderStatusHistory).values({
-            platform_id: platformId,
-            order_id: orderId,
-            status: "QUOTED",
-            notes: notes || "Platform approved adjusted pricing",
-            updated_by: user.id,
-        });
-    });
-
-    // TODO: Send quote notification email
-    const venueLocation = order.venue_location as any;
-    const estimateData = {
-        id: order.id,
-        user_id: user.id,
-        platform_id: order.platform_id,
-        order_id: order.order_id,
-        contact_name: order.contact_name,
-        contact_email: order.contact_email,
-        contact_phone: order.contact_phone,
-        company_name: (order.company as any).name,
-        event_start_date: order.event_start_date,
-        event_end_date: order.event_end_date,
-        venue_name: order.venue_name,
-        venue_country: venueLocation.country || "N/A",
-        venue_city: venueLocation.city || "N/A",
-        venue_address: venueLocation.address || "N/A",
-        order_status: order.order_status,
-        financial_status: order.financial_status,
-        pricing: {
-            logistics_base_price: String(logistics_base_price) || "0",
-            platform_margin_percent: String(platform_margin_percent) || "0",
-            platform_margin_amount: String(platformMarginAmount) || "0",
-            final_total_price: String(finalTotalPrice) || "0",
-            show_breakdown: false,
-        },
-        items: order.items.map((item) => ({
-            asset_name: item.asset.name,
-            quantity: item.quantity,
-            handling_tags: item.handling_tags as any,
-            from_collection_name: item.from_collection_name || "N/A",
-        })),
-    };
-
-    // Step 3: Generate cost estimate
-    await costEstimateGenerator(estimateData);
-
-    // Send notification to plaform admin
-    const platformAdminEmails = await getPlatformAdminEmails(platformId);
-
-    // TODO: Change URL
-    await multipleEmailSender(
-        platformAdminEmails,
-        `Action Required: Order ${order.order_id} - Logistics Pricing Adjustment`,
-        emailTemplates.adjust_price({
-            order_id: order.order_id,
-            company_name: (order.company as any).name,
-            adjusted_price: logistics_base_price,
-            adjustment_reason: "Logistics has adjusted the pricing for order",
-            view_order_url: `${config.client_url}/order/${order.id}`,
-        })
-    );
-
-    // Step 9: Return approval details
-    return {
-        id: order.id,
-        order_id: order.order_id,
-        order_status: "QUOTED",
-        financial_status: "QUOTE_SENT",
-        pricing: {
-            logistics_adjusted_price: logistics_base_price,
-            platform_margin_percent: platform_margin_percent,
-            platform_margin_amount: parseFloat(platformMarginAmount.toFixed(2)),
-            final_total_price: parseFloat(finalTotalPrice.toFixed(2)),
-        },
-        reviewed_at: platformPricing.reviewed_at,
-        reviewed_by: {
-            id: user.id,
-            name: user.name,
-        },
-        review_notes: notes || null,
-        quote_sent_at: finalPricing.quote_sent_at,
-    };
-};
-
 // ----------------------------------- APPROVE QUOTE ----------------------------------------------
 const approveQuote = async (
     orderId: string,
@@ -2296,8 +1891,8 @@ const adminApproveQuote = async (
         notes: marginOverride
             ? `Admin approved with margin override (${marginOverride.percent}%): ${marginOverride.reason}`
             : isRevisedQuote
-              ? "Admin approved revised quote"
-              : "Admin approved quote",
+                ? "Admin approved revised quote"
+                : "Admin approved quote",
         updated_by: user.id,
     });
 
@@ -2529,8 +2124,6 @@ export const OrderServices = {
     getPendingApprovalOrders,
     getOrderPricingDetails,
     adjustLogisticsPricing,
-    approveStandardPricing, // DEPRECATED - will be removed
-    approvePlatformPricing, // DEPRECATED - will be removed
     approveQuote,
     declineQuote,
     getClientOrderStatistics,

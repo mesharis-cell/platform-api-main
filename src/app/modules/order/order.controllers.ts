@@ -278,38 +278,6 @@ const adjustLogisticsPricing = catchAsync(async (req, res) => {
     });
 });
 
-// ----------------------------------- APPROVE STANDARD PRICING -----------------------------------
-const approveStandardPricing = catchAsync(async (req, res) => {
-    const user = (req as any).user;
-    const platformId = (req as any).platformId;
-    const id = getRequiredString(req.params.id, "id");
-
-    const result = await OrderServices.approveStandardPricing(id, user, platformId, req.body);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Standard pricing approved successfully. Quote sent to client.",
-        data: result,
-    });
-});
-
-// ----------------------------------- APPROVE PLATFORM PRICING -----------------------------------
-const approvePlatformPricing = catchAsync(async (req, res) => {
-    const user = (req as any).user;
-    const platformId = (req as any).platformId;
-    const id = getRequiredString(req.params.id, "id");
-
-    const result = await OrderServices.approvePlatformPricing(id, user, platformId, req.body);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Platform pricing approved successfully. Quote sent to client.",
-        data: result,
-    });
-});
-
 // ----------------------------------- APPROVE QUOTE ----------------------------------------------
 const approveQuote = catchAsync(async (req, res) => {
     const user = (req as any).user;
@@ -532,8 +500,6 @@ export const OrderControllers = {
     getPricingReviewOrders,
     getOrderPricingDetails,
     adjustLogisticsPricing,
-    approveStandardPricing, // DEPRECATED
-    approvePlatformPricing, // DEPRECATED
     approveQuote,
     declineQuote,
     getOrderStatistics,
@@ -610,8 +576,3 @@ export const OrderControllers = {
         });
     }),
 };
-
-// {
-//     orderId: result.orderId,
-//         status: result.status,
-//         }
