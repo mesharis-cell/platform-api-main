@@ -23,13 +23,15 @@ const listReskinRequests = catchAsync(async (req: Request, res: Response) => {
 });
 
 // ----------------------------------- PROCESS RESKIN REQUEST -----------------------------------
-const processReskinRequest = async (req: Request, res: Response) => {
-    const { platform_id, user } = req as any;
+const processReskinRequest = catchAsync(async (req: Request, res: Response) => {
+    const platformId = (req as any).platform_id;
+    const user = (req as any).user;
     const orderId = getRequiredString(req.params.orderId, "orderId");
     const orderItemId = getRequiredString(req.params.orderItemId, "orderItemId");
+
     const payload = {
         ...req.body,
-        platform_id,
+        platform_id: platformId,
         order_id: orderId,
         order_item_id: orderItemId,
         added_by: user.id,
@@ -38,71 +40,73 @@ const processReskinRequest = async (req: Request, res: Response) => {
     const result = await ReskinRequestsServices.processReskinRequest(
         orderItemId,
         orderId,
-        platform_id,
+        platformId,
         payload
     );
 
-    return res.status(httpStatus.CREATED).json({
+    sendResponse(res, {
+        statusCode: httpStatus.CREATED,
         success: true,
         message: "Reskin request processed and cost line item added",
         data: result,
     });
-};
+});
 
 // ----------------------------------- COMPLETE RESKIN REQUEST -----------------------------------
-const completeReskinRequest = async (req: Request, res: Response) => {
-    const { platform_id, user } = req as any;
+const completeReskinRequest = catchAsync(async (req: Request, res: Response) => {
+    const platformId = (req as any).platform_id;
+    const user = (req as any).user;
     const reskinId = getRequiredString(req.params.reskinId, "reskinId");
+
     const payload = {
         ...req.body,
         completed_by: user.id,
     };
 
     const result = await ReskinRequestsServices.completeReskinRequest(
-        reskinId as string,
-        platform_id,
+        reskinId,
+        platformId,
         payload
     );
 
-    return res.status(httpStatus.OK).json({
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
         success: true,
         message: result.all_complete
             ? "Fabrication complete. All reskins done, order moved to IN_PREPARATION."
             : "Fabrication complete. Other reskins still pending.",
         data: result,
     });
-};
+});
 
 // ----------------------------------- CANCEL RESKIN REQUEST -----------------------------------
-const cancelReskinRequest = async (req: Request, res: Response) => {
-    const { platform_id, user } = req as any;
+const cancelReskinRequest = catchAsync(async (req: Request, res: Response) => {
+    const platformId = (req as any).platform_id;
+    const user = (req as any).user;
     const reskinId = getRequiredString(req.params.reskinId, "reskinId");
+
     const payload = {
         ...req.body,
         cancelled_by: user.id,
     };
 
     const result = await ReskinRequestsServices.cancelReskinRequest(
-        reskinId as string,
-        platform_id,
+        reskinId,
+        platformId,
         payload
     );
 
-    if (result.action === "cancel_order") {
-        // Order cancellation will be handled by separate controller
-        return res.status(httpStatus.OK).json({
-            success: true,
-            message: "Reskin cancelled. Order cancellation initiated.",
-            data: result,
-        });
-    } else {
-        return res.status(httpStatus.OK).json({
-            success: true,
-            message: "Reskin cancelled. Order will continue with original asset.",
-            data: result,
-        });
-    }
-};
+    const message = result.action === "cancel_order"
+        ? "Reskin cancelled. Order cancellation initiated."
+        : "Reskin cancelled. Order will continue with original asset.";
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message,
+        data: result,
+    });
+});
 
 export const ReskinRequestsControllers = {
     listReskinRequests,
