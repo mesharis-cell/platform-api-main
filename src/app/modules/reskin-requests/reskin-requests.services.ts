@@ -21,9 +21,9 @@ import {
 } from "./reskin-requests.interfaces";
 import { OrderLineItemsServices } from "../order-line-items/order-line-items.services";
 import { generateAssetQRCode } from "../../utils/qr-generator";
-import { OrderCancellationService } from "../order/order-cancellation.service";
 import { recalculateOrderPricing } from "../order/order-pricing.helpers";
 import { NotificationLogServices } from "../notification-logs/notification-logs.services";
+import { OrderServices } from "../order/order.services";
 
 // ----------------------------------- LIST RESKIN REQUESTS -----------------------------------
 const listReskinRequests = async (orderId: string, platformId: string) => {
@@ -403,7 +403,7 @@ const cancelReskinRequest = async (
             exp: 0,
         };
 
-        const cancellationResult = await OrderCancellationService.cancelOrder(
+        const cancellationResult = await OrderServices.cancelOrder(
             reskinRequest.order_id,
             platformId,
             {
