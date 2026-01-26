@@ -486,6 +486,74 @@ const updateOrderVehicle = catchAsync(async (req, res) => {
     });
 });
 
+const getPendingApprovalOrders = catchAsync(async (req, res) => {
+    const platformId = (req as any).platform_id;
+    const query = req.query;
+
+    const result = await OrderServices.getPendingApprovalOrders(query, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Pending approval orders fetched successfully",
+        data: result.data,
+        meta: result.meta,
+    });
+});
+
+const addOrderItem = catchAsync(async (req, res) => {
+    const platformId = (req as any).platform_id;
+    const user = (req as any).user;
+    const orderId = getRequiredString(req.params.id, "id");
+
+    const result = await OrderServices.addOrderItem(orderId, platformId, req.body, user.id);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Order item added successfully",
+        data: result,
+    });
+});
+
+const removeOrderItem = catchAsync(async (req, res) => {
+    const platformId = (req as any).platform_id;
+    const user = (req as any).user;
+    const orderId = getRequiredString(req.params.id, "id");
+    const itemId = getRequiredString(req.params.item_id, "item_id");
+
+    const result = await OrderServices.removeOrderItem(orderId, itemId, platformId, user.id);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Order item removed successfully",
+        data: result,
+    });
+});
+
+const updateOrderItemQuantity = catchAsync(async (req, res) => {
+    const platformId = (req as any).platform_id;
+    const user = (req as any).user;
+    const orderId = getRequiredString(req.params.id, "id");
+    const itemId = getRequiredString(req.params.item_id, "item_id");
+
+    const result = await OrderServices.updateOrderItemQuantity(
+        orderId,
+        itemId,
+        platformId,
+        req.body.quantity,
+        user.id
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Order item quantity updated successfully",
+        data: result,
+    });
+});
+
 export const OrderControllers = {
     submitOrder,
     getOrders,
@@ -505,74 +573,14 @@ export const OrderControllers = {
     getOrderStatistics,
     sendInvoice,
     // NEW CONTROLLERS
-    getPendingApprovalOrders: catchAsync(async (req, res) => {
-        const platformId = (req as any).platform_id;
-        const query = req.query;
-
-        const result = await OrderServices.getPendingApprovalOrders(query, platformId);
-
-        sendResponse(res, {
-            statusCode: httpStatus.OK,
-            success: true,
-            message: "Pending approval orders fetched successfully",
-            data: result.data,
-            meta: result.meta,
-        });
-    }),
+    getPendingApprovalOrders,
     submitForApproval,
     adminApproveQuote,
     returnToLogistics,
     cancelOrder,
     calculateEstimate,
     updateOrderVehicle,
-    addOrderItem: catchAsync(async (req, res) => {
-        const platformId = (req as any).platform_id;
-        const user = (req as any).user;
-        const orderId = getRequiredString(req.params.id, "id");
-
-        const result = await OrderServices.addOrderItem(orderId, platformId, req.body, user.id);
-
-        sendResponse(res, {
-            statusCode: httpStatus.OK,
-            success: true,
-            message: "Order item added successfully",
-            data: result,
-        });
-    }),
-    removeOrderItem: catchAsync(async (req, res) => {
-        const platformId = (req as any).platform_id;
-        const user = (req as any).user;
-        const orderId = getRequiredString(req.params.id, "id");
-        const itemId = getRequiredString(req.params.item_id, "item_id");
-
-        const result = await OrderServices.removeOrderItem(orderId, itemId, platformId, user.id);
-
-        sendResponse(res, {
-            statusCode: httpStatus.OK,
-            success: true,
-            message: "Order item removed successfully",
-            data: result,
-        });
-    }),
-    updateOrderItemQuantity: catchAsync(async (req, res) => {
-        const platformId = (req as any).platform_id;
-        const user = (req as any).user;
-        const orderId = getRequiredString(req.params.id, "id");
-        const itemId = getRequiredString(req.params.item_id, "item_id");
-
-        const result = await OrderServices.updateOrderItemQuantity(
-            orderId,
-            itemId,
-            platformId,
-            req.body.quantity,
-            user.id
-        );
-
-        sendResponse(res, {
-            statusCode: httpStatus.OK,
-            success: true,
-            message: "Order item quantity updated successfully",
-            data: result,
-        });
-    }),
+    addOrderItem,
+    removeOrderItem,
+    updateOrderItemQuantity,
 };

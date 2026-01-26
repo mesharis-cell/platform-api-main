@@ -11,6 +11,7 @@ import {
     financialStatusHistory,
     invoices,
     orderItems,
+    orderLineItems,
     orders,
     orderStatusHistory,
     reskinRequests,
@@ -29,10 +30,13 @@ import {
     ApproveQuotePayload,
     DeclineQuotePayload,
     OrderItem,
+    UpdateVehiclePayload,
+    CancelOrderPayload,
 } from "./order.interfaces";
 import {
     checkAssetsForOrder,
     isValidTransition,
+    NON_CANCELLABLE_STATUSES,
     orderQueryValidationConfig,
     orderSortableFields,
     PREP_BUFFER_DAYS,
@@ -42,13 +46,11 @@ import {
 } from "./order.utils";
 // NEW: Hybrid pricing imports
 import { PricingCalculationServices } from "../pricing-calculation/pricing-calculation.services";
-import { OrderCancellationService, CancelOrderPayload } from "./order-cancellation.service";
 import {
     calculateAndStoreEstimate,
     shouldAwaitFabrication,
     recalculateOrderPricing,
 } from "./order-pricing.helpers";
-import { OrderVehicleService } from "./order-update-vehicle.service";
 import { OrderLineItemsServices } from "../order-line-items/order-line-items.services";
 import { ReskinRequestsServices } from "../reskin-requests/reskin-requests.services";
 import { OrderItemsAdjustmentService } from "./order-items-adjustment.service";
@@ -64,6 +66,7 @@ import { uuidRegex } from "../../constants/common";
 import { getPlatformAdminEmails, getPlatformLogisticsStaffEmails } from "../../utils/helper-query";
 import config from "../../config";
 import { formatDateForEmail } from "../../utils/date-time";
+import { TransportRatesServices } from "../transport-rates/transport-rates.services";
 
 // ----------------------------------- SUBMIT ORDER FROM CART ---------------------------------
 const submitOrderFromCart = async (
@@ -1975,15 +1978,134 @@ const returnToLogistics = async (
 };
 
 // ----------------------------------- CANCEL ORDER (NEW) ------------------------------------
-// Wrapper around OrderCancellationService
-const cancelOrder = async (
+export async function cancelOrder(
     orderId: string,
-    user: AuthUser,
     platformId: string,
-    payload: CancelOrderPayload
-) => {
-    return await OrderCancellationService.cancelOrder(orderId, platformId, payload, user);
-};
+    payload: CancelOrderPayload,
+    user: AuthUser
+) {
+    const { reason, notes, notify_client } = payload;
+
+    // Get order
+    const order = await db.query.orders.findFirst({
+        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
+    });
+
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    }
+
+    // Validate order can be cancelled
+    if (NON_CANCELLABLE_STATUSES.includes(order.order_status)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Cannot cancel order in ${order.order_status} status. Items have already left the warehouse or order is already terminal.`
+        );
+    }
+
+    let cancelledReskinsCount = 0; // Store count before transaction ends
+
+    await db.transaction(async (tx) => {
+        // 1. Update order status
+        await tx
+            .update(orders)
+            .set({
+                order_status: "CANCELLED",
+                financial_status: "CANCELLED",
+                updated_at: new Date(),
+            })
+            .where(eq(orders.id, orderId));
+
+        // 2. Release all asset bookings
+        await tx.delete(assetBookings).where(eq(assetBookings.order_id, orderId));
+
+        // 3. Cancel any pending reskin requests
+        const pendingReskins = await tx
+            .select()
+            .from(reskinRequests)
+            .where(
+                and(
+                    eq(reskinRequests.order_id, orderId),
+                    isNull(reskinRequests.completed_at),
+                    isNull(reskinRequests.cancelled_at)
+                )
+            );
+
+        cancelledReskinsCount = pendingReskins.length; // Store count
+
+        for (const reskin of pendingReskins) {
+            // Mark reskin as cancelled
+            await tx
+                .update(reskinRequests)
+                .set({
+                    cancelled_at: new Date(),
+                    cancelled_by: user.id,
+                    cancellation_reason: "Order cancelled",
+                })
+                .where(eq(reskinRequests.id, reskin.id));
+
+            // Void linked line items
+            await tx
+                .update(orderLineItems)
+                .set({
+                    is_voided: true,
+                    voided_at: new Date(),
+                    voided_by: user.id,
+                    void_reason: "Order cancelled",
+                })
+                .where(eq(orderLineItems.reskin_request_id, reskin.id));
+        }
+
+        // 4. Log to order status history
+        await tx.insert(orderStatusHistory).values({
+            platform_id: platformId,
+            order_id: orderId,
+            status: "CANCELLED",
+            notes: `${reason}: ${notes}`,
+            updated_by: user.id,
+        });
+
+        // 5. Log to financial status history
+        await tx.insert(financialStatusHistory).values({
+            platform_id: platformId,
+            order_id: orderId,
+            status: "CANCELLED",
+            notes: `${reason}: ${notes}`,
+            updated_by: user.id,
+        });
+    });
+
+    const orderForNotification = await db.query.orders.findFirst({
+        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
+        with: { company: true },
+    });
+
+    if (orderForNotification) {
+        if (notify_client) {
+            await NotificationLogServices.sendNotification(
+                platformId,
+                "ORDER_CANCELLED",
+                orderForNotification,
+                { to: [orderForNotification.contact_email] },
+                { cancellation_reason: reason, cancellation_notes: notes }
+            );
+        }
+
+        await NotificationLogServices.sendNotification(
+            platformId,
+            "ORDER_CANCELLED",
+            orderForNotification,
+            undefined,
+            { cancellation_reason: reason, cancellation_notes: notes }
+        );
+    }
+
+    return {
+        success: true,
+        order_id: order.order_id,
+        cancelled_reskins: cancelledReskinsCount, // ✅ Now in scope
+    };
+}
 
 // ----------------------------------- CALCULATE ESTIMATE (NEW) ------------------------------------
 // Calculate order estimate before submission (client-facing)
@@ -2110,6 +2232,81 @@ const getPendingApprovalOrders = async (query: any, platformId: string) => {
     };
 };
 
+// ---------------- Update order vehicle type and recalculate transport rate ----------------
+export async function updateOrderVehicle(
+    orderId: string,
+    platformId: string,
+    payload: UpdateVehiclePayload,
+    userId: string
+) {
+    const { vehicle_type, reason } = payload;
+
+    // Validate reason if changing vehicle
+    if (!reason || reason.trim().length < 10) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Vehicle change reason is required (min 10 characters)"
+        );
+    }
+
+    // Get order
+    const order = await db.query.orders.findFirst({
+        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
+    });
+
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    }
+
+    // Validate order status
+    if (!["PRICING_REVIEW", "PENDING_APPROVAL"].includes(order.order_status)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Vehicle type can only be changed during pricing review"
+        );
+    }
+
+    // Get new transport rate
+    const emirate = PricingCalculationServices.deriveEmirateFromCity(
+        (order.venue_location as any).city
+    );
+    const newRate = await TransportRatesServices.getTransportRate(
+        platformId,
+        order.company_id,
+        emirate,
+        order.transport_trip_type,
+        vehicle_type
+    );
+
+    // Update order
+    await db
+        .update(orders)
+        .set({
+            transport_vehicle_type: vehicle_type as any,
+            // Update pricing JSONB if it exists
+            pricing: order.pricing
+                ? {
+                    ...(order.pricing as any),
+                    transport: {
+                        ...(order.pricing as any).transport,
+                        vehicle_type,
+                        final_rate: newRate,
+                        vehicle_changed: vehicle_type !== "STANDARD",
+                        vehicle_change_reason: reason.trim(),
+                    },
+                }
+                : null,
+            updated_at: new Date(),
+        })
+        .where(eq(orders.id, orderId));
+
+    return {
+        vehicle_type,
+        new_rate: newRate,
+        reason: reason.trim(),
+    };
+}
+
 export const OrderServices = {
     submitOrderFromCart,
     getOrders,
@@ -2134,7 +2331,7 @@ export const OrderServices = {
     returnToLogistics,
     cancelOrder,
     calculateOrderEstimate,
-    updateOrderVehicle: OrderVehicleService.updateOrderVehicle,
+    updateOrderVehicle,
     addOrderItem: OrderItemsAdjustmentService.addOrderItem,
     removeOrderItem: OrderItemsAdjustmentService.removeOrderItem,
     updateOrderItemQuantity: OrderItemsAdjustmentService.updateOrderItemQuantity,

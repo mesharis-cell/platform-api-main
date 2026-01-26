@@ -291,8 +291,8 @@ export const checkAssetsForOrder = async (
                 asset.tracking_method === "INDIVIDUAL"
                     ? "BOOKED"
                     : remainingQuantity <= 0
-                      ? "BOOKED"
-                      : "AVAILABLE";
+                        ? "BOOKED"
+                        : "AVAILABLE";
 
             availableItems.push({
                 ...asset,
@@ -322,3 +322,15 @@ export const checkAssetsForOrder = async (
 
     return availableItems;
 };
+
+export const NON_CANCELLABLE_STATUSES = [
+    "READY_FOR_DELIVERY",
+    "IN_TRANSIT",
+    "DELIVERED",
+    "IN_USE",
+    "AWAITING_RETURN",
+    "RETURN_IN_TRANSIT",
+    "CLOSED",
+    "DECLINED",
+    "CANCELLED",
+];
