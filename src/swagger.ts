@@ -12,7 +12,6 @@ import "./app/modules/company/company.swagger";
 import "./app/modules/invoice/invoice.swagger";
 import "./app/modules/order/order.swagger";
 import "./app/modules/platform/platform.swagger";
-import "./app/modules/pricing-tier/pricing-tier.swagger";
 import "./app/modules/scanning/scanning.swagger";
 import "./app/modules/upload/upload.swagger";
 import "./app/modules/user/user.swagger";
