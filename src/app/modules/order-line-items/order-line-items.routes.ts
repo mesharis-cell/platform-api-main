@@ -22,7 +22,7 @@ router.post(
     "/catalog",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.ORDER_LINE_ITEMS_MANAGE),
+    // requirePermission(PERMISSIONS.ORDER_LINE_ITEMS_MANAGE),
     payloadValidator(OrderLineItemsSchemas.createCatalogLineItemSchema),
     OrderLineItemsControllers.createCatalogLineItem
 );
@@ -32,7 +32,7 @@ router.post(
     "/custom",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.ORDER_LINE_ITEMS_MANAGE),
+    // requirePermission(PERMISSIONS.ORDER_LINE_ITEMS_MANAGE),
     payloadValidator(OrderLineItemsSchemas.createCustomLineItemSchema),
     OrderLineItemsControllers.createCustomLineItem
 );
@@ -42,7 +42,7 @@ router.put(
     "/:itemId",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.ORDER_LINE_ITEMS_MANAGE),
+    // requirePermission(PERMISSIONS.ORDER_LINE_ITEMS_MANAGE),
     payloadValidator(OrderLineItemsSchemas.updateLineItemSchema),
     OrderLineItemsControllers.updateLineItem
 );
@@ -52,7 +52,7 @@ router.delete(
     "/:itemId",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.ORDER_LINE_ITEMS_MANAGE),
+    // requirePermission(PERMISSIONS.ORDER_LINE_ITEMS_MANAGE),
     payloadValidator(OrderLineItemsSchemas.voidLineItemSchema),
     OrderLineItemsControllers.voidLineItem
 );

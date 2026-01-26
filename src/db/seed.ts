@@ -19,8 +19,6 @@ import { sql } from "drizzle-orm";
 type TrackingMethod = "INDIVIDUAL" | "BATCH";
 type AssetCondition = "GREEN" | "ORANGE" | "RED";
 type ScanType = "OUTBOUND" | "INBOUND";
-type TripType = "ONE_WAY" | "ROUND_TRIP";
-type VehicleType = "STANDARD" | "7_TON" | "10_TON";
 type NotificationStatus = "QUEUED" | "SENT" | "FAILED" | "RETRYING";
 type OrderStatus =
     | "DRAFT"
@@ -687,12 +685,12 @@ async function seedBrands() {
             company.name === "Diageo"
                 ? ["Johnnie Walker", "Guinness", "Baileys"]
                 : company.name === "Unilever"
-                  ? ["Dove", "Axe", "Lipton"]
-                  : company.name === "Procter & Gamble"
-                    ? ["Gillette", "Pantene", "Oral-B"]
-                    : company.name === "Coca-Cola"
-                      ? ["Coca-Cola Classic", "Sprite", "Fanta"]
-                      : ["Air Jordan", "Nike SB", "Nike ACG"];
+                    ? ["Dove", "Axe", "Lipton"]
+                    : company.name === "Procter & Gamble"
+                        ? ["Gillette", "Pantene", "Oral-B"]
+                        : company.name === "Coca-Cola"
+                            ? ["Coca-Cola Classic", "Sprite", "Fanta"]
+                            : ["Air Jordan", "Nike SB", "Nike ACG"];
 
         for (const brandName of brandNames) {
             brands.push({
@@ -1293,24 +1291,24 @@ async function seedAssets() {
                         condition === "RED"
                             ? Math.floor(Math.random() * 5) + 3
                             : condition === "ORANGE"
-                              ? Math.floor(Math.random() * 2) + 1
-                              : null,
+                                ? Math.floor(Math.random() * 2) + 1
+                                : null,
                     condition_history: conditionHistory,
                     handling_tags:
                         category === "Glassware"
                             ? ["Fragile", "HighValue"]
                             : category === "Furniture" && template.weight > 50
-                              ? ["HeavyLift"]
-                              : category === "Installation"
-                                ? ["AssemblyRequired"]
-                                : [],
+                                ? ["HeavyLift"]
+                                : category === "Installation"
+                                    ? ["AssemblyRequired"]
+                                    : [],
                     status: status,
                     last_scanned_at:
                         status !== "AVAILABLE"
                             ? randomDate(
-                                  new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-                                  new Date()
-                              )
+                                new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+                                new Date()
+                            )
                             : null,
                     last_scanned_by:
                         status !== "AVAILABLE"
@@ -1446,7 +1444,7 @@ async function seedOrders() {
     const clientUsers = seededData.users.filter((u) => u.role === "CLIENT");
 
     // Order statuses to create
-    const orderStatuses: Array<{status: any, financial: any, daysAgo: number, hasReskin?: boolean}> = [
+    const orderStatuses: Array<{ status: any, financial: any, daysAgo: number, hasReskin?: boolean }> = [
         { status: 'DRAFT', financial: 'PENDING_QUOTE', daysAgo: 1 },
         { status: 'DRAFT', financial: 'PENDING_QUOTE', daysAgo: 2 },
         { status: 'SUBMITTED', financial: 'PENDING_QUOTE', daysAgo: 3 },
@@ -1489,29 +1487,29 @@ async function seedOrders() {
         const createdDate = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
         const eventStart = new Date(Date.now() + (Math.random() * 60 + 10) * 24 * 60 * 60 * 1000); // 10-70 days from now
         const eventEnd = new Date(eventStart.getTime() + (Math.random() * 5 + 1) * 24 * 60 * 60 * 1000); // 1-6 days duration
-        
+
         // Calculate volume/weight
         const volume = (Math.random() * 50 + 10).toFixed(3); // 10-60 m³
         const weight = (parseFloat(volume) * (Math.random() * 50 + 100)).toFixed(2); // 100-150 kg/m³
-        
+
         // Determine vehicle type based on volume
         const vehicleType = parseFloat(volume) > 30 ? '10_TON' : parseFloat(volume) > 15 ? '7_TON' : 'STANDARD';
         const tripType = 'ROUND_TRIP';
         const emirate = randomItem(['Dubai', 'Abu Dhabi', 'Sharjah']);
-        
+
         // Get pricing config rate (150 AED/m³ default)
         const warehouseOpsRate = 150.00;
-        
+
         // Calculate base operations
         const baseOpsTotal = parseFloat(volume) * warehouseOpsRate;
-        
+
         // Get transport rate (simulate lookup)
         const transportRate = vehicleType === '10_TON' ? 2160 : vehicleType === '7_TON' ? 1440 : 900; // ROUND_TRIP rates
-        
+
         // For orders with pricing, calculate line items totals
         let catalogTotal = 0;
         let customTotal = 0;
-        
+
         if (hasReskin && !['DRAFT', 'SUBMITTED', 'PRICING_REVIEW'].includes(status)) {
             // Reskin costs (custom, no margin)
             customTotal = Math.random() * 2000 + 1000; // 1000-3000 AED for reskins
@@ -1521,17 +1519,17 @@ async function seedOrders() {
             // Normal orders - just catalog items
             catalogTotal = Math.random() * 500 + 100; // 100-600 AED
         }
-        
+
         // Calculate logistics subtotal (base ops + transport + catalog items)
         const logisticsSubtotal = baseOpsTotal + transportRate + catalogTotal;
-        
+
         // Calculate margin (on logistics subtotal only, NOT on custom items)
         const marginPercent = parseFloat(company.platform_margin_percent);
         const marginAmount = logisticsSubtotal * (marginPercent / 100);
-        
+
         // Calculate final total
         const finalTotal = logisticsSubtotal + marginAmount + customTotal;
-        
+
         // Build NEW pricing structure (only for orders past SUBMITTED)
         const newPricing = !['DRAFT', 'SUBMITTED'].includes(status) ? {
             base_operations: {
@@ -1565,7 +1563,7 @@ async function seedOrders() {
             calculated_at: new Date(createdDate.getTime() + 36 * 60 * 60 * 1000).toISOString(),
             calculated_by: seededData.users.find(u => u.role === 'ADMIN')?.id || null,
         } : null;
-        
+
         orders.push({
             platform_id: platform1.id,
             order_id: generateOrderId(createdDate, i + 1),
@@ -1615,15 +1613,15 @@ async function seedOrders() {
                 "CLOSED",
             ].includes(status)
                 ? {
-                      start: new Date(eventStart.getTime() - 24 * 60 * 60 * 1000),
-                      end: new Date(eventStart.getTime() - 12 * 60 * 60 * 1000),
-                  }
+                    start: new Date(eventStart.getTime() - 24 * 60 * 60 * 1000),
+                    end: new Date(eventStart.getTime() - 12 * 60 * 60 * 1000),
+                }
                 : null,
             pickup_window: ["AWAITING_RETURN", "CLOSED"].includes(status)
                 ? {
-                      start: new Date(eventEnd.getTime() + 12 * 60 * 60 * 1000),
-                      end: new Date(eventEnd.getTime() + 36 * 60 * 60 * 1000),
-                  }
+                    start: new Date(eventEnd.getTime() + 12 * 60 * 60 * 1000),
+                    end: new Date(eventEnd.getTime() + 36 * 60 * 60 * 1000),
+                }
                 : null,
             calculated_totals: {
                 volume: volume,
@@ -1643,23 +1641,23 @@ async function seedOrders() {
                 status
             )
                 ? [
-                      `https://placehold.co/800x600/475569/FFFFFF?text=${encodeURIComponent("Delivery Truck\\nLoading")}`,
-                      `https://placehold.co/800x600/64748b/FFFFFF?text=${encodeURIComponent("Items in Transit")}`,
-                  ]
+                    `https://placehold.co/800x600/475569/FFFFFF?text=${encodeURIComponent("Delivery Truck\\nLoading")}`,
+                    `https://placehold.co/800x600/64748b/FFFFFF?text=${encodeURIComponent("Items in Transit")}`,
+                ]
                 : [],
         });
     }
 
     const inserted = await db.insert(schema.orders).values(orders).returning();
     seededData.orders = inserted;
-    
+
     // Track which orders should have reskin requests
     for (let i = 0; i < orderStatuses.length; i++) {
         if (orderStatuses[i].hasReskin) {
             seededData.ordersWithReskin.push(inserted[i].id);
         }
     }
-    
+
     console.log(`✓ Created ${inserted.length} orders across all statuses (${seededData.ordersWithReskin.length} with reskin requests)`);
 }
 
@@ -1672,24 +1670,24 @@ async function seedOrderItems() {
         const companyAssets = seededData.assets.filter(a => a.company_id === order.company_id && a.status === 'AVAILABLE');
         const companyBrands = seededData.brands.filter(b => b.company_id === order.company_id);
         const hasReskin = seededData.ordersWithReskin.includes(order.id);
-        
+
         // 5-8 items per order
         const itemCount = Math.floor(Math.random() * 4) + 5;
         const selectedAssets = companyAssets
             .sort(() => Math.random() - 0.5)
             .slice(0, Math.min(itemCount, companyAssets.length));
-        
+
         for (let idx = 0; idx < selectedAssets.length; idx++) {
             const asset = selectedAssets[idx];
             const quantity = asset.tracking_method === 'BATCH' ? Math.floor(Math.random() * 10) + 1 : 1;
             const volumePerUnit = parseFloat(asset.volume_per_unit);
             const weightPerUnit = parseFloat(asset.weight_per_unit);
-            
+
             // For reskin orders, mark 2 items as reskin requests
             const isReskinItem = hasReskin && idx < 2;
             const targetBrand = isReskinItem && companyBrands.length > 0 ? randomItem(companyBrands) : null;
             const useCustomBrand = isReskinItem && Math.random() > 0.7; // 30% custom brand
-            
+
             orderItems.push({
                 platform_id: order.platform_id,
                 order_id: order.id,
@@ -1719,25 +1717,25 @@ async function seedOrderItems() {
 
 async function seedReskinRequests() {
     console.log('🎨 Seeding reskin requests...');
-    
+
     const reskinRequests = [];
     const adminUsers = seededData.users.filter(u => u.role === 'ADMIN');
-    
+
     // Get all order items that are reskin requests
     const reskinOrderItems = seededData.orderItems.filter(i => i.is_reskin_request);
-    
+
     for (const item of reskinOrderItems) {
         const order = seededData.orders.find(o => o.id === item.order_id);
         if (!order) continue;
-        
+
         const originalAsset = seededData.assets.find(a => a.id === item.asset_id);
         if (!originalAsset) continue;
-        
+
         const createdDate = new Date(order.created_at.getTime() + 12 * 60 * 60 * 1000); // 12 hours after order
-        
+
         // Determine if completed (for AWAITING_FABRICATION with later date)
         const isCompleted = order.order_status !== 'AWAITING_FABRICATION';
-        
+
         reskinRequests.push({
             platform_id: order.platform_id,
             order_id: order.id,
@@ -1762,7 +1760,7 @@ async function seedReskinRequests() {
             cancellation_reason: null,
         });
     }
-    
+
     const inserted = await db.insert(schema.reskinRequests).values(reskinRequests).returning();
     seededData.reskinRequests = inserted;
     console.log(`✓ Created ${inserted.length} reskin requests`);
@@ -1770,40 +1768,40 @@ async function seedReskinRequests() {
 
 async function seedOrderLineItems() {
     console.log('💰 Seeding order line items (reskin costs, assembly, etc.)...');
-    
+
     const lineItems = [];
     const adminUsers = seededData.users.filter(u => u.role === 'ADMIN');
     const logisticsUsers = seededData.users.filter(u => u.role === 'LOGISTICS');
-    
+
     for (const order of seededData.orders) {
         // Only add line items for orders past PRICING_REVIEW
         if (!['PENDING_APPROVAL', 'QUOTED', 'CONFIRMED', 'AWAITING_FABRICATION', 'IN_PREPARATION', 'READY_FOR_DELIVERY', 'IN_TRANSIT', 'DELIVERED', 'AWAITING_RETURN', 'CLOSED'].includes(order.order_status)) {
             continue;
         }
-        
+
         // Get pricing totals from order
         const pricing = order.pricing as any;
         if (!pricing) continue;
-        
+
         const catalogTarget = pricing.line_items.catalog_total;
         const customTarget = pricing.line_items.custom_total;
-        
+
         const addedDate = new Date(order.created_at.getTime() + 36 * 60 * 60 * 1000);
-        
+
         // Add reskin line items for reskin requests (CUSTOM - no margin)
         const orderReskinRequests = seededData.reskinRequests.filter(r => r.order_id === order.id);
         if (orderReskinRequests.length > 0 && customTarget > 0) {
             // Distribute custom_total across reskin requests
             const costPerReskin = customTarget / orderReskinRequests.length;
-            
+
             for (const reskinReq of orderReskinRequests) {
                 lineItems.push({
                     platform_id: order.platform_id,
                     order_id: order.id,
                     service_type_id: null,
                     reskin_request_id: reskinReq.id,
-                    line_item_type: 'CUSTOM',
-                    category: 'RESKIN',
+                    line_item_type: 'CUSTOM' as const,
+                    category: 'RESKIN' as const,
                     description: `Rebrand: ${reskinReq.original_asset_name}`,
                     quantity: null,
                     unit: null,
@@ -1819,28 +1817,28 @@ async function seedOrderLineItems() {
                 });
             }
         }
-        
+
         // Add catalog service items (assembly, handling, etc.) - margin applied
         if (catalogTarget > 0) {
             const numServices = Math.floor(Math.random() * 2) + 1;
             const availableServices = seededData.serviceTypes.filter(s => s.default_rate);
-            
+
             if (availableServices.length > 0) {
                 // Distribute catalog_total across services
                 const costPerService = catalogTarget / numServices;
-                
+
                 for (let i = 0; i < numServices; i++) {
                     const service = randomItem(availableServices);
                     const rate = parseFloat(service.default_rate);
                     const qty = Math.max(1, Math.floor(costPerService / rate));
                     const total = (qty * rate).toFixed(2);
-                    
+
                     lineItems.push({
                         platform_id: order.platform_id,
                         order_id: order.id,
                         service_type_id: service.id,
                         reskin_request_id: null,
-                        line_item_type: 'CATALOG',
+                        line_item_type: 'CATALOG' as const,
                         category: service.category,
                         description: service.name,
                         quantity: qty.toString(),
@@ -1859,7 +1857,7 @@ async function seedOrderLineItems() {
             }
         }
     }
-    
+
     const inserted = await db.insert(schema.orderLineItems).values(lineItems).returning();
     seededData.orderLineItems = inserted;
     console.log(`✓ Created ${inserted.length} order line items (${inserted.filter(i => i.category === 'RESKIN').length} reskin costs)`);
@@ -1961,9 +1959,9 @@ async function seedScanEvents() {
                     photos:
                         returnCondition === "RED"
                             ? [
-                                  `https://placehold.co/800x600/dc2626/FFFFFF?text=${encodeURIComponent("Damage Report\\nPhoto 1")}`,
-                                  `https://placehold.co/800x600/b91c1c/FFFFFF?text=${encodeURIComponent("Damage Report\\nPhoto 2")}`,
-                              ]
+                                `https://placehold.co/800x600/dc2626/FFFFFF?text=${encodeURIComponent("Damage Report\\nPhoto 1")}`,
+                                `https://placehold.co/800x600/b91c1c/FFFFFF?text=${encodeURIComponent("Damage Report\\nPhoto 2")}`,
+                            ]
                             : [],
                     discrepancy_reason: null,
                     scanned_by: randomItem(logisticsUsers).id,
@@ -2119,8 +2117,8 @@ async function seedAssetConditionHistory() {
                 i === 0
                     ? asset.condition
                     : i === historyEntries - 1
-                      ? "GREEN"
-                      : randomItem(["GREEN", "ORANGE"]);
+                        ? "GREEN"
+                        : randomItem(["GREEN", "ORANGE"]);
 
             history.push({
                 platform_id: asset.platform_id,
@@ -2130,14 +2128,14 @@ async function seedAssetConditionHistory() {
                     entryCondition === "RED"
                         ? "Item damaged, sent to maintenance"
                         : entryCondition === "ORANGE"
-                          ? "Minor repairs completed"
-                          : "Restored to working condition",
+                            ? "Minor repairs completed"
+                            : "Restored to working condition",
                 photos:
                     entryCondition === "RED"
                         ? [
-                              `https://placehold.co/800x600/dc2626/FFFFFF?text=${encodeURIComponent("Asset Damage\\nPhoto")}`,
-                              `https://placehold.co/800x600/b91c1c/FFFFFF?text=${encodeURIComponent("Close-up\\nDamage")}`,
-                          ]
+                            `https://placehold.co/800x600/dc2626/FFFFFF?text=${encodeURIComponent("Asset Damage\\nPhoto")}`,
+                            `https://placehold.co/800x600/b91c1c/FFFFFF?text=${encodeURIComponent("Close-up\\nDamage")}`,
+                        ]
                         : [],
                 updated_by: randomItem(logisticsUsers).id,
                 timestamp: timestamp,
@@ -2410,7 +2408,7 @@ async function main() {
         console.log(`  - Order Items: ${seededData.orderItems.length} (${seededData.orderItems.filter(i => i.is_reskin_request).length} reskin requests)`);
         console.log(`  - Reskin Requests: ${seededData.reskinRequests.length}`);
         console.log(`  - Order Line Items: ${seededData.orderLineItems.length} (${seededData.orderLineItems.filter(i => i.category === 'RESKIN').length} reskin costs)`);
-        
+
         console.log('\n🖼️  Image Summary:');
         console.log(`  - Asset images: ${seededData.assets.length * 3}`);
         console.log(`  - Collection images: ${seededData.collections.length * 2}`);

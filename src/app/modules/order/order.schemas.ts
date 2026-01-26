@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { orderStatusEnum } from "../../../db/schema";
 import { enumMessageGenerator } from "../../utils/helper";
+import { CANCEL_REASONS } from "./order.utils";
 
 export const orderItemSchema = z
     .object({
@@ -269,17 +270,8 @@ const cancelOrderSchema = z.object({
     body: z
         .object({
             reason: z.enum(
-                [
-                    "client_requested",
-                    "asset_unavailable",
-                    "pricing_dispute",
-                    "event_cancelled",
-                    "fabrication_failed",
-                    "other",
-                ],
-                {
-                    message: "Invalid cancellation reason",
-                }
+                CANCEL_REASONS,
+                enumMessageGenerator("Cancellation reason", CANCEL_REASONS)
             ),
             notes: z
                 .string("Notes should be a text")

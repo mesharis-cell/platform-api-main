@@ -137,8 +137,7 @@ export const platforms = pgTable(
 export const platformsRelations = relations(platforms, ({ many }) => ({
     companies: many(companies),
     users: many(users),
-    warehouses: many(warehouses),
-    pricingTiers: many(pricingTiers),
+    warehouses: many(warehouses)
 }));
 
 // ---------------------------------- COMPANY & COMPANY DOMAINS ---------------------------
@@ -551,41 +550,6 @@ export const collectionItemsRelations = relations(collectionItems, ({ one }) => 
     asset: one(assets, { fields: [collectionItems.asset], references: [assets.id] }),
 }));
 
-// ---------------------------------- PRICING TIER (DEPRECATED - TO BE REMOVED) -------------
-export const pricingTiers = pgTable(
-    "pricing_tiers",
-    {
-        id: uuid("id").primaryKey().defaultRandom(),
-        platform_id: uuid("platform")
-            .notNull()
-            .references(() => platforms.id, { onDelete: "cascade" }),
-        country: varchar("country", { length: 50 }).notNull(),
-        city: varchar("city", { length: 50 }).notNull(),
-        volume_min: decimal("volume_min", { precision: 8, scale: 3 }).notNull(),
-        volume_max: decimal("volume_max", { precision: 8, scale: 3 }),
-        base_price: decimal("base_price", { precision: 10, scale: 2 }).notNull(),
-        is_active: boolean("is_active").notNull().default(true),
-        created_at: timestamp("created_at").notNull().defaultNow(),
-        updated_at: timestamp("updated_at")
-            .$onUpdate(() => new Date())
-            .notNull(),
-    },
-    (table) => [
-        index("pricing_tiers_platform_location_idx").on(
-            table.platform_id,
-            table.country,
-            table.city
-        ),
-        unique("pricing_tiers_unique").on(
-            table.platform_id,
-            table.country,
-            table.city,
-            table.volume_min,
-            table.volume_max
-        ),
-    ]
-);
-
 // ---------------------------------- PRICING CONFIG (NEW) ------------------------------------
 export const pricingConfig = pgTable(
     "pricing_config",
@@ -743,8 +707,6 @@ export const orders = pgTable(
             .notNull()
             .default("STANDARD"),
 
-        // Pricing (DEPRECATED fields - to be removed after migration)
-        tier_id: uuid("tier").references(() => pricingTiers.id),
         logistics_pricing: jsonb("logistics_pricing"), // OLD: {base_price, adjusted_price, adjustment_reason, adjusted_at, adjusted_by}
         platform_pricing: jsonb("platform_pricing"), // OLD: {margin_percent, margin_amount, reviewed_at, reviewed_by, notes}
         final_pricing: jsonb("final_pricing"), // OLD: {total_price, quote_sent_at}
@@ -791,7 +753,6 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
     company: one(companies, { fields: [orders.company_id], references: [companies.id] }),
     brand: one(brands, { fields: [orders.brand_id], references: [brands.id] }),
     user: one(users, { fields: [orders.user_id], references: [users.id] }),
-    pricing_tier: one(pricingTiers, { fields: [orders.tier_id], references: [pricingTiers.id] }), // DEPRECATED
     items: many(orderItems),
     line_items: many(orderLineItems),
     reskin_requests: many(reskinRequests),
