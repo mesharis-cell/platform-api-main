@@ -168,7 +168,7 @@ router.patch(
     "/:id/vehicle",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.PRICING_REVIEW),
+    // requirePermission(PERMISSIONS.PRICING_REVIEW),
     payloadValidator(orderSchemas.updateVehicleSchema),
     OrderControllers.updateOrderVehicle
 );
@@ -177,8 +177,8 @@ router.patch(
 router.post(
     "/:id/submit-for-approval",
     platformValidator,
-    auth("LOGISTICS"),
-    requirePermission(PERMISSIONS.PRICING_REVIEW),
+    auth("ADMIN", "LOGISTICS"),
+    // requirePermission(PERMISSIONS.PRICING_REVIEW),
     OrderControllers.submitForApproval
 );
 
@@ -187,7 +187,7 @@ router.post(
     "/:id/admin-approve-quote",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.PRICING_ADMIN_APPROVE),
+    // requirePermission(PERMISSIONS.PRICING_ADMIN_APPROVE),
     OrderControllers.adminApproveQuote
 );
 
@@ -196,7 +196,7 @@ router.post(
     "/:id/return-to-logistics",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.PRICING_ADMIN_APPROVE),
+    // requirePermission(PERMISSIONS.PRICING_ADMIN_APPROVE),
     OrderControllers.returnToLogistics
 );
 
@@ -205,7 +205,7 @@ router.post(
     "/:id/cancel",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.ORDERS_CANCEL),
+    // requirePermission(PERMISSIONS.ORDERS_CANCEL),
     payloadValidator(orderSchemas.cancelOrderSchema),
     OrderControllers.cancelOrder
 );
@@ -225,7 +225,7 @@ router.post(
     "/:id/items",
     platformValidator,
     auth("LOGISTICS"),
-    requirePermission(PERMISSIONS.PRICING_REVIEW),
+    // requirePermission(PERMISSIONS.PRICING_REVIEW),
     payloadValidator(orderSchemas.addOrderItemSchema),
     OrderControllers.addOrderItem
 );
@@ -235,7 +235,7 @@ router.delete(
     "/:id/items/:item_id",
     platformValidator,
     auth("LOGISTICS"),
-    requirePermission(PERMISSIONS.PRICING_REVIEW),
+    // requirePermission(PERMISSIONS.PRICING_REVIEW),
     OrderControllers.removeOrderItem
 );
 
@@ -244,7 +244,7 @@ router.patch(
     "/:id/items/:item_id/quantity",
     platformValidator,
     auth("LOGISTICS"),
-    requirePermission(PERMISSIONS.PRICING_REVIEW),
+    // requirePermission(PERMISSIONS.PRICING_REVIEW),
     payloadValidator(orderSchemas.updateOrderItemQuantitySchema),
     OrderControllers.updateOrderItemQuantity
 );
