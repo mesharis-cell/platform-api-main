@@ -410,9 +410,8 @@ const cancelOrder = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platform_id;
     const id = getRequiredString(req.params.id, "id");
-    const payload = req.body;
 
-    const result = await OrderServices.cancelOrder(id, user, platformId, payload);
+    const result = await OrderServices.cancelOrder(id, platformId, req.body, user);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

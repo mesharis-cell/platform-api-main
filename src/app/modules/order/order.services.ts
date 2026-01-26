@@ -1986,6 +1986,11 @@ export async function cancelOrder(
 ) {
     const { reason, notes, notify_client } = payload;
 
+    console.log("payload", payload);
+    console.log("orderId", orderId);
+    console.log("platformId", platformId);
+    console.log("user", user);
+
     // Get order
     const order = await db.query.orders.findFirst({
         where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),

@@ -334,3 +334,12 @@ export const NON_CANCELLABLE_STATUSES = [
     "DECLINED",
     "CANCELLED",
 ];
+
+export const CANCEL_REASONS = [
+    "client_requested",
+    "asset_unavailable",
+    "pricing_dispute",
+    "event_cancelled",
+    "fabrication_failed",
+    "other",
+];
