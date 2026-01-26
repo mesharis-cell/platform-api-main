@@ -11,6 +11,19 @@ import { ReskinRequestsRoutes } from "../reskin-requests/reskin-requests.routes"
 
 const router = Router();
 
+// Calculate order estimate (NEW)
+router.post("/estimate", platformValidator, auth("CLIENT"), OrderControllers.calculateEstimate);
+
+// Submit order
+router.post(
+    "/submit-from-cart",
+    platformValidator,
+    auth("CLIENT"),
+    requirePermission(PERMISSIONS.ORDERS_CREATE),
+    payloadValidator(orderSchemas.submitOrderSchema),
+    OrderControllers.submitOrder
+);
+
 // Get orders
 router.get(
     "/",
@@ -72,19 +85,6 @@ router.get(
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
     OrderControllers.getOrderPricingDetails
-);
-
-// Calculate order estimate (NEW)
-router.post("/estimate", platformValidator, auth("CLIENT"), OrderControllers.calculateEstimate);
-
-// Submit order
-router.post(
-    "/submit-from-cart",
-    platformValidator,
-    auth("CLIENT"),
-    requirePermission(PERMISSIONS.ORDERS_CREATE),
-    payloadValidator(orderSchemas.submitOrderSchema),
-    OrderControllers.submitOrder
 );
 
 // Approve quote

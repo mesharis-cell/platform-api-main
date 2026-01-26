@@ -2,19 +2,25 @@ import { Request, Response } from "express";
 import httpStatus from "http-status";
 import { ReskinRequestsServices } from "./reskin-requests.services";
 import { getRequiredString } from "../../utils/request";
+import catchAsync from "../../shared/catch-async";
+import sendResponse from "../../shared/send-response";
 
 // ----------------------------------- LIST RESKIN REQUESTS -----------------------------------
-const listReskinRequests = async (req: Request, res: Response) => {
-    const { platform_id } = req as any;
+const listReskinRequests = catchAsync(async (req: Request, res: Response) => {
+    // Extract platform ID from middleware
+    const platformId = (req as any).platformId;
+
     const orderId = getRequiredString(req.params.orderId, "orderId");
 
-    const requests = await ReskinRequestsServices.listReskinRequests(orderId, platform_id);
+    const requests = await ReskinRequestsServices.listReskinRequests(orderId, platformId);
 
-    return res.status(httpStatus.OK).json({
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
         success: true,
+        message: "Reskin requests fetched successfully.",
         data: requests,
     });
-};
+});
 
 // ----------------------------------- PROCESS RESKIN REQUEST -----------------------------------
 const processReskinRequest = async (req: Request, res: Response) => {
