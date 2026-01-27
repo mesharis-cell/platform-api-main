@@ -808,7 +808,7 @@ async function seedTransportRates() {
                 rates.push({
                     platform_id: platform1.id,
                     company_id: null,
-                    emirate,
+                    city_id: emirate,
                     area: null,
                     trip_type: tripType,
                     vehicle_type: vehicleType,

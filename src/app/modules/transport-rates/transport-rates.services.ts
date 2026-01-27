@@ -30,7 +30,7 @@ const getTransportRate = async (
                 and(
                     eq(transportRates.platform_id, platformId),
                     eq(transportRates.company_id, companyId),
-                    eq(transportRates.emirate, emirate),
+                    eq(transportRates.city_id, emirate),
                     eq(transportRates.trip_type, tripType as any),
                     eq(transportRates.vehicle_type, vehicleType as any),
                     eq(transportRates.is_active, true)
@@ -51,7 +51,7 @@ const getTransportRate = async (
             and(
                 eq(transportRates.platform_id, platformId),
                 isNull(transportRates.company_id),
-                eq(transportRates.emirate, emirate),
+                eq(transportRates.city_id, emirate),
                 eq(transportRates.trip_type, tripType as any),
                 eq(transportRates.vehicle_type, vehicleType as any),
                 eq(transportRates.is_active, true)
@@ -95,7 +95,7 @@ const listTransportRates = async (query: Record<string, any>, platformId: string
     const conditions: any[] = [eq(transportRates.platform_id, platformId)];
 
     if (emirate) {
-        conditions.push(eq(transportRates.emirate, emirate));
+        conditions.push(eq(transportRates.city_id, emirate));
     }
 
     if (trip_type) {
@@ -184,7 +184,7 @@ const createTransportRate = async (data: CreateTransportRatePayload) => {
                 company_id
                     ? eq(transportRates.company_id, company_id)
                     : isNull(transportRates.company_id),
-                eq(transportRates.emirate, emirate),
+                eq(transportRates.city_id, emirate),
                 area ? eq(transportRates.area, area) : isNull(transportRates.area),
                 eq(transportRates.trip_type, trip_type as any),
                 eq(transportRates.vehicle_type, vehicle_type as any)
@@ -204,7 +204,7 @@ const createTransportRate = async (data: CreateTransportRatePayload) => {
         .values({
             platform_id,
             company_id: company_id || null,
-            emirate,
+            city_id: emirate,
             area: area || null,
             trip_type: trip_type as any,
             vehicle_type: vehicle_type as any,

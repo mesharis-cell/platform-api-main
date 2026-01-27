@@ -237,7 +237,7 @@ export async function seedHybridPricing() {
                 await db.insert(transportRates).values({
                     platform_id: platform.id,
                     company_id: null, // Platform default
-                    emirate: rate.emirate,
+                    city_id: rate.emirate,
                     area: null,
                     trip_type: rate.trip_type as any,
                     vehicle_type: rate.vehicle_type as any,

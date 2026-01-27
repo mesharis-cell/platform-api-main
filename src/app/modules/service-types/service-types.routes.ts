@@ -2,8 +2,6 @@ import { Router } from "express";
 import auth from "../../middleware/auth";
 import payloadValidator from "../../middleware/payload-validator";
 import platformValidator from "../../middleware/platform-validator";
-import requirePermission from "../../middleware/permission";
-import { PERMISSIONS } from "../../constants/permissions";
 import { ServiceTypesControllers } from "./service-types.controllers";
 import { ServiceTypesSchemas } from "./service-types.schemas";
 
