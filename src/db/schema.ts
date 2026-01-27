@@ -1357,4 +1357,16 @@ export const cities = pgTable(
         index("cities_country_idx").on(table.country_id),
         unique("cities_platform_country_name_unique").on(table.platform_id, table.country_id, table.name) // City name must be unique within a platform and country
     ]
-)
+);
+
+export const citiesRelations = relations(cities, ({ one }) => ({
+    platform: one(platforms, {
+        fields: [cities.platform_id],
+        references: [platforms.id],
+    }),
+    country: one(countries, {
+        fields: [cities.country_id],
+        references: [countries.id],
+    }),
+}));
+

@@ -2,6 +2,7 @@ import { Router } from "express";
 import { AnalyticsRoutes } from "../modules/analytics/analytics.routes";
 import { AssetRoutes } from "../modules/asset/asset.routes";
 import { BrandRoutes } from "../modules/brand/brand.routes";
+import { CityRoutes } from "../modules/city/city.routes";
 import { CollectionRoutes } from "../modules/collection/collection.routes";
 import { CompanyRoutes } from "../modules/company/company.routes";
 import { CountryRoutes } from "../modules/country/country.routes";
@@ -38,6 +39,10 @@ const routes = [
     {
         path: "/country",
         route: CountryRoutes,
+    },
+    {
+        path: "/city",
+        route: CityRoutes,
     },
     {
         path: "/warehouse",
