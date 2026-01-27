@@ -14,7 +14,7 @@
 import { db } from "./index";
 import * as schema from "./schema";
 import bcrypt from "bcrypt";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 type TrackingMethod = "INDIVIDUAL" | "BATCH";
 type AssetCondition = "GREEN" | "ORANGE" | "RED";
@@ -153,6 +153,7 @@ const randomItem = <T>(array: T[]): T => {
 const seededData = {
     platforms: [] as any[],
     companies: [] as any[],
+    countries: [] as any[],
     companyDomains: [] as any[],
     users: [] as any[],
     warehouses: [] as any[],
@@ -224,6 +225,25 @@ async function seedPlatforms() {
 
     seededData.platforms = platforms;
     console.log(`✓ Created ${platforms.length} platforms`);
+}
+
+async function seedCountries() {
+    console.log("🌐 Seeding countries...");
+
+    for (const platform of seededData.platforms) {
+        const countries = await db
+            .insert(schema.countries)
+            .values([
+                {
+                    platform_id: platform.id,
+                    name: "United Arab Emirates",
+                }
+            ])
+            .returning();
+
+        seededData.countries = countries;
+        console.log(`✓ Created ${countries.length} countries for ${platform.name}`);
+    }
 }
 
 async function seedCompanies() {
@@ -783,7 +803,18 @@ async function seedTransportRates() {
     console.log("🚚 Seeding transport rates...");
 
     const platform1 = seededData.platforms[0];
-    const emirates = [
+
+    const [country] = await db
+        .select()
+        .from(schema.countries)
+        .where(eq(schema.countries.platform_id, platform1.id))
+        .limit(1);
+
+    if (!country) {
+        throw new Error("Country not found to create city");
+    }
+
+    const cities = [
         "Dubai",
         "Abu Dhabi",
         "Sharjah",
@@ -792,12 +823,23 @@ async function seedTransportRates() {
         "Fujairah",
         "Umm Al Quwain",
     ];
+
+    const citiesData = cities.map((city) => ({
+        platform_id: platform1.id,
+        country_id: country.id,
+        name: city,
+    }));
+
+    const insertedCities = await db.insert(schema.cities).values(citiesData).returning();
+
+    console.log(`✓ Created ${insertedCities.length} cities for ${country.name} in ${platform1.name}`);
+
     const tripTypes: ("ONE_WAY" | "ROUND_TRIP")[] = ["ONE_WAY", "ROUND_TRIP"];
     const vehicleTypes: ("STANDARD" | "7_TON" | "10_TON")[] = ["STANDARD", "7_TON", "10_TON"];
 
     const rates = [];
 
-    for (const emirate of emirates) {
+    for (const city of insertedCities) {
         for (const tripType of tripTypes) {
             for (const vehicleType of vehicleTypes) {
                 const baseRate =
@@ -808,7 +850,7 @@ async function seedTransportRates() {
                 rates.push({
                     platform_id: platform1.id,
                     company_id: null,
-                    city_id: emirate,
+                    city_id: city.id,
                     area: null,
                     trip_type: tripType,
                     vehicle_type: vehicleType,
@@ -2353,6 +2395,7 @@ async function main() {
         // Phase 1: Core infrastructure
         await seedPlatforms();
         await seedCompanies();
+        await seedCountries();
         await seedCompanyDomains();
         await seedWarehouses();
         await seedUsers();
