@@ -1321,14 +1321,22 @@ export const countries = pgTable(
         platform_id: uuid("platform_id")
             .notNull()
             .references(() => platforms.id, { onDelete: "cascade" }),
-        name: varchar("name", { length: 255 }).notNull(),
-        created_at: timestamp("created_at").notNull().defaultNow(),
+        name: varchar("name", { length: 100 }).notNull(),
+        created_at: timestamp("created_at").notNull().defaultNow()
     },
     (table) => [
         index("countries_platform_idx").on(table.platform_id),
-        unique("countries_platform_name_unique").on(table.platform_id, table.name) // Country name must be unique within a platform
+        unique("countries_platform_name_unique").on(table.platform_id, table.name), // Country name must be unique within a platform
     ]
-)
+);
+
+export const countriesRelations = relations(countries, ({ one, many }) => ({
+    platform: one(platforms, {
+        fields: [countries.platform_id],
+        references: [platforms.id],
+    }),
+    cities: many(cities),
+}));
 
 // ---------------------------------- CITY -------------------------------------------------
 export const cities = pgTable(

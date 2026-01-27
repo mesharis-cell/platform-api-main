@@ -4,6 +4,7 @@ import { AssetRoutes } from "../modules/asset/asset.routes";
 import { BrandRoutes } from "../modules/brand/brand.routes";
 import { CollectionRoutes } from "../modules/collection/collection.routes";
 import { CompanyRoutes } from "../modules/company/company.routes";
+import { CountryRoutes } from "../modules/country/country.routes";
 import { NotificationLogRoutes } from "../modules/notification-logs/notification-logs.routes";
 import { PlatformRoutes } from "../modules/platform/platform.routes";
 import { PricingConfigRoutes } from "../modules/pricing-config/pricing-config.routes";
@@ -33,6 +34,10 @@ const routes = [
     {
         path: "/brand",
         route: BrandRoutes,
+    },
+    {
+        path: "/country",
+        route: CountryRoutes,
     },
     {
         path: "/warehouse",
