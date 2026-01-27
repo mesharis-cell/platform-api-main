@@ -68,6 +68,14 @@ const getCountries = async (platformId: string, query: Record<string, any>) => {
     const [result, total] = await Promise.all([
         db.query.countries.findMany({
             where: and(...conditions),
+            with: {
+                cities: {
+                    columns: {
+                        id: true,
+                        name: true,
+                    },
+                },
+            },
             orderBy: orderDirection,
             limit: limitNumber,
             offset: skip,
@@ -97,9 +105,17 @@ const getCountryById = async (id: string, platformId: string) => {
     // Step 1: Build WHERE conditions
     const conditions: any[] = [eq(countries.id, id), eq(countries.platform_id, platformId)];
 
-    // Step 2: Fetch country
+    // Step 2: Fetch country with cities
     const country = await db.query.countries.findFirst({
         where: and(...conditions),
+        with: {
+            cities: {
+                columns: {
+                    id: true,
+                    name: true,
+                },
+            },
+        },
     });
 
     // Step 3: Handle not found

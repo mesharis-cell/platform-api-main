@@ -58,6 +58,19 @@
  *                       format: date-time
  *                       description: Country creation timestamp
  *                       example: "2025-12-22T17:15:41.843Z"
+ *                     cities:
+ *                       type: array
+ *                       description: List of cities in this country
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                             format: uuid
+ *                             example: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+ *                           name:
+ *                             type: string
+ *                             example: "Dubai"
  *       400:
  *         description: Bad request - Validation error
  *         content:
@@ -231,6 +244,19 @@
  *                         type: string
  *                         format: date-time
  *                         example: "2025-12-22T17:15:41.843Z"
+ *                       cities:
+ *                         type: array
+ *                         description: List of cities in this country
+ *                         items:
+ *                           type: object
+ *                           properties:
+ *                             id:
+ *                               type: string
+ *                               format: uuid
+ *                               example: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+ *                             name:
+ *                               type: string
+ *                               example: "Dubai"
  *       400:
  *         description: Bad request - Invalid query parameters
  *         content:
@@ -324,6 +350,19 @@
  *                       type: string
  *                       format: date-time
  *                       example: "2025-12-22T17:15:41.843Z"
+ *                     cities:
+ *                       type: array
+ *                       description: List of cities in this country
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                             format: uuid
+ *                             example: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+ *                           name:
+ *                             type: string
+ *                             example: "Dubai"
  *       401:
  *         description: Unauthorized - Authentication required
  *         content:
