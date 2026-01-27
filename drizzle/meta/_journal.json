@@ -127,6 +127,13 @@
       "when": 1769401257453,
       "tag": "0017_simple_kabuki",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1769501266570,
+      "tag": "0018_sleepy_shinobi_shaw",
+      "breakpoints": true
     }
   ]
 }

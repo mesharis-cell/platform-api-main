@@ -167,6 +167,7 @@ export const companies = pgTable(
         })
             .notNull()
             .default("25.00"),
+        warehouse_ops_rate: decimal("warehouse_ops_rate", { precision: 10, scale: 2 }).notNull().default("25.20"), // AED per m³
         contact_email: varchar("contact_email", { length: 255 }),
         contact_phone: varchar("contact_phone", { length: 50 }),
         is_active: boolean("is_active").default(true).notNull(),
@@ -588,14 +589,11 @@ export const transportRates = pgTable(
             .notNull()
             .references(() => platforms.id, { onDelete: "cascade" }),
         company_id: uuid("company").references(() => companies.id, { onDelete: "cascade" }), // NULL = platform-wide
-
-        emirate: varchar("emirate", { length: 50 }).notNull(),
+        city_id: uuid("city_id").notNull().references(() => cities.id, { onDelete: "cascade" }),
         area: varchar("area", { length: 100 }), // Optional sub-region
         trip_type: tripTypeEnum("trip_type").notNull(),
         vehicle_type: vehicleTypeEnum("vehicle_type").notNull(),
-
         rate: decimal("rate", { precision: 10, scale: 2 }).notNull(), // AED
-
         is_active: boolean("is_active").notNull().default(true),
         created_at: timestamp("created_at").notNull().defaultNow(),
         updated_at: timestamp("updated_at")
@@ -606,14 +604,14 @@ export const transportRates = pgTable(
         unique("transport_rates_unique").on(
             table.platform_id,
             table.company_id,
-            table.emirate,
+            table.city_id,
             table.area,
             table.trip_type,
             table.vehicle_type
         ),
         index("transport_rates_lookup_idx").on(
             table.platform_id,
-            table.emirate,
+            table.city_id,
             table.trip_type,
             table.vehicle_type
         ),
@@ -1313,3 +1311,42 @@ export const otp = pgTable(
         index("otp_platform_idx").on(table.platform_id),
     ]
 );
+
+
+// ---------------------------------- COUNTRY ----------------------------------------------
+export const countries = pgTable(
+    "countries",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        name: varchar("name", { length: 255 }).notNull(),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+    },
+    (table) => [
+        index("countries_platform_idx").on(table.platform_id),
+        unique("countries_platform_name_unique").on(table.platform_id, table.name) // Country name must be unique within a platform
+    ]
+)
+
+// ---------------------------------- CITY -------------------------------------------------
+export const cities = pgTable(
+    "cities",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        name: varchar("name", { length: 255 }).notNull(),
+        country_id: uuid("country_id")
+            .notNull()
+            .references(() => countries.id, { onDelete: "cascade" }),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+    },
+    (table) => [
+        index("cities_platform_idx").on(table.platform_id),
+        index("cities_country_idx").on(table.country_id),
+        unique("cities_platform_country_name_unique").on(table.platform_id, table.country_id, table.name) // City name must be unique within a platform and country
+    ]
+)
