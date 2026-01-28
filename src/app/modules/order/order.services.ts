@@ -329,7 +329,6 @@ const submitOrderFromCart = async (
                 venue_name: venue_name,
                 venue_location: {
                     country: venue_country,
-                    city: venue_city,
                     address: venue_address,
                     access_notes: venue_access_notes || null,
                 },
@@ -610,14 +609,16 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
         event_start_date: r.order.event_start_date,
         event_end_date: r.order.event_end_date,
         venue_name: r.order.venue_name,
+        venue_city: r.venue_city?.name || null,
         venue_location: r.order.venue_location,
         calculated_totals: r.order.calculated_totals,
         order_status: r.order.order_status,
         financial_status: r.order.financial_status,
-        created_at: r.order.created_at,
-        updated_at: r.order.updated_at,
         item_count: itemCounts[r.order.id] || 0,
         item_preview: itemPreviews[r.order.id] || [],
+        order_pricing: r.order_pricing,
+        created_at: r.order.created_at,
+        updated_at: r.order.updated_at,
     }));
 
     return {
@@ -762,8 +763,10 @@ const getMyOrders = async (query: Record<string, any>, user: AuthUser, platformI
 
     const formattedData = results.map((r) => ({
         ...r.order,
+        venue_city: r.venue_city?.name || null,
         company: r.company,
         brand: r.brand,
+        order_pricing: r.order_pricing,
     }));
 
     return {
