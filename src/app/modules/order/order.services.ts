@@ -1657,7 +1657,7 @@ const sendInvoice = async (user: AuthUser, platformId: string, orderId: string) 
 
 // ----------------------------------- SUBMIT FOR APPROVAL ------------------------------------
 const submitForApproval = async (orderId: string, user: AuthUser, platformId: string) => {
-    // Step 1: Fetch order
+    // Step 1: Fetch order with details
     const [result] = await db
         .select({
             order: orders,
@@ -1715,6 +1715,7 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
         );
     }
 
+    // Step 3: Get transport rate info
     const transportRateInfo = await TransportRatesServices.lookupTransportRate(
         platformId,
         company.id,
@@ -1727,12 +1728,13 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
         throw new CustomizedError(httpStatus.NOT_FOUND, `Transport rate not found for ${venueCity.name} to ${order.transport_trip_type} by ${order.transport_vehicle_type}`);
     }
 
-    // Get line items totals
+    // Step 4: Get line items totals
     const lineItemsTotals = await OrderLineItemsServices.calculateLineItemsTotals(
         orderId,
         platformId
     );
 
+    // Step 5: Calculate final pricing
     const transportRate = Number(transportRateInfo.rate);
     const volume = parseFloat((order.calculated_totals as any).volume);
     const marginOverride = !!(orderPricing?.margin as any)?.is_override;
@@ -1767,10 +1769,12 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
         calculated_by: user.id,
     }
 
+    // Step 6: Update order pricing and status
     await db.transaction(async (tx) => {
+        // Step 6.1: Update order pricing
         await tx.update(orderPrices).set(newPricing).where(eq(orderPrices.id, order.order_pricing_id));
 
-        // Step 4: Update order status
+        // Step 6.2: Update order status
         await tx
             .update(orders)
             .set({
@@ -1779,7 +1783,7 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
             })
             .where(eq(orders.id, orderId));
 
-        // Step 5: Log status change
+        // Step 6.3: Log status change
         await db.insert(orderStatusHistory).values({
             platform_id: platformId,
             order_id: orderId,
@@ -1789,6 +1793,7 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
         });
     })
 
+    // Step 7: Send notification
     await NotificationLogServices.sendNotification(
         platformId,
         "A2_ADJUSTED_PRICING",
@@ -1798,6 +1803,7 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
         }
     );
 
+    // Step 8: Return updated order
     return {
         id: order.id,
         order_id: order.order_id,
