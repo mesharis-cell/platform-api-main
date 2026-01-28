@@ -85,6 +85,38 @@ const getMyOrders = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- GET ORDER BY ID ------------------------------------
+const getOrderById = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const id = getRequiredString(req.params.id, "id");
+
+    const result = await OrderServices.getOrderById(id, user, platformId, req.query);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Order fetched successfully",
+        data: result,
+    });
+});
+
+// ----------------------------------- UPDATE JOB NUMBER ----------------------------------
+const updateJobNumber = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const id = getRequiredString(req.params.id, "id");
+    const { job_number } = req.body;
+
+    const result = await OrderServices.updateJobNumber(id, job_number, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Job number updated successfully",
+        data: result,
+    });
+});
+
 // ----------------------------------- EXPORT ORDERS --------------------------------------
 const exportOrders = catchAsync(async (req, res) => {
     const user = (req as any).user;
@@ -159,38 +191,6 @@ const exportOrders = catchAsync(async (req, res) => {
     res.setHeader("Content-Type", "text/csv");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.status(httpStatus.OK).send(csvContent);
-});
-
-// ----------------------------------- GET ORDER BY ID ------------------------------------
-const getOrderById = catchAsync(async (req, res) => {
-    const user = (req as any).user;
-    const platformId = (req as any).platformId;
-    const id = getRequiredString(req.params.id, "id");
-
-    const result = await OrderServices.getOrderById(id, user, platformId, req.query);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Order fetched successfully",
-        data: result,
-    });
-});
-
-// ----------------------------------- UPDATE JOB NUMBER ----------------------------------
-const updateJobNumber = catchAsync(async (req, res) => {
-    const platformId = (req as any).platformId;
-    const id = getRequiredString(req.params.id, "id");
-    const { job_number } = req.body;
-
-    const result = await OrderServices.updateJobNumber(id, job_number, platformId);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Job number updated successfully",
-        data: result,
-    });
 });
 
 // ----------------------------------- GET ORDER SCAN EVENTS ------------------------------
