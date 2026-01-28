@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../../../db";
-import { orderLineItems, users } from "../../../db/schema";
+import { cities, orderLineItems, orderPrices, users } from "../../../db/schema";
 import config from "../../config";
 import { sendEmail } from "../../services/email.service";
 import { formatDateForEmail, formatTimeWindow } from "../../utils/date-time";
@@ -112,13 +112,15 @@ export const getRecipientsForNotification = async (
 export const buildNotificationData = async (order: any): Promise<NotificationData> => {
     const clientUrl = config.client_url;
     const serverUrl = config.server_url;
-    const pricing = order.pricing as any;
-    const finalTotal =
-        pricing?.final_total !== undefined && pricing?.final_total !== null
-            ? Number(pricing.final_total)
-            : order.final_pricing?.total_price
-            ? Number(order.final_pricing.total_price)
-            : null;
+
+    const orderPricing = await db.query.orderPrices.findFirst({
+        where: and(eq(orderPrices.id, order.order_pricing_id), eq(orderPrices.platform_id, order.platform_id)),
+    });
+
+    const venueCity = await db.query.cities.findFirst({
+        where: and(eq(cities.id, order.venue_city_id), eq(cities.platform_id, order.platform_id)),
+    });
+
 
     const lineItems = await db
         .select({
@@ -142,8 +144,10 @@ export const buildNotificationData = async (order: any): Promise<NotificationDat
             ? formatDateForEmail(new Date(order.event_end_date))
             : "",
         venueName: order.venue_name || "",
-        venueCity: order.venue_location?.city || "",
-        finalTotalPrice: finalTotal !== null ? finalTotal.toFixed(2) : "",
+        venueCity: venueCity?.name || "",
+        tripType: order.transport_trip_type || "",
+        vehicleType: order.transport_vehicle_type || "",
+        finalTotalPrice: orderPricing?.final_total ? Number(orderPricing.final_total).toFixed(2) : "",
         invoiceNumber: order.invoiceNumber || "",
         deliveryWindow: formatTimeWindow(order.delivery_window?.start, order.delivery_window?.end),
         pickupWindow: formatTimeWindow(order.pickup_window?.start, order.pickup_window?.end),
@@ -151,34 +155,33 @@ export const buildNotificationData = async (order: any): Promise<NotificationDat
         serverUrl: serverUrl,
         supportEmail: "support@assetfulfillment.com",
         supportPhone: "+971 XX XXX XXXX",
-        pricing: pricing
+        pricing: orderPricing
             ? {
-                  base_operations: pricing.base_operations,
-                  transport: pricing.transport
-                      ? {
-                            emirate: pricing.transport.emirate,
-                            trip_type: pricing.transport.trip_type,
-                            vehicle_type: pricing.transport.vehicle_type,
-                            final_rate: Number(pricing.transport.final_rate),
-                        }
-                      : undefined,
-                  line_items: pricing.line_items,
-                  logistics_subtotal: pricing.logistics_subtotal,
-                  margin: pricing.margin,
-                  final_total: finalTotal ?? undefined,
-              }
+                warehouse_ops_rate: orderPricing.warehouse_ops_rate?.toString() || "N/A",
+                base_ops_total: orderPricing.base_ops_total?.toString() || "N/A",
+                logistics_sub_total: orderPricing.logistics_sub_total?.toString() || "N/A",
+                transport: {
+                    final_rate: (orderPricing.transport as any)?.final_rate?.toString() || "N/A",
+                    system_rate: (orderPricing.transport as any)?.system_rate?.toString() || "N/A",
+                },
+                line_items: {
+                    catalog_total: (orderPricing.line_items as any)?.catalog_total?.toString() || "N/A",
+                    custom_total: (orderPricing.line_items as any)?.custom_total?.toString() || "N/A",
+                },
+                margin: {
+                    percent: (orderPricing.margin as any)?.percent?.toString() || "N/A",
+                    amount: (orderPricing.margin as any)?.amount?.toString() || "N/A",
+                    is_override: (orderPricing.margin as any)?.is_override || false,
+                    override_reason: (orderPricing.margin as any)?.override_reason || "",
+                },
+                final_total: orderPricing.final_total?.toString() || "N/A",
+            }
             : undefined,
         line_items: lineItems.map((item) => ({
             description: item.description,
             total: Number(item.total),
             category: item.category,
         })),
-        // Additional fields for enhanced templates
-        // adjustmentReason: order.a2_adjustment_reason || undefined,
-        // a2AdjustedPrice: order.a2_adjusted_price
-        //     ? Number(order.a2_adjusted_price).toFixed(2)
-        //     : undefined,
-        // declineReason: order.declineReason || undefined,
     };
 };
 

@@ -1778,31 +1778,25 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
                 updated_at: new Date(),
             })
             .where(eq(orders.id, orderId));
+
+        // Step 5: Log status change
+        await db.insert(orderStatusHistory).values({
+            platform_id: platformId,
+            order_id: orderId,
+            status: "PENDING_APPROVAL",
+            notes: "Logistics submitted for Admin approval",
+            updated_by: user.id,
+        });
     })
 
-    // Step 3: Recalculate pricing (includes any line items added by Logistics)
-    // await recalculateOrderPricing(orderId, platformId, order.order.company_id, user.id);
-
-    // Step 5: Log status change
-    await db.insert(orderStatusHistory).values({
-        platform_id: platformId,
-        order_id: orderId,
-        status: "PENDING_APPROVAL",
-        notes: "Logistics submitted for Admin approval",
-        updated_by: user.id,
-    });
-
-    const orderForNotification = await db.query.orders.findFirst({
-        where: eq(orders.id, orderId),
-        with: { company: true },
-    });
-    if (orderForNotification) {
-        await NotificationLogServices.sendNotification(
-            platformId,
-            "A2_ADJUSTED_PRICING",
-            orderForNotification
-        );
-    }
+    await NotificationLogServices.sendNotification(
+        platformId,
+        "A2_ADJUSTED_PRICING",
+        {
+            ...order,
+            company
+        }
+    );
 
     return {
         id: order.id,
