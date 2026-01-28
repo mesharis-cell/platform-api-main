@@ -117,6 +117,69 @@ const updateJobNumber = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- GET ORDER SCAN EVENTS ------------------------------
+const getOrderScanEvents = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const orderId = getRequiredString(req.params.orderId, "orderId");
+
+    const result = await OrderServices.getOrderScanEvents(orderId as string, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Scan events fetched successfully",
+        data: result,
+    });
+});
+
+// ----------------------------------- PROGRESS ORDER STATUS ------------------------------
+const progressOrderStatus = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const id = getRequiredString(req.params.id, "id");
+
+    const result = await OrderServices.progressOrderStatus(id, req.body, user, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: `Order status updated to ${req.body.new_status}`,
+        data: result,
+    });
+});
+
+// ----------------------------------- GET ORDER STATUS HISTORY ---------------------------
+const getOrderStatusHistory = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const id = getRequiredString(req.params.id, "id");
+
+    const result = await OrderServices.getOrderStatusHistory(id, user, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Order status history fetched successfully",
+        data: result,
+    });
+});
+
+// ----------------------------------- UPDATE TIME WINDOWS --------------------------------
+const updateTimeWindows = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+    const id = getRequiredString(req.params.id, "id");
+
+    const result = await OrderServices.updateOrderTimeWindows(id, req.body, platformId, user);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Time windows updated successfully",
+        data: result,
+    });
+});
+
 // ----------------------------------- EXPORT ORDERS --------------------------------------
 const exportOrders = catchAsync(async (req, res) => {
     const user = (req as any).user;
@@ -192,115 +255,6 @@ const exportOrders = catchAsync(async (req, res) => {
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.status(httpStatus.OK).send(csvContent);
 });
-
-// ----------------------------------- GET ORDER SCAN EVENTS ------------------------------
-const getOrderScanEvents = catchAsync(async (req, res) => {
-    const platformId = (req as any).platformId;
-    const orderId = getRequiredString(req.params.orderId, "orderId");
-
-    const result = await OrderServices.getOrderScanEvents(orderId as string, platformId);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Scan events fetched successfully",
-        data: result,
-    });
-});
-
-// ----------------------------------- PROGRESS ORDER STATUS ------------------------------
-const progressOrderStatus = catchAsync(async (req, res) => {
-    const user = (req as any).user;
-    const platformId = (req as any).platformId;
-    const id = getRequiredString(req.params.id, "id");
-
-    const result = await OrderServices.progressOrderStatus(id, req.body, user, platformId);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: `Order status updated to ${req.body.new_status}`,
-        data: result,
-    });
-});
-
-// ----------------------------------- GET ORDER STATUS HISTORY ---------------------------
-const getOrderStatusHistory = catchAsync(async (req, res) => {
-    const user = (req as any).user;
-    const platformId = (req as any).platformId;
-    const id = getRequiredString(req.params.id, "id");
-
-    const result = await OrderServices.getOrderStatusHistory(id, user, platformId);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Order status history fetched successfully",
-        data: result,
-    });
-});
-
-// ----------------------------------- UPDATE TIME WINDOWS --------------------------------
-const updateTimeWindows = catchAsync(async (req, res) => {
-    const platformId = (req as any).platformId;
-    const user = (req as any).user;
-    const id = getRequiredString(req.params.id, "id");
-
-    const result = await OrderServices.updateOrderTimeWindows(id, req.body, platformId, user);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Time windows updated successfully",
-        data: result,
-    });
-});
-
-// ----------------------------------- GET PRICING REVIEW ORDERS --------------------------
-// const getPricingReviewOrders = catchAsync(async (req, res) => {
-//     const platformId = (req as any).platformId;
-
-//     const result = await OrderServices.getPricingReviewOrders(req.query, platformId);
-
-//     sendResponse(res, {
-//         statusCode: httpStatus.OK,
-//         success: true,
-//         message: "Pricing review orders fetched successfully",
-//         meta: result.meta,
-//         data: result.data,
-//     });
-// });
-
-// // ----------------------------------- GET ORDER PRICING DETAILS ------------------------------
-// const getOrderPricingDetails = catchAsync(async (req, res) => {
-//     const platformId = (req as any).platformId;
-//     const id = getRequiredString(req.params.id, "id");
-
-//     const result = await OrderServices.getOrderPricingDetails(id, platformId);
-
-//     sendResponse(res, {
-//         statusCode: httpStatus.OK,
-//         success: true,
-//         message: "Order pricing details fetched successfully",
-//         data: result,
-//     });
-// });
-
-// // ----------------------------------- ADJUST LOGISTICS PRICING -----------------------------------
-// const adjustLogisticsPricing = catchAsync(async (req, res) => {
-//     const user = (req as any).user;
-//     const platformId = (req as any).platformId;
-//     const id = getRequiredString(req.params.id, "id");
-
-//     const result = await OrderServices.adjustLogisticsPricing(id, user, platformId, req.body);
-
-//     sendResponse(res, {
-//         statusCode: httpStatus.OK,
-//         success: true,
-//         message: "Logistics pricing adjusted successfully",
-//         data: result,
-//     });
-// });
 
 // ----------------------------------- APPROVE QUOTE ----------------------------------------------
 const approveQuote = catchAsync(async (req, res) => {
@@ -529,6 +483,52 @@ const getPendingApprovalOrders = catchAsync(async (req, res) => {
 //     });
 // });
 
+// ----------------------------------- ADJUST LOGISTICS PRICING -----------------------------------
+// const adjustLogisticsPricing = catchAsync(async (req, res) => {
+//     const user = (req as any).user;
+//     const platformId = (req as any).platformId;
+//     const id = getRequiredString(req.params.id, "id");
+
+//     const result = await OrderServices.adjustLogisticsPricing(id, user, platformId, req.body);
+
+//     sendResponse(res, {
+//         statusCode: httpStatus.OK,
+//         success: true,
+//         message: "Logistics pricing adjusted successfully",
+//         data: result,
+//     });
+// });
+
+// ----------------------------------- GET PRICING REVIEW ORDERS --------------------------
+// const getPricingReviewOrders = catchAsync(async (req, res) => {
+//     const platformId = (req as any).platformId;
+
+//     const result = await OrderServices.getPricingReviewOrders(req.query, platformId);
+
+//     sendResponse(res, {
+//         statusCode: httpStatus.OK,
+//         success: true,
+//         message: "Pricing review orders fetched successfully",
+//         meta: result.meta,
+//         data: result.data,
+//     });
+// });
+
+// // ----------------------------------- GET ORDER PRICING DETAILS ------------------------------
+// const getOrderPricingDetails = catchAsync(async (req, res) => {
+//     const platformId = (req as any).platformId;
+//     const id = getRequiredString(req.params.id, "id");
+
+//     const result = await OrderServices.getOrderPricingDetails(id, platformId);
+
+//     sendResponse(res, {
+//         statusCode: httpStatus.OK,
+//         success: true,
+//         message: "Order pricing details fetched successfully",
+//         data: result,
+//     });
+// });
+
 export const OrderControllers = {
     calculateEstimate,
     submitOrderFromCart,
@@ -541,9 +541,6 @@ export const OrderControllers = {
     progressOrderStatus,
     getOrderStatusHistory,
     updateTimeWindows,
-    // getPricingReviewOrders,
-    // getOrderPricingDetails,
-    // adjustLogisticsPricing,
     approveQuote,
     declineQuote,
     getOrderStatistics,
@@ -558,4 +555,7 @@ export const OrderControllers = {
     // addOrderItem,
     // removeOrderItem,
     // updateOrderItemQuantity,
+    // adjustLogisticsPricing,
+    // getPricingReviewOrders,
+    // getOrderPricingDetails,
 };
