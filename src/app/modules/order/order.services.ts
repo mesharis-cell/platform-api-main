@@ -78,7 +78,7 @@ const submitOrderFromCart = async (
     calculated_volume: string;
     item_count: number;
 }> => {
-    // Extract all required fields from the payload
+    // Step 1: Extract payload and setup variables
     const {
         items,
         brand_id,
@@ -101,7 +101,7 @@ const submitOrderFromCart = async (
     const eventStartDate = dayjs(event_start_date).toDate();
     const eventEndDate = dayjs(event_end_date).toDate();
 
-    // Step 1: Verify company exists and belongs to the platform
+    // Step 2: Verify company exists and belongs to the platform
     const [company] = await db
         .select()
         .from(companies)
@@ -111,7 +111,7 @@ const submitOrderFromCart = async (
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Company not found");
     }
 
-    // Step 2: Check assets availability
+    // Step 3: Check assets availability
     const requiredAssets = items.map((i) => ({ id: i.asset_id, quantity: i.quantity }));
     const foundAssets: any[] = await checkAssetsForOrder(
         platformId,
@@ -121,7 +121,7 @@ const submitOrderFromCart = async (
         eventEndDate
     );
 
-    // Step 3: Calculate order totals (volume and weight)
+    // Step 4: Calculate order totals (volume and weight)
     const orderItemsData: OrderItem[] = [];
     let totalVolume = 0;
     let totalWeight = 0;
@@ -172,10 +172,8 @@ const submitOrderFromCart = async (
     const calculatedVolume = totalVolume.toFixed(3);
     const calculatedWeight = totalWeight.toFixed(2);
 
-    // Step 4: Calculate pricing estimate (NEW SYSTEM)
+    // Step 5: Calculate pricing estimate (NEW SYSTEM)
     const volume = parseFloat(calculatedVolume);
-    // Will calculate estimate after order creation (need order_id for line items)
-
 
     const transportRateInfo = await TransportRatesServices.lookupTransportRate(
         platformId,
@@ -215,15 +213,16 @@ const submitOrderFromCart = async (
         calculated_by: user.id,
     }
 
-    // Step 5: Create the order record
+    // Step 6: Create the order record
     const orderId = await orderIdGenerator();
     const orderResult = await db.transaction(async (tx) => {
+        // Step 6.a: Insert order pricing
         const [orderPricing] = await tx
             .insert(orderPrices)
             .values(pricingDetails)
             .returning();
 
-        // Step 5.a: Create the order record
+        // Step 6.b: Create the order record
         const [order] = await tx
             .insert(orders)
             .values({
@@ -260,14 +259,14 @@ const submitOrderFromCart = async (
             })
             .returning();
 
-        // Step 5.b: Insert order items
+        // Step 6.c: Insert order items
         const itemsToInsert = orderItemsData.map((item) => ({
             ...item,
             order_id: order.id,
         }));
         await tx.insert(orderItems).values(itemsToInsert);
 
-        // Step 5.c: Insert order status history
+        // Step 6.d: Insert order status history
         await tx.insert(orderStatusHistory).values({
             platform_id: platformId,
             order_id: order.id,
@@ -279,8 +278,8 @@ const submitOrderFromCart = async (
         return order;
     });
 
-    // Step 6: Send email to admin, logistics staff and client
-    // Step 6.a: Prepare email data
+    // Step 7: Send email to admin, logistics staff and client
+    // Step 7.a: Prepare email data
     const emailData = {
         order_id: orderResult.order_id,
         company_name: (company as any)?.name || "N/A",
@@ -292,7 +291,7 @@ const submitOrderFromCart = async (
         view_order_url: `${config.client_url}/orders/${orderResult.order_id}`,
     };
 
-    // Step 6.b: Send email to admin
+    // Step 7.b: Send email to admin
     const platformAdminEmails = await getPlatformAdminEmails(platformId);
     await multipleEmailSender(
         platformAdminEmails,
@@ -307,7 +306,7 @@ const submitOrderFromCart = async (
         })
     );
 
-    // Step 6.c: Send email to logistics staff
+    // Step 7.c: Send email to logistics staff
     const logisticsStaffEmails = await getPlatformLogisticsStaffEmails(platformId);
     await multipleEmailSender(
         logisticsStaffEmails,
@@ -322,7 +321,7 @@ const submitOrderFromCart = async (
         })
     );
 
-    // Step 6.d: Send email to client
+    // Step 7.d: Send email to client
     await sendEmail({
         to: contact_email,
         subject: `Order Confirmation: ${emailData.order_id}`,
@@ -336,7 +335,7 @@ const submitOrderFromCart = async (
         }),
     });
 
-    // Step 7: Return order details to client
+    // Step 8: Return order details to client
     return {
         order_id: orderResult.order_id,
         status: orderResult.order_status,
