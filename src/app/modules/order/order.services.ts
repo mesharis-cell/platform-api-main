@@ -47,7 +47,7 @@ import {
 } from "./order.utils";
 import {
     shouldAwaitFabrication,
-    recalculateOrderPricing,
+
 } from "./order-pricing.helpers";
 import { OrderLineItemsServices } from "../order-line-items/order-line-items.services";
 import { ReskinRequestsServices } from "../reskin-requests/reskin-requests.services";
@@ -879,11 +879,10 @@ const getOrderById = async (
                 from_collection: orderItems.from_collection,
                 from_collection_name: orderItems.from_collection_name,
                 is_reskin_request: orderItems.is_reskin_request,
-                reskin_target_brand: {
-                    id: brands.id,
-                    name: brands.name,
-                }
-
+                reskin_target_brand_id: brands.id,
+                reskin_target_brand_name: brands.name,
+                reskin_target_brand_custom: orderItems.reskin_target_brand_custom,
+                reskin_notes: orderItems.reskin_notes,
             },
             asset: {
                 id: assets.id,
