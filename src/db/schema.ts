@@ -1381,11 +1381,11 @@ export const orderPrices = pgTable(
             .references(() => platforms.id, { onDelete: "cascade" }),
         warehouse_ops_rate: decimal("warehouse_ops_rate", { precision: 10, scale: 2 }).notNull(),
         base_ops_total: decimal("base_ops_total", { precision: 10, scale: 2 }).notNull(),
-        logistics_sub_total: decimal("logistics_sub_total", { precision: 10, scale: 2 }).notNull(),
+        logistics_sub_total: decimal("logistics_sub_total", { precision: 10, scale: 2 }),
         transport: jsonb("transport").notNull(), // { "system_rate": 10, "final_rate": 20 }
         line_items: jsonb("line_items").notNull(), // { "catalog_total": 10, "custom_total": 20 }
         margin: jsonb("margin").notNull(), // { "percent": 10, "amount": 20, is_override: false, override_reason: "" }
-        final_total: decimal("final_total", { precision: 10, scale: 2 }).notNull(),
+        final_total: decimal("final_total", { precision: 10, scale: 2 }),
         calculated_at: timestamp("calculated_at").notNull().defaultNow(),
         calculated_by: uuid("calculated_by").notNull().references(() => users.id),
         created_at: timestamp("created_at").notNull().defaultNow(),

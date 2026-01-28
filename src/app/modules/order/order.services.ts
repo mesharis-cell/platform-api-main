@@ -12,6 +12,7 @@ import {
     invoices,
     orderItems,
     orderLineItems,
+    orderPrices,
     orders,
     orderStatusHistory,
     reskinRequests,
@@ -64,6 +65,7 @@ import { uuidRegex } from "../../constants/common";
 import { getPlatformAdminEmails, getPlatformLogisticsStaffEmails } from "../../utils/helper-query";
 import config from "../../config";
 import { formatDateForEmail } from "../../utils/date-time";
+import { TransportRatesServices } from "../transport-rates/transport-rates.services";
 
 // ----------------------------------- SUBMIT ORDER FROM CART ---------------------------------
 const submitOrderFromCart = async (
@@ -95,8 +97,9 @@ const submitOrderFromCart = async (
         venue_access_notes,
         special_instructions,
     } = payload;
-    const tripType = transport_trip_type || "ROUND_TRIP";
 
+    const tripType = transport_trip_type || "ROUND_TRIP";
+    const vehicleType = "STANDARD";
     const eventStartDate = dayjs(event_start_date).toDate();
     const eventEndDate = dayjs(event_end_date).toDate();
 
@@ -175,26 +178,41 @@ const submitOrderFromCart = async (
     const volume = parseFloat(calculatedVolume);
     // Will calculate estimate after order creation (need order_id for line items)
 
+
+    const transportRateInfo = await TransportRatesServices.lookupTransportRate(
+        platformId,
+        companyId,
+        venue_city,
+        tripType,
+        vehicleType
+    );
+
+    const transportRate = transportRateInfo?.rate ? Number(transportRateInfo.rate) : null;
+    const baseOpsTotal = Number(company.warehouse_ops_rate) * volume;
+    const logisticsSubTotal = transportRate ? transportRate + baseOpsTotal : null;
+    const marginAmount = logisticsSubTotal ? logisticsSubTotal * (Number(company.platform_margin_percent) / 100) : null;
+    const finalTotal = logisticsSubTotal && marginAmount ? logisticsSubTotal + marginAmount : null;
+
     const pricingDetails = {
         platform_id: platformId,
         warehouse_ops_rate: company.warehouse_ops_rate,
-        base_ops_total: Number(company.warehouse_ops_rate) * volume,
-        logistics_sub_total: 0, // TODO,
+        base_ops_total: baseOpsTotal,
+        logistics_sub_total: logisticsSubTotal,
         transport: {
-            system_rate: 0, // TODO,
-            final_rate: 0, // TODO,  
+            system_rate: transportRate,
+            final_rate: transportRate
         },
         line_items: {
             catalog_total: 0,
             custom_total: 0,
         },
         margin: {
-            percent: 0,
-            amount: 0,
+            percent: company.platform_margin_percent,
+            amount: marginAmount,
             is_override: false,
             override_reason: null
         },
-        final_total: 0,
+        final_total: finalTotal,
         calculated_at: new Date(),
         calculated_by: user.id,
     }
@@ -202,6 +220,10 @@ const submitOrderFromCart = async (
     // Step 5: Create the order record
     const orderId = await orderIdGenerator();
     const orderResult = await db.transaction(async (tx) => {
+        const orderPricing = await tx
+            .insert(orderPrices)
+            .values(pricingDetails)
+            .returning();
         // Step 5.a: Create the order record
         const [order] = await tx
             .insert(orders)
@@ -230,10 +252,10 @@ const submitOrderFromCart = async (
                 },
                 // NEW: Transport fields
                 transport_trip_type: tripType as any,
-                transport_vehicle_type: "STANDARD", // Default
+                transport_vehicle_type: vehicleType, // Default
                 // Pricing will be calculated after order creation
                 order_pricing_id: 'pricing_id',
-                venue_city_id: 'venue_city_id',
+                venue_city_id: venue_city,
                 order_status: "PRICING_REVIEW",
                 financial_status: "PENDING_QUOTE",
             })

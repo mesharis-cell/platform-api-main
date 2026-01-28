@@ -155,6 +155,13 @@
       "when": 1769519997452,
       "tag": "0021_deep_hedge_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1769592487304,
+      "tag": "0022_handy_sharon_ventura",
+      "breakpoints": true
     }
   ]
 }
