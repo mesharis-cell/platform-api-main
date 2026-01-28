@@ -865,7 +865,26 @@ const getOrderById = async (
     // Step 2: Fetch order items with asset details
     const itemResults = await db
         .select({
-            order_item: orderItems,
+            order_item: {
+                id: orderItems.id,
+                asset_id: orderItems.asset_id,
+                asset_name: orderItems.asset_name,
+                quantity: orderItems.quantity,
+                volume_per_unit: orderItems.volume_per_unit,
+                weight_per_unit: orderItems.weight_per_unit,
+                total_volume: orderItems.total_volume,
+                total_weight: orderItems.total_weight,
+                condition_notes: orderItems.condition_notes,
+                handling_tags: orderItems.handling_tags,
+                from_collection: orderItems.from_collection,
+                from_collection_name: orderItems.from_collection_name,
+                is_reskin_request: orderItems.is_reskin_request,
+                reskin_target_brand: {
+                    id: brands.id,
+                    name: brands.name,
+                }
+
+            },
             asset: {
                 id: assets.id,
                 name: assets.name,
@@ -880,6 +899,7 @@ const getOrderById = async (
         .from(orderItems)
         .leftJoin(assets, eq(orderItems.asset_id, assets.id))
         .leftJoin(collections, eq(orderItems.from_collection, collections.id))
+        .leftJoin(brands, eq(orderItems.reskin_target_brand_id, brands.id))
         .where(eq(orderItems.order_id, orderData.order.id));
 
     const [lineItems, reskinRequests] = await Promise.all([
@@ -1290,7 +1310,7 @@ const updateOrderTimeWindows = async (
     };
 };
 
-// ----------------------------------- APPROVE QUOTE ----------------------------------------------
+// ----------------------------------- APPROVE QUOTE ------------------------------------------
 const approveQuote = async (
     orderId: string,
     user: AuthUser,
@@ -1416,7 +1436,7 @@ const approveQuote = async (
     };
 };
 
-// ----------------------------------- DECLINE QUOTE ----------------------------------------------
+// ----------------------------------- DECLINE QUOTE ------------------------------------------
 const declineQuote = async (
     orderId: string,
     user: AuthUser,
@@ -1583,6 +1603,7 @@ const getClientOrderStatistics = async (companyId: string, platformId: string) =
     };
 };
 
+// ----------------------------------- SEND INVOICE -------------------------------------------
 const sendInvoice = async (user: AuthUser, platformId: string, orderId: string) => {
     // Step 1: Fetch order with company details
     const order = await db.query.orders.findFirst({
@@ -1607,14 +1628,24 @@ const sendInvoice = async (user: AuthUser, platformId: string, orderId: string) 
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Order is not in CLOSED status");
     }
 
-    // Step 5: Update order financial status to INVOICED
-    await db
-        .update(orders)
-        .set({
-            financial_status: "INVOICED",
-            updated_at: new Date(),
-        })
-        .where(eq(orders.id, orderId));
+    // Step 5: Update order financial status to INVOICED and log the status change
+    await db.transaction(async (tx) => {
+        await db
+            .update(orders)
+            .set({
+                financial_status: "INVOICED",
+                updated_at: new Date(),
+            })
+            .where(eq(orders.id, orderId));
+
+        await db.insert(financialStatusHistory).values({
+            platform_id: platformId,
+            order_id: orderId,
+            status: "INVOICED",
+            notes: `Order invoiced by ${user.name}`,
+            updated_by: user.id,
+        });
+    });
 
     // Step 6: Return updated order details
     return {
@@ -1625,18 +1656,59 @@ const sendInvoice = async (user: AuthUser, platformId: string, orderId: string) 
     };
 };
 
-// ----------------------------------- SUBMIT FOR APPROVAL (NEW) ------------------------------------
-// Logistics submits order for Admin approval (replaces direct quote sending)
+// ----------------------------------- SUBMIT FOR APPROVAL ------------------------------------
 const submitForApproval = async (orderId: string, user: AuthUser, platformId: string) => {
-    // Get order
-    const order = await db.query.orders.findFirst({
-        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
-    });
+    // Step 1: Fetch order
+    const [result] = await db
+        .select({
+            order: orders,
+            company: {
+                id: companies.id,
+                name: companies.name,
+                platform_margin_percent: companies.platform_margin_percent,
+                warehouse_ops_rate: companies.warehouse_ops_rate,
+            },
+            order_pricing: {
+                warehouse_ops_rate: orderPrices.warehouse_ops_rate,
+                base_ops_total: orderPrices.base_ops_total,
+                logistics_sub_total: orderPrices.logistics_sub_total,
+                transport: orderPrices.transport,
+                line_items: orderPrices.line_items,
+                margin: orderPrices.margin,
+                final_total: orderPrices.final_total,
+                calculated_at: orderPrices.calculated_at,
+            },
+            venue_city: {
+                name: cities.name
+            },
+        })
+        .from(orders)
+        .leftJoin(companies, eq(orders.company_id, companies.id))
+        .leftJoin(orderPrices, eq(orders.order_pricing_id, orderPrices.id))
+        .leftJoin(cities, eq(orders.venue_city_id, cities.id))
+        .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)))
+        .limit(1);
+
+    const order = result.order;
+    const company = result.company;
+    const orderPricing = result.order_pricing;
+    const venueCity = result.venue_city;
 
     if (!order) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
     }
+    if (!company) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found for this order");
+    }
+    if (!orderPricing) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order pricing not found for this order");
+    }
+    if (!venueCity) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Venue city not found for this order");
+    }
 
+
+    // Step 2: Verify order is in PRICING_REVIEW status
     if (order.order_status !== "PRICING_REVIEW") {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
@@ -1644,19 +1716,75 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
         );
     }
 
-    // Recalculate pricing (includes any line items added by Logistics)
-    await recalculateOrderPricing(orderId, platformId, order.company_id, user.id);
+    const transportRateInfo = await TransportRatesServices.lookupTransportRate(
+        platformId,
+        company.id,
+        order.venue_city_id,
+        order.transport_trip_type,
+        order.transport_vehicle_type
+    );
 
-    // Update order status
-    await db
-        .update(orders)
-        .set({
-            order_status: "PENDING_APPROVAL",
-            updated_at: new Date(),
-        })
-        .where(eq(orders.id, orderId));
+    if (!transportRateInfo) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, `Transport rate not found for ${venueCity.name} to ${order.transport_trip_type} by ${order.transport_vehicle_type}`);
+    }
 
-    // Log status change
+    // Get line items totals
+    const lineItemsTotals = await OrderLineItemsServices.calculateLineItemsTotals(
+        orderId,
+        platformId
+    );
+
+    const transportRate = Number(transportRateInfo.rate);
+    const volume = parseFloat((order.calculated_totals as any).volume);
+    const marginOverride = !!(orderPricing?.margin as any)?.is_override;
+    const marginPercent = marginOverride
+        ? parseFloat((orderPricing.margin as any).percent)
+        : parseFloat(company.platform_margin_percent);
+    const marginOverrideReason = marginOverride ? (orderPricing.margin as any).override_reason : null;
+    const baseOpsTotal = volume * Number(company.warehouse_ops_rate);
+    const logisticsSubtotal = baseOpsTotal + transportRate + lineItemsTotals.catalog_total;
+    const marginAmount = logisticsSubtotal * (marginPercent / 100);
+    const finalTotal = logisticsSubtotal + marginAmount + lineItemsTotals.custom_total;
+
+    const newPricing = {
+        base_ops_total: baseOpsTotal.toFixed(2),
+        logistics_sub_total: logisticsSubtotal.toFixed(2),
+        transport: {
+            system_rate: transportRate,
+            final_rate: transportRate
+        },
+        line_items: {
+            catalog_total: lineItemsTotals.catalog_total,
+            custom_total: lineItemsTotals.custom_total,
+        },
+        margin: {
+            percent: marginPercent,
+            amount: marginAmount,
+            is_override: marginOverride,
+            override_reason: marginOverrideReason
+        },
+        final_total: finalTotal.toFixed(2),
+        calculated_at: new Date(),
+        calculated_by: user.id,
+    }
+
+    await db.transaction(async (tx) => {
+        await tx.update(orderPrices).set(newPricing).where(eq(orderPrices.id, order.order_pricing_id));
+
+        // Step 4: Update order status
+        await tx
+            .update(orders)
+            .set({
+                order_status: "PENDING_APPROVAL",
+                updated_at: new Date(),
+            })
+            .where(eq(orders.id, orderId));
+    })
+
+    // Step 3: Recalculate pricing (includes any line items added by Logistics)
+    // await recalculateOrderPricing(orderId, platformId, order.order.company_id, user.id);
+
+    // Step 5: Log status change
     await db.insert(orderStatusHistory).values({
         platform_id: platformId,
         order_id: orderId,

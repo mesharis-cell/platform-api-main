@@ -180,6 +180,59 @@ const updateTimeWindows = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- APPROVE QUOTE --------------------------------------
+const approveQuote = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const id = getRequiredString(req.params.id, "id");
+
+    const result = await OrderServices.approveQuote(id, user, platformId, req.body);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Quote approved successfully.",
+        data: result,
+    });
+});
+
+// ----------------------------------- DECLINE QUOTE --------------------------------------
+const declineQuote = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const id = getRequiredString(req.params.id, "id");
+
+    const result = await OrderServices.declineQuote(id, user, platformId, req.body);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Quote declined successfully.",
+        data: result,
+    });
+});
+
+// ----------------------------------- GET ORDER STATISTICS (CLIENT) ------------------------------
+const getOrderStatistics = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+
+    // Get company ID from user
+    const companyId = user.company_id;
+    if (!companyId) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Company ID is required");
+    }
+
+    const result = await OrderServices.getClientOrderStatistics(companyId as string, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Order statistics fetched successfully",
+        data: result,
+    });
+});
+
 // ----------------------------------- EXPORT ORDERS --------------------------------------
 const exportOrders = catchAsync(async (req, res) => {
     const user = (req as any).user;
@@ -254,59 +307,6 @@ const exportOrders = catchAsync(async (req, res) => {
     res.setHeader("Content-Type", "text/csv");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.status(httpStatus.OK).send(csvContent);
-});
-
-// ----------------------------------- APPROVE QUOTE ----------------------------------------------
-const approveQuote = catchAsync(async (req, res) => {
-    const user = (req as any).user;
-    const platformId = (req as any).platformId;
-    const id = getRequiredString(req.params.id, "id");
-
-    const result = await OrderServices.approveQuote(id, user, platformId, req.body);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Quote approved successfully.",
-        data: result,
-    });
-});
-
-// ----------------------------------- DECLINE QUOTE ----------------------------------------------
-const declineQuote = catchAsync(async (req, res) => {
-    const user = (req as any).user;
-    const platformId = (req as any).platformId;
-    const id = getRequiredString(req.params.id, "id");
-
-    const result = await OrderServices.declineQuote(id, user, platformId, req.body);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Quote declined successfully.",
-        data: result,
-    });
-});
-
-// ----------------------------------- GET ORDER STATISTICS (CLIENT) ------------------------------
-const getOrderStatistics = catchAsync(async (req, res) => {
-    const user = (req as any).user;
-    const platformId = (req as any).platformId;
-
-    // Get company ID from user
-    const companyId = user.company_id;
-    if (!companyId) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "Company ID is required");
-    }
-
-    const result = await OrderServices.getClientOrderStatistics(companyId as string, platformId);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Order statistics fetched successfully",
-        data: result,
-    });
 });
 
 // ----------------------------------- CHANGE FINANCIAL STATUS -----------------------------------
