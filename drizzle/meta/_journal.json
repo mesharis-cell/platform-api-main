@@ -134,6 +134,27 @@
       "when": 1769501266570,
       "tag": "0018_sleepy_shinobi_shaw",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1769510533713,
+      "tag": "0019_fantastic_luminals",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1769519407667,
+      "tag": "0020_nappy_amphibian",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1769519997452,
+      "tag": "0021_deep_hedge_knight",
+      "breakpoints": true
     }
   ]
 }

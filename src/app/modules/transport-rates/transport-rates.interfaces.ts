@@ -1,5 +1,6 @@
 import z from "zod";
 import { TransportRatesSchemas } from "./transport-rates.schemas";
+import { tripTypeEnum, vehicleTypeEnum } from "../../../db/schema";
 
 export type CreateTransportRatePayload = z.infer<
     typeof TransportRatesSchemas.createTransportRateSchema
@@ -10,6 +11,10 @@ export type CreateTransportRatePayload = z.infer<
 export type UpdateTransportRatePayload = z.infer<
     typeof TransportRatesSchemas.updateTransportRateSchema
 >["body"];
+
+export type TripType = (typeof tripTypeEnum.enumValues)[number];
+
+export type VehicleType = (typeof vehicleTypeEnum.enumValues)[number];
 
 export type TransportRateLookupQuery = {
     emirate: string;

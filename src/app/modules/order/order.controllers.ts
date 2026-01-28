@@ -233,50 +233,50 @@ const updateTimeWindows = catchAsync(async (req, res) => {
 });
 
 // ----------------------------------- GET PRICING REVIEW ORDERS --------------------------
-const getPricingReviewOrders = catchAsync(async (req, res) => {
-    const platformId = (req as any).platformId;
+// const getPricingReviewOrders = catchAsync(async (req, res) => {
+//     const platformId = (req as any).platformId;
 
-    const result = await OrderServices.getPricingReviewOrders(req.query, platformId);
+//     const result = await OrderServices.getPricingReviewOrders(req.query, platformId);
 
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Pricing review orders fetched successfully",
-        meta: result.meta,
-        data: result.data,
-    });
-});
+//     sendResponse(res, {
+//         statusCode: httpStatus.OK,
+//         success: true,
+//         message: "Pricing review orders fetched successfully",
+//         meta: result.meta,
+//         data: result.data,
+//     });
+// });
 
-// ----------------------------------- GET ORDER PRICING DETAILS ------------------------------
-const getOrderPricingDetails = catchAsync(async (req, res) => {
-    const platformId = (req as any).platformId;
-    const id = getRequiredString(req.params.id, "id");
+// // ----------------------------------- GET ORDER PRICING DETAILS ------------------------------
+// const getOrderPricingDetails = catchAsync(async (req, res) => {
+//     const platformId = (req as any).platformId;
+//     const id = getRequiredString(req.params.id, "id");
 
-    const result = await OrderServices.getOrderPricingDetails(id, platformId);
+//     const result = await OrderServices.getOrderPricingDetails(id, platformId);
 
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Order pricing details fetched successfully",
-        data: result,
-    });
-});
+//     sendResponse(res, {
+//         statusCode: httpStatus.OK,
+//         success: true,
+//         message: "Order pricing details fetched successfully",
+//         data: result,
+//     });
+// });
 
-// ----------------------------------- ADJUST LOGISTICS PRICING -----------------------------------
-const adjustLogisticsPricing = catchAsync(async (req, res) => {
-    const user = (req as any).user;
-    const platformId = (req as any).platformId;
-    const id = getRequiredString(req.params.id, "id");
+// // ----------------------------------- ADJUST LOGISTICS PRICING -----------------------------------
+// const adjustLogisticsPricing = catchAsync(async (req, res) => {
+//     const user = (req as any).user;
+//     const platformId = (req as any).platformId;
+//     const id = getRequiredString(req.params.id, "id");
 
-    const result = await OrderServices.adjustLogisticsPricing(id, user, platformId, req.body);
+//     const result = await OrderServices.adjustLogisticsPricing(id, user, platformId, req.body);
 
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Logistics pricing adjusted successfully",
-        data: result,
-    });
-});
+//     sendResponse(res, {
+//         statusCode: httpStatus.OK,
+//         success: true,
+//         message: "Logistics pricing adjusted successfully",
+//         data: result,
+//     });
+// });
 
 // ----------------------------------- APPROVE QUOTE ----------------------------------------------
 const approveQuote = catchAsync(async (req, res) => {
@@ -364,25 +364,25 @@ const submitForApproval = catchAsync(async (req, res) => {
 });
 
 // ----------------------------------- ADMIN APPROVE QUOTE (NEW) -----------------------------------
-const adminApproveQuote = catchAsync(async (req, res) => {
-    const user = (req as any).user;
-    const platformId = (req as any).platform_id;
-    const id = getRequiredString(req.params.id, "id");
-    const { margin_override_percent, margin_override_reason } = req.body;
+// const adminApproveQuote = catchAsync(async (req, res) => {
+//     const user = (req as any).user;
+//     const platformId = (req as any).platform_id;
+//     const id = getRequiredString(req.params.id, "id");
+//     const { margin_override_percent, margin_override_reason } = req.body;
 
-    const marginOverride = margin_override_percent
-        ? { percent: margin_override_percent, reason: margin_override_reason }
-        : undefined;
+//     const marginOverride = margin_override_percent
+//         ? { percent: margin_override_percent, reason: margin_override_reason }
+//         : undefined;
 
-    const result = await OrderServices.adminApproveQuote(id, user, platformId, marginOverride);
+//     const result = await OrderServices.adminApproveQuote(id, user, platformId, marginOverride);
 
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Quote approved and sent to client.",
-        data: result,
-    });
-});
+//     sendResponse(res, {
+//         statusCode: httpStatus.OK,
+//         success: true,
+//         message: "Quote approved and sent to client.",
+//         data: result,
+//     });
+// });
 
 // ----------------------------------- RETURN TO LOGISTICS (NEW) -----------------------------------
 const returnToLogistics = catchAsync(async (req, res) => {
@@ -470,20 +470,20 @@ const calculateEstimate = catchAsync(async (req, res) => {
 });
 
 // ----------------------------------- UPDATE VEHICLE (NEW) -----------------------------------
-const updateOrderVehicle = catchAsync(async (req, res) => {
-    const user = (req as any).user;
-    const platformId = (req as any).platform_id;
-    const id = getRequiredString(req.params.id, "id");
+// const updateOrderVehicle = catchAsync(async (req, res) => {
+//     const user = (req as any).user;
+//     const platformId = (req as any).platform_id;
+//     const id = getRequiredString(req.params.id, "id");
 
-    const result = await OrderServices.updateOrderVehicle(id, platformId, req.body, user.id);
+//     const result = await OrderServices.updateOrderVehicle(id, platformId, req.body, user.id);
 
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Vehicle type updated successfully.",
-        data: result,
-    });
-});
+//     sendResponse(res, {
+//         statusCode: httpStatus.OK,
+//         success: true,
+//         message: "Vehicle type updated successfully.",
+//         data: result,
+//     });
+// });
 
 const getPendingApprovalOrders = catchAsync(async (req, res) => {
     const platformId = (req as any).platform_id;
@@ -564,9 +564,9 @@ export const OrderControllers = {
     progressOrderStatus,
     getOrderStatusHistory,
     updateTimeWindows,
-    getPricingReviewOrders,
-    getOrderPricingDetails,
-    adjustLogisticsPricing,
+    // getPricingReviewOrders,
+    // getOrderPricingDetails,
+    // adjustLogisticsPricing,
     approveQuote,
     declineQuote,
     getOrderStatistics,
@@ -574,11 +574,11 @@ export const OrderControllers = {
     // NEW CONTROLLERS
     getPendingApprovalOrders,
     submitForApproval,
-    adminApproveQuote,
+    // adminApproveQuote,
     returnToLogistics,
     cancelOrder,
     calculateEstimate,
-    updateOrderVehicle,
+    // updateOrderVehicle,
     addOrderItem,
     removeOrderItem,
     updateOrderItemQuantity,

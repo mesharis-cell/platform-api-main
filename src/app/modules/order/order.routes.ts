@@ -54,13 +54,13 @@ router.get(
 );
 
 // Get pricing review orders (Logistics)
-router.get(
-    "/pricing-review",
-    platformValidator,
-    auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.PRICING_REVIEW),
-    OrderControllers.getPricingReviewOrders
-);
+// router.get(
+//     "/pricing-review",
+//     platformValidator,
+//     auth("ADMIN", "LOGISTICS"),
+//     requirePermission(PERMISSIONS.PRICING_REVIEW),
+//     OrderControllers.getPricingReviewOrders
+// );
 
 // Get pending approval orders (Admin)
 router.get(
@@ -80,12 +80,12 @@ router.get(
 );
 
 // Get order pricing details
-router.get(
-    "/:id/pricing-details",
-    platformValidator,
-    auth("ADMIN", "LOGISTICS"),
-    OrderControllers.getOrderPricingDetails
-);
+// router.get(
+//     "/:id/pricing-details",
+//     platformValidator,
+//     auth("ADMIN", "LOGISTICS"),
+//     OrderControllers.getOrderPricingDetails
+// );
 
 // Approve quote
 router.patch(
@@ -164,14 +164,14 @@ router.get(
 // ---------------------------------- NEW PRICING WORKFLOW ROUTES ----------------------------------
 
 // Update vehicle type (Logistics) - TODO: Implement controller
-router.patch(
-    "/:id/vehicle",
-    platformValidator,
-    auth("ADMIN", "LOGISTICS"),
-    // requirePermission(PERMISSIONS.PRICING_REVIEW),
-    payloadValidator(orderSchemas.updateVehicleSchema),
-    OrderControllers.updateOrderVehicle
-);
+// router.patch(
+//     "/:id/vehicle",
+//     platformValidator,
+//     auth("ADMIN", "LOGISTICS"),
+//     // requirePermission(PERMISSIONS.PRICING_REVIEW),
+//     payloadValidator(orderSchemas.updateVehicleSchema),
+//     OrderControllers.updateOrderVehicle
+// );
 
 // Submit for approval (Logistics → Admin)
 router.post(
@@ -183,13 +183,13 @@ router.post(
 );
 
 // Admin approve quote (Admin → Client)
-router.post(
-    "/:id/admin-approve-quote",
-    platformValidator,
-    auth("ADMIN"),
-    // requirePermission(PERMISSIONS.PRICING_ADMIN_APPROVE),
-    OrderControllers.adminApproveQuote
-);
+// router.post(
+//     "/:id/admin-approve-quote",
+//     platformValidator,
+//     auth("ADMIN"),
+//     // requirePermission(PERMISSIONS.PRICING_ADMIN_APPROVE),
+//     OrderControllers.adminApproveQuote
+// );
 
 // Return to Logistics (Admin → Logistics)
 router.post(

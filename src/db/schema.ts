@@ -689,6 +689,7 @@ export const orders = pgTable(
         event_start_date: timestamp("event_start_date", { mode: "date" }).notNull(),
         event_end_date: timestamp("event_end_date", { mode: "date" }).notNull(),
         venue_name: varchar("venue_name", { length: 200 }).notNull(),
+        venue_city_id: uuid("venue_city_id").notNull().references(() => cities.id),
         venue_location: jsonb("venue_location").notNull(), // {country, city, address, access_notes}
         special_instructions: text("special_instructions"),
 
@@ -705,12 +706,12 @@ export const orders = pgTable(
             .notNull()
             .default("STANDARD"),
 
-        logistics_pricing: jsonb("logistics_pricing"), // OLD: {base_price, adjusted_price, adjustment_reason, adjusted_at, adjusted_by}
-        platform_pricing: jsonb("platform_pricing"), // OLD: {margin_percent, margin_amount, reviewed_at, reviewed_by, notes}
-        final_pricing: jsonb("final_pricing"), // OLD: {total_price, quote_sent_at}
+
 
         // Pricing (NEW structure)
-        pricing: jsonb("pricing"), // NEW: Complete pricing breakdown (base_operations, transport, line_items, margin, final_total)
+        order_pricing_id: uuid("order_pricing_id")
+            .notNull()
+            .references(() => orderPrices.id),
 
         // Status tracking
         order_status: orderStatusEnum("order_status").notNull().default("DRAFT"),
@@ -1368,5 +1369,39 @@ export const citiesRelations = relations(cities, ({ one }) => ({
         fields: [cities.country_id],
         references: [countries.id],
     }),
+}));
+
+// ---------------------------------- ORDER PRICES -----------------------------------------
+export const orderPrices = pgTable(
+    "order_prices",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        warehouse_ops_rate: decimal("warehouse_ops_rate", { precision: 10, scale: 2 }).notNull(),
+        base_ops_total: decimal("base_ops_total", { precision: 10, scale: 2 }).notNull(),
+        logistics_sub_total: decimal("logistics_sub_total", { precision: 10, scale: 2 }).notNull(),
+        transport: jsonb("transport").notNull(), // { "system_rate": 10, "final_rate": 20 }
+        line_items: jsonb("line_items").notNull(), // { "catalog_total": 10, "custom_total": 20 }
+        margin: jsonb("margin").notNull(), // { "percent": 10, "amount": 20, is_override: false, override_reason: "" }
+        final_total: decimal("final_total", { precision: 10, scale: 2 }).notNull(),
+        calculated_at: timestamp("calculated_at").notNull().defaultNow(),
+        calculated_by: uuid("calculated_by").notNull().references(() => users.id),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+        updated_at: timestamp("updated_at")
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [
+        index("order_prices_platform_idx").on(table.platform_id),
+    ]
+);
+
+export const orderPricesRelations = relations(orderPrices, ({ one }) => ({
+    platform: one(platforms, {
+        fields: [orderPrices.platform_id],
+        references: [platforms.id],
+    })
 }));
 

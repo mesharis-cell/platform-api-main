@@ -68,12 +68,12 @@ export async function calculateAndStoreEstimate(
     };
 
     // Update order with pricing
-    await db
-        .update(orders)
-        .set({
-            pricing: pricing as any,
-        })
-        .where(eq(orders.id, orderId));
+    // await db
+    //     .update(orders)
+    //     .set({
+    //         pricing: pricing as any,
+    //     })
+    //     .where(eq(orders.id, orderId));
 
     return pricing;
 }
@@ -113,35 +113,35 @@ export async function recalculateOrderPricing(
 
     // Get current margin
     const [company] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1);
-    const existingPricing = order.pricing as any;
-    const marginOverride = !!existingPricing?.margin?.is_override;
-    const marginPercent = marginOverride
-        ? parseFloat(existingPricing.margin.percent)
-        : parseFloat(company.platform_margin_percent);
-    const marginOverrideReason = marginOverride ? existingPricing.margin.override_reason : null;
+    // const existingPricing = order.pricing as any;
+    // const marginOverride = !!existingPricing?.margin?.is_override;
+    // const marginPercent = marginOverride
+    //     ? parseFloat(existingPricing.margin.percent)
+    //     : parseFloat(company.platform_margin_percent);
+    // const marginOverrideReason = marginOverride ? existingPricing.margin.override_reason : null;
 
     // Calculate new pricing
-    const newPricing = await PricingCalculationServices.calculateOrderPricing(
-        platformId,
-        companyId,
-        orderId,
-        volume,
-        emirate,
-        order.transport_trip_type,
-        order.transport_vehicle_type,
-        marginPercent,
-        marginOverride,
-        marginOverrideReason,
-        userId
-    );
+    // const newPricing = await PricingCalculationServices.calculateOrderPricing(
+    //     platformId,
+    //     companyId,
+    //     orderId,
+    //     volume,
+    //     emirate,
+    //     order.transport_trip_type,
+    //     order.transport_vehicle_type,
+    //     // marginPercent,
+    //     // marginOverride,
+    //     // marginOverrideReason,
+    //     userId
+    // );
 
     // Update order
-    await db
-        .update(orders)
-        .set({
-            pricing: newPricing as any,
-        })
-        .where(eq(orders.id, orderId));
+    // await db
+    //     .update(orders)
+    //     .set({
+    //         pricing: newPricing as any,
+    //     })
+    //     .where(eq(orders.id, orderId));
 
-    return newPricing;
+    // return newPricing;
 }
