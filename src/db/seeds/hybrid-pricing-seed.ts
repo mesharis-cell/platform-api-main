@@ -4,7 +4,7 @@
  */
 
 import { db } from "../index";
-import { pricingConfig, transportRates, serviceTypes, platforms } from "../schema";
+import { transportRates, serviceTypes, platforms } from "../schema";
 import { eq } from "drizzle-orm";
 
 export async function seedHybridPricing() {
@@ -20,29 +20,6 @@ export async function seedHybridPricing() {
 
     for (const platform of allPlatforms) {
         console.log(`\n📦 Seeding pricing data for platform: ${platform.name}`);
-
-        // ============================================================
-        // 1. PRICING CONFIG (Platform Default)
-        // ============================================================
-        console.log("  → Creating platform default pricing config...");
-
-        const existingConfig = await db
-            .select()
-            .from(pricingConfig)
-            .where(eq(pricingConfig.platform_id, platform.id))
-            .limit(1);
-
-        if (existingConfig.length === 0) {
-            await db.insert(pricingConfig).values({
-                platform_id: platform.id,
-                company_id: null, // Platform default
-                warehouse_ops_rate: "25.20", // 6.00 (picking) + 9.60 (handling out) + 9.60 (handling in)
-                is_active: true,
-            });
-            console.log("     ✓ Platform default config created (25.20 AED/m³)");
-        } else {
-            console.log("     ℹ️  Platform default config already exists");
-        }
 
         // ============================================================
         // 2. TRANSPORT RATES

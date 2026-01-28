@@ -3,12 +3,7 @@
  * Core pricing logic for hybrid pricing architecture
  */
 
-import { PricingConfigServices } from "../pricing-config/pricing-config.services";
-import { TransportRatesServices } from "../transport-rates/transport-rates.services";
 import { deriveEmirateFromCity as deriveEmirate } from "../../utils/emirate-mapper";
-import { TripType } from "../transport-rates/transport-rates.interfaces";
-import CustomizedError from "../../error/customized-error";
-import httpStatus from "http-status";
 
 export interface OrderPricingBreakdown {
     base_operations: {
@@ -53,69 +48,69 @@ export function deriveEmirateFromCity(city: string): string {
  * Uses: base ops + transport (STANDARD) + margin
  * Excludes: line items (added during review)
  */
-export async function calculateOrderEstimate(
-    platformId: string,
-    companyId: string,
-    volume: number,
-    venueCity: string,
-    tripType: TripType,
-    marginPercent: number
-): Promise<{
-    base_operations: { volume: number; rate: number; total: number };
-    transport: { emirate: string; trip_type: string; vehicle_type: string; rate: number };
-    logistics_subtotal: number;
-    margin: { percent: number; amount: number };
-    estimate_total: number;
-}> {
-    // Get warehouse ops rate
-    const warehouseOpsRate = await PricingConfigServices.getPricingConfig(platformId, companyId);
+// export async function calculateOrderEstimate(
+//     platformId: string,
+//     companyId: string,
+//     volume: number,
+//     venueCity: string,
+//     tripType: TripType,
+//     marginPercent: number
+// ): Promise<{
+//     base_operations: { volume: number; rate: number; total: number };
+//     transport: { emirate: string; trip_type: string; vehicle_type: string; rate: number };
+//     logistics_subtotal: number;
+//     margin: { percent: number; amount: number };
+//     estimate_total: number;
+// }> {
+//     // Get warehouse ops rate
+//     const warehouseOpsRate = await PricingConfigServices.getPricingConfig(platformId, companyId);
 
-    // Calculate base operations
-    const baseOpsTotal = volume * warehouseOpsRate;
+//     // Calculate base operations
+//     const baseOpsTotal = volume * warehouseOpsRate;
 
-    // Get transport rate (always STANDARD for estimate)
-    const emirate = deriveEmirateFromCity(venueCity);
-    const transportRateInfo = await TransportRatesServices.lookupTransportRate(
-        platformId,
-        companyId,
-        emirate,
-        tripType,
-        "STANDARD"
-    );
+//     // Get transport rate (always STANDARD for estimate)
+//     const emirate = deriveEmirateFromCity(venueCity);
+//     const transportRateInfo = await TransportRatesServices.lookupTransportRate(
+//         platformId,
+//         companyId,
+//         emirate,
+//         tripType,
+//         "STANDARD"
+//     );
 
-    if (!transportRateInfo) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Transport rate not found");
-    }
+//     if (!transportRateInfo) {
+//         throw new CustomizedError(httpStatus.NOT_FOUND, "Transport rate not found");
+//     }
 
-    // Calculate logistics subtotal
-    const logisticsSubtotal = baseOpsTotal + Number(transportRateInfo?.rate);
+//     // Calculate logistics subtotal
+//     const logisticsSubtotal = baseOpsTotal + Number(transportRateInfo?.rate);
 
-    // Calculate margin
-    const marginAmount = logisticsSubtotal * (marginPercent / 100);
+//     // Calculate margin
+//     const marginAmount = logisticsSubtotal * (marginPercent / 100);
 
-    // Estimate total
-    const estimateTotal = logisticsSubtotal + marginAmount;
+//     // Estimate total
+//     const estimateTotal = logisticsSubtotal + marginAmount;
 
-    return {
-        base_operations: {
-            volume: parseFloat(volume.toFixed(3)),
-            rate: parseFloat(warehouseOpsRate.toFixed(2)),
-            total: parseFloat(baseOpsTotal.toFixed(2)),
-        },
-        transport: {
-            emirate,
-            trip_type: tripType,
-            vehicle_type: "STANDARD",
-            rate: parseFloat(transportRateInfo?.rate),
-        },
-        logistics_subtotal: parseFloat(logisticsSubtotal.toFixed(2)),
-        margin: {
-            percent: parseFloat(marginPercent.toFixed(2)),
-            amount: parseFloat(marginAmount.toFixed(2)),
-        },
-        estimate_total: parseFloat(estimateTotal.toFixed(2)),
-    };
-}
+//     return {
+//         base_operations: {
+//             volume: parseFloat(volume.toFixed(3)),
+//             rate: parseFloat(warehouseOpsRate.toFixed(2)),
+//             total: parseFloat(baseOpsTotal.toFixed(2)),
+//         },
+//         transport: {
+//             emirate,
+//             trip_type: tripType,
+//             vehicle_type: "STANDARD",
+//             rate: parseFloat(transportRateInfo?.rate),
+//         },
+//         logistics_subtotal: parseFloat(logisticsSubtotal.toFixed(2)),
+//         margin: {
+//             percent: parseFloat(marginPercent.toFixed(2)),
+//             amount: parseFloat(marginAmount.toFixed(2)),
+//         },
+//         estimate_total: parseFloat(estimateTotal.toFixed(2)),
+//     };
+// }
 
 // ----------------------------------- CALCULATE ORDER PRICING -----------------------------------
 /**
@@ -199,6 +194,6 @@ export async function calculateOrderEstimate(
 
 export const PricingCalculationServices = {
     deriveEmirateFromCity,
-    calculateOrderEstimate,
+    // calculateOrderEstimate,
     // calculateOrderPricing,
 };

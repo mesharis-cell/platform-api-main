@@ -774,35 +774,6 @@ async function seedZones() {
     console.log(`✓ Created ${inserted.length} zones`);
 }
 
-async function seedPricingConfig() {
-    console.log("💰 Seeding pricing configuration...");
-
-    const configs = [];
-
-    // Platform-wide default for platform 1
-    configs.push({
-        platform_id: seededData.platforms[0].id,
-        company_id: null,
-        warehouse_ops_rate: "150.00", // AED per m³
-        is_active: true,
-    });
-
-    // Company-specific pricing (Diageo gets custom rate)
-    const diageo = seededData.companies.find((c) => c.name === "Diageo");
-    if (diageo) {
-        configs.push({
-            platform_id: diageo.platform_id,
-            company_id: diageo.id,
-            warehouse_ops_rate: "135.00", // Discounted rate
-            is_active: true,
-        });
-    }
-
-    const inserted = await db.insert(schema.pricingConfig).values(configs).returning();
-    seededData.pricingConfigs = inserted;
-    console.log(`✓ Created ${inserted.length} pricing configs`);
-}
-
 async function seedTransportRates() {
     console.log("🚚 Seeding transport rates...");
 
@@ -2367,7 +2338,6 @@ async function cleanupExistingData() {
         await db.delete(schema.assets);
         await db.delete(schema.serviceTypes);
         await db.delete(schema.transportRates);
-        await db.delete(schema.pricingConfig);
         await db.delete(schema.zones);
         await db.delete(schema.brands);
         await db.delete(schema.companyDomains);
@@ -2406,7 +2376,6 @@ async function main() {
         await seedZones();
 
         // Phase 2: Pricing & configuration
-        await seedPricingConfig();
         await seedTransportRates();
         await seedServiceTypes();
 
