@@ -1,1 +1,0 @@
-ALTER TABLE "order_status_history" ALTER COLUMN "updated_by" DROP NOT NULL;

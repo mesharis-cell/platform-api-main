@@ -551,35 +551,6 @@ export const collectionItemsRelations = relations(collectionItems, ({ one }) => 
     asset: one(assets, { fields: [collectionItems.asset], references: [assets.id] }),
 }));
 
-// ---------------------------------- PRICING CONFIG (NEW) ------------------------------------
-export const pricingConfig = pgTable(
-    "pricing_config",
-    {
-        id: uuid("id").primaryKey().defaultRandom(),
-        platform_id: uuid("platform")
-            .notNull()
-            .references(() => platforms.id, { onDelete: "cascade" }),
-        company_id: uuid("company").references(() => companies.id, { onDelete: "cascade" }), // NULL = platform default
-
-        warehouse_ops_rate: decimal("warehouse_ops_rate", { precision: 10, scale: 2 }).notNull(), // AED per m³
-
-        is_active: boolean("is_active").notNull().default(true),
-        created_at: timestamp("created_at").notNull().defaultNow(),
-        updated_at: timestamp("updated_at")
-            .$onUpdate(() => new Date())
-            .notNull(),
-    },
-    (table) => [
-        unique("pricing_config_platform_company_unique").on(table.platform_id, table.company_id),
-        index("pricing_config_platform_company_idx").on(table.platform_id, table.company_id),
-    ]
-);
-
-export const pricingConfigRelations = relations(pricingConfig, ({ one }) => ({
-    platform: one(platforms, { fields: [pricingConfig.platform_id], references: [platforms.id] }),
-    company: one(companies, { fields: [pricingConfig.company_id], references: [companies.id] }),
-}));
-
 // ---------------------------------- TRANSPORT RATES (NEW) ------------------------------------
 export const transportRates = pgTable(
     "transport_rates",
