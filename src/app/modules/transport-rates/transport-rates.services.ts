@@ -193,7 +193,7 @@ const getTransportRateById = async (id: string, platformId: string) => {
 
 // ----------------------------------- CREATE TRANSPORT RATE -----------------------------------
 const createTransportRate = async (data: CreateTransportRatePayload) => {
-    const { platform_id, company_id, emirate, area, trip_type, vehicle_type, rate, is_active } =
+    const { platform_id, company_id, city_id, area, trip_type, vehicle_type, rate, is_active } =
         data;
 
     // Check for duplicate
@@ -206,7 +206,7 @@ const createTransportRate = async (data: CreateTransportRatePayload) => {
                 company_id
                     ? eq(transportRates.company_id, company_id)
                     : isNull(transportRates.company_id),
-                eq(transportRates.city_id, emirate),
+                eq(transportRates.city_id, city_id),
                 area ? eq(transportRates.area, area) : isNull(transportRates.area),
                 eq(transportRates.trip_type, trip_type as any),
                 eq(transportRates.vehicle_type, vehicle_type as any)
@@ -226,7 +226,7 @@ const createTransportRate = async (data: CreateTransportRatePayload) => {
         .values({
             platform_id,
             company_id: company_id || null,
-            city_id: emirate,
+            city_id: city_id,
             area: area || null,
             trip_type: trip_type as any,
             vehicle_type: vehicle_type as any,

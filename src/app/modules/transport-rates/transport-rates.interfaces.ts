@@ -17,7 +17,7 @@ export type TripType = (typeof tripTypeEnum.enumValues)[number];
 export type VehicleType = (typeof vehicleTypeEnum.enumValues)[number];
 
 export type TransportRateLookupQuery = {
-    emirate: string;
+    city_id: string;
     trip_type: string;
     vehicle_type: string;
 };
