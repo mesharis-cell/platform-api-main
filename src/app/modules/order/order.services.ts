@@ -43,10 +43,8 @@ import {
     validateInboundScanningComplete,
     validateRoleBasedTransition,
 } from "./order.utils";
-// NEW: Hybrid pricing imports
 import { PricingCalculationServices } from "../pricing-calculation/pricing-calculation.services";
 import {
-    calculateAndStoreEstimate,
     shouldAwaitFabrication,
     recalculateOrderPricing,
 } from "./order-pricing.helpers";
@@ -196,8 +194,8 @@ const submitOrderFromCart = async (
     const pricingDetails = {
         platform_id: platformId,
         warehouse_ops_rate: company.warehouse_ops_rate,
-        base_ops_total: baseOpsTotal,
-        logistics_sub_total: logisticsSubTotal,
+        base_ops_total: baseOpsTotal.toFixed(2),
+        logistics_sub_total: logisticsSubTotal ? logisticsSubTotal.toFixed(2) : null,
         transport: {
             system_rate: transportRate,
             final_rate: transportRate
@@ -212,7 +210,7 @@ const submitOrderFromCart = async (
             is_override: false,
             override_reason: null
         },
-        final_total: finalTotal,
+        final_total: finalTotal ? finalTotal.toFixed(2) : null,
         calculated_at: new Date(),
         calculated_by: user.id,
     }
@@ -220,10 +218,11 @@ const submitOrderFromCart = async (
     // Step 5: Create the order record
     const orderId = await orderIdGenerator();
     const orderResult = await db.transaction(async (tx) => {
-        const orderPricing = await tx
+        const [orderPricing] = await tx
             .insert(orderPrices)
             .values(pricingDetails)
             .returning();
+
         // Step 5.a: Create the order record
         const [order] = await tx
             .insert(orders)
@@ -254,7 +253,7 @@ const submitOrderFromCart = async (
                 transport_trip_type: tripType as any,
                 transport_vehicle_type: vehicleType, // Default
                 // Pricing will be calculated after order creation
-                order_pricing_id: 'pricing_id',
+                order_pricing_id: orderPricing.id,
                 venue_city_id: venue_city,
                 order_status: "PRICING_REVIEW",
                 financial_status: "PENDING_QUOTE",
@@ -279,17 +278,6 @@ const submitOrderFromCart = async (
 
         return order;
     });
-
-    // Step 5.d: Calculate and store pricing estimate (NEW)
-    await calculateAndStoreEstimate(
-        orderResult.id,
-        platformId,
-        companyId,
-        volume,
-        venue_city,
-        tripType,
-        user.id
-    );
 
     // Step 6: Send email to admin, logistics staff and client
     // Step 6.a: Prepare email data
