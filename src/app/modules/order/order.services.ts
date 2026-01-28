@@ -66,7 +66,7 @@ import { formatDateForEmail } from "../../utils/date-time";
 import { TransportRatesServices } from "../transport-rates/transport-rates.services";
 
 // ----------------------------------- CALCULATE ESTIMATE -------------------------------------
-const calculateOrderEstimate = async (
+const calculateEstimate = async (
     platformId: string,
     companyId: string,
     payload: CalculateEstimatePayload
@@ -2391,7 +2391,7 @@ export const OrderServices = {
     // adminApproveQuote,
     returnToLogistics,
     cancelOrder,
-    calculateOrderEstimate,
+    calculateEstimate,
     // updateOrderVehicle,
     // addOrderItem: OrderItemsAdjustmentService.addOrderItem,
     // removeOrderItem: OrderItemsAdjustmentService.removeOrderItem,

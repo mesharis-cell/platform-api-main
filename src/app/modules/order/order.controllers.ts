@@ -15,7 +15,7 @@ const calculateEstimate = catchAsync(async (req, res) => {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Company ID is required");
     }
 
-    const estimate = await OrderServices.calculateOrderEstimate(
+    const estimate = await OrderServices.calculateEstimate(
         platformId,
         companyId,
         req.body
