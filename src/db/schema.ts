@@ -723,6 +723,8 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
     company: one(companies, { fields: [orders.company_id], references: [companies.id] }),
     brand: one(brands, { fields: [orders.brand_id], references: [brands.id] }),
     user: one(users, { fields: [orders.user_id], references: [users.id] }),
+    order_pricing: one(orderPrices, { fields: [orders.order_pricing_id], references: [orderPrices.id] }),
+    venue_city: one(cities, { fields: [orders.venue_city_id], references: [cities.id] }),
     items: many(orderItems),
     line_items: many(orderLineItems),
     reskin_requests: many(reskinRequests),
