@@ -523,6 +523,8 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
         conditions.push(sql`(${sql.join(searchConditions, sql` OR `)})`);
     }
 
+    console.log("conditions: ", conditions)
+
     // Step 4: Determine sort field
     const sortField = orderSortableFields[sortWith] || orders.created_at;
 
@@ -546,6 +548,8 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
         .orderBy(sortSequence === "asc" ? asc(sortField) : desc(sortField))
         .limit(limitNumber)
         .offset(skip);
+
+    console.log("results: ", results)
 
     // Step 6: Get total count
     const [countResult] = await db
