@@ -6,6 +6,7 @@ import {
     assetBookings,
     assets,
     brands,
+    cities,
     collections,
     companies,
     financialStatusHistory,
@@ -538,10 +539,25 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
                 id: brands.id,
                 name: brands.name,
             },
+            venue_city: {
+                name: cities.name
+            },
+            order_pricing: {
+                warehouse_ops_rate: orderPrices.warehouse_ops_rate,
+                base_ops_total: orderPrices.base_ops_total,
+                logistics_sub_total: orderPrices.logistics_sub_total,
+                transport: orderPrices.transport,
+                line_items: orderPrices.line_items,
+                margin: orderPrices.margin,
+                final_total: orderPrices.final_total,
+                calculated_at: orderPrices.calculated_at,
+            }
         })
         .from(orders)
         .leftJoin(companies, eq(orders.company_id, companies.id))
         .leftJoin(brands, eq(orders.brand_id, brands.id))
+        .leftJoin(orderPrices, eq(orders.order_pricing_id, orderPrices.id))
+        .leftJoin(cities, eq(orders.venue_city_id, cities.id))
         .where(and(...conditions))
         .orderBy(sortSequence === "asc" ? asc(sortField) : desc(sortField))
         .limit(limitNumber)
@@ -714,10 +730,25 @@ const getMyOrders = async (query: Record<string, any>, user: AuthUser, platformI
                 id: brands.id,
                 name: brands.name,
             },
+            venue_city: {
+                name: cities.name
+            },
+            order_pricing: {
+                warehouse_ops_rate: orderPrices.warehouse_ops_rate,
+                base_ops_total: orderPrices.base_ops_total,
+                logistics_sub_total: orderPrices.logistics_sub_total,
+                transport: orderPrices.transport,
+                line_items: orderPrices.line_items,
+                margin: orderPrices.margin,
+                final_total: orderPrices.final_total,
+                calculated_at: orderPrices.calculated_at,
+            }
         })
         .from(orders)
         .leftJoin(companies, eq(orders.company_id, companies.id))
         .leftJoin(brands, eq(orders.brand_id, brands.id))
+        .leftJoin(orderPrices, eq(orders.order_pricing_id, orderPrices.id))
+        .leftJoin(cities, eq(orders.venue_city_id, cities.id))
         .where(and(...conditions))
         .orderBy(sortSequence === "asc" ? asc(sortField) : desc(sortField))
         .limit(limitNumber)
@@ -783,11 +814,26 @@ const getOrderById = async (
                 name: users.name,
                 email: users.email,
             },
+            venue_city: {
+                name: cities.name
+            },
+            order_pricing: {
+                warehouse_ops_rate: orderPrices.warehouse_ops_rate,
+                base_ops_total: orderPrices.base_ops_total,
+                logistics_sub_total: orderPrices.logistics_sub_total,
+                transport: orderPrices.transport,
+                line_items: orderPrices.line_items,
+                margin: orderPrices.margin,
+                final_total: orderPrices.final_total,
+                calculated_at: orderPrices.calculated_at,
+            }
         })
         .from(orders)
         .leftJoin(companies, eq(orders.company_id, companies.id))
         .leftJoin(brands, eq(orders.brand_id, brands.id))
         .leftJoin(users, eq(orders.user_id, users.id))
+        .leftJoin(orderPrices, eq(orders.order_pricing_id, orderPrices.id))
+        .leftJoin(cities, eq(orders.venue_city_id, cities.id))
         .where(whereCondition)
         .limit(1);
 
@@ -867,6 +913,8 @@ const getOrderById = async (
         reskin_requests: reskinRequests,
         financial_status_history: financialHistory,
         order_status_history: orderHistory,
+        venue_city: orderData.venue_city?.name || null,
+        order_pricing: orderData.order_pricing,
         invoice:
             invoice.length > 0
                 ? invoice.map((i) => ({
