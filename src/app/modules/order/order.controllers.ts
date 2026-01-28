@@ -500,58 +500,58 @@ const getPendingApprovalOrders = catchAsync(async (req, res) => {
     });
 });
 
-const addOrderItem = catchAsync(async (req, res) => {
-    const platformId = (req as any).platform_id;
-    const user = (req as any).user;
-    const orderId = getRequiredString(req.params.id, "id");
+// const addOrderItem = catchAsync(async (req, res) => {
+//     const platformId = (req as any).platform_id;
+//     const user = (req as any).user;
+//     const orderId = getRequiredString(req.params.id, "id");
 
-    const result = await OrderServices.addOrderItem(orderId, platformId, req.body, user.id);
+//     const result = await OrderServices.addOrderItem(orderId, platformId, req.body, user.id);
 
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Order item added successfully",
-        data: result,
-    });
-});
+//     sendResponse(res, {
+//         statusCode: httpStatus.OK,
+//         success: true,
+//         message: "Order item added successfully",
+//         data: result,
+//     });
+// });
 
-const removeOrderItem = catchAsync(async (req, res) => {
-    const platformId = (req as any).platform_id;
-    const user = (req as any).user;
-    const orderId = getRequiredString(req.params.id, "id");
-    const itemId = getRequiredString(req.params.item_id, "item_id");
+// const removeOrderItem = catchAsync(async (req, res) => {
+//     const platformId = (req as any).platform_id;
+//     const user = (req as any).user;
+//     const orderId = getRequiredString(req.params.id, "id");
+//     const itemId = getRequiredString(req.params.item_id, "item_id");
 
-    const result = await OrderServices.removeOrderItem(orderId, itemId, platformId, user.id);
+//     const result = await OrderServices.removeOrderItem(orderId, itemId, platformId, user.id);
 
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Order item removed successfully",
-        data: result,
-    });
-});
+//     sendResponse(res, {
+//         statusCode: httpStatus.OK,
+//         success: true,
+//         message: "Order item removed successfully",
+//         data: result,
+//     });
+// });
 
-const updateOrderItemQuantity = catchAsync(async (req, res) => {
-    const platformId = (req as any).platform_id;
-    const user = (req as any).user;
-    const orderId = getRequiredString(req.params.id, "id");
-    const itemId = getRequiredString(req.params.item_id, "item_id");
+// const updateOrderItemQuantity = catchAsync(async (req, res) => {
+//     const platformId = (req as any).platform_id;
+//     const user = (req as any).user;
+//     const orderId = getRequiredString(req.params.id, "id");
+//     const itemId = getRequiredString(req.params.item_id, "item_id");
 
-    const result = await OrderServices.updateOrderItemQuantity(
-        orderId,
-        itemId,
-        platformId,
-        req.body.quantity,
-        user.id
-    );
+//     const result = await OrderServices.updateOrderItemQuantity(
+//         orderId,
+//         itemId,
+//         platformId,
+//         req.body.quantity,
+//         user.id
+//     );
 
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Order item quantity updated successfully",
-        data: result,
-    });
-});
+//     sendResponse(res, {
+//         statusCode: httpStatus.OK,
+//         success: true,
+//         message: "Order item quantity updated successfully",
+//         data: result,
+//     });
+// });
 
 export const OrderControllers = {
     submitOrder,
@@ -579,7 +579,7 @@ export const OrderControllers = {
     cancelOrder,
     calculateEstimate,
     // updateOrderVehicle,
-    addOrderItem,
-    removeOrderItem,
-    updateOrderItemQuantity,
+    // addOrderItem,
+    // removeOrderItem,
+    // updateOrderItemQuantity,
 };

@@ -1693,17 +1693,18 @@ async function seedOrders() {
         });
     }
 
-    const inserted = await db.insert(schema.orders).values(orders).returning();
-    seededData.orders = inserted;
+    // TODO: Uncomment
+    // const inserted = await db.insert(schema.orders).values(orders).returning();
+    // seededData.orders = inserted;
 
-    // Track which orders should have reskin requests
-    for (let i = 0; i < orderStatuses.length; i++) {
-        if (orderStatuses[i].hasReskin) {
-            seededData.ordersWithReskin.push(inserted[i].id);
-        }
-    }
+    // // Track which orders should have reskin requests
+    // for (let i = 0; i < orderStatuses.length; i++) {
+    //     if (orderStatuses[i].hasReskin) {
+    //         seededData.ordersWithReskin.push(inserted[i].id);
+    //     }
+    // }
 
-    console.log(`✓ Created ${inserted.length} orders across all statuses (${seededData.ordersWithReskin.length} with reskin requests)`);
+    // console.log(`✓ Created ${inserted.length} orders across all statuses (${seededData.ordersWithReskin.length} with reskin requests)`);
 }
 
 async function seedOrderItems() {

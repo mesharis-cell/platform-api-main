@@ -51,23 +51,23 @@ const getInboundProgress = catchAsync(async (req, res) => {
 });
 
 // ----------------------------------- COMPLETE INBOUND SCAN ------------------------------
-const completeInboundScan = catchAsync(async (req, res) => {
-    const platformId = (req as any).platformId;
-    const user = (req as any).user;
-    const orderId = getRequiredString(req.params.order_id, "order_id");
+// const completeInboundScan = catchAsync(async (req, res) => {
+//     const platformId = (req as any).platformId;
+//     const user = (req as any).user;
+//     const orderId = getRequiredString(req.params.order_id, "order_id");
 
-    const result = await ScanningServices.completeInboundScan(orderId, user, platformId);
+//     const result = await ScanningServices.completeInboundScan(orderId, user, platformId);
 
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: result.message,
-        data: {
-            order_id: result.order_id,
-            new_status: result.new_status,
-        },
-    });
-});
+//     sendResponse(res, {
+//         statusCode: httpStatus.OK,
+//         success: true,
+//         message: result.message,
+//         data: {
+//             order_id: result.order_id,
+//             new_status: result.new_status,
+//         },
+//     });
+// });
 
 // ================================= OUTBOUND SCANNING =================================
 
@@ -153,7 +153,7 @@ const uploadTruckPhotos = catchAsync(async (req, res) => {
 export const ScanningControllers = {
     inboundScan,
     getInboundProgress,
-    completeInboundScan,
+    // completeInboundScan,
     outboundScan,
     completeOutboundScan,
     getOutboundProgress,

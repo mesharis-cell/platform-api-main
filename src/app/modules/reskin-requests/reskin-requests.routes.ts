@@ -38,13 +38,13 @@ router.post(
 );
 
 // Cancel reskin request (Admin only - voids line item, optional order cancellation)
-router.post(
-    "/:reskinId/cancel",
-    platformValidator,
-    auth("ADMIN"),
-    requirePermission(PERMISSIONS.RESKIN_REQUESTS_CANCEL),
-    payloadValidator(ReskinRequestsSchemas.cancelReskinRequestSchema),
-    ReskinRequestsControllers.cancelReskinRequest
-);
+// router.post(
+//     "/:reskinId/cancel",
+//     platformValidator,
+//     auth("ADMIN"),
+//     requirePermission(PERMISSIONS.RESKIN_REQUESTS_CANCEL),
+//     payloadValidator(ReskinRequestsSchemas.cancelReskinRequestSchema),
+//     ReskinRequestsControllers.cancelReskinRequest
+// );
 
 export const ReskinRequestsRoutes = router;

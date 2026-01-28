@@ -221,32 +221,32 @@ router.use("/:orderId/reskin-requests", ReskinRequestsRoutes);
 // ---------------------------------- ORDER ITEM ADJUSTMENTS (NEW) -----------------------------
 
 // Add order item during review
-router.post(
-    "/:id/items",
-    platformValidator,
-    auth("LOGISTICS"),
-    // requirePermission(PERMISSIONS.PRICING_REVIEW),
-    payloadValidator(orderSchemas.addOrderItemSchema),
-    OrderControllers.addOrderItem
-);
+// router.post(
+//     "/:id/items",
+//     platformValidator,
+//     auth("LOGISTICS"),
+//     // requirePermission(PERMISSIONS.PRICING_REVIEW),
+//     payloadValidator(orderSchemas.addOrderItemSchema),
+//     OrderControllers.addOrderItem
+// );
 
-// Remove order item during review
-router.delete(
-    "/:id/items/:item_id",
-    platformValidator,
-    auth("LOGISTICS"),
-    // requirePermission(PERMISSIONS.PRICING_REVIEW),
-    OrderControllers.removeOrderItem
-);
+// // Remove order item during review
+// router.delete(
+//     "/:id/items/:item_id",
+//     platformValidator,
+//     auth("LOGISTICS"),
+//     // requirePermission(PERMISSIONS.PRICING_REVIEW),
+//     OrderControllers.removeOrderItem
+// );
 
-// Update order item quantity during review
-router.patch(
-    "/:id/items/:item_id/quantity",
-    platformValidator,
-    auth("LOGISTICS"),
-    // requirePermission(PERMISSIONS.PRICING_REVIEW),
-    payloadValidator(orderSchemas.updateOrderItemQuantitySchema),
-    OrderControllers.updateOrderItemQuantity
-);
+// // Update order item quantity during review
+// router.patch(
+//     "/:id/items/:item_id/quantity",
+//     platformValidator,
+//     auth("LOGISTICS"),
+//     // requirePermission(PERMISSIONS.PRICING_REVIEW),
+//     payloadValidator(orderSchemas.updateOrderItemQuantitySchema),
+//     OrderControllers.updateOrderItemQuantity
+// );
 
 export const OrderRoutes = router;

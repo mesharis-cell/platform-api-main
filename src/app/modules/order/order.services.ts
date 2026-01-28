@@ -43,14 +43,13 @@ import {
     validateInboundScanningComplete,
     validateRoleBasedTransition,
 } from "./order.utils";
-import { PricingCalculationServices } from "../pricing-calculation/pricing-calculation.services";
 import {
     shouldAwaitFabrication,
     recalculateOrderPricing,
 } from "./order-pricing.helpers";
 import { OrderLineItemsServices } from "../order-line-items/order-line-items.services";
 import { ReskinRequestsServices } from "../reskin-requests/reskin-requests.services";
-import { OrderItemsAdjustmentService } from "./order-items-adjustment.service";
+// import { OrderItemsAdjustmentService } from "./order-items-adjustment.service";
 
 // Import asset availability checker
 import { multipleEmailSender } from "../../utils/email-sender";
@@ -64,6 +63,7 @@ import { getPlatformAdminEmails, getPlatformLogisticsStaffEmails } from "../../u
 import config from "../../config";
 import { formatDateForEmail } from "../../utils/date-time";
 import { TransportRatesServices } from "../transport-rates/transport-rates.services";
+import { TripType } from "../transport-rates/transport-rates.interfaces";
 
 // ----------------------------------- SUBMIT ORDER FROM CART ---------------------------------
 const submitOrderFromCart = async (
@@ -2141,13 +2141,12 @@ export async function cancelOrder(
 }
 
 // ----------------------------------- CALCULATE ESTIMATE (NEW) ------------------------------------
-// Calculate order estimate before submission (client-facing)
 const calculateOrderEstimate = async (
     platformId: string,
     companyId: string,
     items: Array<{ asset_id: string; quantity: number; is_reskin_request?: boolean }>,
     venueCity: string,
-    tripType: string
+    tripType: TripType
 ) => {
     // Get assets to calculate volume
     const assetIds = items.map((i) => i.asset_id);
@@ -2168,19 +2167,48 @@ const calculateOrderEstimate = async (
     // Get company margin
     const [company] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1);
 
-    const marginPercent = parseFloat((company as any).platform_margin_percent);
+    const marginPercent = parseFloat(company.platform_margin_percent);
 
     const hasRebrandItems = items.some((item) => item.is_reskin_request);
 
-    // Calculate estimate
-    const estimate = await PricingCalculationServices.calculateOrderEstimate(
+    const transportRateInfo = await TransportRatesServices.lookupTransportRate(
         platformId,
         companyId,
-        totalVolume,
         venueCity,
         tripType,
-        marginPercent
+        'STANDARD'
     );
+
+    if (!transportRateInfo) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Transport rate not found");
+    }
+
+    const warehouseOpsRate = company.warehouse_ops_rate;
+    const baseOpsTotal = totalVolume * Number(warehouseOpsRate);
+    const transportRate = Number(transportRateInfo.rate);
+    const logisticsSubtotal = baseOpsTotal + transportRate;
+    const marginAmount = logisticsSubtotal * (marginPercent / 100);
+    const estimateTotal = logisticsSubtotal + marginAmount;
+
+    const estimate = {
+        base_operations: {
+            volume: parseFloat(totalVolume.toFixed(3)),
+            rate: parseFloat(warehouseOpsRate),
+            total: parseFloat(baseOpsTotal.toFixed(2)),
+        },
+        transport: {
+            city: venueCity,
+            trip_type: tripType,
+            vehicle_type: "STANDARD",
+            rate: transportRate,
+        },
+        logistics_subtotal: parseFloat(logisticsSubtotal.toFixed(2)),
+        margin: {
+            percent: parseFloat(marginPercent.toFixed(2)),
+            amount: parseFloat(marginAmount.toFixed(2)),
+        },
+        estimate_total: parseFloat(estimateTotal.toFixed(2)),
+    };
 
     return {
         ...estimate,
@@ -2365,7 +2393,7 @@ export const OrderServices = {
     cancelOrder,
     calculateOrderEstimate,
     // updateOrderVehicle,
-    addOrderItem: OrderItemsAdjustmentService.addOrderItem,
-    removeOrderItem: OrderItemsAdjustmentService.removeOrderItem,
-    updateOrderItemQuantity: OrderItemsAdjustmentService.updateOrderItemQuantity,
+    // addOrderItem: OrderItemsAdjustmentService.addOrderItem,
+    // removeOrderItem: OrderItemsAdjustmentService.removeOrderItem,
+    // updateOrderItemQuantity: OrderItemsAdjustmentService.updateOrderItemQuantity,
 };

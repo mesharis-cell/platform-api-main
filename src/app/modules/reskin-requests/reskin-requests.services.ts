@@ -6,24 +6,17 @@ import {
     orderItems,
     assets,
     orders,
-    orderLineItems,
     orderStatusHistory,
-    financialStatusHistory,
-    users,
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
-import { AuthUser } from "../../interface/common";
 import {
     ProcessReskinRequestPayload,
     CompleteReskinRequestPayload,
-    CancelReskinRequestPayload,
     ReskinStatus,
 } from "./reskin-requests.interfaces";
 import { OrderLineItemsServices } from "../order-line-items/order-line-items.services";
 import { generateAssetQRCode } from "../../utils/qr-generator";
-import { recalculateOrderPricing } from "../order/order-pricing.helpers";
 import { NotificationLogServices } from "../notification-logs/notification-logs.services";
-import { OrderServices } from "../order/order.services";
 
 // ----------------------------------- LIST RESKIN REQUESTS -----------------------------------
 const listReskinRequests = async (orderId: string, platformId: string) => {
@@ -308,182 +301,182 @@ const completeReskinRequest = async (
 };
 
 // ----------------------------------- CANCEL RESKIN REQUEST -----------------------------------
-const cancelReskinRequest = async (
-    reskinId: string,
-    platformId: string,
-    payload: CancelReskinRequestPayload
-) => {
-    const { cancellation_reason, order_action, cancelled_by } = payload;
+// const cancelReskinRequest = async (
+//     reskinId: string,
+//     platformId: string,
+//     payload: CancelReskinRequestPayload
+// ) => {
+//     const { cancellation_reason, order_action, cancelled_by } = payload;
 
-    // Get reskin request
-    const reskinRequest = await db.query.reskinRequests.findFirst({
-        where: and(eq(reskinRequests.id, reskinId), eq(reskinRequests.platform_id, platformId)),
-        with: {
-            order_item: {
-                with: {
-                    order: true,
-                },
-            },
-        },
-    });
+//     // Get reskin request
+//     const reskinRequest = await db.query.reskinRequests.findFirst({
+//         where: and(eq(reskinRequests.id, reskinId), eq(reskinRequests.platform_id, platformId)),
+//         with: {
+//             order_item: {
+//                 with: {
+//                     order: true,
+//                 },
+//             },
+//         },
+//     });
 
-    if (!reskinRequest) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Reskin request not found");
-    }
+//     if (!reskinRequest) {
+//         throw new CustomizedError(httpStatus.NOT_FOUND, "Reskin request not found");
+//     }
 
-    if (reskinRequest.completed_at) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "Cannot cancel completed reskin request");
-    }
+//     if (reskinRequest.completed_at) {
+//         throw new CustomizedError(httpStatus.BAD_REQUEST, "Cannot cancel completed reskin request");
+//     }
 
-    if (reskinRequest.cancelled_at) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "Reskin request already cancelled");
-    }
+//     if (reskinRequest.cancelled_at) {
+//         throw new CustomizedError(httpStatus.BAD_REQUEST, "Reskin request already cancelled");
+//     }
 
-    // Mark reskin request as cancelled
-    await db
-        .update(reskinRequests)
-        .set({
-            cancelled_at: new Date(),
-            cancelled_by,
-            cancellation_reason,
-        })
-        .where(eq(reskinRequests.id, reskinId));
+//     // Mark reskin request as cancelled
+//     await db
+//         .update(reskinRequests)
+//         .set({
+//             cancelled_at: new Date(),
+//             cancelled_by,
+//             cancellation_reason,
+//         })
+//         .where(eq(reskinRequests.id, reskinId));
 
-    // Void linked line items (reskin cost)
-    await db
-        .update(orderLineItems)
-        .set({
-            is_voided: true,
-            voided_at: new Date(),
-            voided_by: cancelled_by,
-            void_reason: `Reskin cancelled: ${cancellation_reason}`,
-        })
-        .where(eq(orderLineItems.reskin_request_id, reskinId));
+//     // Void linked line items (reskin cost)
+//     await db
+//         .update(orderLineItems)
+//         .set({
+//             is_voided: true,
+//             voided_at: new Date(),
+//             voided_by: cancelled_by,
+//             void_reason: `Reskin cancelled: ${cancellation_reason}`,
+//         })
+//         .where(eq(orderLineItems.reskin_request_id, reskinId));
 
-    // Clear rebrand fields on order_item (continue with original asset)
-    await db
-        .update(orderItems)
-        .set({
-            is_reskin_request: false,
-            reskin_target_brand_id: null,
-            reskin_target_brand_custom: null,
-            reskin_notes: null,
-        })
-        .where(eq(orderItems.id, reskinRequest.order_item_id));
+//     // Clear rebrand fields on order_item (continue with original asset)
+//     await db
+//         .update(orderItems)
+//         .set({
+//             is_reskin_request: false,
+//             reskin_target_brand_id: null,
+//             reskin_target_brand_custom: null,
+//             reskin_notes: null,
+//         })
+//         .where(eq(orderItems.id, reskinRequest.order_item_id));
 
-    const orderRecord = await db.query.orders.findFirst({
-        where: eq(orders.id, reskinRequest.order_id),
-        with: { company: true },
-    });
+//     const orderRecord = await db.query.orders.findFirst({
+//         where: eq(orders.id, reskinRequest.order_id),
+//         with: { company: true },
+//     });
 
-    if (!orderRecord) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
-    }
+//     if (!orderRecord) {
+//         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+//     }
 
-    if (order_action === "cancel_order") {
-        const [userRecord] = await db
-            .select()
-            .from(users)
-            .where(eq(users.id, cancelled_by))
-            .limit(1);
+//     if (order_action === "cancel_order") {
+//         const [userRecord] = await db
+//             .select()
+//             .from(users)
+//             .where(eq(users.id, cancelled_by))
+//             .limit(1);
 
-        if (!userRecord) {
-            throw new CustomizedError(httpStatus.NOT_FOUND, "User not found");
-        }
+//         if (!userRecord) {
+//             throw new CustomizedError(httpStatus.NOT_FOUND, "User not found");
+//         }
 
-        const authUser: AuthUser = {
-            id: userRecord.id,
-            name: userRecord.name,
-            email: userRecord.email,
-            role: userRecord.role as any,
-            company_id: userRecord.company_id,
-            platform_id: userRecord.platform_id,
-            permissions: userRecord.permissions || [],
-            iat: 0,
-            exp: 0,
-        };
+//         const authUser: AuthUser = {
+//             id: userRecord.id,
+//             name: userRecord.name,
+//             email: userRecord.email,
+//             role: userRecord.role as any,
+//             company_id: userRecord.company_id,
+//             platform_id: userRecord.platform_id,
+//             permissions: userRecord.permissions || [],
+//             iat: 0,
+//             exp: 0,
+//         };
 
-        const cancellationResult = await OrderServices.cancelOrder(
-            reskinRequest.order_id,
-            platformId,
-            {
-                reason: "fabrication_failed",
-                notes: `Reskin cancelled: ${cancellation_reason}`,
-                notify_client: true,
-            },
-            authUser
-        );
+//         const cancellationResult = await OrderServices.cancelOrder(
+//             reskinRequest.order_id,
+//             platformId,
+//             {
+//                 reason: "fabrication_failed",
+//                 notes: `Reskin cancelled: ${cancellation_reason}`,
+//                 notify_client: true,
+//             },
+//             authUser
+//         );
 
-        return {
-            action: "cancel_order",
-            ...cancellationResult,
-        };
-    }
+//         return {
+//             action: "cancel_order",
+//             ...cancellationResult,
+//         };
+//     }
 
-    const previousTotal = (orderRecord.pricing as any)?.final_total || null;
-    const updatedPricing = await recalculateOrderPricing(
-        orderRecord.id,
-        platformId,
-        orderRecord.company_id,
-        cancelled_by
-    );
+//     const previousTotal = (orderRecord.pricing as any)?.final_total || null;
+//     const updatedPricing = await recalculateOrderPricing(
+//         orderRecord.id,
+//         platformId,
+//         orderRecord.company_id,
+//         cancelled_by
+//     );
 
-    const shouldReviseQuote = ["QUOTED", "CONFIRMED", "AWAITING_FABRICATION", "IN_PREPARATION"].includes(
-        orderRecord.order_status
-    );
-    const nextOrderStatus = shouldReviseQuote ? "QUOTED" : orderRecord.order_status;
-    const nextFinancialStatus = shouldReviseQuote ? "QUOTE_REVISED" : orderRecord.financial_status;
+//     const shouldReviseQuote = ["QUOTED", "CONFIRMED", "AWAITING_FABRICATION", "IN_PREPARATION"].includes(
+//         orderRecord.order_status
+//     );
+//     const nextOrderStatus = shouldReviseQuote ? "QUOTED" : orderRecord.order_status;
+//     const nextFinancialStatus = shouldReviseQuote ? "QUOTE_REVISED" : orderRecord.financial_status;
 
-    await db
-        .update(orders)
-        .set({
-            order_status: nextOrderStatus,
-            financial_status: nextFinancialStatus,
-            pricing: updatedPricing as any,
-            updated_at: new Date(),
-        })
-        .where(eq(orders.id, orderRecord.id));
+//     await db
+//         .update(orders)
+//         .set({
+//             order_status: nextOrderStatus,
+//             financial_status: nextFinancialStatus,
+//             pricing: updatedPricing as any,
+//             updated_at: new Date(),
+//         })
+//         .where(eq(orders.id, orderRecord.id));
 
-    if (nextOrderStatus !== orderRecord.order_status) {
-        await db.insert(orderStatusHistory).values({
-            platform_id: platformId,
-            order_id: orderRecord.id,
-            status: nextOrderStatus as any,
-            notes: `Quote revised after reskin cancellation: ${cancellation_reason}`,
-            updated_by: cancelled_by,
-        });
-    }
+//     if (nextOrderStatus !== orderRecord.order_status) {
+//         await db.insert(orderStatusHistory).values({
+//             platform_id: platformId,
+//             order_id: orderRecord.id,
+//             status: nextOrderStatus as any,
+//             notes: `Quote revised after reskin cancellation: ${cancellation_reason}`,
+//             updated_by: cancelled_by,
+//         });
+//     }
 
-    if (nextFinancialStatus !== orderRecord.financial_status) {
-        await db.insert(financialStatusHistory).values({
-            platform_id: platformId,
-            order_id: orderRecord.id,
-            status: nextFinancialStatus as any,
-            notes: `Quote revised after reskin cancellation: ${cancellation_reason}`,
-            updated_by: cancelled_by,
-        });
-    }
+//     if (nextFinancialStatus !== orderRecord.financial_status) {
+//         await db.insert(financialStatusHistory).values({
+//             platform_id: platformId,
+//             order_id: orderRecord.id,
+//             status: nextFinancialStatus as any,
+//             notes: `Quote revised after reskin cancellation: ${cancellation_reason}`,
+//             updated_by: cancelled_by,
+//         });
+//     }
 
-    if (shouldReviseQuote) {
-        await NotificationLogServices.sendNotification(
-            platformId,
-            "QUOTE_REVISED",
-            orderRecord,
-            undefined,
-            {
-                previous_total: previousTotal,
-                new_total: updatedPricing.final_total,
-                revision_reason: cancellation_reason,
-            }
-        );
-    }
+//     if (shouldReviseQuote) {
+//         await NotificationLogServices.sendNotification(
+//             platformId,
+//             "QUOTE_REVISED",
+//             orderRecord,
+//             undefined,
+//             {
+//                 previous_total: previousTotal,
+//                 new_total: updatedPricing.final_total,
+//                 revision_reason: cancellation_reason,
+//             }
+//         );
+//     }
 
-    return {
-        action: "continue",
-        order_id: reskinRequest.order_id,
-        pricing: updatedPricing,
-    };
-};
+//     return {
+//         action: "continue",
+//         order_id: reskinRequest.order_id,
+//         pricing: updatedPricing,
+//     };
+// };
 
 // ----------------------------------- HELPER: GET RESKIN STATUS -----------------------------------
 export function getReskinStatus(reskin: any): ReskinStatus {
@@ -497,6 +490,6 @@ export const ReskinRequestsServices = {
     getPendingReskins,
     processReskinRequest,
     completeReskinRequest,
-    cancelReskinRequest,
+    // cancelReskinRequest,
     getReskinStatus,
 };
