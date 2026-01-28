@@ -71,16 +71,23 @@ const calculateEstimate = async (
     companyId: string,
     payload: CalculateEstimatePayload
 ) => {
+    // Step 1: Extract payload data
     const { items, venue_city, transport_trip_type } = payload;
 
-    // Get assets to calculate volume
+    // Step 2: Fetch company information
+    const [company] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1);
+    if (!company) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found");
+    }
+
+    // Step 3: Fetch assets from the database
     const assetIds = items.map((i) => i.asset_id);
     const foundAssets = await db
         .select()
         .from(assets)
         .where(and(inArray(assets.id, assetIds), eq(assets.platform_id, platformId)));
 
-    // Calculate total volume
+    // Step 4: Calculate total volume of requested assets
     let totalVolume = 0;
     for (const item of items) {
         const asset = foundAssets.find((a) => a.id === item.asset_id);
@@ -89,13 +96,11 @@ const calculateEstimate = async (
         }
     }
 
-    // Get company margin
-    const [company] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1);
-
+    // Step 5: Determine margin and check for rebrand items
     const marginPercent = parseFloat(company.platform_margin_percent);
-
     const hasRebrandItems = items.some((item) => item.is_reskin_request);
 
+    // Step 6: Lookup transport rate based on venue and trip type
     const transportRateInfo = await TransportRatesServices.lookupTransportRate(
         platformId,
         companyId,
@@ -108,13 +113,17 @@ const calculateEstimate = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Transport rate not found");
     }
 
+    // Step 7: Calculate logistics subtotal and final estimate
     const warehouseOpsRate = company.warehouse_ops_rate;
     const baseOpsTotal = totalVolume * Number(warehouseOpsRate);
+    const baseOpsMarginAmount = baseOpsTotal * (marginPercent / 100);
     const transportRate = Number(transportRateInfo.rate);
+    const transportRateMarginAmount = transportRate * (marginPercent / 100);
     const logisticsSubtotal = baseOpsTotal + transportRate;
-    const marginAmount = logisticsSubtotal * (marginPercent / 100);
+    const marginAmount = baseOpsMarginAmount + transportRateMarginAmount;
     const estimateTotal = logisticsSubtotal + marginAmount;
 
+    // Step 8: Prepare and return the estimate response
     const estimate = {
         base_operations: {
             volume: parseFloat(totalVolume.toFixed(3)),
@@ -130,7 +139,9 @@ const calculateEstimate = async (
         logistics_subtotal: parseFloat(logisticsSubtotal.toFixed(2)),
         margin: {
             percent: parseFloat(marginPercent.toFixed(2)),
-            amount: parseFloat(marginAmount.toFixed(2)),
+            base_ops_amount: parseFloat(baseOpsMarginAmount.toFixed(2)),
+            transport_rate_amount: parseFloat(transportRateMarginAmount.toFixed(2)),
+            total_amount: parseFloat(marginAmount.toFixed(2)),
         },
         estimate_total: parseFloat(estimateTotal.toFixed(2)),
     };
