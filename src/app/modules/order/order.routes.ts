@@ -12,7 +12,13 @@ import { ReskinRequestsRoutes } from "../reskin-requests/reskin-requests.routes"
 const router = Router();
 
 // Calculate order estimate (NEW)
-router.post("/estimate", platformValidator, auth("CLIENT"), OrderControllers.calculateEstimate);
+router.post(
+    "/estimate",
+    platformValidator,
+    auth("CLIENT"),
+    payloadValidator(orderSchemas.calculateEstimateSchema),
+    OrderControllers.calculateEstimate
+);
 
 // Submit order
 router.post(

@@ -31,6 +31,7 @@ import {
     DeclineQuotePayload,
     OrderItem,
     CancelOrderPayload,
+    CalculateEstimatePayload,
 } from "./order.interfaces";
 import {
     checkAssetsForOrder,
@@ -63,7 +64,85 @@ import { getPlatformAdminEmails, getPlatformLogisticsStaffEmails } from "../../u
 import config from "../../config";
 import { formatDateForEmail } from "../../utils/date-time";
 import { TransportRatesServices } from "../transport-rates/transport-rates.services";
-import { TripType } from "../transport-rates/transport-rates.interfaces";
+
+// ----------------------------------- CALCULATE ESTIMATE -------------------------------------
+const calculateOrderEstimate = async (
+    platformId: string,
+    companyId: string,
+    payload: CalculateEstimatePayload
+) => {
+    const { items, venue_city, transport_trip_type } = payload;
+
+    // Get assets to calculate volume
+    const assetIds = items.map((i) => i.asset_id);
+    const foundAssets = await db
+        .select()
+        .from(assets)
+        .where(and(inArray(assets.id, assetIds), eq(assets.platform_id, platformId)));
+
+    // Calculate total volume
+    let totalVolume = 0;
+    for (const item of items) {
+        const asset = foundAssets.find((a) => a.id === item.asset_id);
+        if (asset) {
+            totalVolume += parseFloat(asset.volume_per_unit) * item.quantity;
+        }
+    }
+
+    // Get company margin
+    const [company] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1);
+
+    const marginPercent = parseFloat(company.platform_margin_percent);
+
+    const hasRebrandItems = items.some((item) => item.is_reskin_request);
+
+    const transportRateInfo = await TransportRatesServices.lookupTransportRate(
+        platformId,
+        companyId,
+        venue_city,
+        transport_trip_type,
+        'STANDARD'
+    );
+
+    if (!transportRateInfo) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Transport rate not found");
+    }
+
+    const warehouseOpsRate = company.warehouse_ops_rate;
+    const baseOpsTotal = totalVolume * Number(warehouseOpsRate);
+    const transportRate = Number(transportRateInfo.rate);
+    const logisticsSubtotal = baseOpsTotal + transportRate;
+    const marginAmount = logisticsSubtotal * (marginPercent / 100);
+    const estimateTotal = logisticsSubtotal + marginAmount;
+
+    const estimate = {
+        base_operations: {
+            volume: parseFloat(totalVolume.toFixed(3)),
+            rate: parseFloat(warehouseOpsRate),
+            total: parseFloat(baseOpsTotal.toFixed(2)),
+        },
+        transport: {
+            city: venue_city,
+            trip_type: transport_trip_type,
+            vehicle_type: "STANDARD",
+            rate: transportRate,
+        },
+        logistics_subtotal: parseFloat(logisticsSubtotal.toFixed(2)),
+        margin: {
+            percent: parseFloat(marginPercent.toFixed(2)),
+            amount: parseFloat(marginAmount.toFixed(2)),
+        },
+        estimate_total: parseFloat(estimateTotal.toFixed(2)),
+    };
+
+    return {
+        ...estimate,
+        has_rebrand_items: hasRebrandItems,
+        disclaimer: hasRebrandItems
+            ? "This estimate excludes rebranding costs, which will be quoted during order review."
+            : "Additional services or vehicle requirements may affect the final price.",
+    };
+};
 
 // ----------------------------------- SUBMIT ORDER FROM CART ---------------------------------
 const submitOrderFromCart = async (
@@ -2139,85 +2218,6 @@ export async function cancelOrder(
         cancelled_reskins: cancelledReskinsCount, // ✅ Now in scope
     };
 }
-
-// ----------------------------------- CALCULATE ESTIMATE (NEW) ------------------------------------
-const calculateOrderEstimate = async (
-    platformId: string,
-    companyId: string,
-    items: Array<{ asset_id: string; quantity: number; is_reskin_request?: boolean }>,
-    venueCity: string,
-    tripType: TripType
-) => {
-    // Get assets to calculate volume
-    const assetIds = items.map((i) => i.asset_id);
-    const foundAssets = await db
-        .select()
-        .from(assets)
-        .where(and(inArray(assets.id, assetIds), eq(assets.platform_id, platformId)));
-
-    // Calculate total volume
-    let totalVolume = 0;
-    for (const item of items) {
-        const asset = foundAssets.find((a) => a.id === item.asset_id);
-        if (asset) {
-            totalVolume += parseFloat(asset.volume_per_unit) * item.quantity;
-        }
-    }
-
-    // Get company margin
-    const [company] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1);
-
-    const marginPercent = parseFloat(company.platform_margin_percent);
-
-    const hasRebrandItems = items.some((item) => item.is_reskin_request);
-
-    const transportRateInfo = await TransportRatesServices.lookupTransportRate(
-        platformId,
-        companyId,
-        venueCity,
-        tripType,
-        'STANDARD'
-    );
-
-    if (!transportRateInfo) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Transport rate not found");
-    }
-
-    const warehouseOpsRate = company.warehouse_ops_rate;
-    const baseOpsTotal = totalVolume * Number(warehouseOpsRate);
-    const transportRate = Number(transportRateInfo.rate);
-    const logisticsSubtotal = baseOpsTotal + transportRate;
-    const marginAmount = logisticsSubtotal * (marginPercent / 100);
-    const estimateTotal = logisticsSubtotal + marginAmount;
-
-    const estimate = {
-        base_operations: {
-            volume: parseFloat(totalVolume.toFixed(3)),
-            rate: parseFloat(warehouseOpsRate),
-            total: parseFloat(baseOpsTotal.toFixed(2)),
-        },
-        transport: {
-            city: venueCity,
-            trip_type: tripType,
-            vehicle_type: "STANDARD",
-            rate: transportRate,
-        },
-        logistics_subtotal: parseFloat(logisticsSubtotal.toFixed(2)),
-        margin: {
-            percent: parseFloat(marginPercent.toFixed(2)),
-            amount: parseFloat(marginAmount.toFixed(2)),
-        },
-        estimate_total: parseFloat(estimateTotal.toFixed(2)),
-    };
-
-    return {
-        ...estimate,
-        has_rebrand_items: hasRebrandItems,
-        disclaimer: hasRebrandItems
-            ? "This estimate excludes rebranding costs, which will be quoted during order review."
-            : "Additional services or vehicle requirements may affect the final price.",
-    };
-};
 
 // ----------------------------------- GET PENDING APPROVAL ORDERS (NEW) ------------------------------------
 // Get orders waiting for Admin approval

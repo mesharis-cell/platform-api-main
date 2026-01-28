@@ -1,7 +1,24 @@
 import { z } from "zod";
-import { orderStatusEnum } from "../../../db/schema";
+import { orderStatusEnum, tripTypeEnum } from "../../../db/schema";
 import { enumMessageGenerator } from "../../utils/helper";
 import { CANCEL_REASONS } from "./order.utils";
+
+const calculateEstimateSchema = z.object({
+    body: z.object({
+        items: z.array(
+            z.object({
+                asset_id: z.uuid("Invalid asset ID"),
+                quantity: z.number().int().positive("Quantity must be positive"),
+                is_reskin_request: z.boolean().optional(),
+            })
+        ),
+        venue_city: z.string("Venue city is required"),
+        transport_trip_type: z.enum(
+            tripTypeEnum.enumValues,
+            enumMessageGenerator("Trip type", tripTypeEnum.enumValues)
+        ),
+    }),
+});
 
 export const orderItemSchema = z
     .object({
@@ -282,6 +299,7 @@ const cancelOrderSchema = z.object({
 });
 
 export const orderSchemas = {
+    calculateEstimateSchema,
     submitOrderSchema,
     updateJobNumberSchema,
     progressStatusSchema,

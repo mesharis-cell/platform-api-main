@@ -1,6 +1,8 @@
 import z from "zod";
 import { orderItemSchema, orderSchemas } from "./order.schemas";
 
+export type CalculateEstimatePayload = z.infer<typeof orderSchemas.calculateEstimateSchema>["body"];
+
 // Submit order payload interface
 export type SubmitOrderPayload = z.infer<typeof orderSchemas.submitOrderSchema>["body"];
 

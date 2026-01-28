@@ -5,6 +5,30 @@ import sendResponse from "../../shared/send-response";
 import { OrderServices } from "./order.services";
 import { getRequiredString } from "../../utils/request";
 
+// ----------------------------------- CALCULATE ESTIMATE ---------------------------------
+const calculateEstimate = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platform_id;
+    const companyId = user.company_id;
+
+    if (!companyId) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Company ID is required");
+    }
+
+    const estimate = await OrderServices.calculateOrderEstimate(
+        platformId,
+        companyId,
+        req.body
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Estimate calculated successfully.",
+        data: { estimate },
+    });
+});
+
 // ----------------------------------- SUBMIT ORDER ---------------------------------------
 const submitOrder = catchAsync(async (req, res) => {
     // Extract user and platform ID from middleware
@@ -418,54 +442,6 @@ const cancelOrder = catchAsync(async (req, res) => {
         success: true,
         message: "Order cancelled successfully.",
         data: result,
-    });
-});
-
-// ----------------------------------- CALCULATE ESTIMATE (NEW) -----------------------------------
-const calculateEstimate = catchAsync(async (req, res) => {
-    const user = (req as any).user;
-    const platformId = (req as any).platform_id;
-    const companyId = user.company_id;
-
-    if (!companyId) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "Company ID is required");
-    }
-
-    const { items, venue_city, transport_trip_type } = req.body;
-
-    // Validation
-    if (!items || !Array.isArray(items) || items.length === 0) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "Items array is required");
-    }
-
-    if (!venue_city) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "venue_city is required");
-    }
-
-    if (!transport_trip_type) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "transport_trip_type is required");
-    }
-
-    if (!["ONE_WAY", "ROUND_TRIP"].includes(transport_trip_type)) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            "transport_trip_type must be ONE_WAY or ROUND_TRIP"
-        );
-    }
-
-    const estimate = await OrderServices.calculateOrderEstimate(
-        platformId,
-        companyId,
-        items,
-        venue_city,
-        transport_trip_type
-    );
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Estimate calculated successfully.",
-        data: { estimate },
     });
 });
 
