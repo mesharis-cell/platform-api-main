@@ -30,7 +30,7 @@ const calculateEstimate = catchAsync(async (req, res) => {
 });
 
 // ----------------------------------- SUBMIT ORDER ---------------------------------------
-const submitOrder = catchAsync(async (req, res) => {
+const submitOrderFromCart = catchAsync(async (req, res) => {
     // Extract user and platform ID from middleware
     const user = (req as any).user;
     const platformId = (req as any).platformId;
@@ -530,7 +530,8 @@ const getPendingApprovalOrders = catchAsync(async (req, res) => {
 // });
 
 export const OrderControllers = {
-    submitOrder,
+    calculateEstimate,
+    submitOrderFromCart,
     getOrders,
     getMyOrders,
     exportOrders,
@@ -553,7 +554,6 @@ export const OrderControllers = {
     // adminApproveQuote,
     returnToLogistics,
     cancelOrder,
-    calculateEstimate,
     // updateOrderVehicle,
     // addOrderItem,
     // removeOrderItem,

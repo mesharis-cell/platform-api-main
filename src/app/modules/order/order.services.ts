@@ -251,7 +251,6 @@ const submitOrderFromCart = async (
             handling_tags: asset.handling_tags || [],
             from_collection: item.from_collection_id || null,
             from_collection_name: collectionName,
-            // NEW: Reskin/rebrand fields
             is_reskin_request: item.is_reskin_request || false,
             reskin_target_brand_id: item.reskin_target_brand_id || null,
             reskin_target_brand_custom: item.reskin_target_brand_custom || null,
@@ -338,10 +337,8 @@ const submitOrderFromCart = async (
                     volume: calculatedVolume,
                     weight: calculatedWeight,
                 },
-                // NEW: Transport fields
                 transport_trip_type: tripType as any,
-                transport_vehicle_type: vehicleType, // Default
-                // Pricing will be calculated after order creation
+                transport_vehicle_type: vehicleType,
                 order_pricing_id: orderPricing.id,
                 venue_city_id: venue_city,
                 order_status: "PRICING_REVIEW",

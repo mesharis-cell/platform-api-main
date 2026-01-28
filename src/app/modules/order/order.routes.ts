@@ -27,7 +27,7 @@ router.post(
     auth("CLIENT"),
     requirePermission(PERMISSIONS.ORDERS_CREATE),
     payloadValidator(orderSchemas.submitOrderSchema),
-    OrderControllers.submitOrder
+    OrderControllers.submitOrderFromCart
 );
 
 // Get orders
