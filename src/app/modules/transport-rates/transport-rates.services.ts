@@ -12,8 +12,8 @@ import {
 } from "./transport-rates.interfaces";
 import { uuidRegex } from "../../constants/common";
 
-// ----------------------------------- GET TRANSPORT RATE -------------------------------------
-const getTransportRate = async (
+// ----------------------------------- LOOKUP TRANSPORT RATE ----------------------------------
+const lookupTransportRate = async (
     platformId: string,
     companyId: string | null,
     city: string,
@@ -293,7 +293,7 @@ const deleteTransportRate = async (id: string, platformId: string) => {
 };
 
 export const TransportRatesServices = {
-    getTransportRate,
+    lookupTransportRate,
     listTransportRates,
     getTransportRateById,
     createTransportRate,

@@ -81,20 +81,25 @@ const deleteTransportRate = async (req: Request, res: Response) => {
 
 // ----------------------------------- LOOKUP TRANSPORT RATE -----------------------------------
 const lookupTransportRate = catchAsync(async (req, res) => {
+    // Step 1: Get user and platform
     const user = (req as any).user;
     const platformId = (req as any).platform_id;
     const companyId = user.company_id;
 
+    // Step 2: Extract query parameters
     const { city, trip_type, vehicle_type } = req.query as Record<string, any>;
 
+    // Step 3: Check for required parameters
     if (!city || !trip_type || !vehicle_type) {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "city, trip_type, and vehicle_type query parameters are required");
     }
 
+    // Step 4: Validate specific parameters
     if (trip_type) queryValidator(transportRateQueryValidationConfig, "trip_type", trip_type);
     if (vehicle_type) queryValidator(transportRateQueryValidationConfig, "vehicle_type", vehicle_type);
 
-    const result = await TransportRatesServices.getTransportRate(
+    // Step 5: Retrieve transport rate information
+    const result = await TransportRatesServices.lookupTransportRate(
         platformId,
         companyId || null,
         city,
@@ -102,6 +107,7 @@ const lookupTransportRate = catchAsync(async (req, res) => {
         vehicle_type
     );
 
+    // Step 6: Send success response
     sendResponse(res, {
         statusCode: httpStatus.OK,
         success: true,
@@ -109,40 +115,6 @@ const lookupTransportRate = catchAsync(async (req, res) => {
         data: result,
     });
 });
-
-// const lookupTransportRate = catchAsync(async (req, res) => {
-//     const user = (req as any).user;
-//     const platformId = (req as any).platform_id;
-//     const companyId = user.company_id;
-
-//     const { city, trip_type, vehicle_type } = req.query as Record<string, any>;
-
-//     if (!city || !trip_type || !vehicle_type) {
-//         return res.status(httpStatus.BAD_REQUEST).json({
-//             success: false,
-//             error: "city, trip_type, and vehicle_type query parameters are required",
-//         });
-//     }
-
-//     if (trip_type) queryValidator(transportRateQueryValidationConfig, "trip_type", trip_type);
-//     if (vehicle_type) queryValidator(transportRateQueryValidationConfig, "vehicle_type", vehicle_type);
-
-//     const result = await TransportRatesServices.getTransportRate(
-//         platformId,
-//         companyId || null,
-//         city,
-//         trip_type,
-//         vehicle_type
-//     );
-
-//     sendResponse(res, {
-//         statusCode: httpStatus.OK,
-//         success: true,
-//         message: "Transport rate retrieved successfully",
-//         data: result,
-//     });
-// }
-// );
 
 export const TransportRatesControllers = {
     listTransportRates,
