@@ -154,6 +154,7 @@ const seededData = {
     platforms: [] as any[],
     companies: [] as any[],
     countries: [] as any[],
+    cities: [] as any[],
     companyDomains: [] as any[],
     users: [] as any[],
     warehouses: [] as any[],
@@ -834,6 +835,7 @@ async function seedTransportRates() {
     }));
 
     const insertedCities = await db.insert(schema.cities).values(citiesData).returning();
+    seededData.cities = insertedCities;
 
     console.log(`✓ Created ${insertedCities.length} cities for ${country.name} in ${platform1.name}`);
 
@@ -1675,10 +1677,7 @@ async function seedOrders() {
             transport_trip_type: tripType as any,
             transport_vehicle_type: vehicleType as any,
             tier_id: null, // DEPRECATED
-            logistics_pricing: null, // DEPRECATED - using new pricing structure
-            platform_pricing: null, // DEPRECATED - using new pricing structure
-            final_pricing: null, // DEPRECATED - using new pricing structure
-            pricing: newPricing, // NEW hybrid pricing structure
+            order_pricing_id: newPricing, // NEW hybrid pricing structure
             order_status: status,
             financial_status: financial,
             scanning_data: {},

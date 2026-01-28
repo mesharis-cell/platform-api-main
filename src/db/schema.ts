@@ -667,7 +667,7 @@ export const orders = pgTable(
     {
         // Core identifiers
         id: uuid("id").primaryKey().defaultRandom(),
-        platform_id: uuid("platform")
+        platform_id: uuid("platform_id")
             .notNull()
             .references(() => platforms.id, { onDelete: "cascade" }),
         order_id: varchar("order_id", { length: 20 }).notNull(), // Human-readable ID (ORD-YYYYMMDD-XXX)
