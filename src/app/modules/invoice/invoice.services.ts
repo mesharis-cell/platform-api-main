@@ -1,506 +1,527 @@
-// import { and, asc, desc, eq, ilike, sql } from "drizzle-orm";
-// import httpStatus from "http-status";
-// import { db } from "../../../db";
-// import { companies, financialStatusHistory, invoices, orders, users } from "../../../db/schema";
-// import CustomizedError from "../../error/customized-error";
-// import { AuthUser } from "../../interface/common";
-// import { getPresignedUrl } from "../../services/s3.service";
-// import queryValidator from "../../utils/query-validator";
-// import paginationMaker from "../../utils/pagination-maker";
-// import { invoiceQueryValidationConfig, invoiceSortableFields } from "./invoice.utils";
-// import { uuidRegex } from "../../constants/common";
-// import { ConfirmPaymentPayload, GenerateInvoicePayload } from "./invoice.interfaces";
-// import { invoiceGenerator } from "../../utils/invoice";
-// import { sendEmail } from "../../services/email.service";
-// import { emailTemplates } from "../../utils/email-templates";
-// import config from "../../config";
-// import { multipleEmailSender } from "../../utils/email-sender";
+import { and, asc, desc, eq, ilike, sql } from "drizzle-orm";
+import httpStatus from "http-status";
+import { db } from "../../../db";
+import { companies, financialStatusHistory, invoices, orderPrices, orders, users } from "../../../db/schema";
+import CustomizedError from "../../error/customized-error";
+import { AuthUser } from "../../interface/common";
+import { getPresignedUrl } from "../../services/s3.service";
+import queryValidator from "../../utils/query-validator";
+import paginationMaker from "../../utils/pagination-maker";
+import { invoiceQueryValidationConfig, invoiceSortableFields } from "./invoice.utils";
+import { uuidRegex } from "../../constants/common";
+import { ConfirmPaymentPayload, GenerateInvoicePayload } from "./invoice.interfaces";
+import { invoiceGenerator } from "../../utils/invoice";
+import { sendEmail } from "../../services/email.service";
+import { emailTemplates } from "../../utils/email-templates";
+import config from "../../config";
+import { multipleEmailSender } from "../../utils/email-sender";
 
-// // ----------------------------------- GET INVOICE BY ID --------------------------------------
-// const getInvoiceById = async (invoiceId: string, user: AuthUser, platformId: string) => {
-//     // Step 1: Determine if invoiceId is UUID or invoice_id
-//     const isUUID = invoiceId.match(uuidRegex);
+// ----------------------------------- GET INVOICE BY ID --------------------------------------
+const getInvoiceById = async (invoiceId: string, user: AuthUser, platformId: string) => {
+    // Step 1: Determine if invoiceId is UUID or invoice_id
+    const isUUID = invoiceId.match(uuidRegex);
 
-//     // Step 2: Fetch invoice with order and company information
-//     const [result] = await db
-//         .select({
-//             invoice: invoices,
-//             order: {
-//                 id: orders.id,
-//                 order_id: orders.order_id,
-//                 contact_name: orders.contact_name,
-//                 event_start_date: orders.event_start_date,
-//                 event_end_date: orders.event_end_date,
-//                 venue_name: orders.venue_name,
-//                 final_pricing: orders.final_pricing,
-//                 order_status: orders.order_status,
-//                 financial_status: orders.financial_status,
-//             },
-//             company: {
-//                 id: companies.id,
-//                 name: companies.name,
-//             },
-//         })
-//         .from(invoices)
-//         .innerJoin(orders, eq(invoices.order_id, orders.id))
-//         .leftJoin(companies, eq(orders.company_id, companies.id))
-//         .where(
-//             and(
-//                 isUUID ? eq(invoices.id, invoiceId) : eq(invoices.invoice_id, invoiceId),
-//                 eq(invoices.platform_id, platformId)
-//             )
-//         );
+    // Step 2: Fetch invoice with order and company information
+    const [result] = await db
+        .select({
+            invoice: invoices,
+            order: {
+                id: orders.id,
+                order_id: orders.order_id,
+                contact_name: orders.contact_name,
+                event_start_date: orders.event_start_date,
+                event_end_date: orders.event_end_date,
+                venue_name: orders.venue_name,
+                order_status: orders.order_status,
+                financial_status: orders.financial_status,
+            },
+            company: {
+                id: companies.id,
+                name: companies.name,
+            },
+            order_pricing: {
+                warehouse_ops_rate: orderPrices.warehouse_ops_rate,
+                base_ops_total: orderPrices.base_ops_total,
+                logistics_sub_total: orderPrices.logistics_sub_total,
+                transport: orderPrices.transport,
+                line_items: orderPrices.line_items,
+                margin: orderPrices.margin,
+                final_total: orderPrices.final_total,
+                calculated_at: orderPrices.calculated_at,
+            }
+        })
+        .from(invoices)
+        .innerJoin(orders, eq(invoices.order_id, orders.id))
+        .leftJoin(companies, eq(orders.company_id, companies.id))
+        .leftJoin(orderPrices, eq(orders.order_pricing_id, orderPrices.id))
+        .where(
+            and(
+                isUUID ? eq(invoices.id, invoiceId) : eq(invoices.invoice_id, invoiceId),
+                eq(invoices.platform_id, platformId)
+            )
+        );
 
-//     // Step 3: Check if invoice exists
-//     if (!result) {
-//         throw new CustomizedError(httpStatus.NOT_FOUND, "Invoice not found");
-//     }
+    // Step 3: Check if invoice exists
+    if (!result) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Invoice not found");
+    }
 
-//     // Step 4: Access control - CLIENT users can only access their company's invoices
-//     if (user.role === "CLIENT") {
-//         if (!user.company_id || !result.company || result.company.id !== user.company_id) {
-//             throw new CustomizedError(
-//                 httpStatus.FORBIDDEN,
-//                 "You don't have access to this invoice"
-//             );
-//         }
-//     }
+    // Step 4: Access control - CLIENT users can only access their company's invoices
+    if (user.role === "CLIENT") {
+        if (!user.company_id || !result.company || result.company.id !== user.company_id) {
+            throw new CustomizedError(
+                httpStatus.FORBIDDEN,
+                "You don't have access to this invoice"
+            );
+        }
+    }
 
-//     // Step 5: Format and return result
-//     return {
-//         id: result.invoice.id,
-//         invoice_id: result.invoice.invoice_id,
-//         invoice_pdf_url: result.invoice.invoice_pdf_url,
-//         invoice_paid_at: result.invoice.invoice_paid_at,
-//         payment_method: result.invoice.payment_method,
-//         payment_reference: result.invoice.payment_reference,
-//         order: result.order,
-//         company: result.company,
-//         created_at: result.invoice.created_at,
-//         updated_at: result.invoice.updated_at,
-//     };
-// };
+    // Step 5: Format and return result
+    return {
+        id: result.invoice.id,
+        invoice_id: result.invoice.invoice_id,
+        invoice_pdf_url: result.invoice.invoice_pdf_url,
+        invoice_paid_at: result.invoice.invoice_paid_at,
+        payment_method: result.invoice.payment_method,
+        payment_reference: result.invoice.payment_reference,
+        order: {
+            ...result.order,
+            order_pricing: result.order_pricing,
+        },
+        company: result.company,
+        created_at: result.invoice.created_at,
+        updated_at: result.invoice.updated_at,
+    };
+};
 
-// // ----------------------------------- DOWNLOAD INVOICE ---------------------------------------
-// export const downloadInvoice = async (invoiceId: string, user: AuthUser, platformId: string) => {
-//     // Get invoice with access control
-//     const invoice = await getInvoiceById(invoiceId, user, platformId);
+// ----------------------------------- DOWNLOAD INVOICE ---------------------------------------
+export const downloadInvoice = async (invoiceId: string, user: AuthUser, platformId: string) => {
+    // Get invoice with access control
+    const invoice = await getInvoiceById(invoiceId, user, platformId);
 
-//     // Generate presigned URL for download (valid for 1 hour)
-//     const downloadUrl = await getPresignedUrl(invoice.invoice_pdf_url, 3600);
+    // Generate presigned URL for download (valid for 1 hour)
+    const downloadUrl = await getPresignedUrl(invoice.invoice_pdf_url, 3600);
 
-//     return {
-//         invoice_id: invoice.invoice_id,
-//         download_url: downloadUrl,
-//         expires_in: 3600, // seconds
-//     };
-// };
+    return {
+        invoice_id: invoice.invoice_id,
+        download_url: downloadUrl,
+        expires_in: 3600, // seconds
+    };
+};
 
-// // ----------------------------------- GET INVOICES -------------------------------------------
-// const getInvoices = async (query: Record<string, any>, user: AuthUser, platformId: string) => {
-//     const {
-//         search_term,
-//         page,
-//         limit,
-//         sort_by,
-//         sort_order,
-//         order_id,
-//         invoice_id,
-//         paid_status,
-//         company_id,
-//     } = query;
+// ----------------------------------- GET INVOICES -------------------------------------------
+const getInvoices = async (query: Record<string, any>, user: AuthUser, platformId: string) => {
+    const {
+        search_term,
+        page,
+        limit,
+        sort_by,
+        sort_order,
+        order_id,
+        invoice_id,
+        paid_status,
+        company_id,
+    } = query;
 
-//     // Step 1: Validate query parameters
-//     if (sort_by) queryValidator(invoiceQueryValidationConfig, "sort_by", sort_by);
-//     if (sort_order) queryValidator(invoiceQueryValidationConfig, "sort_order", sort_order);
-//     if (paid_status) queryValidator(invoiceQueryValidationConfig, "paid_status", paid_status);
-//     if (company_id) queryValidator(invoiceQueryValidationConfig, "company_id", company_id);
+    // Step 1: Validate query parameters
+    if (sort_by) queryValidator(invoiceQueryValidationConfig, "sort_by", sort_by);
+    if (sort_order) queryValidator(invoiceQueryValidationConfig, "sort_order", sort_order);
+    if (paid_status) queryValidator(invoiceQueryValidationConfig, "paid_status", paid_status);
+    if (company_id) queryValidator(invoiceQueryValidationConfig, "company_id", company_id);
 
-//     // Step 2: Setup pagination
-//     const { pageNumber, limitNumber, skip, sortWith, sortSequence } = paginationMaker({
-//         page,
-//         limit,
-//         sort_by,
-//         sort_order,
-//     });
+    // Step 2: Setup pagination
+    const { pageNumber, limitNumber, skip, sortWith, sortSequence } = paginationMaker({
+        page,
+        limit,
+        sort_by,
+        sort_order,
+    });
 
-//     // Step 2: Build WHERE conditions
-//     const conditions: any[] = [eq(invoices.platform_id, platformId)];
+    // Step 2: Build WHERE conditions
+    const conditions: any[] = [eq(invoices.platform_id, platformId)];
 
-//     // Step 2a: Access control - CLIENT users can only see their company's invoices
-//     if (user.role === "CLIENT") {
-//         if (!user.company_id) {
-//             throw new CustomizedError(httpStatus.BAD_REQUEST, "Company ID is required");
-//         }
-//     }
+    // Step 2a: Access control - CLIENT users can only see their company's invoices
+    if (user.role === "CLIENT") {
+        if (!user.company_id) {
+            throw new CustomizedError(httpStatus.BAD_REQUEST, "Company ID is required");
+        }
+    }
 
-//     // Step 2b: Optional filters
-//     if (invoice_id) {
-//         conditions.push(eq(invoices.invoice_id, invoice_id));
-//     }
+    // Step 2b: Optional filters
+    if (invoice_id) {
+        conditions.push(eq(invoices.invoice_id, invoice_id));
+    }
 
-//     if (paid_status === "paid") {
-//         conditions.push(sql`${invoices.invoice_paid_at} IS NOT NULL`);
-//     } else if (paid_status === "unpaid") {
-//         conditions.push(sql`${invoices.invoice_paid_at} IS NULL`);
-//     }
+    if (paid_status === "paid") {
+        conditions.push(sql`${invoices.invoice_paid_at} IS NOT NULL`);
+    } else if (paid_status === "unpaid") {
+        conditions.push(sql`${invoices.invoice_paid_at} IS NULL`);
+    }
 
-//     if (search_term) {
-//         conditions.push(ilike(invoices.invoice_id, `%${search_term.trim()}%`));
-//     }
+    if (search_term) {
+        conditions.push(ilike(invoices.invoice_id, `%${search_term.trim()}%`));
+    }
 
-//     // Step 3: Build order conditions for join
-//     const orderConditions: any[] = [];
+    // Step 3: Build order conditions for join
+    const orderConditions: any[] = [];
 
-//     if (user.role === "CLIENT" && user.company_id) {
-//         orderConditions.push(eq(orders.company_id, user.company_id));
-//     }
+    if (user.role === "CLIENT" && user.company_id) {
+        orderConditions.push(eq(orders.company_id, user.company_id));
+    }
 
-//     if (order_id) {
-//         orderConditions.push(eq(orders.order_id, order_id));
-//     }
+    if (order_id) {
+        orderConditions.push(eq(orders.order_id, order_id));
+    }
 
-//     if (company_id && user.role !== "CLIENT") {
-//         orderConditions.push(eq(orders.company_id, company_id));
-//     }
+    if (company_id && user.role !== "CLIENT") {
+        orderConditions.push(eq(orders.company_id, company_id));
+    }
 
-//     // Step 4: Determine sort order
-//     const orderByColumn = invoiceSortableFields[sortWith] || invoices.created_at;
-//     const orderDirection = sortSequence === "asc" ? asc(orderByColumn) : desc(orderByColumn);
+    // Step 4: Determine sort order
+    const orderByColumn = invoiceSortableFields[sortWith] || invoices.created_at;
+    const orderDirection = sortSequence === "asc" ? asc(orderByColumn) : desc(orderByColumn);
 
-//     // Step 5: Fetch invoices with order information
-//     const results = await db
-//         .select({
-//             invoice: invoices,
-//             order: {
-//                 id: orders.id,
-//                 order_id: orders.order_id,
-//                 company_id: orders.company_id,
-//                 contact_name: orders.contact_name,
-//                 event_start_date: orders.event_start_date,
-//                 venue_name: orders.venue_name,
-//                 final_pricing: orders.final_pricing,
-//                 order_status: orders.order_status,
-//                 financial_status: orders.financial_status,
-//             },
-//             company: {
-//                 id: companies.id,
-//                 name: companies.name,
-//             },
-//         })
-//         .from(invoices)
-//         .innerJoin(orders, eq(invoices.order_id, orders.id))
-//         .leftJoin(companies, eq(orders.company_id, companies.id))
-//         .where(and(...conditions, ...(orderConditions.length > 0 ? [and(...orderConditions)] : [])))
-//         .orderBy(orderDirection)
-//         .limit(limitNumber)
-//         .offset(skip);
+    // Step 5: Fetch invoices with order information
+    const results = await db
+        .select({
+            invoice: invoices,
+            order: {
+                id: orders.id,
+                order_id: orders.order_id,
+                company_id: orders.company_id,
+                contact_name: orders.contact_name,
+                event_start_date: orders.event_start_date,
+                venue_name: orders.venue_name,
+                order_status: orders.order_status,
+                financial_status: orders.financial_status,
+            },
+            company: {
+                id: companies.id,
+                name: companies.name,
+            },
+            order_pricing: {
+                warehouse_ops_rate: orderPrices.warehouse_ops_rate,
+                base_ops_total: orderPrices.base_ops_total,
+                logistics_sub_total: orderPrices.logistics_sub_total,
+                transport: orderPrices.transport,
+                line_items: orderPrices.line_items,
+                margin: orderPrices.margin,
+                final_total: orderPrices.final_total,
+                calculated_at: orderPrices.calculated_at,
+            }
+        })
+        .from(invoices)
+        .innerJoin(orders, eq(invoices.order_id, orders.id))
+        .leftJoin(companies, eq(orders.company_id, companies.id))
+        .leftJoin(orderPrices, eq(orders.order_pricing_id, orderPrices.id))
+        .where(and(...conditions, ...(orderConditions.length > 0 ? [and(...orderConditions)] : [])))
+        .orderBy(orderDirection)
+        .limit(limitNumber)
+        .offset(skip);
 
-//     // Step 6: Get total count
-//     const [countResult] = await db
-//         .select({ count: sql<number>`count(*)` })
-//         .from(invoices)
-//         .innerJoin(orders, eq(invoices.order_id, orders.id))
-//         .where(
-//             and(...conditions, ...(orderConditions.length > 0 ? [and(...orderConditions)] : []))
-//         );
+    // Step 6: Get total count
+    const [countResult] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(invoices)
+        .innerJoin(orders, eq(invoices.order_id, orders.id))
+        .where(
+            and(...conditions, ...(orderConditions.length > 0 ? [and(...orderConditions)] : []))
+        );
 
-//     // Step 7: Format results
-//     const formattedResults = results.map((item) => {
-//         const { invoice, order, company } = item;
-//         return {
-//             id: invoice.id,
-//             invoice_id: invoice.invoice_id,
-//             invoice_pdf_url: invoice.invoice_pdf_url,
-//             invoice_paid_at: invoice.invoice_paid_at,
-//             payment_method: invoice.payment_method,
-//             payment_reference: invoice.payment_reference,
-//             order: {
-//                 id: order.id,
-//                 order_id: order.order_id,
-//                 contact_name: order.contact_name,
-//                 event_start_date: order.event_start_date,
-//                 venue_name: order.venue_name,
-//                 final_pricing: order.final_pricing,
-//                 order_status: order.order_status,
-//                 financial_status: order.financial_status,
-//             },
-//             company: {
-//                 id: company?.id,
-//                 name: company?.name,
-//             },
-//             created_at: invoice.created_at,
-//             updated_at: invoice.updated_at,
-//         };
-//     });
+    // Step 7: Format results
+    const formattedResults = results.map((item) => {
+        const { invoice, order, company, order_pricing } = item;
+        return {
+            id: invoice.id,
+            invoice_id: invoice.invoice_id,
+            invoice_pdf_url: invoice.invoice_pdf_url,
+            invoice_paid_at: invoice.invoice_paid_at,
+            payment_method: invoice.payment_method,
+            payment_reference: invoice.payment_reference,
+            order: {
+                id: order.id,
+                order_id: order.order_id,
+                contact_name: order.contact_name,
+                event_start_date: order.event_start_date,
+                venue_name: order.venue_name,
+                order_pricing: order_pricing,
+                order_status: order.order_status,
+                financial_status: order.financial_status,
+            },
+            company: {
+                id: company?.id,
+                name: company?.name,
+            },
+            created_at: invoice.created_at,
+            updated_at: invoice.updated_at,
+        };
+    });
 
-//     // Step 8: Return results
-//     return {
-//         data: formattedResults,
-//         meta: {
-//             page: pageNumber,
-//             limit: limitNumber,
-//             total: countResult.count,
-//         },
-//     };
-// };
+    // Step 8: Return results
+    return {
+        data: formattedResults,
+        meta: {
+            page: pageNumber,
+            limit: limitNumber,
+            total: countResult.count,
+        },
+    };
+};
 
-// // ----------------------------------- CONFIRM PAYMENT ----------------------------------------
-// const confirmPayment = async (
-//     orderId: string,
-//     payload: ConfirmPaymentPayload,
-//     user: AuthUser,
-//     platformId: string
-// ) => {
-//     // Step 2: Fetch invoice with order information
-//     const [result] = await db
-//         .select({
-//             invoice: invoices,
-//             order: {
-//                 id: orders.id,
-//                 order_id: orders.order_id,
-//                 company_id: orders.company_id,
-//                 financial_status: orders.financial_status,
-//             },
-//         })
-//         .from(invoices)
-//         .innerJoin(orders, eq(invoices.order_id, orders.id))
-//         .where(and(eq(invoices.order_id, orderId), eq(invoices.platform_id, platformId)));
+// ----------------------------------- CONFIRM PAYMENT ----------------------------------------
+const confirmPayment = async (
+    orderId: string,
+    payload: ConfirmPaymentPayload,
+    user: AuthUser,
+    platformId: string
+) => {
+    // Step 2: Fetch invoice with order information
+    const [result] = await db
+        .select({
+            invoice: invoices,
+            order: {
+                id: orders.id,
+                order_id: orders.order_id,
+                company_id: orders.company_id,
+                financial_status: orders.financial_status,
+            },
+        })
+        .from(invoices)
+        .innerJoin(orders, eq(invoices.order_id, orders.id))
+        .where(and(eq(invoices.order_id, orderId), eq(invoices.platform_id, platformId)));
 
-//     // Step 3: Validate invoice exists
-//     if (!result) {
-//         throw new CustomizedError(httpStatus.NOT_FOUND, "Invoice not found");
-//     }
+    // Step 3: Validate invoice exists
+    if (!result) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Invoice not found");
+    }
 
-//     // Step 4: Verify invoice is not already paid
-//     if (result.invoice.invoice_paid_at) {
-//         throw new CustomizedError(
-//             httpStatus.BAD_REQUEST,
-//             "Payment already confirmed for this invoice"
-//         );
-//     }
+    // Step 4: Verify invoice is not already paid
+    if (result.invoice.invoice_paid_at) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Payment already confirmed for this invoice"
+        );
+    }
 
-//     // Step 5: Validate payment date
-//     const paymentDate = new Date(payload.payment_date || new Date().toISOString());
-//     const now = new Date();
+    // Step 5: Validate payment date
+    const paymentDate = new Date(payload.payment_date || new Date().toISOString());
+    const now = new Date();
 
-//     if (isNaN(paymentDate.getTime())) {
-//         throw new CustomizedError(httpStatus.BAD_REQUEST, "Invalid payment date format");
-//     }
+    if (isNaN(paymentDate.getTime())) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Invalid payment date format");
+    }
 
-//     if (paymentDate > now) {
-//         throw new CustomizedError(httpStatus.BAD_REQUEST, "Payment date cannot be in the future");
-//     }
+    if (paymentDate > now) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Payment date cannot be in the future");
+    }
 
-//     await db.transaction(async (tx) => {
-//         // Step 6: Update invoice with payment details
-//         await tx
-//             .update(invoices)
-//             .set({
-//                 invoice_paid_at: paymentDate,
-//                 payment_method: payload.payment_method,
-//                 payment_reference: payload.payment_reference,
-//                 updated_at: new Date(),
-//             })
-//             .where(eq(invoices.id, result.invoice.id));
+    await db.transaction(async (tx) => {
+        // Step 6: Update invoice with payment details
+        await tx
+            .update(invoices)
+            .set({
+                invoice_paid_at: paymentDate,
+                payment_method: payload.payment_method,
+                payment_reference: payload.payment_reference,
+                updated_at: new Date(),
+            })
+            .where(eq(invoices.id, result.invoice.id));
 
-//         // Step 7: Update order financial status to PAID
-//         await tx
-//             .update(orders)
-//             .set({
-//                 financial_status: "PAID",
-//                 updated_at: new Date(),
-//             })
-//             .where(eq(orders.id, result.order.id));
+        // Step 7: Update order financial status to PAID
+        await tx
+            .update(orders)
+            .set({
+                financial_status: "PAID",
+                updated_at: new Date(),
+            })
+            .where(eq(orders.id, result.order.id));
 
-//         // Step 8: Log financial status change
-//         await tx.insert(financialStatusHistory).values({
-//             platform_id: platformId,
-//             order_id: result.order.id,
-//             status: "PAID",
-//             notes: payload.notes || `Payment confirmed via ${payload.payment_method}`,
-//             updated_by: user.id,
-//         });
-//     });
+        // Step 8: Log financial status change
+        await tx.insert(financialStatusHistory).values({
+            platform_id: platformId,
+            order_id: result.order.id,
+            status: "PAID",
+            notes: payload.notes || `Payment confirmed via ${payload.payment_method}`,
+            updated_by: user.id,
+        });
+    });
 
-//     // Step 9: Return updated invoice details
-//     return {
-//         invoice_id: result.invoice.invoice_id,
-//         invoice_paid_at: paymentDate.toISOString(),
-//         invoice_pdf_url: result.invoice.invoice_pdf_url,
-//         payment_method: payload.payment_method,
-//         payment_reference: payload.payment_reference,
-//         order_id: result.order.order_id,
-//     };
-// };
+    // Step 9: Return updated invoice details
+    return {
+        invoice_id: result.invoice.invoice_id,
+        invoice_paid_at: paymentDate.toISOString(),
+        invoice_pdf_url: result.invoice.invoice_pdf_url,
+        payment_method: payload.payment_method,
+        payment_reference: payload.payment_reference,
+        order_id: result.order.order_id,
+    };
+};
 
-// // ----------------------------------- INVOICE GENERATE ---------------------------------------
-// const generateInvoice = async (
-//     platformId: string,
-//     user: AuthUser,
-//     payload: GenerateInvoicePayload
-// ) => {
-//     const { order_id, regenerate } = payload;
+// ----------------------------------- INVOICE GENERATE ---------------------------------------
+const generateInvoice = async (
+    platformId: string,
+    user: AuthUser,
+    payload: GenerateInvoicePayload
+) => {
+    const { order_id, regenerate } = payload;
 
-//     // Step 1: Fetch order with company details
-//     const order = await db.query.orders.findFirst({
-//         where: and(eq(orders.id, order_id), eq(orders.platform_id, platformId)),
-//         with: {
-//             company: true,
-//             items: {
-//                 with: {
-//                     asset: {
-//                         columns: {
-//                             id: true,
-//                             name: true,
-//                             refurb_days_estimate: true,
-//                         },
-//                     },
-//                 },
-//             },
-//         },
-//     });
+    // Step 1: Fetch order with company details
+    const order = await db.query.orders.findFirst({
+        where: and(eq(orders.id, order_id), eq(orders.platform_id, platformId)),
+        with: {
+            company: true,
+            order_pricing: true,
+            items: {
+                with: {
+                    asset: {
+                        columns: {
+                            id: true,
+                            name: true,
+                            refurb_days_estimate: true,
+                        },
+                    },
+                },
+            },
+        },
+    });
 
-//     if (!order) {
-//         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
-//     }
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    }
 
-//     // Step 2: Validate order can be invoiced
-//     const allowedStatuses = ["CONFIRMED", "AWAITING_FABRICATION", "IN_PREPARATION", "READY_FOR_DELIVERY", "IN_TRANSIT", "DELIVERED", "IN_USE", "AWAITING_RETURN", "RETURN_IN_TRANSIT", "CLOSED"];
-//     if (!allowedStatuses.includes(order.order_status)) {
-//         throw new CustomizedError(
-//             httpStatus.BAD_REQUEST,
-//             `Cannot generate invoice for order in ${order.order_status} status`
-//         );
-//     }
+    // Step 2: Validate order can be invoiced
+    const allowedStatuses = ["CONFIRMED", "AWAITING_FABRICATION", "IN_PREPARATION", "READY_FOR_DELIVERY", "IN_TRANSIT", "DELIVERED", "IN_USE", "AWAITING_RETURN", "RETURN_IN_TRANSIT", "CLOSED"];
+    if (!allowedStatuses.includes(order.order_status)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Cannot generate invoice for order in ${order.order_status} status`
+        );
+    }
 
-//     if (order.financial_status === "INVOICED" && !regenerate) {
-//         throw new CustomizedError(httpStatus.BAD_REQUEST, "Order is already invoiced");
-//     }
+    if (order.financial_status === "INVOICED" && !regenerate) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Order is already invoiced");
+    }
 
-//     // Step 3: Prepare invoice data using new pricing structure
-//     const company = order.company as typeof companies.$inferSelect | null;
-//     const venueLocation = order.venue_location as any;
-//     const pricing = order.pricing as any;
-    
-//     // Use new pricing if available, fall back to legacy
-//     const finalTotalPrice = pricing?.final_total || (order.final_pricing as any)?.total_price || 0;
+    // Step 3: Prepare invoice data using new pricing structure
+    const company = order.company as typeof companies.$inferSelect | null;
+    const venueLocation = order.venue_location as any;
+    const pricing = order.order_pricing;
 
-//     const invoiceData = {
-//         id: order.id,
-//         user_id: user.id,
-//         platform_id: order.platform_id,
-//         order_id: order.order_id,
-//         contact_name: order.contact_name,
-//         contact_email: order.contact_email,
-//         contact_phone: order.contact_phone,
-//         company_name: company?.name || "N/A",
-//         event_start_date: order.event_start_date,
-//         event_end_date: order.event_end_date,
-//         venue_name: order.venue_name,
-//         venue_country: venueLocation.country || "N/A",
-//         venue_city: venueLocation.city || "N/A",
-//         venue_address: venueLocation.address || "N/A",
-//         order_status: order.order_status,
-//         financial_status: order.financial_status,
-//         pricing: {
-//             logistics_base_price: pricing?.base_operations?.total || (order.logistics_pricing as any)?.base_price || 0,
-//             platform_margin_percent: pricing?.margin?.percent || (order.platform_pricing as any)?.margin_percent || 0,
-//             platform_margin_amount: pricing?.margin?.amount || (order.platform_pricing as any)?.margin_amount || 0,
-//             final_total_price: finalTotalPrice,
-//             show_breakdown: !!pricing, // Show breakdown if using new pricing
-//         },
-//         items: order.items.map((item) => ({
-//             asset_name: item.asset.name,
-//             quantity: item.quantity,
-//             handling_tags: item.handling_tags as any,
-//             from_collection_name: item.from_collection_name || "N/A",
-//         })),
-//     };
+    const invoiceData = {
+        id: order.id,
+        user_id: user.id,
+        platform_id: order.platform_id,
+        order_id: order.order_id,
+        contact_name: order.contact_name,
+        contact_email: order.contact_email,
+        contact_phone: order.contact_phone,
+        company_name: company?.name || "N/A",
+        event_start_date: order.event_start_date,
+        event_end_date: order.event_end_date,
+        venue_name: order.venue_name,
+        venue_country: venueLocation.country || "N/A",
+        venue_city: venueLocation.city || "N/A",
+        venue_address: venueLocation.address || "N/A",
+        order_status: order.order_status,
+        financial_status: order.financial_status,
+        pricing: {
+            logistics_base_price: String(pricing?.logistics_sub_total) || '0',
+            platform_margin_percent: String((pricing?.margin as any)?.percent) || '0',
+            platform_margin_amount: String((pricing?.margin as any)?.amount) || '0',
+            final_total_price: String(pricing?.final_total) || '0',
+            show_breakdown: !!pricing, // Show breakdown if using new pricing
+        },
+        items: order.items.map((item) => ({
+            asset_name: item.asset.name,
+            quantity: item.quantity,
+            handling_tags: item.handling_tags as any,
+            from_collection_name: item.from_collection_name || "N/A",
+        })),
+    };
 
-//     // Step 4: Update order financial status to INVOICED
-//     await db
-//         .update(orders)
-//         .set({
-//             financial_status: "INVOICED",
-//             updated_at: new Date(),
-//         })
-//         .where(eq(orders.id, order.id));
+    // Step 4: Update order financial status to INVOICED
+    await db
+        .update(orders)
+        .set({
+            financial_status: "INVOICED",
+            updated_at: new Date(),
+        })
+        .where(eq(orders.id, order.id));
 
-//     // Step 5: Log financial status change
-//     await db.insert(financialStatusHistory).values({
-//         platform_id: platformId,
-//         order_id: order.id,
-//         status: "INVOICED",
-//         notes: regenerate ? "Invoice regenerated" : "Invoice generated",
-//         updated_by: user.id,
-//     });
+    // Step 5: Log financial status change
+    await db.insert(financialStatusHistory).values({
+        platform_id: platformId,
+        order_id: order.id,
+        status: "INVOICED",
+        notes: regenerate ? "Invoice regenerated" : "Invoice generated",
+        updated_by: user.id,
+    });
 
-//     // Step 6: Generate invoice
-//     const { invoice_id, invoice_pdf_url, pdf_buffer } = await invoiceGenerator(
-//         invoiceData,
-//         regenerate
-//     );
+    // Step 6: Generate invoice
+    const { invoice_id, invoice_pdf_url, pdf_buffer } = await invoiceGenerator(
+        invoiceData,
+        regenerate
+    );
 
-//     if (invoice_id && invoice_pdf_url) {
-//         await sendEmail({
-//             to: order.contact_email,
-//             subject: `Invoice ${invoice_id} for Order ${order.order_id}`,
-//             html: emailTemplates.send_invoice_to_client({
-//                 invoice_number: invoice_id,
-//                 order_id: order.order_id,
-//                 company_name: company?.name || "N/A",
-//                 final_total_price: finalTotalPrice,
-//                 download_invoice_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
-//             }),
-//             attachments: pdf_buffer
-//                 ? [
-//                       {
-//                           filename: `${invoice_id}.pdf`,
-//                           content: pdf_buffer,
-//                       },
-//                   ]
-//                 : undefined,
-//         });
+    if (invoice_id && invoice_pdf_url) {
+        await sendEmail({
+            to: order.contact_email,
+            subject: `Invoice ${invoice_id} for Order ${order.order_id}`,
+            html: emailTemplates.send_invoice_to_client({
+                invoice_number: invoice_id,
+                order_id: order.order_id,
+                company_name: company?.name || "N/A",
+                final_total_price: String(pricing?.final_total),
+                download_invoice_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
+            }),
+            attachments: pdf_buffer
+                ? [
+                    {
+                        filename: `${invoice_id}.pdf`,
+                        content: pdf_buffer,
+                    },
+                ]
+                : undefined,
+        });
 
-//         // Send notification to plaform admin
-//         const platformAdmins = await db
-//             .select({ email: users.email })
-//             .from(users)
-//             .where(
-//                 and(
-//                     eq(users.platform_id, platformId),
-//                     eq(users.role, "ADMIN"),
-//                     sql`${users.permission_template} = 'PLATFORM_ADMIN' AND ${users.email} NOT LIKE '%@system.internal'`
-//                 )
-//             );
+        // Send notification to plaform admin
+        const platformAdmins = await db
+            .select({ email: users.email })
+            .from(users)
+            .where(
+                and(
+                    eq(users.platform_id, platformId),
+                    eq(users.role, "ADMIN"),
+                    sql`${users.permission_template} = 'PLATFORM_ADMIN' AND ${users.email} NOT LIKE '%@system.internal'`
+                )
+            );
 
-//         const platformAdminEmails = platformAdmins.map((admin) => admin.email);
+        const platformAdminEmails = platformAdmins.map((admin) => admin.email);
 
-//         await multipleEmailSender(
-//             platformAdminEmails,
-//             `Invoice Sent: ${invoice_id} for Order ${order.order_id}`,
-//             emailTemplates.send_invoice_to_admin({
-//                 invoice_number: invoice_id,
-//                 order_id: order.order_id,
-//                 company_name: company?.name || "N/A",
-//                 final_total_price: finalTotalPrice,
-//                 download_invoice_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
-//             })
-//         );
-//     }
+        await multipleEmailSender(
+            platformAdminEmails,
+            `Invoice Sent: ${invoice_id} for Order ${order.order_id}`,
+            emailTemplates.send_invoice_to_admin({
+                invoice_number: invoice_id,
+                order_id: order.order_id,
+                company_name: company?.name || "N/A",
+                final_total_price: String(pricing?.final_total),
+                download_invoice_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
+            })
+        );
+    }
 
-//     // Step 4: Return invoice
-//     return {
-//         invoice_id,
-//         invoice_pdf_url,
-//     };
-// };
+    // Step 4: Return invoice
+    return {
+        invoice_id,
+        invoice_pdf_url,
+    };
+};
 
-// export const InvoiceServices = {
-//     getInvoiceById,
-//     downloadInvoice,
-//     getInvoices,
-//     confirmPayment,
-//     generateInvoice,
-// };
+export const InvoiceServices = {
+    getInvoiceById,
+    downloadInvoice,
+    getInvoices,
+    confirmPayment,
+    generateInvoice,
+};
