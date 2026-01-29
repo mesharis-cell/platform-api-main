@@ -189,13 +189,14 @@ router.post(
 );
 
 // Admin approve quote (Admin → Client)
-// router.post(
-//     "/:id/admin-approve-quote",
-//     platformValidator,
-//     auth("ADMIN"),
-//     // requirePermission(PERMISSIONS.PRICING_ADMIN_APPROVE),
-//     OrderControllers.adminApproveQuote
-// );
+router.post(
+    "/:id/admin-approve-quote",
+    platformValidator,
+    auth("ADMIN"),
+    // requirePermission(PERMISSIONS.PRICING_ADMIN_APPROVE),
+    payloadValidator(orderSchemas.adminApproveQuoteSchema),
+    OrderControllers.adminApproveQuote
+);
 
 // Return to Logistics (Admin → Logistics)
 router.post(

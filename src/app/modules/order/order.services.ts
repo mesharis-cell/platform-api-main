@@ -33,6 +33,7 @@ import {
     OrderItem,
     CancelOrderPayload,
     CalculateEstimatePayload,
+    AdminApproveQuotePayload,
 } from "./order.interfaces";
 import {
     checkAssetsForOrder,
@@ -1812,129 +1813,165 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
     };
 };
 
-// ----------------------------------- ADMIN APPROVE QUOTE (NEW) ------------------------------------
-// Admin approves pricing and sends quote to client
-// const adminApproveQuote = async (
-//     orderId: string,
-//     user: AuthUser,
-//     platformId: string,
-//     marginOverride?: { percent: number; reason: string }
-// ) => {
-//     // Get order
-//     const order = await db.query.orders.findFirst({
-//         where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
-//         with: {
-//             company: true,
-//         },
-//     });
+// ----------------------------------- ADMIN APPROVE QUOTE (NEW) ------------------------------
+const adminApproveQuote = async (
+    orderId: string,
+    user: AuthUser,
+    platformId: string,
+    payload: AdminApproveQuotePayload
+) => {
+    const { margin_override_percent, margin_override_reason } = payload;
 
-//     if (!order) {
-//         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
-//     }
+    // Step 1: Fetch order with details
+    const [result] = await db
+        .select({
+            order: orders,
+            company: {
+                id: companies.id,
+                name: companies.name,
+                platform_margin_percent: companies.platform_margin_percent,
+                warehouse_ops_rate: companies.warehouse_ops_rate,
+            },
+            order_pricing: {
+                warehouse_ops_rate: orderPrices.warehouse_ops_rate,
+                base_ops_total: orderPrices.base_ops_total,
+                logistics_sub_total: orderPrices.logistics_sub_total,
+                transport: orderPrices.transport,
+                line_items: orderPrices.line_items,
+                margin: orderPrices.margin,
+                final_total: orderPrices.final_total,
+                calculated_at: orderPrices.calculated_at,
+            },
+            venue_city: {
+                name: cities.name
+            },
+        })
+        .from(orders)
+        .leftJoin(companies, eq(orders.company_id, companies.id))
+        .leftJoin(orderPrices, eq(orders.order_pricing_id, orderPrices.id))
+        .leftJoin(cities, eq(orders.venue_city_id, cities.id))
+        .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)))
+        .limit(1);
 
-//     if (order.order_status !== "PENDING_APPROVAL") {
-//         throw new CustomizedError(
-//             httpStatus.BAD_REQUEST,
-//             `Order is not in PENDING_APPROVAL status. Current status: ${order.order_status}`
-//         );
-//     }
+    const order = result.order;
+    const company = result.company;
+    const orderPricing = result.order_pricing;
+    const venueCity = result.venue_city;
 
-//     // const unprocessedReskins = await db
-//     //     .select({ id: orderItems.id })
-//     //     .from(orderItems)
-//     //     .leftJoin(reskinRequests, eq(reskinRequests.order_item_id, orderItems.id))
-//     //     .where(
-//     //         and(
-//     //             eq(orderItems.order_id, orderId),
-//     //             eq(orderItems.is_reskin_request, true),
-//     //             isNull(reskinRequests.id)
-//     //         )
-//     //     );
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    }
+    if (!company) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found for this order");
+    }
+    if (!orderPricing) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order pricing not found for this order");
+    }
+    if (!venueCity) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Venue city not found for this order");
+    }
 
-//     // if (unprocessedReskins.length > 0) {
-//     //     throw new CustomizedError(
-//     //         httpStatus.BAD_REQUEST,
-//     //         "All rebrand requests must be processed before approving the quote"
-//     //     );
-//     // }
+    if (order.order_status !== "PENDING_APPROVAL") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Order is not in PENDING_APPROVAL status. Current status: ${order.order_status}`
+        );
+    }
 
-//     // Recalculate pricing with margin override if provided
-//     const company = order.company as typeof companies.$inferSelect | null;
-//     const marginPercent =
-//         marginOverride?.percent ?? parseFloat(company?.platform_margin_percent || "0");
-//     const volume = parseFloat((order.calculated_totals as any).volume);
-//     const emirate = PricingCalculationServices.deriveEmirateFromCity(
-//         (order.venue_location as any).city
-//     );
+    const unprocessedReskins = await db
+        .select({ id: orderItems.id })
+        .from(orderItems)
+        .leftJoin(reskinRequests, eq(reskinRequests.order_item_id, orderItems.id))
+        .where(
+            and(
+                eq(orderItems.order_id, orderId),
+                eq(orderItems.is_reskin_request, true),
+                isNull(reskinRequests.id)
+            )
+        );
 
-//     const finalPricing = await PricingCalculationServices.calculateOrderPricing(
-//         platformId,
-//         order.company_id,
-//         orderId,
-//         volume,
-//         emirate,
-//         order.transport_trip_type,
-//         order.transport_vehicle_type,
-//         marginPercent,
-//         !!marginOverride,
-//         marginOverride?.reason || null,
-//         user.id
-//     );
+    if (unprocessedReskins.length > 0) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "All rebrand requests must be processed before approving the quote"
+        );
+    }
 
-//     // Determine if this is a revised quote (order was previously quoted)
-//     const isRevisedQuote = ["QUOTE_SENT", "QUOTE_REVISED"].includes(order.financial_status);
-//     const newFinancialStatus = isRevisedQuote ? "QUOTE_REVISED" : "QUOTE_SENT";
+    // Determine if this is a revised quote (order was previously quoted)
+    const isRevisedQuote = ["QUOTE_SENT", "QUOTE_REVISED"].includes(order.financial_status);
+    const newFinancialStatus = isRevisedQuote ? "QUOTE_REVISED" : "QUOTE_SENT";
 
-//     // Update order
-//     await db
-//         .update(orders)
-//         .set({
-//             order_status: "QUOTED",
-//             financial_status: newFinancialStatus,
-//             pricing: finalPricing as any,
-//             updated_at: new Date(),
-//         })
-//         .where(eq(orders.id, orderId));
+    let finalTotal = orderPricing.final_total;
 
-//     // Log status change
-//     await db.insert(orderStatusHistory).values({
-//         platform_id: platformId,
-//         order_id: orderId,
-//         status: "QUOTED",
-//         notes: marginOverride
-//             ? `Admin approved with margin override (${marginOverride.percent}%): ${marginOverride.reason}`
-//             : isRevisedQuote
-//                 ? "Admin approved revised quote"
-//                 : "Admin approved quote",
-//         updated_by: user.id,
-//     });
+    await db.transaction(async (tx) => {
+        if (margin_override_percent) {
+            const marginAmount = Number(orderPricing.logistics_sub_total) * (margin_override_percent / 100);
+            const updatedFinalTotal = Number(orderPricing.logistics_sub_total) + marginAmount + Number((orderPricing.line_items as any).custom_total);
 
-//     // Log financial status change
-//     await db.insert(financialStatusHistory).values({
-//         platform_id: platformId,
-//         order_id: orderId,
-//         status: newFinancialStatus,
-//         notes: isRevisedQuote ? "Revised quote sent to client" : "Quote sent to client",
-//         updated_by: user.id,
-//     });
+            finalTotal = updatedFinalTotal.toFixed(2);
 
-//     const orderForNotification = await db.query.orders.findFirst({
-//         where: eq(orders.id, orderId),
-//         with: { company: true },
-//     });
-//     if (orderForNotification) {
-//         await NotificationLogServices.sendNotification(platformId, "QUOTE_SENT", orderForNotification);
-//     }
+            await tx.update(orderPrices).set({
+                margin: {
+                    percent: margin_override_percent,
+                    amount: marginAmount,
+                    is_override: true,
+                    override_reason: margin_override_reason
+                },
+                final_total: updatedFinalTotal.toFixed(2),
+                calculated_at: new Date(),
+                calculated_by: user.id,
+            }).where(eq(orderPrices.id, order.order_pricing_id));
+        }
 
-//     return {
-//         id: order.id,
-//         order_id: order.order_id,
-//         order_status: "QUOTED",
-//         financial_status: "QUOTE_SENT",
-//         final_total: finalPricing.final_total,
-//         updated_at: new Date(),
-//     };
-// };
+        await tx
+            .update(orders)
+            .set({
+                order_status: "QUOTED",
+                financial_status: newFinancialStatus,
+                updated_at: new Date(),
+            })
+            .where(eq(orders.id, orderId));
+
+        await tx.insert(orderStatusHistory).values({
+            platform_id: platformId,
+            order_id: orderId,
+            status: "QUOTED",
+            notes: margin_override_percent
+                ? `Admin approved with margin override (${margin_override_percent}%): ${margin_override_reason}`
+                : isRevisedQuote
+                    ? "Admin approved revised quote"
+                    : "Admin approved quote",
+            updated_by: user.id,
+        });
+
+        await db.insert(financialStatusHistory).values({
+            platform_id: platformId,
+            order_id: orderId,
+            status: newFinancialStatus,
+            notes: isRevisedQuote ? "Revised quote sent to client" : "Quote sent to client",
+            updated_by: user.id,
+        });
+    })
+
+
+    await NotificationLogServices.sendNotification(
+        platformId,
+        "QUOTE_SENT",
+        {
+            ...order,
+            company
+        }
+    );
+
+    return {
+        id: order.id,
+        order_id: order.order_id,
+        order_status: "QUOTED",
+        financial_status: "QUOTE_SENT",
+        final_total: finalTotal,
+        updated_at: new Date(),
+    };
+};
 
 // ----------------------------------- RETURN TO LOGISTICS (NEW) ------------------------------------
 // Admin returns order to Logistics for revisions
@@ -2571,7 +2608,7 @@ export const OrderServices = {
     sendInvoice,
     // NEW FUNCTIONS
     submitForApproval,
-    // adminApproveQuote,
+    adminApproveQuote,
     returnToLogistics,
     cancelOrder,
     calculateEstimate,

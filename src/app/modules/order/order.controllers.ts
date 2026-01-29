@@ -212,7 +212,7 @@ const declineQuote = catchAsync(async (req, res) => {
     });
 });
 
-// ----------------------------------- GET ORDER STATISTICS (CLIENT) ------------------------------
+// ----------------------------------- GET ORDER STATISTICS (CLIENT) ----------------------
 const getOrderStatistics = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
@@ -309,7 +309,7 @@ const exportOrders = catchAsync(async (req, res) => {
     res.status(httpStatus.OK).send(csvContent);
 });
 
-// ----------------------------------- CHANGE FINANCIAL STATUS -----------------------------------
+// ----------------------------------- CHANGE FINANCIAL STATUS ----------------------------
 const sendInvoice = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
@@ -325,7 +325,7 @@ const sendInvoice = catchAsync(async (req, res) => {
     });
 });
 
-// ----------------------------------- SUBMIT FOR APPROVAL (NEW) -----------------------------------
+// ----------------------------------- SUBMIT FOR APPROVAL (NEW) --------------------------
 const submitForApproval = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platform_id;
@@ -342,25 +342,20 @@ const submitForApproval = catchAsync(async (req, res) => {
 });
 
 // ----------------------------------- ADMIN APPROVE QUOTE (NEW) -----------------------------------
-// const adminApproveQuote = catchAsync(async (req, res) => {
-//     const user = (req as any).user;
-//     const platformId = (req as any).platform_id;
-//     const id = getRequiredString(req.params.id, "id");
-//     const { margin_override_percent, margin_override_reason } = req.body;
+const adminApproveQuote = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platform_id;
+    const id = getRequiredString(req.params.id, "id");
 
-//     const marginOverride = margin_override_percent
-//         ? { percent: margin_override_percent, reason: margin_override_reason }
-//         : undefined;
+    const result = await OrderServices.adminApproveQuote(id, user, platformId, req.body);
 
-//     const result = await OrderServices.adminApproveQuote(id, user, platformId, marginOverride);
-
-//     sendResponse(res, {
-//         statusCode: httpStatus.OK,
-//         success: true,
-//         message: "Quote approved and sent to client.",
-//         data: result,
-//     });
-// });
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Quote approved and sent to client.",
+        data: result,
+    });
+});
 
 // ----------------------------------- RETURN TO LOGISTICS (NEW) -----------------------------------
 const returnToLogistics = catchAsync(async (req, res) => {
@@ -548,7 +543,7 @@ export const OrderControllers = {
     // NEW CONTROLLERS
     getPendingApprovalOrders,
     submitForApproval,
-    // adminApproveQuote,
+    adminApproveQuote,
     returnToLogistics,
     cancelOrder,
     // updateOrderVehicle,

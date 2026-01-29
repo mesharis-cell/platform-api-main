@@ -28,6 +28,8 @@ export type ApproveQuotePayload = z.infer<typeof orderSchemas.approveQuoteSchema
 
 export type DeclineQuotePayload = z.infer<typeof orderSchemas.declineQuoteSchema>["body"];
 
+export type AdminApproveQuotePayload = z.infer<typeof orderSchemas.adminApproveQuoteSchema>["body"];
+
 export interface UpdateVehiclePayload {
     vehicle_type: "STANDARD" | "7_TON" | "10_TON";
     reason: string;
