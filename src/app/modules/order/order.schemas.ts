@@ -1,7 +1,24 @@
 import { z } from "zod";
-import { orderStatusEnum } from "../../../db/schema";
+import { orderStatusEnum, tripTypeEnum, vehicleTypeEnum } from "../../../db/schema";
 import { enumMessageGenerator } from "../../utils/helper";
 import { CANCEL_REASONS } from "./order.utils";
+
+const calculateEstimateSchema = z.object({
+    body: z.object({
+        items: z.array(
+            z.object({
+                asset_id: z.uuid("Invalid asset ID"),
+                quantity: z.number().int().positive("Quantity must be positive"),
+                is_reskin_request: z.boolean().optional(),
+            })
+        ),
+        venue_city: z.string("Venue city is required"),
+        transport_trip_type: z.enum(
+            tripTypeEnum.enumValues,
+            enumMessageGenerator("Trip type", tripTypeEnum.enumValues)
+        ),
+    }),
+});
 
 export const orderItemSchema = z
     .object({
@@ -256,9 +273,10 @@ const declineQuoteSchema = z.object({
 const updateVehicleSchema = z.object({
     body: z
         .object({
-            vehicle_type: z.enum(["STANDARD", "7_TON", "10_TON"], {
-                message: "Vehicle type must be STANDARD, 7_TON, or 10_TON",
-            }),
+            vehicle_type: z.enum(
+                vehicleTypeEnum.enumValues,
+                enumMessageGenerator("Vehicle type", vehicleTypeEnum.enumValues)
+            ),
             reason: z
                 .string("Reason should be a text")
                 .min(10, "Reason must be at least 10 characters"),
@@ -281,7 +299,21 @@ const cancelOrderSchema = z.object({
         .strict(),
 });
 
+const adminApproveQuoteSchema = z.object({
+    body: z
+        .object({
+            margin_override_percent: z
+                .number("Margin override percent should be a number")
+                .min(0, "Margin override percent must be greater than 0")
+                .max(100, "Margin override percent must be less than 100")
+                .optional(),
+            margin_override_reason: z.string("Margin override reason should be a text").optional(),
+        })
+        .strict(),
+});
+
 export const orderSchemas = {
+    calculateEstimateSchema,
     submitOrderSchema,
     updateJobNumberSchema,
     progressStatusSchema,
@@ -295,4 +327,5 @@ export const orderSchemas = {
     cancelOrderSchema,
     addOrderItemSchema,
     updateOrderItemQuantitySchema,
+    adminApproveQuoteSchema
 };

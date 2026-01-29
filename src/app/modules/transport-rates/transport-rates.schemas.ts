@@ -4,10 +4,7 @@ const createTransportRateSchema = z.object({
     body: z
         .object({
             company_id: z.string().uuid("Invalid company ID").optional().nullable(),
-            emirate: z
-                .string({ message: "Emirate is required" })
-                .min(1, "Emirate is required")
-                .max(50, "Emirate must be under 50 characters"),
+            city_id: z.uuid("Invalid city ID"),
             area: z.string().max(100, "Area must be under 100 characters").optional().nullable(),
             trip_type: z.enum(["ONE_WAY", "ROUND_TRIP"], {
                 message: "Trip type must be ONE_WAY or ROUND_TRIP",

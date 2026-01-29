@@ -41,6 +41,13 @@ export const PERMISSIONS = {
     BRANDS_DELETE: "brands:delete", // ✅
     BRANDS_ALL: "brands:*",
 
+    // ==================== COUNTRY MANAGEMENT ====================
+    COUNTRIES_CREATE: "countries:create", // ✅
+    COUNTRIES_READ: "countries:read", // ✅
+    COUNTRIES_UPDATE: "countries:update", // ✅
+    COUNTRIES_DELETE: "countries:delete", // ✅
+    COUNTRIES_ALL: "countries:*",
+
     // ==================== ASSET MANAGEMENT ====================
     ASSETS_CREATE: "assets:create", // ✅
     ASSETS_READ: "assets:read", // ✅
@@ -150,6 +157,7 @@ export const PERMISSION_TEMPLATES = {
         PERMISSIONS.USERS_ALL,
         PERMISSIONS.COMPANIES_ALL,
         PERMISSIONS.BRANDS_ALL,
+        PERMISSIONS.COUNTRIES_ALL,
         PERMISSIONS.WAREHOUSES_ALL,
         PERMISSIONS.ZONES_ALL,
         PERMISSIONS.ASSETS_ALL,
@@ -171,6 +179,7 @@ export const PERMISSION_TEMPLATES = {
         PERMISSIONS.USERS_READ,
         PERMISSIONS.COMPANIES_READ,
         PERMISSIONS.BRANDS_READ,
+        PERMISSIONS.COUNTRIES_READ,
         PERMISSIONS.WAREHOUSES_READ,
         PERMISSIONS.ZONES_READ,
         PERMISSIONS.ZONES_CREATE,
@@ -196,6 +205,7 @@ export const PERMISSION_TEMPLATES = {
         PERMISSIONS.AUTH_RESET_PASSWORD,
         PERMISSIONS.COMPANIES_READ,
         PERMISSIONS.BRANDS_READ,
+        PERMISSIONS.COUNTRIES_READ,
         PERMISSIONS.ASSETS_READ,
         PERMISSIONS.COLLECTIONS_READ,
         PERMISSIONS.ORDERS_CREATE,

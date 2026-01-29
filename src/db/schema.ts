@@ -167,6 +167,7 @@ export const companies = pgTable(
         })
             .notNull()
             .default("25.00"),
+        warehouse_ops_rate: decimal("warehouse_ops_rate", { precision: 10, scale: 2 }).notNull().default("25.20"), // AED per m³
         contact_email: varchar("contact_email", { length: 255 }),
         contact_phone: varchar("contact_phone", { length: 50 }),
         is_active: boolean("is_active").default(true).notNull(),
@@ -550,35 +551,6 @@ export const collectionItemsRelations = relations(collectionItems, ({ one }) => 
     asset: one(assets, { fields: [collectionItems.asset], references: [assets.id] }),
 }));
 
-// ---------------------------------- PRICING CONFIG (NEW) ------------------------------------
-export const pricingConfig = pgTable(
-    "pricing_config",
-    {
-        id: uuid("id").primaryKey().defaultRandom(),
-        platform_id: uuid("platform")
-            .notNull()
-            .references(() => platforms.id, { onDelete: "cascade" }),
-        company_id: uuid("company").references(() => companies.id, { onDelete: "cascade" }), // NULL = platform default
-
-        warehouse_ops_rate: decimal("warehouse_ops_rate", { precision: 10, scale: 2 }).notNull(), // AED per m³
-
-        is_active: boolean("is_active").notNull().default(true),
-        created_at: timestamp("created_at").notNull().defaultNow(),
-        updated_at: timestamp("updated_at")
-            .$onUpdate(() => new Date())
-            .notNull(),
-    },
-    (table) => [
-        unique("pricing_config_platform_company_unique").on(table.platform_id, table.company_id),
-        index("pricing_config_platform_company_idx").on(table.platform_id, table.company_id),
-    ]
-);
-
-export const pricingConfigRelations = relations(pricingConfig, ({ one }) => ({
-    platform: one(platforms, { fields: [pricingConfig.platform_id], references: [platforms.id] }),
-    company: one(companies, { fields: [pricingConfig.company_id], references: [companies.id] }),
-}));
-
 // ---------------------------------- TRANSPORT RATES (NEW) ------------------------------------
 export const transportRates = pgTable(
     "transport_rates",
@@ -588,14 +560,11 @@ export const transportRates = pgTable(
             .notNull()
             .references(() => platforms.id, { onDelete: "cascade" }),
         company_id: uuid("company").references(() => companies.id, { onDelete: "cascade" }), // NULL = platform-wide
-
-        emirate: varchar("emirate", { length: 50 }).notNull(),
+        city_id: uuid("city_id").notNull().references(() => cities.id, { onDelete: "cascade" }),
         area: varchar("area", { length: 100 }), // Optional sub-region
         trip_type: tripTypeEnum("trip_type").notNull(),
         vehicle_type: vehicleTypeEnum("vehicle_type").notNull(),
-
         rate: decimal("rate", { precision: 10, scale: 2 }).notNull(), // AED
-
         is_active: boolean("is_active").notNull().default(true),
         created_at: timestamp("created_at").notNull().defaultNow(),
         updated_at: timestamp("updated_at")
@@ -606,14 +575,14 @@ export const transportRates = pgTable(
         unique("transport_rates_unique").on(
             table.platform_id,
             table.company_id,
-            table.emirate,
+            table.city_id,
             table.area,
             table.trip_type,
             table.vehicle_type
         ),
         index("transport_rates_lookup_idx").on(
             table.platform_id,
-            table.emirate,
+            table.city_id,
             table.trip_type,
             table.vehicle_type
         ),
@@ -669,7 +638,7 @@ export const orders = pgTable(
     {
         // Core identifiers
         id: uuid("id").primaryKey().defaultRandom(),
-        platform_id: uuid("platform")
+        platform_id: uuid("platform_id")
             .notNull()
             .references(() => platforms.id, { onDelete: "cascade" }),
         order_id: varchar("order_id", { length: 20 }).notNull(), // Human-readable ID (ORD-YYYYMMDD-XXX)
@@ -691,6 +660,7 @@ export const orders = pgTable(
         event_start_date: timestamp("event_start_date", { mode: "date" }).notNull(),
         event_end_date: timestamp("event_end_date", { mode: "date" }).notNull(),
         venue_name: varchar("venue_name", { length: 200 }).notNull(),
+        venue_city_id: uuid("venue_city_id").notNull().references(() => cities.id),
         venue_location: jsonb("venue_location").notNull(), // {country, city, address, access_notes}
         special_instructions: text("special_instructions"),
 
@@ -707,12 +677,12 @@ export const orders = pgTable(
             .notNull()
             .default("STANDARD"),
 
-        logistics_pricing: jsonb("logistics_pricing"), // OLD: {base_price, adjusted_price, adjustment_reason, adjusted_at, adjusted_by}
-        platform_pricing: jsonb("platform_pricing"), // OLD: {margin_percent, margin_amount, reviewed_at, reviewed_by, notes}
-        final_pricing: jsonb("final_pricing"), // OLD: {total_price, quote_sent_at}
+
 
         // Pricing (NEW structure)
-        pricing: jsonb("pricing"), // NEW: Complete pricing breakdown (base_operations, transport, line_items, margin, final_total)
+        order_pricing_id: uuid("order_pricing_id")
+            .notNull()
+            .references(() => orderPrices.id),
 
         // Status tracking
         order_status: orderStatusEnum("order_status").notNull().default("DRAFT"),
@@ -753,6 +723,8 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
     company: one(companies, { fields: [orders.company_id], references: [companies.id] }),
     brand: one(brands, { fields: [orders.brand_id], references: [brands.id] }),
     user: one(users, { fields: [orders.user_id], references: [users.id] }),
+    order_pricing: one(orderPrices, { fields: [orders.order_pricing_id], references: [orderPrices.id] }),
+    venue_city: one(cities, { fields: [orders.venue_city_id], references: [cities.id] }),
     items: many(orderItems),
     line_items: many(orderLineItems),
     reskin_requests: many(reskinRequests),
@@ -1313,3 +1285,96 @@ export const otp = pgTable(
         index("otp_platform_idx").on(table.platform_id),
     ]
 );
+
+
+// ---------------------------------- COUNTRY ----------------------------------------------
+export const countries = pgTable(
+    "countries",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        name: varchar("name", { length: 100 }).notNull(),
+        created_at: timestamp("created_at").notNull().defaultNow()
+    },
+    (table) => [
+        index("countries_platform_idx").on(table.platform_id),
+        unique("countries_platform_name_unique").on(table.platform_id, table.name), // Country name must be unique within a platform
+    ]
+);
+
+export const countriesRelations = relations(countries, ({ one, many }) => ({
+    platform: one(platforms, {
+        fields: [countries.platform_id],
+        references: [platforms.id],
+    }),
+    cities: many(cities),
+}));
+
+// ---------------------------------- CITY -------------------------------------------------
+export const cities = pgTable(
+    "cities",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        name: varchar("name", { length: 255 }).notNull(),
+        country_id: uuid("country_id")
+            .notNull()
+            .references(() => countries.id, { onDelete: "cascade" }),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+    },
+    (table) => [
+        index("cities_platform_idx").on(table.platform_id),
+        index("cities_country_idx").on(table.country_id),
+        unique("cities_platform_country_name_unique").on(table.platform_id, table.country_id, table.name) // City name must be unique within a platform and country
+    ]
+);
+
+export const citiesRelations = relations(cities, ({ one }) => ({
+    platform: one(platforms, {
+        fields: [cities.platform_id],
+        references: [platforms.id],
+    }),
+    country: one(countries, {
+        fields: [cities.country_id],
+        references: [countries.id],
+    }),
+}));
+
+// ---------------------------------- ORDER PRICES -----------------------------------------
+export const orderPrices = pgTable(
+    "order_prices",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        warehouse_ops_rate: decimal("warehouse_ops_rate", { precision: 10, scale: 2 }).notNull(),
+        base_ops_total: decimal("base_ops_total", { precision: 10, scale: 2 }).notNull(),
+        logistics_sub_total: decimal("logistics_sub_total", { precision: 10, scale: 2 }),
+        transport: jsonb("transport").notNull(), // { "system_rate": 10, "final_rate": 20 }
+        line_items: jsonb("line_items").notNull(), // { "catalog_total": 10, "custom_total": 20 }
+        margin: jsonb("margin").notNull(), // { "percent": 10, "amount": 20, is_override: false, override_reason: "" }
+        final_total: decimal("final_total", { precision: 10, scale: 2 }),
+        calculated_at: timestamp("calculated_at").notNull().defaultNow(),
+        calculated_by: uuid("calculated_by").notNull().references(() => users.id),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+        updated_at: timestamp("updated_at")
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [
+        index("order_prices_platform_idx").on(table.platform_id),
+    ]
+);
+
+export const orderPricesRelations = relations(orderPrices, ({ one }) => ({
+    platform: one(platforms, {
+        fields: [orderPrices.platform_id],
+        references: [platforms.id],
+    })
+}));
+

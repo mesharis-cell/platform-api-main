@@ -2,11 +2,12 @@ import { Router } from "express";
 import { AnalyticsRoutes } from "../modules/analytics/analytics.routes";
 import { AssetRoutes } from "../modules/asset/asset.routes";
 import { BrandRoutes } from "../modules/brand/brand.routes";
+import { CityRoutes } from "../modules/city/city.routes";
 import { CollectionRoutes } from "../modules/collection/collection.routes";
 import { CompanyRoutes } from "../modules/company/company.routes";
+import { CountryRoutes } from "../modules/country/country.routes";
 import { NotificationLogRoutes } from "../modules/notification-logs/notification-logs.routes";
 import { PlatformRoutes } from "../modules/platform/platform.routes";
-import { PricingConfigRoutes } from "../modules/pricing-config/pricing-config.routes";
 import { TransportRatesRoutes } from "../modules/transport-rates/transport-rates.routes";
 import { ServiceTypesRoutes } from "../modules/service-types/service-types.routes";
 import { UserRoutes } from "../modules/user/user.routes";
@@ -35,6 +36,14 @@ const routes = [
         route: BrandRoutes,
     },
     {
+        path: "/country",
+        route: CountryRoutes,
+    },
+    {
+        path: "/city",
+        route: CityRoutes,
+    },
+    {
         path: "/warehouse",
         route: WarehouseRoutes,
     },
@@ -45,10 +54,6 @@ const routes = [
     {
         path: "/collection",
         route: CollectionRoutes,
-    },
-    {
-        path: "/pricing/config",
-        route: PricingConfigRoutes,
     },
     {
         path: "/pricing/transport-rates",

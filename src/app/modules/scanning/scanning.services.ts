@@ -2,10 +2,8 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
 import {
-    assetBookings,
     assetConditionHistory,
     assets,
-    companies,
     orderStatusHistory,
     orders,
     scanEvents,
@@ -13,7 +11,6 @@ import {
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import {
-    CompleteInboundScanResponse,
     CompleteOutboundScanResponse,
     InboundScanPayload,
     InboundScanResponse,
@@ -21,7 +18,6 @@ import {
     OutboundScanPayload,
     OutboundScanResponse,
 } from "./scanning.interfaces";
-import { invoiceGenerator } from "../../utils/invoice";
 import { NotificationLogServices } from "../notification-logs/notification-logs.services";
 
 // ----------------------------------- INBOUND SCAN ---------------------------------------
@@ -283,139 +279,139 @@ const getInboundProgress = async (
 };
 
 // ----------------------------------- COMPLETE INBOUND SCAN ----------------------------------
-const completeInboundScan = async (
-    orderId: string,
-    user: AuthUser,
-    platformId: string
-): Promise<CompleteInboundScanResponse> => {
-    // Step 1: Get order with items
-    const order = await db.query.orders.findFirst({
-        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
-        with: {
-            company: true,
-            items: {
-                with: {
-                    asset: {
-                        columns: {
-                            id: true,
-                            name: true,
-                            refurb_days_estimate: true,
-                            available_quantity: true,
-                        },
-                    },
-                },
-            },
-        },
-    });
+// const completeInboundScan = async (
+//     orderId: string,
+//     user: AuthUser,
+//     platformId: string
+// ): Promise<CompleteInboundScanResponse> => {
+//     // Step 1: Get order with items
+//     const order = await db.query.orders.findFirst({
+//         where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
+//         with: {
+//             company: true,
+//             items: {
+//                 with: {
+//                     asset: {
+//                         columns: {
+//                             id: true,
+//                             name: true,
+//                             refurb_days_estimate: true,
+//                             available_quantity: true,
+//                         },
+//                     },
+//                 },
+//             },
+//         },
+//     });
 
-    if (!order) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
-    }
+//     if (!order) {
+//         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+//     }
 
-    // Step 2: Validate order status
-    if (!["AWAITING_RETURN", "RETURN_IN_TRANSIT"].includes(order.order_status)) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            `Cannot complete inbound scan. Order status must be AWAITING_RETURN or RETURN_IN_TRANSIT, current: ${order.order_status}`
-        );
-    }
+//     // Step 2: Validate order status
+//     if (!["AWAITING_RETURN", "RETURN_IN_TRANSIT"].includes(order.order_status)) {
+//         throw new CustomizedError(
+//             httpStatus.BAD_REQUEST,
+//             `Cannot complete inbound scan. Order status must be AWAITING_RETURN or RETURN_IN_TRANSIT, current: ${order.order_status}`
+//         );
+//     }
 
-    // Step 3: Get all inbound scan events
-    const inboundScans = await db.query.scanEvents.findMany({
-        where: and(eq(scanEvents.order_id, orderId), eq(scanEvents.scan_type, "INBOUND")),
-    });
+//     // Step 3: Get all inbound scan events
+//     const inboundScans = await db.query.scanEvents.findMany({
+//         where: and(eq(scanEvents.order_id, orderId), eq(scanEvents.scan_type, "INBOUND")),
+//     });
 
-    // Step 4: Validate all items scanned
-    for (const item of order.items) {
-        const scannedQuantity = inboundScans
-            .filter((scan) => scan.asset_id === item.asset_id)
-            .reduce((sum, scan) => sum + scan.quantity, 0);
+//     // Step 4: Validate all items scanned
+//     for (const item of order.items) {
+//         const scannedQuantity = inboundScans
+//             .filter((scan) => scan.asset_id === item.asset_id)
+//             .reduce((sum, scan) => sum + scan.quantity, 0);
 
-        if (scannedQuantity < item.quantity) {
-            throw new CustomizedError(
-                httpStatus.BAD_REQUEST,
-                `Cannot complete scan. ${item.asset_name}: ${scannedQuantity}/${item.quantity} scanned`
-            );
-        }
-    }
+//         if (scannedQuantity < item.quantity) {
+//             throw new CustomizedError(
+//                 httpStatus.BAD_REQUEST,
+//                 `Cannot complete scan. ${item.asset_name}: ${scannedQuantity}/${item.quantity} scanned`
+//             );
+//         }
+//     }
 
-    await db.transaction(async (tx) => {
-        // Step 5: Release asset bookings (delete bookings to free up assets)
-        await tx.delete(assetBookings).where(eq(assetBookings.order_id, orderId));
+//     await db.transaction(async (tx) => {
+//         // Step 5: Release asset bookings (delete bookings to free up assets)
+//         await tx.delete(assetBookings).where(eq(assetBookings.order_id, orderId));
 
-        // Step 6: Update order status to CLOSED
-        await tx
-            .update(orders)
-            .set({
-                order_status: "CLOSED",
-                financial_status: "PENDING_INVOICE",
-            })
-            .where(eq(orders.id, orderId));
+//         // Step 6: Update order status to CLOSED
+//         await tx
+//             .update(orders)
+//             .set({
+//                 order_status: "CLOSED",
+//                 financial_status: "PENDING_INVOICE",
+//             })
+//             .where(eq(orders.id, orderId));
 
-        // Step 7: Create status history entry
-        await tx.insert(orderStatusHistory).values({
-            platform_id: platformId,
-            order_id: orderId,
-            status: "CLOSED",
-            notes: "Inbound scanning completed - all items returned and inspected",
-            updated_by: user.id,
-        });
+//         // Step 7: Create status history entry
+//         await tx.insert(orderStatusHistory).values({
+//             platform_id: platformId,
+//             order_id: orderId,
+//             status: "CLOSED",
+//             notes: "Inbound scanning completed - all items returned and inspected",
+//             updated_by: user.id,
+//         });
 
-        // Note: available_quantity is already incremented per-scan in inboundScan
-        // We only need to ensure status is AVAILABLE (already set during inbound scans)
-    });
+//         // Note: available_quantity is already incremented per-scan in inboundScan
+//         // We only need to ensure status is AVAILABLE (already set during inbound scans)
+//     });
 
-    // Step 9: Send notification
-    await NotificationLogServices.sendNotification(platformId, "ORDER_CLOSED", { ...order });
+//     // Step 9: Send notification
+//     await NotificationLogServices.sendNotification(platformId, "ORDER_CLOSED", { ...order });
 
-    // Step 10: Generate and send invoice
-    const venueLocation = order.venue_location as any;
-    const company = order.company as typeof companies.$inferSelect | null;
-    const invoiceData = {
-        id: order.id,
-        user_id: user.id,
-        platform_id: order.platform_id,
-        order_id: order.order_id,
-        contact_name: order.contact_name,
-        contact_email: order.contact_email,
-        contact_phone: order.contact_phone,
-        company_name: company?.name || "N/A",
-        event_start_date: order.event_start_date,
-        event_end_date: order.event_end_date,
-        venue_name: order.venue_name,
-        venue_country: venueLocation.country || "N/A",
-        venue_city: venueLocation.city || "N/A",
-        venue_address: venueLocation.address || "N/A",
-        order_status: order.order_status,
-        financial_status: order.financial_status,
-        pricing: {
-            logistics_base_price: (order.logistics_pricing as any)?.base_price || 0,
-            platform_margin_percent: (order.platform_pricing as any)?.margin_percent || 0,
-            platform_margin_amount: (order.platform_pricing as any)?.margin_amount || 0,
-            final_total_price: (order.final_pricing as any)?.total_price || 0,
-            show_breakdown: false,
-        },
-        items: order.items.map((item) => ({
-            asset_name: item.asset.name,
-            quantity: item.quantity,
-            handling_tags: item.handling_tags as any,
-            from_collection_name: item.from_collection_name || "N/A",
-        })),
-    };
+//     // Step 10: Generate and send invoice
+//     const venueLocation = order.venue_location as any;
+//     const company = order.company as typeof companies.$inferSelect | null;
+//     const invoiceData = {
+//         id: order.id,
+//         user_id: user.id,
+//         platform_id: order.platform_id,
+//         order_id: order.order_id,
+//         contact_name: order.contact_name,
+//         contact_email: order.contact_email,
+//         contact_phone: order.contact_phone,
+//         company_name: company?.name || "N/A",
+//         event_start_date: order.event_start_date,
+//         event_end_date: order.event_end_date,
+//         venue_name: order.venue_name,
+//         venue_country: venueLocation.country || "N/A",
+//         venue_city: venueLocation.city || "N/A",
+//         venue_address: venueLocation.address || "N/A",
+//         order_status: order.order_status,
+//         financial_status: order.financial_status,
+//         pricing: {
+//             logistics_base_price: (order.logistics_pricing as any)?.base_price || 0,
+//             platform_margin_percent: (order.platform_pricing as any)?.margin_percent || 0,
+//             platform_margin_amount: (order.platform_pricing as any)?.margin_amount || 0,
+//             final_total_price: (order.final_pricing as any)?.total_price || 0,
+//             show_breakdown: false,
+//         },
+//         items: order.items.map((item) => ({
+//             asset_name: item.asset.name,
+//             quantity: item.quantity,
+//             handling_tags: item.handling_tags as any,
+//             from_collection_name: item.from_collection_name || "N/A",
+//         })),
+//     };
 
-    const { invoice_id } = await invoiceGenerator(invoiceData);
+//     const { invoice_id } = await invoiceGenerator(invoiceData);
 
-    await NotificationLogServices.sendNotification(platformId, "INVOICE_GENERATED", {
-        ...order,
-        invoiceNumber: invoice_id,
-    });
+//     await NotificationLogServices.sendNotification(platformId, "INVOICE_GENERATED", {
+//         ...order,
+//         invoiceNumber: invoice_id,
+//     });
 
-    return {
-        message: "Inbound scan completed successfully",
-        order_id: order.order_id,
-        new_status: "CLOSED",
-    };
-};
+//     return {
+//         message: "Inbound scan completed successfully",
+//         order_id: order.order_id,
+//         new_status: "CLOSED",
+//     };
+// };
 
 // ================================= OUTBOUND SCANNING =================================
 
@@ -771,7 +767,7 @@ const uploadTruckPhotos = async (
 export const ScanningServices = {
     inboundScan,
     getInboundProgress,
-    completeInboundScan,
+    // completeInboundScan,
     outboundScan,
     completeOutboundScan,
     getOutboundProgress,

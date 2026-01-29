@@ -12,7 +12,13 @@ import { ReskinRequestsRoutes } from "../reskin-requests/reskin-requests.routes"
 const router = Router();
 
 // Calculate order estimate (NEW)
-router.post("/estimate", platformValidator, auth("CLIENT"), OrderControllers.calculateEstimate);
+router.post(
+    "/estimate",
+    platformValidator,
+    auth("CLIENT"),
+    payloadValidator(orderSchemas.calculateEstimateSchema),
+    OrderControllers.calculateEstimate
+);
 
 // Submit order
 router.post(
@@ -21,7 +27,7 @@ router.post(
     auth("CLIENT"),
     requirePermission(PERMISSIONS.ORDERS_CREATE),
     payloadValidator(orderSchemas.submitOrderSchema),
-    OrderControllers.submitOrder
+    OrderControllers.submitOrderFromCart
 );
 
 // Get orders
@@ -54,13 +60,13 @@ router.get(
 );
 
 // Get pricing review orders (Logistics)
-router.get(
-    "/pricing-review",
-    platformValidator,
-    auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.PRICING_REVIEW),
-    OrderControllers.getPricingReviewOrders
-);
+// router.get(
+//     "/pricing-review",
+//     platformValidator,
+//     auth("ADMIN", "LOGISTICS"),
+//     requirePermission(PERMISSIONS.PRICING_REVIEW),
+//     OrderControllers.getPricingReviewOrders
+// );
 
 // Get pending approval orders (Admin)
 router.get(
@@ -80,12 +86,12 @@ router.get(
 );
 
 // Get order pricing details
-router.get(
-    "/:id/pricing-details",
-    platformValidator,
-    auth("ADMIN", "LOGISTICS"),
-    OrderControllers.getOrderPricingDetails
-);
+// router.get(
+//     "/:id/pricing-details",
+//     platformValidator,
+//     auth("ADMIN", "LOGISTICS"),
+//     OrderControllers.getOrderPricingDetails
+// );
 
 // Approve quote
 router.patch(
@@ -163,7 +169,7 @@ router.get(
 
 // ---------------------------------- NEW PRICING WORKFLOW ROUTES ----------------------------------
 
-// Update vehicle type (Logistics) - TODO: Implement controller
+// Update vehicle type (Logistics)
 router.patch(
     "/:id/vehicle",
     platformValidator,
@@ -188,6 +194,7 @@ router.post(
     platformValidator,
     auth("ADMIN"),
     // requirePermission(PERMISSIONS.PRICING_ADMIN_APPROVE),
+    payloadValidator(orderSchemas.adminApproveQuoteSchema),
     OrderControllers.adminApproveQuote
 );
 
@@ -221,32 +228,32 @@ router.use("/:orderId/reskin-requests", ReskinRequestsRoutes);
 // ---------------------------------- ORDER ITEM ADJUSTMENTS (NEW) -----------------------------
 
 // Add order item during review
-router.post(
-    "/:id/items",
-    platformValidator,
-    auth("LOGISTICS"),
-    // requirePermission(PERMISSIONS.PRICING_REVIEW),
-    payloadValidator(orderSchemas.addOrderItemSchema),
-    OrderControllers.addOrderItem
-);
+// router.post(
+//     "/:id/items",
+//     platformValidator,
+//     auth("LOGISTICS"),
+//     // requirePermission(PERMISSIONS.PRICING_REVIEW),
+//     payloadValidator(orderSchemas.addOrderItemSchema),
+//     OrderControllers.addOrderItem
+// );
 
-// Remove order item during review
-router.delete(
-    "/:id/items/:item_id",
-    platformValidator,
-    auth("LOGISTICS"),
-    // requirePermission(PERMISSIONS.PRICING_REVIEW),
-    OrderControllers.removeOrderItem
-);
+// // Remove order item during review
+// router.delete(
+//     "/:id/items/:item_id",
+//     platformValidator,
+//     auth("LOGISTICS"),
+//     // requirePermission(PERMISSIONS.PRICING_REVIEW),
+//     OrderControllers.removeOrderItem
+// );
 
-// Update order item quantity during review
-router.patch(
-    "/:id/items/:item_id/quantity",
-    platformValidator,
-    auth("LOGISTICS"),
-    // requirePermission(PERMISSIONS.PRICING_REVIEW),
-    payloadValidator(orderSchemas.updateOrderItemQuantitySchema),
-    OrderControllers.updateOrderItemQuantity
-);
+// // Update order item quantity during review
+// router.patch(
+//     "/:id/items/:item_id/quantity",
+//     platformValidator,
+//     auth("LOGISTICS"),
+//     // requirePermission(PERMISSIONS.PRICING_REVIEW),
+//     payloadValidator(orderSchemas.updateOrderItemQuantitySchema),
+//     OrderControllers.updateOrderItemQuantity
+// );
 
 export const OrderRoutes = router;

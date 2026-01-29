@@ -14,7 +14,7 @@ router.get(
     "/",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.TRANSPORT_RATES_MANAGE),
+    // requirePermission(PERMISSIONS.TRANSPORT_RATES_MANAGE),
     TransportRatesControllers.listTransportRates
 );
 
@@ -40,7 +40,7 @@ router.post(
     "/",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.TRANSPORT_RATES_MANAGE),
+    // requirePermission(PERMISSIONS.TRANSPORT_RATES_MANAGE),
     payloadValidator(TransportRatesSchemas.createTransportRateSchema),
     TransportRatesControllers.createTransportRate
 );

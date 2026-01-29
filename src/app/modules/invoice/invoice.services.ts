@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, ilike, sql } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { companies, financialStatusHistory, invoices, orders, users } from "../../../db/schema";
+import { companies, financialStatusHistory, invoices, orderPrices, orders, users } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { getPresignedUrl } from "../../services/s3.service";
@@ -32,7 +32,6 @@ const getInvoiceById = async (invoiceId: string, user: AuthUser, platformId: str
                 event_start_date: orders.event_start_date,
                 event_end_date: orders.event_end_date,
                 venue_name: orders.venue_name,
-                final_pricing: orders.final_pricing,
                 order_status: orders.order_status,
                 financial_status: orders.financial_status,
             },
@@ -40,10 +39,21 @@ const getInvoiceById = async (invoiceId: string, user: AuthUser, platformId: str
                 id: companies.id,
                 name: companies.name,
             },
+            order_pricing: {
+                warehouse_ops_rate: orderPrices.warehouse_ops_rate,
+                base_ops_total: orderPrices.base_ops_total,
+                logistics_sub_total: orderPrices.logistics_sub_total,
+                transport: orderPrices.transport,
+                line_items: orderPrices.line_items,
+                margin: orderPrices.margin,
+                final_total: orderPrices.final_total,
+                calculated_at: orderPrices.calculated_at,
+            }
         })
         .from(invoices)
         .innerJoin(orders, eq(invoices.order_id, orders.id))
         .leftJoin(companies, eq(orders.company_id, companies.id))
+        .leftJoin(orderPrices, eq(orders.order_pricing_id, orderPrices.id))
         .where(
             and(
                 isUUID ? eq(invoices.id, invoiceId) : eq(invoices.invoice_id, invoiceId),
@@ -74,7 +84,10 @@ const getInvoiceById = async (invoiceId: string, user: AuthUser, platformId: str
         invoice_paid_at: result.invoice.invoice_paid_at,
         payment_method: result.invoice.payment_method,
         payment_reference: result.invoice.payment_reference,
-        order: result.order,
+        order: {
+            ...result.order,
+            order_pricing: result.order_pricing,
+        },
         company: result.company,
         created_at: result.invoice.created_at,
         updated_at: result.invoice.updated_at,
@@ -179,7 +192,6 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
                 contact_name: orders.contact_name,
                 event_start_date: orders.event_start_date,
                 venue_name: orders.venue_name,
-                final_pricing: orders.final_pricing,
                 order_status: orders.order_status,
                 financial_status: orders.financial_status,
             },
@@ -187,10 +199,21 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
                 id: companies.id,
                 name: companies.name,
             },
+            order_pricing: {
+                warehouse_ops_rate: orderPrices.warehouse_ops_rate,
+                base_ops_total: orderPrices.base_ops_total,
+                logistics_sub_total: orderPrices.logistics_sub_total,
+                transport: orderPrices.transport,
+                line_items: orderPrices.line_items,
+                margin: orderPrices.margin,
+                final_total: orderPrices.final_total,
+                calculated_at: orderPrices.calculated_at,
+            }
         })
         .from(invoices)
         .innerJoin(orders, eq(invoices.order_id, orders.id))
         .leftJoin(companies, eq(orders.company_id, companies.id))
+        .leftJoin(orderPrices, eq(orders.order_pricing_id, orderPrices.id))
         .where(and(...conditions, ...(orderConditions.length > 0 ? [and(...orderConditions)] : [])))
         .orderBy(orderDirection)
         .limit(limitNumber)
@@ -207,7 +230,7 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
 
     // Step 7: Format results
     const formattedResults = results.map((item) => {
-        const { invoice, order, company } = item;
+        const { invoice, order, company, order_pricing } = item;
         return {
             id: invoice.id,
             invoice_id: invoice.invoice_id,
@@ -221,7 +244,7 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
                 contact_name: order.contact_name,
                 event_start_date: order.event_start_date,
                 venue_name: order.venue_name,
-                final_pricing: order.final_pricing,
+                order_pricing: order_pricing,
                 order_status: order.order_status,
                 financial_status: order.financial_status,
             },
@@ -347,6 +370,8 @@ const generateInvoice = async (
         where: and(eq(orders.id, order_id), eq(orders.platform_id, platformId)),
         with: {
             company: true,
+            order_pricing: true,
+            venue_city: true,
             items: {
                 with: {
                     asset: {
@@ -381,10 +406,7 @@ const generateInvoice = async (
     // Step 3: Prepare invoice data using new pricing structure
     const company = order.company as typeof companies.$inferSelect | null;
     const venueLocation = order.venue_location as any;
-    const pricing = order.pricing as any;
-    
-    // Use new pricing if available, fall back to legacy
-    const finalTotalPrice = pricing?.final_total || (order.final_pricing as any)?.total_price || 0;
+    const pricing = order.order_pricing;
 
     const invoiceData = {
         id: order.id,
@@ -399,15 +421,15 @@ const generateInvoice = async (
         event_end_date: order.event_end_date,
         venue_name: order.venue_name,
         venue_country: venueLocation.country || "N/A",
-        venue_city: venueLocation.city || "N/A",
+        venue_city: order.venue_city?.name || "N/A",
         venue_address: venueLocation.address || "N/A",
         order_status: order.order_status,
         financial_status: order.financial_status,
         pricing: {
-            logistics_base_price: pricing?.base_operations?.total || (order.logistics_pricing as any)?.base_price || 0,
-            platform_margin_percent: pricing?.margin?.percent || (order.platform_pricing as any)?.margin_percent || 0,
-            platform_margin_amount: pricing?.margin?.amount || (order.platform_pricing as any)?.margin_amount || 0,
-            final_total_price: finalTotalPrice,
+            logistics_base_price: String(pricing?.logistics_sub_total) || '0',
+            platform_margin_percent: String((pricing?.margin as any)?.percent) || '0',
+            platform_margin_amount: String((pricing?.margin as any)?.amount) || '0',
+            final_total_price: String(pricing?.final_total) || '0',
             show_breakdown: !!pricing, // Show breakdown if using new pricing
         },
         items: order.items.map((item) => ({
@@ -450,16 +472,16 @@ const generateInvoice = async (
                 invoice_number: invoice_id,
                 order_id: order.order_id,
                 company_name: company?.name || "N/A",
-                final_total_price: finalTotalPrice,
+                final_total_price: String(pricing?.final_total),
                 download_invoice_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
             }),
             attachments: pdf_buffer
                 ? [
-                      {
-                          filename: `${invoice_id}.pdf`,
-                          content: pdf_buffer,
-                      },
-                  ]
+                    {
+                        filename: `${invoice_id}.pdf`,
+                        content: pdf_buffer,
+                    },
+                ]
                 : undefined,
         });
 
@@ -484,7 +506,7 @@ const generateInvoice = async (
                 invoice_number: invoice_id,
                 order_id: order.order_id,
                 company_name: company?.name || "N/A",
-                final_total_price: finalTotalPrice,
+                final_total_price: String(pricing?.final_total),
                 download_invoice_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
             })
         );

@@ -34,6 +34,8 @@ export type NotificationData = {
     eventEndDate?: string;
     venueName?: string;
     venueCity?: string;
+    tripType: string;
+    vehicleType: string;
     finalTotalPrice?: string;
     invoiceNumber?: string;
     deliveryWindow?: string;
@@ -43,12 +45,24 @@ export type NotificationData = {
     supportEmail: string;
     supportPhone: string;
     pricing?: {
-        base_operations?: { volume: number; rate: number; total: number };
-        transport?: { emirate: string; trip_type: string; vehicle_type: string; final_rate: number };
-        line_items?: { catalog_total: number; custom_total: number };
-        logistics_subtotal?: number;
-        margin?: { percent: number; amount: number };
-        final_total?: number;
+        warehouse_ops_rate: string;
+        base_ops_total: string;
+        logistics_sub_total: string;
+        transport: {
+            final_rate: string;
+            system_rate: string;
+        };
+        line_items: {
+            catalog_total: string;
+            custom_total: string;
+        };
+        margin: {
+            percent: string;
+            amount: string;
+            is_override: boolean;
+            override_reason: string;
+        };
+        final_total: string;
     };
     line_items?: Array<{ description: string; total: number; category: string }>;
     cancellation_reason?: string;

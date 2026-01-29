@@ -1,6 +1,11 @@
 import { Request, Response } from "express";
 import httpStatus from "http-status";
 import { TransportRatesServices } from "./transport-rates.services";
+import queryValidator from "../../utils/query-validator";
+import { transportRateQueryValidationConfig } from "./transport-rates.utils";
+import sendResponse from "../../shared/send-response";
+import catchAsync from "../../shared/catch-async";
+import CustomizedError from "../../error/customized-error";
 
 // ----------------------------------- LIST TRANSPORT RATES -----------------------------------
 const listTransportRates = async (req: Request, res: Response) => {
@@ -75,35 +80,41 @@ const deleteTransportRate = async (req: Request, res: Response) => {
 };
 
 // ----------------------------------- LOOKUP TRANSPORT RATE -----------------------------------
-const lookupTransportRate = async (req: Request, res: Response) => {
-    const { platform_id, company_id } = req as any;
-    const { emirate, trip_type, vehicle_type } = req.query as any;
+const lookupTransportRate = catchAsync(async (req, res) => {
+    // Step 1: Get user and platform
+    const user = (req as any).user;
+    const platformId = (req as any).platform_id;
+    const companyId = user.company_id;
 
-    if (!emirate || !trip_type || !vehicle_type) {
-        return res.status(httpStatus.BAD_REQUEST).json({
-            success: false,
-            error: "emirate, trip_type, and vehicle_type query parameters are required",
-        });
+    // Step 2: Extract query parameters
+    const { city, trip_type, vehicle_type } = req.query as Record<string, any>;
+
+    // Step 3: Check for required parameters
+    if (!city || !trip_type || !vehicle_type) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "city, trip_type, and vehicle_type query parameters are required");
     }
 
-    const rate = await TransportRatesServices.getTransportRate(
-        platform_id,
-        company_id || null,
-        emirate,
+    // Step 4: Validate specific parameters
+    if (trip_type) queryValidator(transportRateQueryValidationConfig, "trip_type", trip_type);
+    if (vehicle_type) queryValidator(transportRateQueryValidationConfig, "vehicle_type", vehicle_type);
+
+    // Step 5: Retrieve transport rate information
+    const result = await TransportRatesServices.lookupTransportRate(
+        platformId,
+        companyId || null,
+        city,
         trip_type,
         vehicle_type
     );
 
-    return res.status(httpStatus.OK).json({
+    // Step 6: Send success response
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
         success: true,
-        data: {
-            emirate,
-            trip_type,
-            vehicle_type,
-            rate,
-        },
+        message: "Estimate calculated successfully.",
+        data: result,
     });
-};
+});
 
 export const TransportRatesControllers = {
     listTransportRates,

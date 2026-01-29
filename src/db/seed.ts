@@ -14,13 +14,11 @@
 import { db } from "./index";
 import * as schema from "./schema";
 import bcrypt from "bcrypt";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 type TrackingMethod = "INDIVIDUAL" | "BATCH";
 type AssetCondition = "GREEN" | "ORANGE" | "RED";
 type ScanType = "OUTBOUND" | "INBOUND";
-type TripType = "ONE_WAY" | "ROUND_TRIP";
-type VehicleType = "STANDARD" | "7_TON" | "10_TON";
 type NotificationStatus = "QUEUED" | "SENT" | "FAILED" | "RETRYING";
 type OrderStatus =
     | "DRAFT"
@@ -155,6 +153,8 @@ const randomItem = <T>(array: T[]): T => {
 const seededData = {
     platforms: [] as any[],
     companies: [] as any[],
+    countries: [] as any[],
+    cities: [] as any[],
     companyDomains: [] as any[],
     users: [] as any[],
     warehouses: [] as any[],
@@ -228,6 +228,25 @@ async function seedPlatforms() {
     console.log(`✓ Created ${platforms.length} platforms`);
 }
 
+async function seedCountries() {
+    console.log("🌐 Seeding countries...");
+
+    for (const platform of seededData.platforms) {
+        const countries = await db
+            .insert(schema.countries)
+            .values([
+                {
+                    platform_id: platform.id,
+                    name: "United Arab Emirates",
+                }
+            ])
+            .returning();
+
+        seededData.countries = countries;
+        console.log(`✓ Created ${countries.length} countries for ${platform.name}`);
+    }
+}
+
 async function seedCompanies() {
     console.log("🏢 Seeding companies...");
 
@@ -251,6 +270,7 @@ async function seedCompanies() {
                     },
                 },
                 platform_margin_percent: "25.00",
+                warehouse_ops_rate: "10.00",
                 contact_email: "events@diageo.com",
                 contact_phone: "+971-50-123-4567",
                 is_active: true,
@@ -268,6 +288,7 @@ async function seedCompanies() {
                     },
                 },
                 platform_margin_percent: "22.00",
+                warehouse_ops_rate: "13.00",
                 contact_email: "corporate@unilever.com",
                 contact_phone: "+971-50-234-5678",
                 is_active: true,
@@ -285,6 +306,7 @@ async function seedCompanies() {
                     },
                 },
                 platform_margin_percent: "28.00",
+                warehouse_ops_rate: "15.00",
                 contact_email: "events@pg.com",
                 contact_phone: "+971-50-345-6789",
                 is_active: true,
@@ -458,30 +480,31 @@ async function seedUsers() {
         {
             platform_id: platform1.id,
             company_id: null,
-            name: "Sarah Logistics",
-            email: "sarah.logistics@platform.com",
+            name: "Sarah Johnson",
+            email: "sarah.admin@platform.com",
             password: hashedPassword,
             role: "ADMIN" as const,
             permissions: [
                 "auth:*",
-                "users:read",
-                "companies:read",
-                "brands:read",
-                "warehouses:read",
-                "zones:read",
+                "users:*",
+                "companies:*",
+                "brands:*",
+                "warehouses:*",
+                "zones:*",
+                "pricing_tiers:*",
+                "orders:*",
+                "pricing:*",
+                "invoices:*",
+                "lifecycle:*",
+                "notifications:*",
+                "analytics:*",
+                "system:*",
                 "assets:*",
                 "collections:*",
-                "orders:read",
-                "orders:update",
-                "orders:add_time_windows",
-                "pricing:review",
-                "pricing:approve_standard",
-                "pricing:adjust",
-                "lifecycle:progress_status",
-                "lifecycle:receive_notifications",
-                "scanning:*",
-                "inventory:*",
                 "conditions:*",
+                "inventory:*",
+                "quotes:*",
+                "scanning:*",
             ],
             permission_template: "PLATFORM_ADMIN" as const,
             is_active: true,
@@ -686,12 +709,12 @@ async function seedBrands() {
             company.name === "Diageo"
                 ? ["Johnnie Walker", "Guinness", "Baileys"]
                 : company.name === "Unilever"
-                  ? ["Dove", "Axe", "Lipton"]
-                  : company.name === "Procter & Gamble"
-                    ? ["Gillette", "Pantene", "Oral-B"]
-                    : company.name === "Coca-Cola"
-                      ? ["Coca-Cola Classic", "Sprite", "Fanta"]
-                      : ["Air Jordan", "Nike SB", "Nike ACG"];
+                    ? ["Dove", "Axe", "Lipton"]
+                    : company.name === "Procter & Gamble"
+                        ? ["Gillette", "Pantene", "Oral-B"]
+                        : company.name === "Coca-Cola"
+                            ? ["Coca-Cola Classic", "Sprite", "Fanta"]
+                            : ["Air Jordan", "Nike SB", "Nike ACG"];
 
         for (const brandName of brandNames) {
             brands.push({
@@ -751,75 +774,66 @@ async function seedZones() {
     console.log(`✓ Created ${inserted.length} zones`);
 }
 
-async function seedPricingConfig() {
-    console.log("💰 Seeding pricing configuration...");
-
-    const configs = [];
-
-    // Platform-wide defaults (25.20 AED per m³)
-    for (const platform of seededData.platforms) {
-        configs.push({
-            platform_id: platform.id,
-            company_id: null,
-            warehouse_ops_rate: "25.20",
-            is_active: true,
-        });
-    }
-
-    // Company-specific pricing example (Diageo override)
-    const diageo = seededData.companies.find((c) => c.name === "Diageo");
-    if (diageo)
-        configs.push({
-            platform_id: diageo.platform_id,
-            company_id: diageo.id,
-            warehouse_ops_rate: "23.00",
-            is_active: true,
-        });
-
-    const inserted = await db.insert(schema.pricingConfig).values(configs).returning();
-    seededData.pricingConfigs = inserted;
-    console.log(`✓ Created ${inserted.length} pricing configs`);
-}
-
 async function seedTransportRates() {
     console.log("🚚 Seeding transport rates...");
 
-    const transportRates: Array<{
-        emirate: string;
-        trip_type: "ONE_WAY" | "ROUND_TRIP";
-        rate: string;
-    }> = [
-        { emirate: "Dubai", trip_type: "ONE_WAY", rate: "300.00" },
-        { emirate: "Dubai", trip_type: "ROUND_TRIP", rate: "500.00" },
-        { emirate: "Abu Dhabi", trip_type: "ONE_WAY", rate: "495.00" },
-        { emirate: "Abu Dhabi", trip_type: "ROUND_TRIP", rate: "990.00" },
-        { emirate: "Al Ain", trip_type: "ONE_WAY", rate: "550.00" },
-        { emirate: "Al Ain", trip_type: "ROUND_TRIP", rate: "1100.00" },
-        { emirate: "Sharjah", trip_type: "ONE_WAY", rate: "400.00" },
-        { emirate: "Sharjah", trip_type: "ROUND_TRIP", rate: "600.00" },
-        { emirate: "Ajman", trip_type: "ONE_WAY", rate: "400.00" },
-        { emirate: "Ajman", trip_type: "ROUND_TRIP", rate: "750.00" },
-        { emirate: "Ras Al Khaimah", trip_type: "ONE_WAY", rate: "550.00" },
-        { emirate: "Ras Al Khaimah", trip_type: "ROUND_TRIP", rate: "1100.00" },
-        { emirate: "Umm Al Quwain", trip_type: "ONE_WAY", rate: "550.00" },
-        { emirate: "Umm Al Quwain", trip_type: "ROUND_TRIP", rate: "1100.00" },
-        { emirate: "Fujairah", trip_type: "ONE_WAY", rate: "600.00" },
-        { emirate: "Fujairah", trip_type: "ROUND_TRIP", rate: "1100.00" },
+    const platform1 = seededData.platforms[0];
+
+    const [country] = await db
+        .select()
+        .from(schema.countries)
+        .where(eq(schema.countries.platform_id, platform1.id))
+        .limit(1);
+
+    if (!country) {
+        throw new Error("Country not found to create city");
+    }
+
+    const cities = [
+        "Dubai",
+        "Abu Dhabi",
+        "Sharjah",
+        "Ajman",
+        "Ras Al Khaimah",
+        "Fujairah",
+        "Umm Al Quwain",
     ];
 
-    const rates: Array<typeof schema.transportRates.$inferInsert> = [];
-    for (const platform of seededData.platforms) {
-        for (const rate of transportRates) {
-            rates.push({
-                platform_id: platform.id,
-                company_id: null,
-                emirate: rate.emirate,
-                area: null,
-                trip_type: rate.trip_type,
-                vehicle_type: "STANDARD",
-                rate: rate.rate,
-                is_active: true,
-            });
+    const citiesData = cities.map((city) => ({
+        platform_id: platform1.id,
+        country_id: country.id,
+        name: city,
+    }));
+
+    const insertedCities = await db.insert(schema.cities).values(citiesData).returning();
+    seededData.cities = insertedCities;
+
+    console.log(`✓ Created ${insertedCities.length} cities for ${country.name} in ${platform1.name}`);
+
+    const tripTypes: ("ONE_WAY" | "ROUND_TRIP")[] = ["ONE_WAY", "ROUND_TRIP"];
+    const vehicleTypes: ("STANDARD" | "7_TON" | "10_TON")[] = ["STANDARD", "7_TON", "10_TON"];
+
+    const rates = [];
+
+    for (const city of insertedCities) {
+        for (const tripType of tripTypes) {
+            for (const vehicleType of vehicleTypes) {
+                const baseRate =
+                    vehicleType === "STANDARD" ? 500 : vehicleType === "7_TON" ? 800 : 1200;
+                const tripMultiplier = tripType === "ROUND_TRIP" ? 1.8 : 1;
+                const rate = baseRate * tripMultiplier;
+
+                rates.push({
+                    platform_id: platform1.id,
+                    company_id: null,
+                    city_id: city.id,
+                    area: null,
+                    trip_type: tripType,
+                    vehicle_type: vehicleType,
+                    rate: rate.toString(),
+                    is_active: true,
+                });
+            }
         }
     }
 
@@ -831,87 +845,135 @@ async function seedTransportRates() {
 async function seedServiceTypes() {
     console.log("🛠️  Seeding service types...");
 
+    const platform1 = seededData.platforms[0];
+
     const services = [
+        // Assembly services
         {
-            name: "Assembly (Regular Hours)",
+            name: "Basic Assembly",
             category: "ASSEMBLY" as const,
             unit: "hour",
-            default_rate: "18.00",
-            description: "Assembly labor during regular business hours",
+            default_rate: "75.00",
+            description: "Standard furniture assembly",
         },
         {
-            name: "Assembly (Holiday Hours)",
+            name: "Complex Setup",
             category: "ASSEMBLY" as const,
             unit: "hour",
-            default_rate: "25.00",
-            description: "Assembly labor during holidays and weekends",
+            default_rate: "120.00",
+            description: "Complex installations and setups",
         },
         {
-            name: "Forklift 3-ton (Hourly)",
-            category: "EQUIPMENT" as const,
+            name: "Rigging Services",
+            category: "ASSEMBLY" as const,
             unit: "hour",
-            default_rate: "140.00",
-            description: "Forklift rental - 3 ton capacity",
+            default_rate: "150.00",
+            description: "Professional rigging and suspension",
         },
+
+        // Equipment services
         {
-            name: "Forklift 5-ton (Hourly)",
+            name: "Forklift Operation",
             category: "EQUIPMENT" as const,
             unit: "hour",
             default_rate: "200.00",
-            description: "Forklift rental - 5 ton capacity",
+            description: "Forklift and heavy equipment operation",
         },
         {
-            name: "Forklift 10-ton (Hourly)",
+            name: "Crane Service",
             category: "EQUIPMENT" as const,
+            unit: "day",
+            default_rate: "1500.00",
+            description: "Mobile crane rental with operator",
+        },
+
+        // Handling services
+        {
+            name: "Loading/Unloading",
+            category: "HANDLING" as const,
             unit: "hour",
-            default_rate: "260.00",
-            description: "Forklift rental - 10 ton capacity",
+            default_rate: "60.00",
+            description: "Manual loading and unloading",
         },
         {
-            name: "Forklift 3-ton Mobilisation",
-            category: "EQUIPMENT" as const,
-            unit: "trip",
-            default_rate: "960.00",
-            description: "One-time mobilisation fee for 3-ton forklift",
-        },
-        {
-            name: "Forklift 5-ton Mobilisation",
-            category: "EQUIPMENT" as const,
-            unit: "trip",
-            default_rate: "1080.00",
-            description: "One-time mobilisation fee for 5-ton forklift",
-        },
-        {
-            name: "Forklift 10-ton Mobilisation",
-            category: "EQUIPMENT" as const,
-            unit: "trip",
-            default_rate: "1440.00",
-            description: "One-time mobilisation fee for 10-ton forklift",
-        },
-        {
-            name: "Special Handling",
+            name: "Fragile Item Handling",
             category: "HANDLING" as const,
             unit: "unit",
-            default_rate: null,
-            description: "Special handling for non-standard items",
+            default_rate: "25.00",
+            description: "Special handling for fragile items",
+        },
+        {
+            name: "White Glove Service",
+            category: "HANDLING" as const,
+            unit: "trip",
+            default_rate: "500.00",
+            description: "Premium handling and setup service",
+        },
+
+        // Reskin services
+        {
+            name: "Vinyl Wrap Application",
+            category: "RESKIN" as const,
+            unit: "unit",
+            default_rate: "300.00",
+            description: "Custom vinyl wrapping for furniture",
+        },
+        // {
+        //     name: "Custom Fabrication",
+        //     category: "RESKIN" as const,
+        //     unit: "unit",
+        //     default_rate: null,
+        //     description: "Custom fabrication and branding (quote required)",
+        // },
+        {
+            name: "Graphic Installation",
+            category: "RESKIN" as const,
+            unit: "unit",
+            default_rate: "150.00",
+            description: "Installation of custom graphics",
+        },
+
+        // Other services
+        {
+            name: "Storage Fee",
+            category: "OTHER" as const,
+            unit: "day",
+            default_rate: "50.00",
+            description: "Daily storage charge for extended periods",
+        },
+        {
+            name: "Rush Service",
+            category: "OTHER" as const,
+            unit: "trip",
+            default_rate: "750.00",
+            description: "Expedited delivery/pickup",
+        },
+        {
+            name: "After Hours Service",
+            category: "OTHER" as const,
+            unit: "hour",
+            default_rate: "180.00",
+            description: "Services outside business hours",
+        },
+        {
+            name: "Cleaning Service",
+            category: "OTHER" as const,
+            unit: "unit",
+            default_rate: "35.00",
+            description: "Deep cleaning of returned items",
         },
     ];
 
-    const serviceValues: Array<typeof schema.serviceTypes.$inferInsert> = [];
-    for (const platform of seededData.platforms) {
-        services.forEach((svc, idx) => {
-            serviceValues.push({
-                platform_id: platform.id,
-                name: svc.name,
-                category: svc.category,
-                unit: svc.unit,
-                default_rate: svc.default_rate,
-                description: svc.description,
-                display_order: idx,
-                is_active: true,
-            });
-        });
-    }
+    const serviceValues = services.map((svc, idx) => ({
+        platform_id: platform1.id,
+        name: svc.name,
+        category: svc.category,
+        unit: svc.unit,
+        default_rate: svc.default_rate,
+        description: svc.description,
+        display_order: idx,
+        is_active: true,
+    }));
 
     const inserted = await db.insert(schema.serviceTypes).values(serviceValues).returning();
     seededData.serviceTypes = inserted;
@@ -1247,24 +1309,24 @@ async function seedAssets() {
                         condition === "RED"
                             ? Math.floor(Math.random() * 5) + 3
                             : condition === "ORANGE"
-                              ? Math.floor(Math.random() * 2) + 1
-                              : null,
+                                ? Math.floor(Math.random() * 2) + 1
+                                : null,
                     condition_history: conditionHistory,
                     handling_tags:
                         category === "Glassware"
                             ? ["Fragile", "HighValue"]
                             : category === "Furniture" && template.weight > 50
-                              ? ["HeavyLift"]
-                              : category === "Installation"
-                                ? ["AssemblyRequired"]
-                                : [],
+                                ? ["HeavyLift"]
+                                : category === "Installation"
+                                    ? ["AssemblyRequired"]
+                                    : [],
                     status: status,
                     last_scanned_at:
                         status !== "AVAILABLE"
                             ? randomDate(
-                                  new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-                                  new Date()
-                              )
+                                new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+                                new Date()
+                            )
                             : null,
                     last_scanned_by:
                         status !== "AVAILABLE"
@@ -1400,49 +1462,34 @@ async function seedOrders() {
     const clientUsers = seededData.users.filter((u) => u.role === "CLIENT");
 
     // Order statuses to create
-    const orderStatuses: Array<{
-        status: any;
-        financial: any;
-        daysAgo: number;
-        hasReskin?: boolean;
-    }> = [
-        { status: "DRAFT", financial: "PENDING_QUOTE", daysAgo: 1 },
-        { status: "DRAFT", financial: "PENDING_QUOTE", daysAgo: 2 },
-        { status: "SUBMITTED", financial: "PENDING_QUOTE", daysAgo: 3 },
-        { status: "SUBMITTED", financial: "PENDING_QUOTE", daysAgo: 4 },
-        { status: "PRICING_REVIEW", financial: "PENDING_QUOTE", daysAgo: 5 },
-        { status: "PRICING_REVIEW", financial: "PENDING_QUOTE", daysAgo: 6 },
-        { status: "PRICING_REVIEW", financial: "PENDING_QUOTE", daysAgo: 7 },
-        { status: "PENDING_APPROVAL", financial: "PENDING_QUOTE", daysAgo: 8 },
-        { status: "PENDING_APPROVAL", financial: "PENDING_QUOTE", daysAgo: 9 },
-        { status: "QUOTED", financial: "QUOTE_SENT", daysAgo: 10 },
-        { status: "QUOTED", financial: "QUOTE_SENT", daysAgo: 11 },
-        { status: "QUOTED", financial: "QUOTE_SENT", daysAgo: 12 },
-        { status: "CONFIRMED", financial: "QUOTE_ACCEPTED", daysAgo: 15, hasReskin: true }, // Has reskin request
-        { status: "CONFIRMED", financial: "QUOTE_ACCEPTED", daysAgo: 16 },
-        {
-            status: "AWAITING_FABRICATION",
-            financial: "QUOTE_ACCEPTED",
-            daysAgo: 17,
-            hasReskin: true,
-        }, // Reskin in progress
-        {
-            status: "AWAITING_FABRICATION",
-            financial: "QUOTE_ACCEPTED",
-            daysAgo: 17.5,
-            hasReskin: true,
-        }, // Reskin in progress
-        { status: "IN_PREPARATION", financial: "QUOTE_ACCEPTED", daysAgo: 18 },
-        { status: "IN_PREPARATION", financial: "QUOTE_ACCEPTED", daysAgo: 19 },
-        { status: "READY_FOR_DELIVERY", financial: "INVOICED", daysAgo: 20 },
-        { status: "IN_TRANSIT", financial: "INVOICED", daysAgo: 22 },
-        { status: "DELIVERED", financial: "INVOICED", daysAgo: 25 },
-        { status: "DELIVERED", financial: "PAID", daysAgo: 28 },
-        { status: "AWAITING_RETURN", financial: "PAID", daysAgo: 30 },
-        { status: "AWAITING_RETURN", financial: "PAID", daysAgo: 32 },
-        { status: "CLOSED", financial: "PAID", daysAgo: 35 },
-        { status: "CLOSED", financial: "PAID", daysAgo: 40 },
-        { status: "CANCELLED", financial: "CANCELLED", daysAgo: 14 },
+    const orderStatuses: Array<{ status: any, financial: any, daysAgo: number, hasReskin?: boolean }> = [
+        { status: 'DRAFT', financial: 'PENDING_QUOTE', daysAgo: 1 },
+        { status: 'DRAFT', financial: 'PENDING_QUOTE', daysAgo: 2 },
+        { status: 'SUBMITTED', financial: 'PENDING_QUOTE', daysAgo: 3 },
+        { status: 'SUBMITTED', financial: 'PENDING_QUOTE', daysAgo: 4 },
+        { status: 'PRICING_REVIEW', financial: 'PENDING_QUOTE', daysAgo: 5 },
+        { status: 'PRICING_REVIEW', financial: 'PENDING_QUOTE', daysAgo: 6 },
+        { status: 'PRICING_REVIEW', financial: 'PENDING_QUOTE', daysAgo: 7 },
+        { status: 'PENDING_APPROVAL', financial: 'PENDING_QUOTE', daysAgo: 8 },
+        { status: 'PENDING_APPROVAL', financial: 'PENDING_QUOTE', daysAgo: 9 },
+        { status: 'QUOTED', financial: 'QUOTE_SENT', daysAgo: 10 },
+        { status: 'QUOTED', financial: 'QUOTE_SENT', daysAgo: 11 },
+        { status: 'QUOTED', financial: 'QUOTE_SENT', daysAgo: 12 },
+        { status: 'CONFIRMED', financial: 'QUOTE_ACCEPTED', daysAgo: 15, hasReskin: true }, // Has reskin request
+        { status: 'CONFIRMED', financial: 'QUOTE_ACCEPTED', daysAgo: 16 },
+        { status: 'AWAITING_FABRICATION', financial: 'QUOTE_ACCEPTED', daysAgo: 17, hasReskin: true }, // Reskin in progress
+        { status: 'AWAITING_FABRICATION', financial: 'QUOTE_ACCEPTED', daysAgo: 17.5, hasReskin: true }, // Reskin in progress
+        { status: 'IN_PREPARATION', financial: 'QUOTE_ACCEPTED', daysAgo: 18 },
+        { status: 'IN_PREPARATION', financial: 'QUOTE_ACCEPTED', daysAgo: 19 },
+        { status: 'READY_FOR_DELIVERY', financial: 'INVOICED', daysAgo: 20 },
+        { status: 'IN_TRANSIT', financial: 'INVOICED', daysAgo: 22 },
+        { status: 'DELIVERED', financial: 'INVOICED', daysAgo: 25 },
+        { status: 'DELIVERED', financial: 'PAID', daysAgo: 28 },
+        { status: 'AWAITING_RETURN', financial: 'PAID', daysAgo: 30 },
+        { status: 'AWAITING_RETURN', financial: 'PAID', daysAgo: 32 },
+        { status: 'CLOSED', financial: 'PAID', daysAgo: 35 },
+        { status: 'CLOSED', financial: 'PAID', daysAgo: 40 },
+        { status: 'CANCELLED', financial: 'CANCELLED', daysAgo: 14 },
     ];
 
     for (let i = 0; i < orderStatuses.length; i++) {
@@ -1457,57 +1504,35 @@ async function seedOrders() {
 
         const createdDate = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
         const eventStart = new Date(Date.now() + (Math.random() * 60 + 10) * 24 * 60 * 60 * 1000); // 10-70 days from now
-        const eventEnd = new Date(
-            eventStart.getTime() + (Math.random() * 5 + 1) * 24 * 60 * 60 * 1000
-        ); // 1-6 days duration
+        const eventEnd = new Date(eventStart.getTime() + (Math.random() * 5 + 1) * 24 * 60 * 60 * 1000); // 1-6 days duration
 
         // Calculate volume/weight
         const volume = (Math.random() * 50 + 10).toFixed(3); // 10-60 m³
         const weight = (parseFloat(volume) * (Math.random() * 50 + 100)).toFixed(2); // 100-150 kg/m³
 
-        const standardTransportRates: Record<string, Record<TripType, number>> = {
-            Dubai: { ONE_WAY: 300, ROUND_TRIP: 500 },
-            "Abu Dhabi": { ONE_WAY: 495, ROUND_TRIP: 990 },
-            "Al Ain": { ONE_WAY: 550, ROUND_TRIP: 1100 },
-            Sharjah: { ONE_WAY: 400, ROUND_TRIP: 600 },
-            Ajman: { ONE_WAY: 400, ROUND_TRIP: 750 },
-            "Ras Al Khaimah": { ONE_WAY: 550, ROUND_TRIP: 1100 },
-            "Umm Al Quwain": { ONE_WAY: 550, ROUND_TRIP: 1100 },
-            Fujairah: { ONE_WAY: 600, ROUND_TRIP: 1100 },
-        };
+        // Determine vehicle type based on volume
+        const vehicleType = parseFloat(volume) > 30 ? '10_TON' : parseFloat(volume) > 15 ? '7_TON' : 'STANDARD';
+        const tripType = 'ROUND_TRIP';
 
-        const vehicleType: VehicleType = "STANDARD";
-        const tripType: TripType = Math.random() > 0.4 ? "ROUND_TRIP" : "ONE_WAY";
-        const emirate = randomItem(Object.keys(standardTransportRates));
-
-        const platformDefaultConfig = seededData.pricingConfigs.find(
-            (config) => config.platform_id === company.platform_id && !config.company_id
-        );
-        const companyConfig = seededData.pricingConfigs.find(
-            (config) => config.company_id === company.id
-        );
-        const warehouseOpsRate = parseFloat(
-            (companyConfig?.warehouse_ops_rate ||
-                platformDefaultConfig?.warehouse_ops_rate ||
-                "25.20") as string
-        );
+        // Get pricing config rate (150 AED/m³ default)
+        const warehouseOpsRate = company.warehouse_ops_rate;
 
         // Calculate base operations
         const baseOpsTotal = parseFloat(volume) * warehouseOpsRate;
 
-        // Get transport rate (standard vehicle rates)
-        const transportRate = standardTransportRates[emirate][tripType];
+        // Get transport rate (simulate lookup)
+        const transportRate = vehicleType === '10_TON' ? 2160 : vehicleType === '7_TON' ? 1440 : 900; // ROUND_TRIP rates
 
         // For orders with pricing, calculate line items totals
         let catalogTotal = 0;
         let customTotal = 0;
 
-        if (hasReskin && !["DRAFT", "SUBMITTED", "PRICING_REVIEW"].includes(status)) {
+        if (hasReskin && !['DRAFT', 'SUBMITTED', 'PRICING_REVIEW'].includes(status)) {
             // Reskin costs (custom, no margin)
             customTotal = Math.random() * 2000 + 1000; // 1000-3000 AED for reskins
             // Assembly/handling costs (catalog, with margin)
             catalogTotal = Math.random() * 500 + 200; // 200-700 AED
-        } else if (!["DRAFT", "SUBMITTED", "PRICING_REVIEW"].includes(status)) {
+        } else if (!['DRAFT', 'SUBMITTED', 'PRICING_REVIEW'].includes(status)) {
             // Normal orders - just catalog items
             catalogTotal = Math.random() * 500 + 100; // 100-600 AED
         }
@@ -1523,42 +1548,33 @@ async function seedOrders() {
         const finalTotal = logisticsSubtotal + marginAmount + customTotal;
 
         // Build NEW pricing structure (only for orders past SUBMITTED)
-        const newPricing = !["DRAFT", "SUBMITTED"].includes(status)
-            ? {
-                  base_operations: {
-                      volume: parseFloat(volume),
-                      rate: warehouseOpsRate,
-                      total: parseFloat(baseOpsTotal.toFixed(2)),
-                  },
-                  transport: {
-                      trip_type: tripType,
-                      vehicle_type: vehicleType,
-                      rate: transportRate,
-                      total: transportRate,
-                      emirate: emirate,
-                      area: null,
-                      vehicle_changed: false,
-                      original_vehicle_type: null,
-                      vehicle_change_reason: null,
-                  },
-                  line_items: {
-                      catalog_total: parseFloat(catalogTotal.toFixed(2)),
-                      custom_total: parseFloat(customTotal.toFixed(2)),
-                  },
-                  logistics_subtotal: parseFloat(logisticsSubtotal.toFixed(2)),
-                  margin: {
-                      percent: marginPercent,
-                      amount: parseFloat(marginAmount.toFixed(2)),
-                      is_override: false,
-                      override_reason: null,
-                  },
-                  final_total: parseFloat(finalTotal.toFixed(2)),
-                  calculated_at: new Date(
-                      createdDate.getTime() + 36 * 60 * 60 * 1000
-                  ).toISOString(),
-                  calculated_by: seededData.users.find((u) => u.role === "ADMIN")?.id || null,
-              }
-            : null;
+        const newPricing = {
+            platform_id: platform1.id,
+            warehouse_ops_rate: warehouseOpsRate,
+            base_ops_total: baseOpsTotal.toFixed(2),
+            logistics_sub_total: logisticsSubtotal.toFixed(2),
+            transport: {
+                system_rate: transportRate,
+                final_rate: transportRate
+            },
+            line_items: {
+                catalog_total: catalogTotal,
+                custom_total: customTotal,
+            },
+            margin: {
+                percent: marginPercent,
+                amount: marginAmount,
+                is_override: false,
+                override_reason: null
+            },
+            final_total: finalTotal.toFixed(2),
+            calculated_at: new Date(),
+            calculated_by: user.id,
+        }
+
+        const [pricing] = await db.insert(schema.orderPrices).values(newPricing).returning();
+
+        const cityIds = seededData.cities.map(city => city.id);
 
         orders.push({
             platform_id: platform1.id,
@@ -1590,9 +1606,9 @@ async function seedOrders() {
                 "Address Downtown",
                 "JW Marriott Marquis",
             ]),
+            venue_city_id: randomItem(cityIds),
             venue_location: {
                 country: "United Arab Emirates",
-                city: randomItem(["Dubai", "Abu Dhabi", "Sharjah"]),
                 address: `${Math.floor(Math.random() * 500) + 1} Event Street, Area ${Math.floor(Math.random() * 50) + 1}`,
                 access_notes:
                     "Service entrance at rear of building. Contact security upon arrival.",
@@ -1609,15 +1625,15 @@ async function seedOrders() {
                 "CLOSED",
             ].includes(status)
                 ? {
-                      start: new Date(eventStart.getTime() - 24 * 60 * 60 * 1000),
-                      end: new Date(eventStart.getTime() - 12 * 60 * 60 * 1000),
-                  }
+                    start: new Date(eventStart.getTime() - 24 * 60 * 60 * 1000),
+                    end: new Date(eventStart.getTime() - 12 * 60 * 60 * 1000),
+                }
                 : null,
             pickup_window: ["AWAITING_RETURN", "CLOSED"].includes(status)
                 ? {
-                      start: new Date(eventEnd.getTime() + 12 * 60 * 60 * 1000),
-                      end: new Date(eventEnd.getTime() + 36 * 60 * 60 * 1000),
-                  }
+                    start: new Date(eventEnd.getTime() + 12 * 60 * 60 * 1000),
+                    end: new Date(eventEnd.getTime() + 36 * 60 * 60 * 1000),
+                }
                 : null,
             calculated_totals: {
                 volume: volume,
@@ -1625,11 +1641,7 @@ async function seedOrders() {
             },
             transport_trip_type: tripType as any,
             transport_vehicle_type: vehicleType as any,
-            tier_id: null, // DEPRECATED
-            logistics_pricing: null, // DEPRECATED - using new pricing structure
-            platform_pricing: null, // DEPRECATED - using new pricing structure
-            final_pricing: null, // DEPRECATED - using new pricing structure
-            pricing: newPricing, // NEW hybrid pricing structure
+            order_pricing_id: pricing.id,
             order_status: status,
             financial_status: financial,
             scanning_data: {},
@@ -1637,9 +1649,9 @@ async function seedOrders() {
                 status
             )
                 ? [
-                      `https://placehold.co/800x600/475569/FFFFFF?text=${encodeURIComponent("Delivery Truck\\nLoading")}`,
-                      `https://placehold.co/800x600/64748b/FFFFFF?text=${encodeURIComponent("Items in Transit")}`,
-                  ]
+                    `https://placehold.co/800x600/475569/FFFFFF?text=${encodeURIComponent("Delivery Truck\\nLoading")}`,
+                    `https://placehold.co/800x600/64748b/FFFFFF?text=${encodeURIComponent("Items in Transit")}`,
+                ]
                 : [],
         });
     }
@@ -1654,9 +1666,7 @@ async function seedOrders() {
         }
     }
 
-    console.log(
-        `✓ Created ${inserted.length} orders across all statuses (${seededData.ordersWithReskin.length} with reskin requests)`
-    );
+    console.log(`✓ Created ${inserted.length} orders across all statuses (${seededData.ordersWithReskin.length} with reskin requests)`);
 }
 
 async function seedOrderItems() {
@@ -1665,10 +1675,8 @@ async function seedOrderItems() {
     const orderItems = [];
 
     for (const order of seededData.orders) {
-        const companyAssets = seededData.assets.filter(
-            (a) => a.company_id === order.company_id && a.status === "AVAILABLE"
-        );
-        const companyBrands = seededData.brands.filter((b) => b.company_id === order.company_id);
+        const companyAssets = seededData.assets.filter(a => a.company_id === order.company_id && a.status === 'AVAILABLE');
+        const companyBrands = seededData.brands.filter(b => b.company_id === order.company_id);
         const hasReskin = seededData.ordersWithReskin.includes(order.id);
 
         // 5-8 items per order
@@ -1679,15 +1687,13 @@ async function seedOrderItems() {
 
         for (let idx = 0; idx < selectedAssets.length; idx++) {
             const asset = selectedAssets[idx];
-            const quantity =
-                asset.tracking_method === "BATCH" ? Math.floor(Math.random() * 10) + 1 : 1;
+            const quantity = asset.tracking_method === 'BATCH' ? Math.floor(Math.random() * 10) + 1 : 1;
             const volumePerUnit = parseFloat(asset.volume_per_unit);
             const weightPerUnit = parseFloat(asset.weight_per_unit);
 
             // For reskin orders, mark 2 items as reskin requests
             const isReskinItem = hasReskin && idx < 2;
-            const targetBrand =
-                isReskinItem && companyBrands.length > 0 ? randomItem(companyBrands) : null;
+            const targetBrand = isReskinItem && companyBrands.length > 0 ? randomItem(companyBrands) : null;
             const useCustomBrand = isReskinItem && Math.random() > 0.7; // 30% custom brand
 
             orderItems.push({
@@ -1705,44 +1711,38 @@ async function seedOrderItems() {
                 from_collection: null,
                 from_collection_name: null,
                 is_reskin_request: isReskinItem,
-                reskin_target_brand_id:
-                    isReskinItem && !useCustomBrand ? targetBrand?.id || null : null,
-                reskin_target_brand_custom:
-                    isReskinItem && useCustomBrand ? "Custom Brand X" : null,
-                reskin_notes: isReskinItem
-                    ? "Please apply new branding as per attached mockup"
-                    : null,
+                reskin_target_brand_id: isReskinItem && !useCustomBrand ? targetBrand?.id || null : null,
+                reskin_target_brand_custom: isReskinItem && useCustomBrand ? 'Custom Brand X' : null,
+                reskin_notes: isReskinItem ? 'Please apply new branding as per attached mockup' : null,
             });
         }
     }
 
     const inserted = await db.insert(schema.orderItems).values(orderItems).returning();
     seededData.orderItems = inserted;
-    console.log(
-        `✓ Created ${inserted.length} order items (${inserted.filter((i) => i.is_reskin_request).length} reskin requests)`
-    );
+    console.log(`✓ Created ${inserted.length} order items (${inserted.filter(i => i.is_reskin_request).length} reskin requests)`);
 }
 
 async function seedReskinRequests() {
-    console.log("🎨 Seeding reskin requests...");
+    console.log('🎨 Seeding reskin requests...');
 
     const reskinRequests = [];
-    const adminUsers = seededData.users.filter((u) => u.role === "ADMIN");
+    const adminUsers = seededData.users.filter(u => u.role === 'ADMIN');
 
     // Get all order items that are reskin requests
-    const reskinOrderItems = seededData.orderItems.filter((i) => i.is_reskin_request);
+    const reskinOrderItems = seededData.orderItems.filter(i => i.is_reskin_request);
 
     for (const item of reskinOrderItems) {
-        const order = seededData.orders.find((o) => o.id === item.order_id);
+        const order = seededData.orders.find(o => o.id === item.order_id);
         if (!order) continue;
 
-        const originalAsset = seededData.assets.find((a) => a.id === item.asset_id);
+        const originalAsset = seededData.assets.find(a => a.id === item.asset_id);
         if (!originalAsset) continue;
 
         const createdDate = new Date(order.created_at.getTime() + 12 * 60 * 60 * 1000); // 12 hours after order
 
         // Determine if completed (for AWAITING_FABRICATION with later date)
-        const isCompleted = order.order_status !== "AWAITING_FABRICATION";
+        const isCompleted = order.order_status !== 'AWAITING_FABRICATION';
 
         reskinRequests.push({
             platform_id: order.platform_id,
@@ -1753,24 +1753,16 @@ async function seedReskinRequests() {
             original_brand_id: originalAsset.brand_id,
             target_brand_id: item.reskin_target_brand_id,
             target_brand_custom: item.reskin_target_brand_custom,
-            client_notes:
-                item.reskin_notes ||
-                "Please apply new branding as per mockup. Timeline is critical for event.",
-            admin_notes: isCompleted
-                ? "Fabrication completed successfully. New asset ready for delivery."
-                : "In fabrication queue. Estimated 7 days completion.",
+            client_notes: item.reskin_notes || 'Please apply new branding as per mockup. Timeline is critical for event.',
+            admin_notes: isCompleted ? 'Fabrication completed successfully. New asset ready for delivery.' : 'In fabrication queue. Estimated 7 days completion.',
             new_asset_id: isCompleted ? originalAsset.id : null, // In real scenario, would be a new asset ID
             new_asset_name: isCompleted ? item.asset_name : null,
-            completed_at: isCompleted
-                ? new Date(createdDate.getTime() + 7 * 24 * 60 * 60 * 1000)
-                : null,
+            completed_at: isCompleted ? new Date(createdDate.getTime() + 7 * 24 * 60 * 60 * 1000) : null,
             completed_by: isCompleted ? randomItem(adminUsers).id : null,
-            completion_notes: isCompleted ? "Quality checked and approved for delivery" : null,
-            completion_photos: isCompleted
-                ? [
-                      `https://placehold.co/800x600/10b981/FFFFFF?text=${encodeURIComponent("Completed\\n" + item.asset_name)}`,
-                  ]
-                : [],
+            completion_notes: isCompleted ? 'Quality checked and approved for delivery' : null,
+            completion_photos: isCompleted ? [
+                `https://placehold.co/800x600/10b981/FFFFFF?text=${encodeURIComponent('Completed\\n' + item.asset_name)}`,
+            ] : [],
             cancelled_at: null,
             cancelled_by: null,
             cancellation_reason: null,
@@ -1783,44 +1775,32 @@ async function seedReskinRequests() {
 }
 
 async function seedOrderLineItems() {
-    console.log("💰 Seeding order line items (reskin costs, assembly, etc.)...");
+    console.log('💰 Seeding order line items (reskin costs, assembly, etc.)...');
 
-    const lineItems: Array<typeof schema.orderLineItems.$inferInsert> = [];
-    const adminUsers = seededData.users.filter((u) => u.role === "ADMIN");
-    const logisticsUsers = seededData.users.filter((u) => u.role === "LOGISTICS");
+    const lineItems = [];
+    const adminUsers = seededData.users.filter(u => u.role === 'ADMIN');
+    const logisticsUsers = seededData.users.filter(u => u.role === 'LOGISTICS');
 
     for (const order of seededData.orders) {
         // Only add line items for orders past PRICING_REVIEW
-        if (
-            ![
-                "PENDING_APPROVAL",
-                "QUOTED",
-                "CONFIRMED",
-                "AWAITING_FABRICATION",
-                "IN_PREPARATION",
-                "READY_FOR_DELIVERY",
-                "IN_TRANSIT",
-                "DELIVERED",
-                "AWAITING_RETURN",
-                "CLOSED",
-            ].includes(order.order_status)
-        ) {
+        if (!['PENDING_APPROVAL', 'QUOTED', 'CONFIRMED', 'AWAITING_FABRICATION', 'IN_PREPARATION', 'READY_FOR_DELIVERY', 'IN_TRANSIT', 'DELIVERED', 'AWAITING_RETURN', 'CLOSED'].includes(order.order_status)) {
             continue;
         }
 
         // Get pricing totals from order
-        const pricing = order.pricing as any;
-        if (!pricing) continue;
+        const orderPricing = await db.query.orderPrices.findFirst({
+            where: eq(schema.orderPrices.id, order.order_pricing_id),
+        });
+        // const pricing = order.pricing as any;
+        if (!orderPricing) continue;
 
-        const catalogTarget = pricing.line_items.catalog_total;
-        const customTarget = pricing.line_items.custom_total;
+        const catalogTarget = (orderPricing.line_items as any).catalog_total;
+        const customTarget = (orderPricing.line_items as any).custom_total;
 
         const addedDate = new Date(order.created_at.getTime() + 36 * 60 * 60 * 1000);
 
         // Add reskin line items for reskin requests (CUSTOM - no margin)
-        const orderReskinRequests = seededData.reskinRequests.filter(
-            (r) => r.order_id === order.id
-        );
+        const orderReskinRequests = seededData.reskinRequests.filter(r => r.order_id === order.id);
         if (orderReskinRequests.length > 0 && customTarget > 0) {
             // Distribute custom_total across reskin requests
             const costPerReskin = customTarget / orderReskinRequests.length;
@@ -1831,8 +1811,8 @@ async function seedOrderLineItems() {
                     order_id: order.id,
                     service_type_id: null,
                     reskin_request_id: reskinReq.id,
-                    line_item_type: "CUSTOM" as const,
-                    category: "RESKIN" as const,
+                    line_item_type: 'CUSTOM' as const,
+                    category: 'RESKIN' as const,
                     description: `Rebrand: ${reskinReq.original_asset_name}`,
                     quantity: null,
                     unit: null,
@@ -1840,7 +1820,7 @@ async function seedOrderLineItems() {
                     total: costPerReskin.toFixed(2),
                     added_by: randomItem(adminUsers).id,
                     added_at: addedDate,
-                    notes: "Custom fabrication and branding application",
+                    notes: 'Custom fabrication and branding application',
                     is_voided: false,
                     voided_at: null,
                     voided_by: null,
@@ -1852,7 +1832,7 @@ async function seedOrderLineItems() {
         // Add catalog service items (assembly, handling, etc.) - margin applied
         if (catalogTarget > 0) {
             const numServices = Math.floor(Math.random() * 2) + 1;
-            const availableServices = seededData.serviceTypes.filter((s) => s.default_rate);
+            const availableServices = seededData.serviceTypes.filter(s => s.default_rate);
 
             if (availableServices.length > 0) {
                 // Distribute catalog_total across services
@@ -1869,7 +1849,7 @@ async function seedOrderLineItems() {
                         order_id: order.id,
                         service_type_id: service.id,
                         reskin_request_id: null,
-                        line_item_type: "CATALOG" as const,
+                        line_item_type: 'CATALOG' as const,
                         category: service.category,
                         description: service.name,
                         quantity: qty.toString(),
@@ -1891,9 +1871,7 @@ async function seedOrderLineItems() {
 
     const inserted = await db.insert(schema.orderLineItems).values(lineItems).returning();
     seededData.orderLineItems = inserted;
-    console.log(
-        `✓ Created ${inserted.length} order line items (${inserted.filter((i) => i.category === "RESKIN").length} reskin costs)`
-    );
+    console.log(`✓ Created ${inserted.length} order line items (${inserted.filter(i => i.category === 'RESKIN').length} reskin costs)`);
 }
 
 async function seedAssetBookings() {
@@ -1992,9 +1970,9 @@ async function seedScanEvents() {
                     photos:
                         returnCondition === "RED"
                             ? [
-                                  `https://placehold.co/800x600/dc2626/FFFFFF?text=${encodeURIComponent("Damage Report\\nPhoto 1")}`,
-                                  `https://placehold.co/800x600/b91c1c/FFFFFF?text=${encodeURIComponent("Damage Report\\nPhoto 2")}`,
-                              ]
+                                `https://placehold.co/800x600/dc2626/FFFFFF?text=${encodeURIComponent("Damage Report\\nPhoto 1")}`,
+                                `https://placehold.co/800x600/b91c1c/FFFFFF?text=${encodeURIComponent("Damage Report\\nPhoto 2")}`,
+                            ]
                             : [],
                     discrepancy_reason: null,
                     scanned_by: randomItem(logisticsUsers).id,
@@ -2150,8 +2128,8 @@ async function seedAssetConditionHistory() {
                 i === 0
                     ? asset.condition
                     : i === historyEntries - 1
-                      ? "GREEN"
-                      : randomItem(["GREEN", "ORANGE"]);
+                        ? "GREEN"
+                        : randomItem(["GREEN", "ORANGE"]);
 
             history.push({
                 platform_id: asset.platform_id,
@@ -2161,14 +2139,14 @@ async function seedAssetConditionHistory() {
                     entryCondition === "RED"
                         ? "Item damaged, sent to maintenance"
                         : entryCondition === "ORANGE"
-                          ? "Minor repairs completed"
-                          : "Restored to working condition",
+                            ? "Minor repairs completed"
+                            : "Restored to working condition",
                 photos:
                     entryCondition === "RED"
                         ? [
-                              `https://placehold.co/800x600/dc2626/FFFFFF?text=${encodeURIComponent("Asset Damage\\nPhoto")}`,
-                              `https://placehold.co/800x600/b91c1c/FFFFFF?text=${encodeURIComponent("Close-up\\nDamage")}`,
-                          ]
+                            `https://placehold.co/800x600/dc2626/FFFFFF?text=${encodeURIComponent("Asset Damage\\nPhoto")}`,
+                            `https://placehold.co/800x600/b91c1c/FFFFFF?text=${encodeURIComponent("Close-up\\nDamage")}`,
+                        ]
                         : [],
                 updated_by: randomItem(logisticsUsers).id,
                 timestamp: timestamp,
@@ -2230,121 +2208,22 @@ async function seedNotificationLogs() {
 
 function getStatusProgression(finalStatus: string): string[] {
     const progressions: Record<string, string[]> = {
-        DRAFT: ["DRAFT"],
-        SUBMITTED: ["DRAFT", "SUBMITTED"],
-        PRICING_REVIEW: ["DRAFT", "SUBMITTED", "PRICING_REVIEW"],
-        PENDING_APPROVAL: ["DRAFT", "SUBMITTED", "PRICING_REVIEW", "PENDING_APPROVAL"],
-        QUOTED: ["DRAFT", "SUBMITTED", "PRICING_REVIEW", "PENDING_APPROVAL", "QUOTED"],
-        DECLINED: [
-            "DRAFT",
-            "SUBMITTED",
-            "PRICING_REVIEW",
-            "PENDING_APPROVAL",
-            "QUOTED",
-            "DECLINED",
-        ],
-        CONFIRMED: [
-            "DRAFT",
-            "SUBMITTED",
-            "PRICING_REVIEW",
-            "PENDING_APPROVAL",
-            "QUOTED",
-            "CONFIRMED",
-        ],
-        AWAITING_FABRICATION: [
-            "DRAFT",
-            "SUBMITTED",
-            "PRICING_REVIEW",
-            "PENDING_APPROVAL",
-            "QUOTED",
-            "CONFIRMED",
-            "AWAITING_FABRICATION",
-        ],
-        IN_PREPARATION: [
-            "DRAFT",
-            "SUBMITTED",
-            "PRICING_REVIEW",
-            "PENDING_APPROVAL",
-            "QUOTED",
-            "CONFIRMED",
-            "IN_PREPARATION",
-        ],
-        READY_FOR_DELIVERY: [
-            "DRAFT",
-            "SUBMITTED",
-            "PRICING_REVIEW",
-            "PENDING_APPROVAL",
-            "QUOTED",
-            "CONFIRMED",
-            "IN_PREPARATION",
-            "READY_FOR_DELIVERY",
-        ],
-        IN_TRANSIT: [
-            "DRAFT",
-            "SUBMITTED",
-            "PRICING_REVIEW",
-            "PENDING_APPROVAL",
-            "QUOTED",
-            "CONFIRMED",
-            "IN_PREPARATION",
-            "READY_FOR_DELIVERY",
-            "IN_TRANSIT",
-        ],
-        DELIVERED: [
-            "DRAFT",
-            "SUBMITTED",
-            "PRICING_REVIEW",
-            "PENDING_APPROVAL",
-            "QUOTED",
-            "CONFIRMED",
-            "IN_PREPARATION",
-            "READY_FOR_DELIVERY",
-            "IN_TRANSIT",
-            "DELIVERED",
-        ],
-        AWAITING_RETURN: [
-            "DRAFT",
-            "SUBMITTED",
-            "PRICING_REVIEW",
-            "PENDING_APPROVAL",
-            "QUOTED",
-            "CONFIRMED",
-            "IN_PREPARATION",
-            "READY_FOR_DELIVERY",
-            "IN_TRANSIT",
-            "DELIVERED",
-            "AWAITING_RETURN",
-        ],
-        RETURN_IN_TRANSIT: [
-            "DRAFT",
-            "SUBMITTED",
-            "PRICING_REVIEW",
-            "PENDING_APPROVAL",
-            "QUOTED",
-            "CONFIRMED",
-            "IN_PREPARATION",
-            "READY_FOR_DELIVERY",
-            "IN_TRANSIT",
-            "DELIVERED",
-            "AWAITING_RETURN",
-            "RETURN_IN_TRANSIT",
-        ],
-        CLOSED: [
-            "DRAFT",
-            "SUBMITTED",
-            "PRICING_REVIEW",
-            "PENDING_APPROVAL",
-            "QUOTED",
-            "CONFIRMED",
-            "IN_PREPARATION",
-            "READY_FOR_DELIVERY",
-            "IN_TRANSIT",
-            "DELIVERED",
-            "AWAITING_RETURN",
-            "RETURN_IN_TRANSIT",
-            "CLOSED",
-        ],
-        CANCELLED: ["DRAFT", "SUBMITTED", "CANCELLED"],
+        'DRAFT': ['DRAFT'],
+        'SUBMITTED': ['DRAFT', 'SUBMITTED'],
+        'PRICING_REVIEW': ['DRAFT', 'SUBMITTED', 'PRICING_REVIEW'],
+        'PENDING_APPROVAL': ['DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL'],
+        'QUOTED': ['DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL', 'QUOTED'],
+        'DECLINED': ['DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL', 'QUOTED', 'DECLINED'],
+        'CONFIRMED': ['DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL', 'QUOTED', 'CONFIRMED'],
+        'AWAITING_FABRICATION': ['DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL', 'QUOTED', 'CONFIRMED', 'AWAITING_FABRICATION'],
+        'IN_PREPARATION': ['DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL', 'QUOTED', 'CONFIRMED', 'IN_PREPARATION'],
+        'READY_FOR_DELIVERY': ['DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL', 'QUOTED', 'CONFIRMED', 'IN_PREPARATION', 'READY_FOR_DELIVERY'],
+        'IN_TRANSIT': ['DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL', 'QUOTED', 'CONFIRMED', 'IN_PREPARATION', 'READY_FOR_DELIVERY', 'IN_TRANSIT'],
+        'DELIVERED': ['DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL', 'QUOTED', 'CONFIRMED', 'IN_PREPARATION', 'READY_FOR_DELIVERY', 'IN_TRANSIT', 'DELIVERED'],
+        'AWAITING_RETURN': ['DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL', 'QUOTED', 'CONFIRMED', 'IN_PREPARATION', 'READY_FOR_DELIVERY', 'IN_TRANSIT', 'DELIVERED', 'AWAITING_RETURN'],
+        'RETURN_IN_TRANSIT': ['DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL', 'QUOTED', 'CONFIRMED', 'IN_PREPARATION', 'READY_FOR_DELIVERY', 'IN_TRANSIT', 'DELIVERED', 'AWAITING_RETURN', 'RETURN_IN_TRANSIT'],
+        'CLOSED': ['DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL', 'QUOTED', 'CONFIRMED', 'IN_PREPARATION', 'READY_FOR_DELIVERY', 'IN_TRANSIT', 'DELIVERED', 'AWAITING_RETURN', 'RETURN_IN_TRANSIT', 'CLOSED'],
+        'CANCELLED': ['DRAFT', 'SUBMITTED', 'CANCELLED'],
     };
 
     return progressions[finalStatus] || ["DRAFT"];
@@ -2352,21 +2231,14 @@ function getStatusProgression(finalStatus: string): string[] {
 
 function getFinancialProgression(finalStatus: string): string[] {
     const progressions: Record<string, string[]> = {
-        PENDING_QUOTE: ["PENDING_QUOTE"],
-        QUOTE_SENT: ["PENDING_QUOTE", "QUOTE_SENT"],
-        QUOTE_REVISED: ["PENDING_QUOTE", "QUOTE_SENT", "QUOTE_REVISED"],
-        QUOTE_ACCEPTED: ["PENDING_QUOTE", "QUOTE_SENT", "QUOTE_ACCEPTED"],
-        PENDING_INVOICE: ["PENDING_QUOTE", "QUOTE_SENT", "QUOTE_ACCEPTED", "PENDING_INVOICE"],
-        INVOICED: ["PENDING_QUOTE", "QUOTE_SENT", "QUOTE_ACCEPTED", "PENDING_INVOICE", "INVOICED"],
-        PAID: [
-            "PENDING_QUOTE",
-            "QUOTE_SENT",
-            "QUOTE_ACCEPTED",
-            "PENDING_INVOICE",
-            "INVOICED",
-            "PAID",
-        ],
-        CANCELLED: ["PENDING_QUOTE", "CANCELLED"],
+        'PENDING_QUOTE': ['PENDING_QUOTE'],
+        'QUOTE_SENT': ['PENDING_QUOTE', 'QUOTE_SENT'],
+        'QUOTE_REVISED': ['PENDING_QUOTE', 'QUOTE_SENT', 'QUOTE_REVISED'],
+        'QUOTE_ACCEPTED': ['PENDING_QUOTE', 'QUOTE_SENT', 'QUOTE_ACCEPTED'],
+        'PENDING_INVOICE': ['PENDING_QUOTE', 'QUOTE_SENT', 'QUOTE_ACCEPTED', 'PENDING_INVOICE'],
+        'INVOICED': ['PENDING_QUOTE', 'QUOTE_SENT', 'QUOTE_ACCEPTED', 'PENDING_INVOICE', 'INVOICED'],
+        'PAID': ['PENDING_QUOTE', 'QUOTE_SENT', 'QUOTE_ACCEPTED', 'PENDING_INVOICE', 'INVOICED', 'PAID'],
+        'CANCELLED': ['PENDING_QUOTE', 'CANCELLED'],
     };
 
     return progressions[finalStatus] || ["PENDING_QUOTE"];
@@ -2374,21 +2246,21 @@ function getFinancialProgression(finalStatus: string): string[] {
 
 function getStatusNote(status: string): string {
     const notes: Record<string, string> = {
-        DRAFT: "Order created",
-        SUBMITTED: "Order submitted by client",
-        PRICING_REVIEW: "Under logistics review",
-        PENDING_APPROVAL: "Awaiting admin approval",
-        QUOTED: "Quote sent to client",
-        CONFIRMED: "Client approved quote",
-        AWAITING_FABRICATION: "Awaiting fabrication completion",
-        IN_PREPARATION: "Items being prepared",
-        READY_FOR_DELIVERY: "Ready for pickup",
-        IN_TRANSIT: "En route to venue",
-        DELIVERED: "Delivered to venue",
-        AWAITING_RETURN: "Event complete, awaiting pickup",
-        RETURN_IN_TRANSIT: "Items returning to warehouse",
-        CLOSED: "Order complete",
-        CANCELLED: "Order cancelled",
+        'DRAFT': 'Order created',
+        'SUBMITTED': 'Order submitted by client',
+        'PRICING_REVIEW': 'Under logistics review',
+        'PENDING_APPROVAL': 'Awaiting admin approval',
+        'QUOTED': 'Quote sent to client',
+        'CONFIRMED': 'Client approved quote',
+        'AWAITING_FABRICATION': 'Awaiting fabrication completion',
+        'IN_PREPARATION': 'Items being prepared',
+        'READY_FOR_DELIVERY': 'Ready for pickup',
+        'IN_TRANSIT': 'En route to venue',
+        'DELIVERED': 'Delivered to venue',
+        'AWAITING_RETURN': 'Event complete, awaiting pickup',
+        'RETURN_IN_TRANSIT': 'Items returning to warehouse',
+        'CLOSED': 'Order complete',
+        'CANCELLED': 'Order cancelled',
     };
 
     return notes[status] || "Status updated";
@@ -2396,14 +2268,14 @@ function getStatusNote(status: string): string {
 
 function getFinancialNote(status: string): string {
     const notes: Record<string, string> = {
-        PENDING_QUOTE: "Awaiting pricing",
-        QUOTE_SENT: "Quote delivered to client",
-        QUOTE_REVISED: "Quote revised, awaiting acknowledgment",
-        QUOTE_ACCEPTED: "Client accepted quote",
-        PENDING_INVOICE: "Preparing invoice",
-        INVOICED: "Invoice generated and sent",
-        PAID: "Payment received",
-        CANCELLED: "Order cancelled",
+        'PENDING_QUOTE': 'Awaiting pricing',
+        'QUOTE_SENT': 'Quote delivered to client',
+        'QUOTE_REVISED': 'Quote revised, awaiting acknowledgment',
+        'QUOTE_ACCEPTED': 'Client accepted quote',
+        'PENDING_INVOICE': 'Preparing invoice',
+        'INVOICED': 'Invoice generated and sent',
+        'PAID': 'Payment received',
+        'CANCELLED': 'Order cancelled',
     };
 
     return notes[status] || "Financial status updated";
@@ -2456,12 +2328,14 @@ async function cleanupExistingData() {
         await db.delete(schema.reskinRequests);
         await db.delete(schema.orderItems);
         await db.delete(schema.orders);
+        await db.delete(schema.orderPrices);
         await db.delete(schema.collectionItems);
         await db.delete(schema.collections);
         await db.delete(schema.assets);
         await db.delete(schema.serviceTypes);
         await db.delete(schema.transportRates);
-        await db.delete(schema.pricingConfig);
+        await db.delete(schema.cities);
+        await db.delete(schema.countries);
         await db.delete(schema.zones);
         await db.delete(schema.brands);
         await db.delete(schema.companyDomains);
@@ -2492,6 +2366,7 @@ async function main() {
         // Phase 1: Core infrastructure
         await seedPlatforms();
         await seedCompanies();
+        await seedCountries();
         await seedCompanyDomains();
         await seedWarehouses();
         await seedUsers();
@@ -2499,7 +2374,6 @@ async function main() {
         await seedZones();
 
         // Phase 2: Pricing & configuration
-        await seedPricingConfig();
         await seedTransportRates();
         await seedServiceTypes();
 
@@ -2543,18 +2417,12 @@ async function main() {
         console.log(`  - Pricing Configs: ${seededData.pricingConfigs.length}`);
         console.log(`  - Transport Rates: ${seededData.transportRates.length}`);
         console.log(`  - Service Types: ${seededData.serviceTypes.length}`);
-        console.log(
-            `  - Orders: ${seededData.orders.length} (${seededData.orders.filter((o) => o.order_status === "AWAITING_FABRICATION").length} awaiting fabrication)`
-        );
-        console.log(
-            `  - Order Items: ${seededData.orderItems.length} (${seededData.orderItems.filter((i) => i.is_reskin_request).length} reskin requests)`
-        );
+        console.log(`  - Orders: ${seededData.orders.length} (${seededData.orders.filter(o => o.order_status === 'AWAITING_FABRICATION').length} awaiting fabrication)`);
+        console.log(`  - Order Items: ${seededData.orderItems.length} (${seededData.orderItems.filter(i => i.is_reskin_request).length} reskin requests)`);
         console.log(`  - Reskin Requests: ${seededData.reskinRequests.length}`);
-        console.log(
-            `  - Order Line Items: ${seededData.orderLineItems.length} (${seededData.orderLineItems.filter((i) => i.category === "RESKIN").length} reskin costs)`
-        );
+        console.log(`  - Order Line Items: ${seededData.orderLineItems.length} (${seededData.orderLineItems.filter(i => i.category === 'RESKIN').length} reskin costs)`);
 
-        console.log("\n🖼️  Image Summary:");
+        console.log('\n🖼️  Image Summary:');
         console.log(`  - Asset images: ${seededData.assets.length * 3}`);
         console.log(`  - Collection images: ${seededData.collections.length * 2}`);
         console.log(`  - Brand logos: ${seededData.brands.length}`);

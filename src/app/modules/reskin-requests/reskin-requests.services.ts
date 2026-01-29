@@ -6,23 +6,23 @@ import {
     orderItems,
     assets,
     orders,
-    orderLineItems,
     orderStatusHistory,
-    financialStatusHistory,
+    orderLineItems,
     users,
+    orderPrices,
+    financialStatusHistory,
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
-import { AuthUser } from "../../interface/common";
 import {
     ProcessReskinRequestPayload,
     CompleteReskinRequestPayload,
-    CancelReskinRequestPayload,
     ReskinStatus,
+    CancelReskinRequestPayload,
 } from "./reskin-requests.interfaces";
 import { OrderLineItemsServices } from "../order-line-items/order-line-items.services";
 import { generateAssetQRCode } from "../../utils/qr-generator";
-import { recalculateOrderPricing } from "../order/order-pricing.helpers";
 import { NotificationLogServices } from "../notification-logs/notification-logs.services";
+import { AuthUser } from "../../interface/common";
 import { OrderServices } from "../order/order.services";
 
 // ----------------------------------- LIST RESKIN REQUESTS -----------------------------------
@@ -380,6 +380,14 @@ const cancelReskinRequest = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
     }
 
+    const orderPricing = await db.query.orderPrices.findFirst({
+        where: eq(orderPrices.id, orderRecord.order_pricing_id),
+    });
+
+    if (!orderPricing) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order pricing not found");
+    }
+
     if (order_action === "cancel_order") {
         const [userRecord] = await db
             .select()
@@ -420,13 +428,14 @@ const cancelReskinRequest = async (
         };
     }
 
-    const previousTotal = (orderRecord.pricing as any)?.final_total || null;
-    const updatedPricing = await recalculateOrderPricing(
-        orderRecord.id,
-        platformId,
-        orderRecord.company_id,
-        cancelled_by
-    );
+    const previousTotal = orderPricing.final_total || null;
+    // TODO: Recalculate order pricing
+    // const updatedPricing = await recalculateOrderPricing(
+    //     orderRecord.id,
+    //     platformId,
+    //     orderRecord.company_id,
+    //     cancelled_by
+    // );
 
     const shouldReviseQuote = ["QUOTED", "CONFIRMED", "AWAITING_FABRICATION", "IN_PREPARATION"].includes(
         orderRecord.order_status
@@ -439,7 +448,6 @@ const cancelReskinRequest = async (
         .set({
             order_status: nextOrderStatus,
             financial_status: nextFinancialStatus,
-            pricing: updatedPricing as any,
             updated_at: new Date(),
         })
         .where(eq(orders.id, orderRecord.id));
@@ -472,7 +480,7 @@ const cancelReskinRequest = async (
             undefined,
             {
                 previous_total: previousTotal,
-                new_total: updatedPricing.final_total,
+                new_total: 0,// updatedPricing.final_total,
                 revision_reason: cancellation_reason,
             }
         );
@@ -481,7 +489,7 @@ const cancelReskinRequest = async (
     return {
         action: "continue",
         order_id: reskinRequest.order_id,
-        pricing: updatedPricing,
+        pricing: 0,// updatedPricing,
     };
 };
 
