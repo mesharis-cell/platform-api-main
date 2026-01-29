@@ -22,7 +22,7 @@ router.post(
     "/:orderItemId/process",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.RESKIN_REQUESTS_PROCESS),
+    // requirePermission(PERMISSIONS.RESKIN_REQUESTS_PROCESS),
     payloadValidator(ReskinRequestsSchemas.processReskinRequestSchema),
     ReskinRequestsControllers.processReskinRequest
 );
@@ -32,7 +32,7 @@ router.post(
     "/:reskinId/complete",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.RESKIN_REQUESTS_COMPLETE),
+    // requirePermission(PERMISSIONS.RESKIN_REQUESTS_COMPLETE),
     payloadValidator(ReskinRequestsSchemas.completeReskinRequestSchema),
     ReskinRequestsControllers.completeReskinRequest
 );
