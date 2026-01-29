@@ -80,37 +80,37 @@ const completeReskinRequest = catchAsync(async (req: Request, res: Response) => 
 });
 
 // ----------------------------------- CANCEL RESKIN REQUEST -----------------------------------
-// const cancelReskinRequest = catchAsync(async (req: Request, res: Response) => {
-//     const platformId = (req as any).platform_id;
-//     const user = (req as any).user;
-//     const reskinId = getRequiredString(req.params.reskinId, "reskinId");
+const cancelReskinRequest = catchAsync(async (req: Request, res: Response) => {
+    const platformId = (req as any).platform_id;
+    const user = (req as any).user;
+    const reskinId = getRequiredString(req.params.reskinId, "reskinId");
 
-//     const payload = {
-//         ...req.body,
-//         cancelled_by: user.id,
-//     };
+    const payload = {
+        ...req.body,
+        cancelled_by: user.id,
+    };
 
-//     const result = await ReskinRequestsServices.cancelReskinRequest(
-//         reskinId,
-//         platformId,
-//         payload
-//     );
+    const result = await ReskinRequestsServices.cancelReskinRequest(
+        reskinId,
+        platformId,
+        payload
+    );
 
-//     const message = result.action === "cancel_order"
-//         ? "Reskin cancelled. Order cancellation initiated."
-//         : "Reskin cancelled. Order will continue with original asset.";
+    const message = result.action === "cancel_order"
+        ? "Reskin cancelled. Order cancellation initiated."
+        : "Reskin cancelled. Order will continue with original asset.";
 
-//     sendResponse(res, {
-//         statusCode: httpStatus.OK,
-//         success: true,
-//         message,
-//         data: result,
-//     });
-// });
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message,
+        data: result,
+    });
+});
 
 export const ReskinRequestsControllers = {
     listReskinRequests,
     processReskinRequest,
     completeReskinRequest,
-    // cancelReskinRequest,
+    cancelReskinRequest,
 };
