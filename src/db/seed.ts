@@ -1513,10 +1513,9 @@ async function seedOrders() {
         // Determine vehicle type based on volume
         const vehicleType = parseFloat(volume) > 30 ? '10_TON' : parseFloat(volume) > 15 ? '7_TON' : 'STANDARD';
         const tripType = 'ROUND_TRIP';
-        const emirate = randomItem(['Dubai', 'Abu Dhabi', 'Sharjah']);
 
         // Get pricing config rate (150 AED/m³ default)
-        const warehouseOpsRate = 150.00;
+        const warehouseOpsRate = company.warehouse_ops_rate;
 
         // Calculate base operations
         const baseOpsTotal = parseFloat(volume) * warehouseOpsRate;
@@ -1549,38 +1548,33 @@ async function seedOrders() {
         const finalTotal = logisticsSubtotal + marginAmount + customTotal;
 
         // Build NEW pricing structure (only for orders past SUBMITTED)
-        const newPricing = !['DRAFT', 'SUBMITTED'].includes(status) ? {
-            base_operations: {
-                volume: parseFloat(volume),
-                rate: warehouseOpsRate,
-                total: parseFloat(baseOpsTotal.toFixed(2)),
-            },
+        const newPricing = {
+            platform_id: platform1.id,
+            warehouse_ops_rate: warehouseOpsRate,
+            base_ops_total: baseOpsTotal.toFixed(2),
+            logistics_sub_total: logisticsSubtotal.toFixed(2),
             transport: {
-                trip_type: tripType,
-                vehicle_type: vehicleType,
-                rate: transportRate,
-                total: transportRate,
-                emirate: emirate,
-                area: null,
-                vehicle_changed: false,
-                original_vehicle_type: null,
-                vehicle_change_reason: null,
+                system_rate: transportRate,
+                final_rate: transportRate
             },
             line_items: {
-                catalog_total: parseFloat(catalogTotal.toFixed(2)),
-                custom_total: parseFloat(customTotal.toFixed(2)),
+                catalog_total: catalogTotal,
+                custom_total: customTotal,
             },
-            logistics_subtotal: parseFloat(logisticsSubtotal.toFixed(2)),
             margin: {
                 percent: marginPercent,
-                amount: parseFloat(marginAmount.toFixed(2)),
+                amount: marginAmount,
                 is_override: false,
-                override_reason: null,
+                override_reason: null
             },
-            final_total: parseFloat(finalTotal.toFixed(2)),
-            calculated_at: new Date(createdDate.getTime() + 36 * 60 * 60 * 1000).toISOString(),
-            calculated_by: seededData.users.find(u => u.role === 'ADMIN')?.id || null,
-        } : null;
+            final_total: finalTotal.toFixed(2),
+            calculated_at: new Date(),
+            calculated_by: user.id,
+        }
+
+        const [pricing] = await db.insert(schema.orderPrices).values(newPricing).returning();
+
+        const cityIds = seededData.cities.map(city => city.id);
 
         orders.push({
             platform_id: platform1.id,
@@ -1612,9 +1606,9 @@ async function seedOrders() {
                 "Address Downtown",
                 "JW Marriott Marquis",
             ]),
+            venue_city_id: randomItem(cityIds),
             venue_location: {
                 country: "United Arab Emirates",
-                city: randomItem(["Dubai", "Abu Dhabi", "Sharjah"]),
                 address: `${Math.floor(Math.random() * 500) + 1} Event Street, Area ${Math.floor(Math.random() * 50) + 1}`,
                 access_notes:
                     "Service entrance at rear of building. Contact security upon arrival.",
@@ -1647,8 +1641,7 @@ async function seedOrders() {
             },
             transport_trip_type: tripType as any,
             transport_vehicle_type: vehicleType as any,
-            tier_id: null, // DEPRECATED
-            order_pricing_id: newPricing, // NEW hybrid pricing structure
+            order_pricing_id: pricing.id,
             order_status: status,
             financial_status: financial,
             scanning_data: {},
@@ -1663,18 +1656,17 @@ async function seedOrders() {
         });
     }
 
-    // TODO: Uncomment
-    // const inserted = await db.insert(schema.orders).values(orders).returning();
-    // seededData.orders = inserted;
+    const inserted = await db.insert(schema.orders).values(orders).returning();
+    seededData.orders = inserted;
 
-    // // Track which orders should have reskin requests
-    // for (let i = 0; i < orderStatuses.length; i++) {
-    //     if (orderStatuses[i].hasReskin) {
-    //         seededData.ordersWithReskin.push(inserted[i].id);
-    //     }
-    // }
+    // Track which orders should have reskin requests
+    for (let i = 0; i < orderStatuses.length; i++) {
+        if (orderStatuses[i].hasReskin) {
+            seededData.ordersWithReskin.push(inserted[i].id);
+        }
+    }
 
-    // console.log(`✓ Created ${inserted.length} orders across all statuses (${seededData.ordersWithReskin.length} with reskin requests)`);
+    console.log(`✓ Created ${inserted.length} orders across all statuses (${seededData.ordersWithReskin.length} with reskin requests)`);
 }
 
 async function seedOrderItems() {
@@ -1796,11 +1788,14 @@ async function seedOrderLineItems() {
         }
 
         // Get pricing totals from order
-        const pricing = order.pricing as any;
-        if (!pricing) continue;
+        const orderPricing = await db.query.orderPrices.findFirst({
+            where: eq(schema.orderPrices.id, order.order_pricing_id),
+        });
+        // const pricing = order.pricing as any;
+        if (!orderPricing) continue;
 
-        const catalogTarget = pricing.line_items.catalog_total;
-        const customTarget = pricing.line_items.custom_total;
+        const catalogTarget = (orderPricing.line_items as any).catalog_total;
+        const customTarget = (orderPricing.line_items as any).custom_total;
 
         const addedDate = new Date(order.created_at.getTime() + 36 * 60 * 60 * 1000);
 
@@ -2333,11 +2328,14 @@ async function cleanupExistingData() {
         await db.delete(schema.reskinRequests);
         await db.delete(schema.orderItems);
         await db.delete(schema.orders);
+        await db.delete(schema.orderPrices);
         await db.delete(schema.collectionItems);
         await db.delete(schema.collections);
         await db.delete(schema.assets);
         await db.delete(schema.serviceTypes);
         await db.delete(schema.transportRates);
+        await db.delete(schema.cities);
+        await db.delete(schema.countries);
         await db.delete(schema.zones);
         await db.delete(schema.brands);
         await db.delete(schema.companyDomains);
