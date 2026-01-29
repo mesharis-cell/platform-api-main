@@ -1858,6 +1858,7 @@ const adminApproveQuote = async (
     const orderPricing = result.order_pricing;
     const venueCity = result.venue_city;
 
+    // Step 2: Validate order status violations and checks
     if (!order) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
     }
@@ -1903,7 +1904,9 @@ const adminApproveQuote = async (
 
     let finalTotal = orderPricing.final_total;
 
+    // Step 3: Update order pricing and status
     await db.transaction(async (tx) => {
+        // Step 3.1: Update pricing if margin override is provided
         if (margin_override_percent) {
             const marginAmount = Number(orderPricing.logistics_sub_total) * (margin_override_percent / 100);
             const updatedFinalTotal = Number(orderPricing.logistics_sub_total) + marginAmount + Number((orderPricing.line_items as any).custom_total);
@@ -1923,6 +1926,7 @@ const adminApproveQuote = async (
             }).where(eq(orderPrices.id, order.order_pricing_id));
         }
 
+        // Step 3.2: Update order status
         await tx
             .update(orders)
             .set({
@@ -1932,6 +1936,7 @@ const adminApproveQuote = async (
             })
             .where(eq(orders.id, orderId));
 
+        // Step 3.3: Log status history
         await tx.insert(orderStatusHistory).values({
             platform_id: platformId,
             order_id: orderId,
@@ -1944,6 +1949,7 @@ const adminApproveQuote = async (
             updated_by: user.id,
         });
 
+        // Step 3.4: Log financial status history
         await db.insert(financialStatusHistory).values({
             platform_id: platformId,
             order_id: orderId,
@@ -1954,6 +1960,7 @@ const adminApproveQuote = async (
     })
 
 
+    // Step 4: Send notification
     await NotificationLogServices.sendNotification(
         platformId,
         "QUOTE_SENT",
@@ -1963,6 +1970,7 @@ const adminApproveQuote = async (
         }
     );
 
+    // Step 5: Return updated order
     return {
         id: order.id,
         order_id: order.order_id,
