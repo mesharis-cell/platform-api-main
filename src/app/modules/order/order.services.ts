@@ -2249,8 +2249,10 @@ const updateOrderVehicle = async (
     user: AuthUser,
     payload: UpdateVehiclePayload,
 ) => {
+    // Step 1: Extract payload data
     const { vehicle_type, reason } = payload;
 
+    // Step 2: Fetch order from database
     const order = await db.query.orders.findFirst({
         where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
     });
@@ -2259,6 +2261,7 @@ const updateOrderVehicle = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
     }
 
+    // Step 3: Verify order is in valid status for vehicle update
     if (!["PRICING_REVIEW", "PENDING_APPROVAL"].includes(order.order_status)) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
@@ -2266,6 +2269,7 @@ const updateOrderVehicle = async (
         );
     }
 
+    // Step 4: Fetch order pricing details
     const orderPricing = await db.query.orderPrices.findFirst({
         where: and(eq(orderPrices.id, order.order_pricing_id), eq(orders.platform_id, platformId)),
     });
@@ -2274,6 +2278,7 @@ const updateOrderVehicle = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order pricing not found");
     }
 
+    // Step 5: Lookup new transport rate for the updated vehicle type
     const transportRateInfo = await TransportRatesServices.lookupTransportRate(
         platformId,
         order.company_id,
@@ -2282,12 +2287,14 @@ const updateOrderVehicle = async (
         vehicle_type
     );
 
+    // Step 6: Calculate updated pricing with new transport rate
     const transportRate = transportRateInfo?.rate ? Number(transportRateInfo.rate) : null;
     const baseOpsTotal = Number(orderPricing.base_ops_total);
     const logisticsSubTotal = transportRate ? transportRate + baseOpsTotal : null;
     const marginAmount = logisticsSubTotal ? logisticsSubTotal * (Number((orderPricing.margin as any).percent) / 100) : null;
     const finalTotal = logisticsSubTotal && marginAmount ? logisticsSubTotal + marginAmount : null;
 
+    // Step 7: Prepare updated pricing object
     const updatedPricing = {
         logistics_sub_total: logisticsSubTotal ? logisticsSubTotal.toFixed(2) : null,
         transport: {
@@ -2303,9 +2310,12 @@ const updateOrderVehicle = async (
         calculated_by: user.id,
     }
 
+    // Step 8: Update order pricing and vehicle type in transaction
     await db.transaction(async (tx) => {
+        // Step 8.1: Update order pricing with new transport rate
         await tx.update(orderPrices).set(updatedPricing).where(eq(orderPrices.id, order.order_pricing_id));
 
+        // Step 8.2: Update order vehicle type
         await tx
             .update(orders)
             .set({
@@ -2315,6 +2325,7 @@ const updateOrderVehicle = async (
             .where(eq(orders.id, orderId));
     })
 
+    // Step 9: Return updated vehicle information
     return {
         vehicle_type,
         new_rate: transportRate,
