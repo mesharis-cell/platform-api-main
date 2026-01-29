@@ -67,6 +67,7 @@ import { getPlatformAdminEmails, getPlatformLogisticsStaffEmails } from "../../u
 import config from "../../config";
 import { formatDateForEmail } from "../../utils/date-time";
 import { TransportRatesServices } from "../transport-rates/transport-rates.services";
+import { costEstimateGenerator } from "../../utils/cost-estimate";
 
 // ----------------------------------- CALCULATE ESTIMATE -------------------------------------
 const calculateEstimate = async (
@@ -1960,6 +1961,45 @@ const adminApproveQuote = async (
         });
     })
 
+    const orderItemsResult = await db.select().from(orderItems).where(eq(orderItems.order_id, orderId));
+
+    // Step 3: Prepare invoice data using new pricing structure
+    const venueLocation = order.venue_location as any;
+
+    const costEstimateData = {
+        id: order.id,
+        user_id: user.id,
+        platform_id: order.platform_id,
+        order_id: order.order_id,
+        contact_name: order.contact_name,
+        contact_email: order.contact_email,
+        contact_phone: order.contact_phone,
+        company_name: company?.name || "N/A",
+        event_start_date: order.event_start_date,
+        event_end_date: order.event_end_date,
+        venue_name: order.venue_name,
+        venue_country: venueLocation.country || "N/A",
+        venue_city: venueCity?.name || "N/A",
+        venue_address: venueLocation.address || "N/A",
+        order_status: order.order_status,
+        financial_status: order.financial_status,
+        pricing: {
+            logistics_base_price: String(orderPricing?.logistics_sub_total) || '0',
+            platform_margin_percent: String((orderPricing?.margin as any)?.percent) || '0',
+            platform_margin_amount: String((orderPricing?.margin as any)?.amount) || '0',
+            final_total_price: String(orderPricing?.final_total) || '0',
+            show_breakdown: !!orderPricing, // Show breakdown if using new pricing
+        },
+        items: orderItemsResult.map((item) => ({
+            asset_name: item.asset_name,
+            quantity: item.quantity,
+            handling_tags: item.handling_tags as any,
+            from_collection_name: item.from_collection_name || "N/A",
+        })),
+    };
+
+    // Generate cost estimate PDF
+    await costEstimateGenerator(costEstimateData);
 
     // Step 4: Send notification
     await NotificationLogServices.sendNotification(

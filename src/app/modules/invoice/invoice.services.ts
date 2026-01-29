@@ -371,6 +371,7 @@ const generateInvoice = async (
         with: {
             company: true,
             order_pricing: true,
+            venue_city: true,
             items: {
                 with: {
                     asset: {
@@ -420,7 +421,7 @@ const generateInvoice = async (
         event_end_date: order.event_end_date,
         venue_name: order.venue_name,
         venue_country: venueLocation.country || "N/A",
-        venue_city: venueLocation.city || "N/A",
+        venue_city: order.venue_city?.name || "N/A",
         venue_address: venueLocation.address || "N/A",
         order_status: order.order_status,
         financial_status: order.financial_status,

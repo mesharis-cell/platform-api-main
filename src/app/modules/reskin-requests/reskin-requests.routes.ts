@@ -2,8 +2,6 @@ import { Router } from "express";
 import auth from "../../middleware/auth";
 import payloadValidator from "../../middleware/payload-validator";
 import platformValidator from "../../middleware/platform-validator";
-import requirePermission from "../../middleware/permission";
-import { PERMISSIONS } from "../../constants/permissions";
 import { ReskinRequestsControllers } from "./reskin-requests.controllers";
 import { ReskinRequestsSchemas } from "./reskin-requests.schemas";
 
@@ -42,7 +40,7 @@ router.post(
     "/:reskinId/cancel",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.RESKIN_REQUESTS_CANCEL),
+    // requirePermission(PERMISSIONS.RESKIN_REQUESTS_CANCEL),
     payloadValidator(ReskinRequestsSchemas.cancelReskinRequestSchema),
     ReskinRequestsControllers.cancelReskinRequest
 );
