@@ -34,6 +34,7 @@ import {
     CancelOrderPayload,
     CalculateEstimatePayload,
     AdminApproveQuotePayload,
+    UpdateVehiclePayload,
 } from "./order.interfaces";
 import {
     checkAssetsForOrder,
@@ -2241,80 +2242,85 @@ const getPendingApprovalOrders = async (query: any, platformId: string) => {
     };
 };
 
-// ---------------- Update order vehicle type and recalculate transport rate ----------------
-// export async function updateOrderVehicle(
-//     orderId: string,
-//     platformId: string,
-//     payload: UpdateVehiclePayload,
-//     userId: string
-// ) {
-//     const { vehicle_type, reason } = payload;
+// ----------------------------------- UPDATE ORDER VEHICLE -------------------------------------
+const updateOrderVehicle = async (
+    orderId: string,
+    platformId: string,
+    user: AuthUser,
+    payload: UpdateVehiclePayload,
+) => {
+    const { vehicle_type, reason } = payload;
 
-//     // Validate reason if changing vehicle
-//     if (!reason || reason.trim().length < 10) {
-//         throw new CustomizedError(
-//             httpStatus.BAD_REQUEST,
-//             "Vehicle change reason is required (min 10 characters)"
-//         );
-//     }
+    const order = await db.query.orders.findFirst({
+        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
+    });
 
-//     // Get order
-//     const order = await db.query.orders.findFirst({
-//         where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
-//     });
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    }
 
-//     if (!order) {
-//         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
-//     }
+    if (!["PRICING_REVIEW", "PENDING_APPROVAL"].includes(order.order_status)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Vehicle type can only be changed during pricing review"
+        );
+    }
 
-//     // Validate order status
-//     if (!["PRICING_REVIEW", "PENDING_APPROVAL"].includes(order.order_status)) {
-//         throw new CustomizedError(
-//             httpStatus.BAD_REQUEST,
-//             "Vehicle type can only be changed during pricing review"
-//         );
-//     }
+    const orderPricing = await db.query.orderPrices.findFirst({
+        where: and(eq(orderPrices.id, order.order_pricing_id), eq(orders.platform_id, platformId)),
+    });
 
-//     // Get new transport rate
-//     const emirate = PricingCalculationServices.deriveEmirateFromCity(
-//         (order.venue_location as any).city
-//     );
-//     const newRate = await TransportRatesServices.getTransportRate(
-//         platformId,
-//         order.company_id,
-//         emirate,
-//         order.transport_trip_type,
-//         vehicle_type
-//     );
+    if (!orderPricing) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order pricing not found");
+    }
 
-//     // Update order
-//     await db
-//         .update(orders)
-//         .set({
-//             transport_vehicle_type: vehicle_type as any,
-//             // Update pricing JSONB if it exists
-//             pricing: order.pricing
-//                 ? {
-//                     ...(order.pricing as any),
-//                     transport: {
-//                         ...(order.pricing as any).transport,
-//                         vehicle_type,
-//                         final_rate: newRate,
-//                         vehicle_changed: vehicle_type !== "STANDARD",
-//                         vehicle_change_reason: reason.trim(),
-//                     },
-//                 }
-//                 : null,
-//             updated_at: new Date(),
-//         })
-//         .where(eq(orders.id, orderId));
+    const transportRateInfo = await TransportRatesServices.lookupTransportRate(
+        platformId,
+        order.company_id,
+        order.venue_city_id,
+        order.transport_trip_type,
+        vehicle_type
+    );
 
-//     return {
-//         vehicle_type,
-//         new_rate: newRate,
-//         reason: reason.trim(),
-//     };
-// }
+    const transportRate = transportRateInfo?.rate ? Number(transportRateInfo.rate) : null;
+    const baseOpsTotal = Number(orderPricing.base_ops_total);
+    const logisticsSubTotal = transportRate ? transportRate + baseOpsTotal : null;
+    const marginAmount = logisticsSubTotal ? logisticsSubTotal * (Number((orderPricing.margin as any).percent) / 100) : null;
+    const finalTotal = logisticsSubTotal && marginAmount ? logisticsSubTotal + marginAmount : null;
+
+    const updatedPricing = {
+        logistics_sub_total: logisticsSubTotal ? logisticsSubTotal.toFixed(2) : null,
+        transport: {
+            system_rate: (orderPricing.transport as any).system_rate,
+            final_rate: transportRate
+        },
+        margin: {
+            ...(orderPricing.margin as Record<string, any>),
+            amount: marginAmount,
+        },
+        final_total: finalTotal ? finalTotal.toFixed(2) : null,
+        calculated_at: new Date(),
+        calculated_by: user.id,
+    }
+
+    await db.transaction(async (tx) => {
+        await tx.update(orderPrices).set(updatedPricing).where(eq(orderPrices.id, order.order_pricing_id));
+
+        await tx
+            .update(orders)
+            .set({
+                transport_vehicle_type: vehicle_type,
+                updated_at: new Date(),
+            })
+            .where(eq(orders.id, orderId));
+    })
+
+    return {
+        vehicle_type,
+        new_rate: transportRate,
+        reason: reason.trim(),
+    };
+}
 
 // ----------------------------------- ADJUST LOGISTICS PRICING -------------------------------
 // const adjustLogisticsPricing = async (
@@ -2620,7 +2626,7 @@ export const OrderServices = {
     returnToLogistics,
     cancelOrder,
     calculateEstimate,
-    // updateOrderVehicle,
+    updateOrderVehicle,
     // addOrderItem: OrderItemsAdjustmentService.addOrderItem,
     // removeOrderItem: OrderItemsAdjustmentService.removeOrderItem,
     // updateOrderItemQuantity: OrderItemsAdjustmentService.updateOrderItemQuantity,

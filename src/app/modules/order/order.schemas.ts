@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { orderStatusEnum, tripTypeEnum } from "../../../db/schema";
+import { orderStatusEnum, tripTypeEnum, vehicleTypeEnum } from "../../../db/schema";
 import { enumMessageGenerator } from "../../utils/helper";
 import { CANCEL_REASONS } from "./order.utils";
 
@@ -273,9 +273,10 @@ const declineQuoteSchema = z.object({
 const updateVehicleSchema = z.object({
     body: z
         .object({
-            vehicle_type: z.enum(["STANDARD", "7_TON", "10_TON"], {
-                message: "Vehicle type must be STANDARD, 7_TON, or 10_TON",
-            }),
+            vehicle_type: z.enum(
+                vehicleTypeEnum.enumValues,
+                enumMessageGenerator("Vehicle type", vehicleTypeEnum.enumValues)
+            ),
             reason: z
                 .string("Reason should be a text")
                 .min(10, "Reason must be at least 10 characters"),

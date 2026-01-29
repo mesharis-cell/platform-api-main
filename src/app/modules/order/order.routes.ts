@@ -169,15 +169,15 @@ router.get(
 
 // ---------------------------------- NEW PRICING WORKFLOW ROUTES ----------------------------------
 
-// Update vehicle type (Logistics) - TODO: Implement controller
-// router.patch(
-//     "/:id/vehicle",
-//     platformValidator,
-//     auth("ADMIN", "LOGISTICS"),
-//     // requirePermission(PERMISSIONS.PRICING_REVIEW),
-//     payloadValidator(orderSchemas.updateVehicleSchema),
-//     OrderControllers.updateOrderVehicle
-// );
+// Update vehicle type (Logistics)
+router.patch(
+    "/:id/vehicle",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    // requirePermission(PERMISSIONS.PRICING_REVIEW),
+    payloadValidator(orderSchemas.updateVehicleSchema),
+    OrderControllers.updateOrderVehicle
+);
 
 // Submit for approval (Logistics → Admin)
 router.post(

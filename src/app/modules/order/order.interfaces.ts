@@ -1,5 +1,6 @@
 import z from "zod";
 import { orderItemSchema, orderSchemas } from "./order.schemas";
+import { VehicleType } from "../transport-rates/transport-rates.interfaces";
 
 export type CalculateEstimatePayload = z.infer<typeof orderSchemas.calculateEstimateSchema>["body"];
 
@@ -31,7 +32,7 @@ export type DeclineQuotePayload = z.infer<typeof orderSchemas.declineQuoteSchema
 export type AdminApproveQuotePayload = z.infer<typeof orderSchemas.adminApproveQuoteSchema>["body"];
 
 export interface UpdateVehiclePayload {
-    vehicle_type: "STANDARD" | "7_TON" | "10_TON";
+    vehicle_type: VehicleType;
     reason: string;
 }
 

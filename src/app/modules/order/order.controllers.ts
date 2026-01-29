@@ -395,20 +395,20 @@ const cancelOrder = catchAsync(async (req, res) => {
 });
 
 // ----------------------------------- UPDATE VEHICLE (NEW) -----------------------------------
-// const updateOrderVehicle = catchAsync(async (req, res) => {
-//     const user = (req as any).user;
-//     const platformId = (req as any).platform_id;
-//     const id = getRequiredString(req.params.id, "id");
+const updateOrderVehicle = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platform_id;
+    const id = getRequiredString(req.params.id, "id");
 
-//     const result = await OrderServices.updateOrderVehicle(id, platformId, req.body, user.id);
+    const result = await OrderServices.updateOrderVehicle(id, platformId, user, req.body);
 
-//     sendResponse(res, {
-//         statusCode: httpStatus.OK,
-//         success: true,
-//         message: "Vehicle type updated successfully.",
-//         data: result,
-//     });
-// });
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Vehicle type updated successfully.",
+        data: result,
+    });
+});
 
 const getPendingApprovalOrders = catchAsync(async (req, res) => {
     const platformId = (req as any).platform_id;
@@ -546,7 +546,7 @@ export const OrderControllers = {
     adminApproveQuote,
     returnToLogistics,
     cancelOrder,
-    // updateOrderVehicle,
+    updateOrderVehicle,
     // addOrderItem,
     // removeOrderItem,
     // updateOrderItemQuantity,
