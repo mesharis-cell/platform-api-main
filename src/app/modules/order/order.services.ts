@@ -1975,9 +1975,9 @@ const adminApproveQuote = async (
     const catalogAmount = Number((orderPricing.line_items as any).catalog_total);
     const customTotal = Number((orderPricing.line_items as any).custom_total);
     const marginPercent = Number((orderPricing.margin as any).percent);
-    const logisticsBasePrice = baseOpsTotal * (marginPercent / 100);
-    const catalogTotal = catalogAmount * (marginPercent / 100);
-    const transportRateWithMargin = transportRate * (marginPercent / 100);
+    const logisticsBasePrice = baseOpsTotal + (baseOpsTotal * (marginPercent / 100));
+    const catalogTotal = catalogAmount + (catalogAmount * (marginPercent / 100));
+    const transportRateWithMargin = transportRate + (transportRate * (marginPercent / 100));
     const serviceFee = catalogTotal + customTotal;
     const total = logisticsBasePrice + transportRateWithMargin + serviceFee;
 
