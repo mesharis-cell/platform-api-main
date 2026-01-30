@@ -408,6 +408,17 @@ const generateInvoice = async (
     const venueLocation = order.venue_location as any;
     const pricing = order.order_pricing;
 
+    const baseOpsTotal = Number(pricing.base_ops_total);
+    const transportRate = Number((pricing.transport as any).final_rate);
+    const catalogAmount = Number((pricing.line_items as any).catalog_total);
+    const customTotal = Number((pricing.line_items as any).custom_total);
+    const marginPercent = Number((pricing.margin as any).percent);
+    const logisticsBasePrice = baseOpsTotal * (marginPercent / 100);
+    const catalogTotal = catalogAmount * (marginPercent / 100);
+    const transportRateWithMargin = transportRate * (marginPercent / 100);
+    const serviceFee = catalogTotal + customTotal;
+    const total = logisticsBasePrice + transportRateWithMargin + serviceFee;
+
     const invoiceData = {
         id: order.id,
         user_id: user.id,
@@ -426,10 +437,10 @@ const generateInvoice = async (
         order_status: order.order_status,
         financial_status: order.financial_status,
         pricing: {
-            logistics_base_price: String(pricing?.logistics_sub_total) || '0',
-            platform_margin_percent: String((pricing?.margin as any)?.percent) || '0',
-            platform_margin_amount: String((pricing?.margin as any)?.amount) || '0',
-            final_total_price: String(pricing?.final_total) || '0',
+            logistics_base_price: String(logisticsBasePrice) || '0',
+            transport_rate: String(transportRateWithMargin) || '0',
+            service_fee: String(serviceFee) || '0',
+            final_total_price: String(total) || '0',
             show_breakdown: !!pricing, // Show breakdown if using new pricing
         },
         items: order.items.map((item) => ({

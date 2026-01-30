@@ -29,13 +29,13 @@ router.get(
 );
 
 // Complete inbound scan
-// router.post(
-//     "/inbound/:order_id/complete",
-//     platformValidator,
-//     auth("ADMIN", "LOGISTICS"),
-//     requirePermission(PERMISSIONS.SCANNING_SCAN_IN),
-//     ScanningControllers.completeInboundScan
-// );
+router.post(
+    "/inbound/:order_id/complete",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.SCANNING_SCAN_IN),
+    ScanningControllers.completeInboundScan
+);
 
 // ================================= OUTBOUND SCANNING =================================
 
