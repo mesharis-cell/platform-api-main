@@ -93,7 +93,8 @@ const cancelReskinRequest = catchAsync(async (req: Request, res: Response) => {
     const result = await ReskinRequestsServices.cancelReskinRequest(
         reskinId,
         platformId,
-        payload
+        payload,
+        user
     );
 
     const message = result.action === "cancel_order"

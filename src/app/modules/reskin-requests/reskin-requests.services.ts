@@ -9,8 +9,8 @@ import {
     orderStatusHistory,
     orderLineItems,
     users,
-    orderPrices,
     financialStatusHistory,
+    orderPrices,
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import {
@@ -311,7 +311,8 @@ const completeReskinRequest = async (
 const cancelReskinRequest = async (
     reskinId: string,
     platformId: string,
-    payload: CancelReskinRequestPayload
+    payload: CancelReskinRequestPayload,
+    user: AuthUser
 ) => {
     const { cancellation_reason, order_action, cancelled_by } = payload;
 
@@ -339,54 +340,50 @@ const cancelReskinRequest = async (
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Reskin request already cancelled");
     }
 
-    // Mark reskin request as cancelled
-    await db
-        .update(reskinRequests)
-        .set({
-            cancelled_at: new Date(),
-            cancelled_by,
-            cancellation_reason,
-        })
-        .where(eq(reskinRequests.id, reskinId));
+    await db.transaction(async (tx) => {
+        // Mark reskin request as cancelled
+        await tx
+            .update(reskinRequests)
+            .set({
+                cancelled_at: new Date(),
+                cancelled_by,
+                cancellation_reason,
+            })
+            .where(eq(reskinRequests.id, reskinId));
 
-    // Void linked line items (reskin cost)
-    await db
-        .update(orderLineItems)
-        .set({
-            is_voided: true,
-            voided_at: new Date(),
-            voided_by: cancelled_by,
-            void_reason: `Reskin cancelled: ${cancellation_reason}`,
-        })
-        .where(eq(orderLineItems.reskin_request_id, reskinId));
+        // Void linked line items (reskin cost)
+        await tx
+            .update(orderLineItems)
+            .set({
+                is_voided: true,
+                voided_at: new Date(),
+                voided_by: cancelled_by,
+                void_reason: `Reskin cancelled: ${cancellation_reason}`,
+            })
+            .where(eq(orderLineItems.reskin_request_id, reskinId));
 
-    // Clear rebrand fields on order_item (continue with original asset)
-    await db
-        .update(orderItems)
-        .set({
-            is_reskin_request: false,
-            reskin_target_brand_id: null,
-            reskin_target_brand_custom: null,
-            reskin_notes: null,
-        })
-        .where(eq(orderItems.id, reskinRequest.order_item_id));
+        // Clear rebrand fields on order_item (continue with original asset)
+        await tx
+            .update(orderItems)
+            .set({
+                is_reskin_request: false,
+                reskin_target_brand_id: null,
+                reskin_target_brand_custom: null,
+                reskin_notes: null,
+            })
+            .where(eq(orderItems.id, reskinRequest.order_item_id));
+    });
 
     const orderRecord = await db.query.orders.findFirst({
         where: eq(orders.id, reskinRequest.order_id),
-        with: { company: true },
+        with: { company: true, order_pricing: true },
     });
 
     if (!orderRecord) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
     }
 
-    const orderPricing = await db.query.orderPrices.findFirst({
-        where: eq(orderPrices.id, orderRecord.order_pricing_id),
-    });
-
-    if (!orderPricing) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Order pricing not found");
-    }
+    const orderPricing = orderRecord.order_pricing;
 
     if (order_action === "cancel_order") {
         const [userRecord] = await db
@@ -429,19 +426,48 @@ const cancelReskinRequest = async (
     }
 
     const previousTotal = orderPricing.final_total || null;
-    // TODO: Recalculate order pricing
-    // const updatedPricing = await recalculateOrderPricing(
-    //     orderRecord.id,
-    //     platformId,
-    //     orderRecord.company_id,
-    //     cancelled_by
-    // );
+
+    // Step 4: Get line items totals
+    const lineItemsTotals = await OrderLineItemsServices.calculateLineItemsTotals(
+        orderRecord.id,
+        platformId
+    );
+
+    // Step 5: Calculate final pricing
+    const baseOpsTotal = Number(orderPricing.base_ops_total);
+    const logisticsSubtotal = baseOpsTotal + Number((orderPricing.transport as any).final_rate) + lineItemsTotals.catalog_total;
+    const marginAmount = logisticsSubtotal * (Number((orderPricing.margin as any).percent) / 100);
+    const finalTotal = logisticsSubtotal + marginAmount + lineItemsTotals.custom_total;
+
+    const newPricing = {
+        logistics_sub_total: logisticsSubtotal.toFixed(2),
+        line_items: {
+            catalog_total: lineItemsTotals.catalog_total,
+            custom_total: lineItemsTotals.custom_total,
+        },
+        margin: {
+            ...(orderPricing.margin as any),
+            amount: marginAmount,
+        },
+        final_total: finalTotal.toFixed(2),
+        calculated_at: new Date(),
+        calculated_by: user.id,
+    }
 
     const shouldReviseQuote = ["QUOTED", "CONFIRMED", "AWAITING_FABRICATION", "IN_PREPARATION"].includes(
         orderRecord.order_status
     );
     const nextOrderStatus = shouldReviseQuote ? "QUOTED" : orderRecord.order_status;
     const nextFinancialStatus = shouldReviseQuote ? "QUOTE_REVISED" : orderRecord.financial_status;
+
+    const [updatedOrderPricing] = await db
+        .update(orderPrices)
+        .set({
+            ...newPricing,
+            updated_at: new Date(),
+        })
+        .where(eq(orderPrices.id, orderRecord.order_pricing_id))
+        .returning();
 
     await db
         .update(orders)
@@ -480,7 +506,7 @@ const cancelReskinRequest = async (
             undefined,
             {
                 previous_total: previousTotal,
-                new_total: 0,// updatedPricing.final_total,
+                new_total: finalTotal,
                 revision_reason: cancellation_reason,
             }
         );
@@ -489,7 +515,7 @@ const cancelReskinRequest = async (
     return {
         action: "continue",
         order_id: reskinRequest.order_id,
-        pricing: 0,// updatedPricing,
+        pricing: updatedOrderPricing,
     };
 };
 
