@@ -1970,6 +1970,17 @@ const adminApproveQuote = async (
     // Step 3: Prepare invoice data using new pricing structure
     const venueLocation = order.venue_location as any;
 
+    const baseOpsTotal = Number(orderPricing.base_ops_total);
+    const transportRate = Number((orderPricing.transport as any).final_rate);
+    const catalogAmount = Number((orderPricing.line_items as any).catalog_total);
+    const customTotal = Number((orderPricing.line_items as any).custom_total);
+    const marginPercent = Number((orderPricing.margin as any).percent);
+    const logisticsBasePrice = baseOpsTotal * (marginPercent / 100);
+    const catalogTotal = catalogAmount * (marginPercent / 100);
+    const transportRateWithMargin = transportRate * (marginPercent / 100);
+    const serviceFee = catalogTotal + customTotal;
+    const total = logisticsBasePrice + transportRateWithMargin + serviceFee;
+
     const costEstimateData = {
         id: order.id,
         user_id: user.id,
@@ -1988,10 +1999,10 @@ const adminApproveQuote = async (
         order_status: order.order_status,
         financial_status: order.financial_status,
         pricing: {
-            logistics_base_price: String(orderPricing?.logistics_sub_total) || '0',
-            platform_margin_percent: String((orderPricing?.margin as any)?.percent) || '0',
-            platform_margin_amount: String((orderPricing?.margin as any)?.amount) || '0',
-            final_total_price: String(orderPricing?.final_total) || '0',
+            logistics_base_price: String(logisticsBasePrice) || '0',
+            transport_rate: String(transportRateWithMargin) || '0',
+            service_fee: String(serviceFee) || '0',
+            final_total_price: String(total) || '0',
             show_breakdown: !!orderPricing, // Show breakdown if using new pricing
         },
         items: orderItemsResult.map((item) => ({

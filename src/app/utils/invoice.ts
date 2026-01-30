@@ -144,9 +144,9 @@ export type InvoicePayload = {
         from_collection_name?: string;
     }>;
     pricing: {
+        transport_rate: string;
+        service_fee: string;
         logistics_base_price: string;
-        platform_margin_percent: string;
-        platform_margin_amount: string;
         final_total_price: string;
         show_breakdown: boolean;
     };

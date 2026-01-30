@@ -282,7 +282,7 @@ export async function renderCostEstimatePDF(
                     .font("Helvetica")
                     .fillColor("#555")
                     .text(
-                        `Service Fee (${data.pricing.platform_margin_percent}%)`,
+                        `Transport Rate`,
                         summaryX,
                         doc.y
                     );
@@ -291,7 +291,28 @@ export async function renderCostEstimatePDF(
                     .font("Helvetica")
                     .fillColor("#000")
                     .text(
-                        formatCurrency(data.pricing.platform_margin_amount),
+                        formatCurrency(data.pricing.transport_rate),
+                        summaryX,
+                        doc.y - 12,
+                        { align: "right", width: summaryWidth }
+                    );
+
+                doc.moveDown(0.6);
+
+                doc.fontSize(10)
+                    .font("Helvetica")
+                    .fillColor("#555")
+                    .text(
+                        `Service Fee (Including Reskin)`,
+                        summaryX,
+                        doc.y
+                    );
+
+                doc.fontSize(10)
+                    .font("Helvetica")
+                    .fillColor("#000")
+                    .text(
+                        formatCurrency(data.pricing.service_fee),
                         summaryX,
                         doc.y - 12,
                         { align: "right", width: summaryWidth }

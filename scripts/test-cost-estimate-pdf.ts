@@ -51,9 +51,9 @@ const sampleEstimateData: InvoicePayload & { estimate_number: string; estimate_d
     pricing: {
         show_breakdown: true,
         logistics_base_price: "12500.00",
-        platform_margin_percent: "10",
-        platform_margin_amount: "1250.00",
-        final_total_price: "13750.00",
+        transport_rate: "250.00",
+        service_fee: "125.00",
+        final_total_price: "12875.00",
     },
 };
 
