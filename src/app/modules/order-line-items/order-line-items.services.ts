@@ -348,4 +348,5 @@ export const OrderLineItemsServices = {
     updateLineItem,
     voidLineItem,
     calculateLineItemsTotals,
+    updateOrderPricingAfterLineItemChange,
 };
