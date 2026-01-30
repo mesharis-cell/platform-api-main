@@ -155,7 +155,7 @@ router.get(
     "/:id/status-history",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
-    requirePermission(PERMISSIONS.ORDERS_VIEW_STATUS_HISTORY),
+    // requirePermission(PERMISSIONS.ORDERS_VIEW_STATUS_HISTORY),
     OrderControllers.getOrderStatusHistory
 );
 
