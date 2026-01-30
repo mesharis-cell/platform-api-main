@@ -360,6 +360,12 @@ const cancelReskinRequest = async (
         })
         .where(eq(orderLineItems.reskin_request_id, reskinId));
 
+    // Recalculate order pricing after voiding reskin line items
+    await OrderLineItemsServices.updateOrderPricingAfterLineItemChange(
+        reskinRequest.order_id,
+        platformId
+    );
+
     // Clear rebrand fields on order_item (continue with original asset)
     await db
         .update(orderItems)
@@ -429,13 +435,11 @@ const cancelReskinRequest = async (
     }
 
     const previousTotal = orderPricing.final_total || null;
-    // TODO: Recalculate order pricing
-    // const updatedPricing = await recalculateOrderPricing(
-    //     orderRecord.id,
-    //     platformId,
-    //     orderRecord.company_id,
-    //     cancelled_by
-    // );
+
+    // Fetch the updated order pricing after recalculation
+    const updatedOrderPricing = await db.query.orderPrices.findFirst({
+        where: eq(orderPrices.id, orderRecord.order_pricing_id),
+    });
 
     const shouldReviseQuote = ["QUOTED", "CONFIRMED", "AWAITING_FABRICATION", "IN_PREPARATION"].includes(
         orderRecord.order_status
@@ -480,7 +484,7 @@ const cancelReskinRequest = async (
             undefined,
             {
                 previous_total: previousTotal,
-                new_total: 0,// updatedPricing.final_total,
+                new_total: updatedOrderPricing?.final_total || 0,
                 revision_reason: cancellation_reason,
             }
         );
@@ -489,7 +493,7 @@ const cancelReskinRequest = async (
     return {
         action: "continue",
         order_id: reskinRequest.order_id,
-        pricing: 0,// updatedPricing,
+        pricing: updatedOrderPricing,
     };
 };
 
