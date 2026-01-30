@@ -1406,26 +1406,28 @@ const approveQuote = async (
     const hasPendingReskins = await shouldAwaitFabrication(orderId, platformId);
     const nextStatus = hasPendingReskins ? "AWAITING_FABRICATION" : "CONFIRMED";
 
-    // Update order status based on reskins
-    await db
-        .update(orders)
-        .set({
-            order_status: nextStatus,
-            financial_status: "QUOTE_ACCEPTED",
-            updated_at: new Date(),
-        })
-        .where(eq(orders.id, orderId));
+    await db.transaction(async (tx) => {
+        // Update order status based on reskins
+        await tx
+            .update(orders)
+            .set({
+                order_status: nextStatus,
+                financial_status: "QUOTE_ACCEPTED",
+                updated_at: new Date(),
+            })
+            .where(eq(orders.id, orderId));
 
-    // Log status change
-    await db.insert(orderStatusHistory).values({
-        platform_id: platformId,
-        order_id: orderId,
-        status: nextStatus,
-        notes: hasPendingReskins
-            ? "Client approved quote. Order awaiting fabrication completion."
-            : notes || "Client approved quote",
-        updated_by: user.id,
-    });
+        // Log status change
+        await tx.insert(orderStatusHistory).values({
+            platform_id: platformId,
+            order_id: orderId,
+            status: nextStatus,
+            notes: hasPendingReskins
+                ? "Client approved quote. Order awaiting fabrication completion."
+                : notes || "Client approved quote",
+            updated_by: user.id,
+        });
+    })
 
     await NotificationLogServices.sendNotification(platformId, "QUOTE_APPROVED", order);
 
@@ -1470,33 +1472,35 @@ const declineQuote = async (
         );
     }
 
-    // Step 4: Update order status to DECLINED and financial status to CANCELLED
-    await db
-        .update(orders)
-        .set({
-            order_status: "DECLINED",
-            financial_status: "CANCELLED",
-            updated_at: new Date(),
-        })
-        .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)));
+    await db.transaction(async (tx) => {
+        // Step 4: Update order status to DECLINED and financial status to CANCELLED
+        await tx
+            .update(orders)
+            .set({
+                order_status: "DECLINED",
+                financial_status: "CANCELLED",
+                updated_at: new Date(),
+            })
+            .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)));
 
-    // Step 5: Log status change in order_status_history
-    await db.insert(orderStatusHistory).values({
-        platform_id: platformId,
-        order_id: orderId,
-        status: "DECLINED",
-        notes: `Client declined quote: ${decline_reason}`,
-        updated_by: user.id,
-    });
+        // Step 5: Log status change in order_status_history
+        await tx.insert(orderStatusHistory).values({
+            platform_id: platformId,
+            order_id: orderId,
+            status: "DECLINED",
+            notes: `Client declined quote: ${decline_reason}`,
+            updated_by: user.id,
+        });
 
-    // Step 5b: Log financial status change
-    await db.insert(financialStatusHistory).values({
-        platform_id: platformId,
-        order_id: orderId,
-        status: "CANCELLED",
-        notes: `Quote declined by client: ${decline_reason}`,
-        updated_by: user.id,
-    });
+        // Step 5b: Log financial status change
+        await tx.insert(financialStatusHistory).values({
+            platform_id: platformId,
+            order_id: orderId,
+            status: "CANCELLED",
+            notes: `Quote declined by client: ${decline_reason}`,
+            updated_by: user.id,
+        });
+    })
 
     // Step 6: Send decline notification (asynchronous, non-blocking)
     await NotificationLogServices.sendNotification(platformId, "QUOTE_DECLINED", order);
