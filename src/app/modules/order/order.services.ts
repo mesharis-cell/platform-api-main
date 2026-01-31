@@ -1965,56 +1965,8 @@ const adminApproveQuote = async (
         });
     })
 
-    const orderItemsResult = await db.select().from(orderItems).where(eq(orderItems.order_id, orderId));
-
-    // Step 3: Prepare invoice data using new pricing structure
-    const venueLocation = order.venue_location as any;
-
-    const baseOpsTotal = Number(orderPricing.base_ops_total);
-    const transportRate = Number((orderPricing.transport as any).final_rate);
-    const catalogAmount = Number((orderPricing.line_items as any).catalog_total);
-    const customTotal = Number((orderPricing.line_items as any).custom_total);
-    const marginPercent = Number((orderPricing.margin as any).percent);
-    const logisticsBasePrice = baseOpsTotal + (baseOpsTotal * (marginPercent / 100));
-    const catalogTotal = catalogAmount + (catalogAmount * (marginPercent / 100));
-    const transportRateWithMargin = transportRate + (transportRate * (marginPercent / 100));
-    const serviceFee = catalogTotal + customTotal;
-    const total = logisticsBasePrice + transportRateWithMargin + serviceFee;
-
-    const costEstimateData = {
-        id: order.id,
-        user_id: user.id,
-        platform_id: order.platform_id,
-        order_id: order.order_id,
-        contact_name: order.contact_name,
-        contact_email: order.contact_email,
-        contact_phone: order.contact_phone,
-        company_name: company?.name || "N/A",
-        event_start_date: order.event_start_date,
-        event_end_date: order.event_end_date,
-        venue_name: order.venue_name,
-        venue_country: venueLocation.country || "N/A",
-        venue_city: venueCity?.name || "N/A",
-        venue_address: venueLocation.address || "N/A",
-        order_status: order.order_status,
-        financial_status: order.financial_status,
-        pricing: {
-            logistics_base_price: String(logisticsBasePrice) || '0',
-            transport_rate: String(transportRateWithMargin) || '0',
-            service_fee: String(serviceFee) || '0',
-            final_total_price: String(total) || '0',
-            show_breakdown: !!orderPricing, // Show breakdown if using new pricing
-        },
-        items: orderItemsResult.map((item) => ({
-            asset_name: item.asset_name,
-            quantity: item.quantity,
-            handling_tags: item.handling_tags as any,
-            from_collection_name: item.from_collection_name || "N/A",
-        })),
-    };
-
     // Generate cost estimate PDF
-    await costEstimateGenerator(costEstimateData);
+    await costEstimateGenerator(orderId, platformId, user);
 
     // Step 4: Send notification
     await NotificationLogServices.sendNotification(
@@ -2096,11 +2048,6 @@ export async function cancelOrder(
     user: AuthUser
 ) {
     const { reason, notes, notify_client } = payload;
-
-    console.log("payload", payload);
-    console.log("orderId", orderId);
-    console.log("platformId", platformId);
-    console.log("user", user);
 
     // Get order
     const order = await db.query.orders.findFirst({
@@ -2379,6 +2326,8 @@ const updateOrderVehicle = async (
             })
             .where(eq(orders.id, orderId));
     })
+
+    await costEstimateGenerator(orderId, platformId, user);
 
     // Step 9: Return updated vehicle information
     return {

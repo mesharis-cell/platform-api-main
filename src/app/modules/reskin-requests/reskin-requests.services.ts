@@ -24,6 +24,7 @@ import { generateAssetQRCode } from "../../utils/qr-generator";
 import { NotificationLogServices } from "../notification-logs/notification-logs.services";
 import { AuthUser } from "../../interface/common";
 import { OrderServices } from "../order/order.services";
+import { costEstimateGenerator } from "../../utils/cost-estimate";
 
 // ----------------------------------- LIST RESKIN REQUESTS -----------------------------------
 const listReskinRequests = async (orderId: string, platformId: string) => {
@@ -497,6 +498,8 @@ const cancelReskinRequest = async (
             updated_by: cancelled_by,
         });
     }
+
+    await costEstimateGenerator(orderRecord.id, platformId, user);
 
     if (shouldReviseQuote) {
         await NotificationLogServices.sendNotification(
