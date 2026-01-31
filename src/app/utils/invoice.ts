@@ -1,8 +1,11 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../../db";
-import { invoices, orders } from "../../db/schema";
+import { companies, invoices, orders } from "../../db/schema";
 import { deleteFileFromS3, uploadPDFToS3 } from "../services/s3.service";
 import { renderInvoicePDF } from "./invoice-pdf";
+import CustomizedError from "../error/customized-error";
+import httpStatus from "http-status";
+import { AuthUser } from "../interface/common";
 
 // --------------------------------- INVOICE NUMBER GENERATOR ---------------------------------
 // FORMAT: INV-YYYYMMDD-###
@@ -36,13 +39,15 @@ export const invoiceNumberGenerator = async (platformId: string): Promise<string
 
 // --------------------------------- INVOICE GENERATOR ----------------------------------------
 export const invoiceGenerator = async (
-    data: InvoicePayload,
-    regenerate: boolean = false
+    orderId: string,
+    platformId: string,
+    regenerate: boolean = false,
+    user: AuthUser
 ): Promise<{ invoice_id: string; invoice_pdf_url: string; pdf_buffer: Buffer }> => {
     const [invoice] = await db
         .select()
         .from(invoices)
-        .where(and(eq(invoices.order_id, data.id), eq(invoices.platform_id, data.platform_id)));
+        .where(and(eq(invoices.order_id, orderId), eq(invoices.platform_id, platformId)));
 
     if (invoice && !regenerate) {
         throw new Error(
@@ -63,18 +68,90 @@ export const invoiceGenerator = async (
         }
         invoiceNumber = invoice.invoice_id;
     } else {
-        invoiceNumber = await invoiceNumberGenerator(data.platform_id);
+        invoiceNumber = await invoiceNumberGenerator(platformId);
     }
+
+    const order = await db.query.orders.findFirst({
+        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
+        with: {
+            company: true,
+            order_pricing: true,
+            venue_city: true,
+            items: {
+                with: {
+                    asset: {
+                        columns: {
+                            id: true,
+                            name: true,
+                            refurb_days_estimate: true,
+                            available_quantity: true,
+                        },
+                    },
+                },
+            },
+        },
+    });
+
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found to generate invoice");
+    }
+
+    const company = order.company as typeof companies.$inferSelect | null;
+    const venueLocation = order.venue_location as any;
+    const pricing = order.order_pricing;
+
+    const baseOpsTotal = Number(pricing.base_ops_total);
+    const transportRate = Number((pricing.transport as any).final_rate);
+    const catalogAmount = Number((pricing.line_items as any).catalog_total);
+    const customTotal = Number((pricing.line_items as any).custom_total);
+    const marginPercent = Number((pricing.margin as any).percent);
+    const logisticsBasePrice = baseOpsTotal + (baseOpsTotal * (marginPercent / 100));
+    const catalogTotal = catalogAmount + (catalogAmount * (marginPercent / 100));
+    const transportRateWithMargin = transportRate + (transportRate * (marginPercent / 100));
+    const serviceFee = catalogTotal + customTotal;
+    const total = logisticsBasePrice + transportRateWithMargin + serviceFee;
+
+    const invoiceData = {
+        id: order.id,
+        user_id: user.id,
+        platform_id: order.platform_id,
+        order_id: order.order_id,
+        contact_name: order.contact_name,
+        contact_email: order.contact_email,
+        contact_phone: order.contact_phone,
+        company_name: company?.name || "N/A",
+        event_start_date: order.event_start_date,
+        event_end_date: order.event_end_date,
+        venue_name: order.venue_name,
+        venue_country: venueLocation.country || "N/A",
+        venue_city: order.venue_city?.name || "N/A",
+        venue_address: venueLocation.address || "N/A",
+        order_status: order.order_status,
+        financial_status: order.financial_status,
+        pricing: {
+            logistics_base_price: String(logisticsBasePrice) || '0',
+            transport_rate: String(transportRateWithMargin) || '0',
+            service_fee: String(serviceFee) || '0',
+            final_total_price: String(total) || '0',
+            show_breakdown: !!pricing,
+        },
+        items: order.items.map((item) => ({
+            asset_name: item.asset.name,
+            quantity: item.quantity,
+            handling_tags: item.handling_tags as any,
+            from_collection_name: item.from_collection_name || "N/A",
+        })),
+    };
 
     // Generate PDF
     const pdfBuffer = await renderInvoicePDF({
-        ...data,
+        ...invoiceData,
         invoice_number: invoiceNumber,
         invoice_date: new Date(),
     });
 
     // Upload PDF to S3
-    const key = `invoices/${data.company_name.replace(/\s/g, "-").toLowerCase()}/${invoiceNumber}.pdf`;
+    const key = `invoices/${company?.name.replace(/\s/g, "-").toLowerCase()}/${invoiceNumber}.pdf`;
     const pdfUrl = await uploadPDFToS3(pdfBuffer, invoiceNumber, key);
 
     // Save or update invoice record (wrapped in transaction)
@@ -84,17 +161,17 @@ export const invoiceGenerator = async (
             .set({
                 invoice_pdf_url: pdfUrl,
                 updated_at: new Date(),
-                updated_by: data.user_id,
+                updated_by: user.id,
             })
-            .where(and(eq(invoices.id, invoice.id), eq(invoices.platform_id, data.platform_id)));
+            .where(and(eq(invoices.id, invoice.id), eq(invoices.platform_id, platformId)));
     } else {
         // Create invoice and update order
         await db.transaction(async (tx) => {
             // Insert invoice
             await tx.insert(invoices).values({
-                platform_id: data.platform_id,
-                generated_by: data.user_id,
-                order_id: data.id,
+                platform_id: platformId,
+                generated_by: user.id,
+                order_id: orderId,
                 invoice_id: invoiceNumber,
                 invoice_pdf_url: pdfUrl,
             });
@@ -106,7 +183,7 @@ export const invoiceGenerator = async (
                     financial_status: "PENDING_INVOICE",
                     updated_at: new Date(),
                 })
-                .where(and(eq(orders.id, data.id), eq(orders.platform_id, data.platform_id)));
+                .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)));
         });
     }
 

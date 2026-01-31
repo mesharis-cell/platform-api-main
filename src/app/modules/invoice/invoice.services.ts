@@ -405,51 +405,7 @@ const generateInvoice = async (
 
     // Step 3: Prepare invoice data using new pricing structure
     const company = order.company as typeof companies.$inferSelect | null;
-    const venueLocation = order.venue_location as any;
     const pricing = order.order_pricing;
-
-    const baseOpsTotal = Number(pricing.base_ops_total);
-    const transportRate = Number((pricing.transport as any).final_rate);
-    const catalogAmount = Number((pricing.line_items as any).catalog_total);
-    const customTotal = Number((pricing.line_items as any).custom_total);
-    const marginPercent = Number((pricing.margin as any).percent);
-    const logisticsBasePrice = baseOpsTotal * (marginPercent / 100);
-    const catalogTotal = catalogAmount * (marginPercent / 100);
-    const transportRateWithMargin = transportRate * (marginPercent / 100);
-    const serviceFee = catalogTotal + customTotal;
-    const total = logisticsBasePrice + transportRateWithMargin + serviceFee;
-
-    const invoiceData = {
-        id: order.id,
-        user_id: user.id,
-        platform_id: order.platform_id,
-        order_id: order.order_id,
-        contact_name: order.contact_name,
-        contact_email: order.contact_email,
-        contact_phone: order.contact_phone,
-        company_name: company?.name || "N/A",
-        event_start_date: order.event_start_date,
-        event_end_date: order.event_end_date,
-        venue_name: order.venue_name,
-        venue_country: venueLocation.country || "N/A",
-        venue_city: order.venue_city?.name || "N/A",
-        venue_address: venueLocation.address || "N/A",
-        order_status: order.order_status,
-        financial_status: order.financial_status,
-        pricing: {
-            logistics_base_price: String(logisticsBasePrice) || '0',
-            transport_rate: String(transportRateWithMargin) || '0',
-            service_fee: String(serviceFee) || '0',
-            final_total_price: String(total) || '0',
-            show_breakdown: !!pricing, // Show breakdown if using new pricing
-        },
-        items: order.items.map((item) => ({
-            asset_name: item.asset.name,
-            quantity: item.quantity,
-            handling_tags: item.handling_tags as any,
-            from_collection_name: item.from_collection_name || "N/A",
-        })),
-    };
 
     // Step 4: Update order financial status to INVOICED
     await db
@@ -471,8 +427,10 @@ const generateInvoice = async (
 
     // Step 6: Generate invoice
     const { invoice_id, invoice_pdf_url, pdf_buffer } = await invoiceGenerator(
-        invoiceData,
-        regenerate
+        order.id,
+        platformId,
+        regenerate,
+        user
     );
 
     if (invoice_id && invoice_pdf_url) {
