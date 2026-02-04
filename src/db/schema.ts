@@ -1412,7 +1412,7 @@ export const inboundRequests = pgTable(
             .notNull(),
     });
 
-export const inboundRequestsRelations = relations(inboundRequests, ({ one }) => ({
+export const inboundRequestsRelations = relations(inboundRequests, ({ one, many }) => ({
     platform: one(platforms, {
         fields: [inboundRequests.platform_id],
         references: [platforms.id],
@@ -1425,6 +1425,7 @@ export const inboundRequestsRelations = relations(inboundRequests, ({ one }) => 
         fields: [inboundRequests.requester_id],
         references: [users.id],
     }),
+    items: many(inboundRequestItems),
 }));
 
 // ---------------------------------- INBOUND REQUEST ITEM ---------------------------------
@@ -1432,13 +1433,15 @@ export const inboundRequestItems = pgTable(
     "inbound_request_items",
     {
         id: uuid("id").primaryKey().defaultRandom(),
+        inbound_request_id: uuid("inbound_request_id")
+            .notNull()
+            .references(() => inboundRequests.id, { onDelete: "cascade" }),
         brand_id: uuid("brand_id").references(() => brands.id),
         name: varchar("name", { length: 200 }).notNull(),
         description: text("description"),
         category: varchar("category", { length: 100 }).notNull(),
         tracking_method: trackingMethodEnum("tracking_method").notNull(),
-        total_quantity: integer("total_quantity").notNull().default(1),
-        available_quantity: integer("available_quantity").notNull().default(1),
+        quantity: integer("quantity").notNull().default(1),
         packaging: varchar("packaging", { length: 100 }),
         weight_per_unit: decimal("weight_per_unit", { precision: 8, scale: 2 }).notNull(), // in kilograms
         dimensions: jsonb("dimensions").default({}).notNull(), // {length, width, height} in cm
@@ -1453,3 +1456,18 @@ export const inboundRequestItems = pgTable(
             .$onUpdate(() => new Date())
             .notNull(),
     });
+
+export const inboundRequestItemsRelations = relations(inboundRequestItems, ({ one }) => ({
+    inbound_request: one(inboundRequests, {
+        fields: [inboundRequestItems.inbound_request_id],
+        references: [inboundRequests.id],
+    }),
+    brand: one(brands, {
+        fields: [inboundRequestItems.brand_id],
+        references: [brands.id],
+    }),
+    created_asset: one(assets, {
+        fields: [inboundRequestItems.created_asset_id],
+        references: [assets.id],
+    }),
+}));
