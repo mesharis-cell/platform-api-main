@@ -15,6 +15,13 @@
       "when": 1769626009595,
       "tag": "0001_serious_the_professor",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1770240929264,
+      "tag": "0002_thin_talisman",
+      "breakpoints": true
     }
   ]
 }

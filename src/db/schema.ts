@@ -69,6 +69,15 @@ export const orderStatusEnum = pgEnum("order_status", [
     "CANCELLED",
 ]);
 
+export const inboundRequestStatusEnum = pgEnum("inbound_request_status_enum", [
+    "PRICING_REVIEW",
+    "PENDING_APPROVAL",
+    "QUOTED",
+    "CONFIRMED",
+    "CANCELLED",
+    "COMPLETED"
+]);
+
 export const financialStatusEnum = pgEnum("financial_status", [
     "PENDING_QUOTE",
     "QUOTE_SENT",
@@ -1378,3 +1387,69 @@ export const orderPricesRelations = relations(orderPrices, ({ one }) => ({
     })
 }));
 
+
+// ---------------------------------- INBOUND REQUEST --------------------------------------
+export const inboundRequests = pgTable(
+    "inbound_requests",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        company_id: uuid("company_id")
+            .notNull()
+            .references(() => companies.id, { onDelete: "cascade" }),
+        requester_id: uuid("requester_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        incoming_at: timestamp("incoming_at").notNull(),
+        note: text("note"),
+        request_status: inboundRequestStatusEnum("request_status").notNull().default("PRICING_REVIEW"),
+        financial_status: financialStatusEnum("financial_status").notNull().default("PENDING_QUOTE"),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+        updated_at: timestamp("updated_at")
+            .$onUpdate(() => new Date())
+            .notNull(),
+    });
+
+export const inboundRequestsRelations = relations(inboundRequests, ({ one }) => ({
+    platform: one(platforms, {
+        fields: [inboundRequests.platform_id],
+        references: [platforms.id],
+    }),
+    company: one(companies, {
+        fields: [inboundRequests.company_id],
+        references: [companies.id],
+    }),
+    requester: one(users, {
+        fields: [inboundRequests.requester_id],
+        references: [users.id],
+    }),
+}));
+
+// ---------------------------------- INBOUND REQUEST ITEM ---------------------------------
+export const inboundRequestItems = pgTable(
+    "inbound_request_items",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        brand_id: uuid("brand_id").references(() => brands.id),
+        name: varchar("name", { length: 200 }).notNull(),
+        description: text("description"),
+        category: varchar("category", { length: 100 }).notNull(),
+        tracking_method: trackingMethodEnum("tracking_method").notNull(),
+        total_quantity: integer("total_quantity").notNull().default(1),
+        available_quantity: integer("available_quantity").notNull().default(1),
+        packaging: varchar("packaging", { length: 100 }),
+        weight_per_unit: decimal("weight_per_unit", { precision: 8, scale: 2 }).notNull(), // in kilograms
+        dimensions: jsonb("dimensions").default({}).notNull(), // {length, width, height} in cm
+        volume_per_unit: decimal("volume_per_unit", { precision: 8, scale: 3 }).notNull(), // in cubic meters
+        handling_tags: text("handling_tags")
+            .array()
+            .notNull()
+            .default(sql`ARRAY[]::text[]`),
+        created_asset_id: uuid("created_asset_id").references(() => assets.id),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+        updated_at: timestamp("updated_at")
+            .$onUpdate(() => new Date())
+            .notNull(),
+    });
