@@ -3,6 +3,7 @@ import catchAsync from "../../shared/catch-async";
 import sendResponse from "../../shared/send-response";
 import { InboundRequestServices } from "./inbound-request.services";
 
+// ----------------------------------- CREATE INBOUND REQUEST --------------------------------
 const createInboundRequest = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
@@ -16,6 +17,8 @@ const createInboundRequest = catchAsync(async (req, res) => {
         data: result,
     });
 });
+
+// ----------------------------------- GET INBOUND REQUESTS ----------------------------------
 const getInboundRequests = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
@@ -32,7 +35,24 @@ const getInboundRequests = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- GET SINGLE INBOUND REQUEST -----------------------------
+const getInboundRequestById = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const { id } = req.params;
+
+    const result = await InboundRequestServices.getInboundRequestById(id, user, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Inbound request fetched successfully",
+        data: result,
+    });
+});
+
 export const InboundRequestControllers = {
     createInboundRequest,
     getInboundRequests,
+    getInboundRequestById,
 };

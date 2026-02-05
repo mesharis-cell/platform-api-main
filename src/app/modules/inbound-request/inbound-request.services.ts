@@ -264,7 +264,84 @@ const getInboundRequests = async (query: Record<string, any>, user: AuthUser, pl
     };
 };
 
+// ----------------------------------- GET SINGLE INBOUND REQUEST -----------------------------
+const getInboundRequestById = async (requestId: string, user: AuthUser, platformId: string) => {
+    // Step 1: Build WHERE conditions
+    const conditions: any[] = [
+        eq(inboundRequests.id, requestId),
+        eq(inboundRequests.platform_id, platformId)
+    ];
+
+    // Step 2: Filter by user role (CLIENT users see only their company's requests)
+    if (user.role === "CLIENT") {
+        if (user.company_id) {
+            conditions.push(eq(inboundRequests.company_id, user.company_id));
+        } else {
+            throw new CustomizedError(httpStatus.UNAUTHORIZED, "Company not found");
+        }
+    }
+
+    // Step 3: Fetch the inbound request with related information
+    const [result] = await db
+        .select({
+            request: inboundRequests,
+            company: {
+                id: companies.id,
+                name: companies.name,
+            },
+            requester: {
+                id: users.id,
+                name: users.name,
+                email: users.email,
+            },
+            request_pricing: {
+                warehouse_ops_rate: prices.warehouse_ops_rate,
+                base_ops_total: prices.base_ops_total,
+                logistics_sub_total: prices.logistics_sub_total,
+                final_total: prices.final_total,
+                line_items: prices.line_items,
+                margin: prices.margin,
+                calculated_by: prices.calculated_by,
+                calculated_at: prices.calculated_at,
+            }
+        })
+        .from(inboundRequests)
+        .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
+        .leftJoin(users, eq(inboundRequests.requester_id, users.id))
+        .leftJoin(prices, eq(inboundRequests.request_pricing_id, prices.id))
+        .where(and(...conditions));
+
+    if (!result) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found");
+    }
+
+    // Step 4: Fetch items for this request
+    const items = await db
+        .select()
+        .from(inboundRequestItems)
+        .where(eq(inboundRequestItems.inbound_request_id, requestId));
+
+    // Step 5: Format the response
+    return {
+        id: result.request.id,
+        platform_id: result.request.platform_id,
+        incoming_at: result.request.incoming_at,
+        note: result.request.note,
+        request_status: result.request.request_status,
+        financial_status: result.request.financial_status,
+        company: result.company,
+        requester: result.requester,
+        request_pricing: user.role === "CLIENT" ? {
+            final_total: result.request_pricing?.final_total,
+        } : result.request_pricing,
+        items: items,
+        created_at: result.request.created_at,
+        updated_at: result.request.updated_at
+    };
+};
+
 export const InboundRequestServices = {
     createInboundRequest,
     getInboundRequests,
+    getInboundRequestById,
 };
