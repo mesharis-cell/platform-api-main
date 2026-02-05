@@ -10,7 +10,7 @@ import {
     orderLineItems,
     users,
     financialStatusHistory,
-    orderPrices,
+    prices,
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import {
@@ -462,12 +462,12 @@ const cancelReskinRequest = async (
     const nextFinancialStatus = shouldReviseQuote ? "QUOTE_REVISED" : orderRecord.financial_status;
 
     const [updatedOrderPricing] = await db
-        .update(orderPrices)
+        .update(prices)
         .set({
             ...newPricing,
             updated_at: new Date(),
         })
-        .where(eq(orderPrices.id, orderRecord.order_pricing_id))
+        .where(eq(prices.id, orderRecord.order_pricing_id))
         .returning();
 
     await db

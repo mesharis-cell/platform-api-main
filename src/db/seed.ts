@@ -1572,7 +1572,7 @@ async function seedOrders() {
             calculated_by: user.id,
         }
 
-        const [pricing] = await db.insert(schema.orderPrices).values(newPricing).returning();
+        const [pricing] = await db.insert(schema.prices).values(newPricing).returning();
 
         const cityIds = seededData.cities.map(city => city.id);
 
@@ -1788,8 +1788,8 @@ async function seedOrderLineItems() {
         }
 
         // Get pricing totals from order
-        const orderPricing = await db.query.orderPrices.findFirst({
-            where: eq(schema.orderPrices.id, order.order_pricing_id),
+        const orderPricing = await db.query.prices.findFirst({
+            where: eq(schema.prices.id, order.order_pricing_id),
         });
         // const pricing = order.pricing as any;
         if (!orderPricing) continue;
@@ -2328,7 +2328,7 @@ async function cleanupExistingData() {
         await db.delete(schema.reskinRequests);
         await db.delete(schema.orderItems);
         await db.delete(schema.orders);
-        await db.delete(schema.orderPrices);
+        await db.delete(schema.prices);
         await db.delete(schema.collectionItems);
         await db.delete(schema.collections);
         await db.delete(schema.assets);

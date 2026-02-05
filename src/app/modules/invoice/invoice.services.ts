@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, ilike, sql } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { companies, financialStatusHistory, invoices, orderPrices, orders, users } from "../../../db/schema";
+import { companies, financialStatusHistory, invoices, prices, orders, users } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { getPresignedUrl } from "../../services/s3.service";
@@ -40,20 +40,20 @@ const getInvoiceById = async (invoiceId: string, user: AuthUser, platformId: str
                 name: companies.name,
             },
             order_pricing: {
-                warehouse_ops_rate: orderPrices.warehouse_ops_rate,
-                base_ops_total: orderPrices.base_ops_total,
-                logistics_sub_total: orderPrices.logistics_sub_total,
-                transport: orderPrices.transport,
-                line_items: orderPrices.line_items,
-                margin: orderPrices.margin,
-                final_total: orderPrices.final_total,
-                calculated_at: orderPrices.calculated_at,
+                warehouse_ops_rate: prices.warehouse_ops_rate,
+                base_ops_total: prices.base_ops_total,
+                logistics_sub_total: prices.logistics_sub_total,
+                transport: prices.transport,
+                line_items: prices.line_items,
+                margin: prices.margin,
+                final_total: prices.final_total,
+                calculated_at: prices.calculated_at,
             }
         })
         .from(invoices)
         .innerJoin(orders, eq(invoices.order_id, orders.id))
         .leftJoin(companies, eq(orders.company_id, companies.id))
-        .leftJoin(orderPrices, eq(orders.order_pricing_id, orderPrices.id))
+        .leftJoin(prices, eq(orders.order_pricing_id, prices.id))
         .where(
             and(
                 isUUID ? eq(invoices.id, invoiceId) : eq(invoices.invoice_id, invoiceId),
@@ -200,20 +200,20 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
                 name: companies.name,
             },
             order_pricing: {
-                warehouse_ops_rate: orderPrices.warehouse_ops_rate,
-                base_ops_total: orderPrices.base_ops_total,
-                logistics_sub_total: orderPrices.logistics_sub_total,
-                transport: orderPrices.transport,
-                line_items: orderPrices.line_items,
-                margin: orderPrices.margin,
-                final_total: orderPrices.final_total,
-                calculated_at: orderPrices.calculated_at,
+                warehouse_ops_rate: prices.warehouse_ops_rate,
+                base_ops_total: prices.base_ops_total,
+                logistics_sub_total: prices.logistics_sub_total,
+                transport: prices.transport,
+                line_items: prices.line_items,
+                margin: prices.margin,
+                final_total: prices.final_total,
+                calculated_at: prices.calculated_at,
             }
         })
         .from(invoices)
         .innerJoin(orders, eq(invoices.order_id, orders.id))
         .leftJoin(companies, eq(orders.company_id, companies.id))
-        .leftJoin(orderPrices, eq(orders.order_pricing_id, orderPrices.id))
+        .leftJoin(prices, eq(orders.order_pricing_id, prices.id))
         .where(and(...conditions, ...(orderConditions.length > 0 ? [and(...orderConditions)] : [])))
         .orderBy(orderDirection)
         .limit(limitNumber)
