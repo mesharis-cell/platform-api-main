@@ -23,4 +23,12 @@ router.get(
     InboundRequestControllers.getInboundRequests
 );
 
+// Get single inbound request with items
+router.get(
+    "/:id",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    InboundRequestControllers.getInboundRequestById
+);
+
 export const InboundRequestRoutes = router;
