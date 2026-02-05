@@ -829,7 +829,7 @@ async function seedTransportRates() {
                     city_id: city.id,
                     area: null,
                     trip_type: tripType,
-                    vehicle_type: vehicleType,
+                    vehicle_type_id: vehicleType, // TODO: Add vehicle type id
                     rate: rate.toString(),
                     is_active: true,
                 });
@@ -1639,8 +1639,8 @@ async function seedOrders() {
                 volume: volume,
                 weight: weight,
             },
-            transport_trip_type: tripType as any,
-            transport_vehicle_type: vehicleType as any,
+            trip_type: tripType as any,
+            vehicle_type_id: vehicleType as any, // TODO: Add vehicle type id
             order_pricing_id: pricing.id,
             order_status: status,
             financial_status: financial,

@@ -80,7 +80,7 @@ export async function seedHybridPricing() {
                     city_id: rate.emirate,
                     area: null,
                     trip_type: rate.trip_type as any,
-                    vehicle_type: rate.vehicle_type as any,
+                    vehicle_type_id: rate.vehicle_type as any, // TODO: Add vehicle type id
                     rate: rate.rate,
                     is_active: true,
                 });

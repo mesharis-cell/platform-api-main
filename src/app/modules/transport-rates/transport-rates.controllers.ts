@@ -96,7 +96,6 @@ const lookupTransportRate = catchAsync(async (req, res) => {
 
     // Step 4: Validate specific parameters
     if (trip_type) queryValidator(transportRateQueryValidationConfig, "trip_type", trip_type);
-    if (vehicle_type) queryValidator(transportRateQueryValidationConfig, "vehicle_type", vehicle_type);
 
     // Step 5: Retrieve transport rate information
     const result = await TransportRatesServices.lookupTransportRate(
