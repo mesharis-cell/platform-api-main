@@ -103,6 +103,11 @@
  *                       items:
  *                         type: string
  *                       example: ["FRAGILE", "HEAVY"]
+ *                     images:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                       example: ["https://example.com/image.jpg"]
  *     responses:
  *       201:
  *         description: Inbound request created successfully
