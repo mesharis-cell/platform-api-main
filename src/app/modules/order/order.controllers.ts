@@ -524,6 +524,21 @@ const getPendingApprovalOrders = catchAsync(async (req, res) => {
 //     });
 // });
 
+// ----------------------------------- ADD TRUCK DETAILS -----------------------------------
+const addTruckDetails = catchAsync(async (req, res) => {
+    const platformId = (req as any).platform_id;
+    const orderId = getRequiredString(req.params.id, "id");
+
+    const result = await OrderServices.addTruckDetails(orderId, platformId, req.body);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Truck details added successfully",
+        data: result,
+    });
+});
+
 export const OrderControllers = {
     calculateEstimate,
     submitOrderFromCart,
@@ -553,4 +568,5 @@ export const OrderControllers = {
     // adjustLogisticsPricing,
     // getPricingReviewOrders,
     // getOrderPricingDetails,
+    addTruckDetails
 };

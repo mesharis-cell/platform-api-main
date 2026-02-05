@@ -256,4 +256,15 @@ router.use("/:orderId/reskin-requests", ReskinRequestsRoutes);
 //     OrderControllers.updateOrderItemQuantity
 // );
 
+// ---------------------------------- TRUCK DETAILS ROUTES ----------------------------------
+
+router.post(
+    "/:id/truck-details",
+    platformValidator,
+    auth("LOGISTICS", "ADMIN"),
+    // requirePermission(PERMISSIONS.PRICING_REVIEW),
+    payloadValidator(orderSchemas.truckDetailsSchema),
+    OrderControllers.addTruckDetails
+);
+
 export const OrderRoutes = router;
