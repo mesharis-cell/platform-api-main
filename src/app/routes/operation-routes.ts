@@ -65,12 +65,12 @@ const routes = [
         route: ServiceTypesRoutes,
     },
     {
-        path: "/asset",
-        route: AssetRoutes,
+        path: "/pricing/vehicle-types",
+        route: VehicleTypeRoutes,
     },
     {
-        path: "/vehicle-type",
-        route: VehicleTypeRoutes,
+        path: "/asset",
+        route: AssetRoutes,
     },
     {
         path: "/scanning",

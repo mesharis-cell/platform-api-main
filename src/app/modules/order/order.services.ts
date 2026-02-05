@@ -13,7 +13,7 @@ import {
     invoices,
     orderItems,
     orderLineItems,
-    orderPrices,
+    prices,
     orders,
     orderStatusHistory,
     reskinRequests,
@@ -311,7 +311,7 @@ const submitOrderFromCart = async (
     const orderResult = await db.transaction(async (tx) => {
         // Step 6.a: Insert order pricing
         const [orderPricing] = await tx
-            .insert(orderPrices)
+            .insert(prices)
             .values(pricingDetails)
             .returning();
 
@@ -545,20 +545,20 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
                 name: cities.name
             },
             order_pricing: {
-                warehouse_ops_rate: orderPrices.warehouse_ops_rate,
-                base_ops_total: orderPrices.base_ops_total,
-                logistics_sub_total: orderPrices.logistics_sub_total,
-                transport: orderPrices.transport,
-                line_items: orderPrices.line_items,
-                margin: orderPrices.margin,
-                final_total: orderPrices.final_total,
-                calculated_at: orderPrices.calculated_at,
+                warehouse_ops_rate: prices.warehouse_ops_rate,
+                base_ops_total: prices.base_ops_total,
+                logistics_sub_total: prices.logistics_sub_total,
+                transport: prices.transport,
+                line_items: prices.line_items,
+                margin: prices.margin,
+                final_total: prices.final_total,
+                calculated_at: prices.calculated_at,
             }
         })
         .from(orders)
         .leftJoin(companies, eq(orders.company_id, companies.id))
         .leftJoin(brands, eq(orders.brand_id, brands.id))
-        .leftJoin(orderPrices, eq(orders.order_pricing_id, orderPrices.id))
+        .leftJoin(prices, eq(orders.order_pricing_id, prices.id))
         .leftJoin(cities, eq(orders.venue_city_id, cities.id))
         .where(and(...conditions))
         .orderBy(sortSequence === "asc" ? asc(sortField) : desc(sortField))
@@ -738,20 +738,20 @@ const getMyOrders = async (query: Record<string, any>, user: AuthUser, platformI
                 name: cities.name
             },
             order_pricing: {
-                warehouse_ops_rate: orderPrices.warehouse_ops_rate,
-                base_ops_total: orderPrices.base_ops_total,
-                logistics_sub_total: orderPrices.logistics_sub_total,
-                transport: orderPrices.transport,
-                line_items: orderPrices.line_items,
-                margin: orderPrices.margin,
-                final_total: orderPrices.final_total,
-                calculated_at: orderPrices.calculated_at,
+                warehouse_ops_rate: prices.warehouse_ops_rate,
+                base_ops_total: prices.base_ops_total,
+                logistics_sub_total: prices.logistics_sub_total,
+                transport: prices.transport,
+                line_items: prices.line_items,
+                margin: prices.margin,
+                final_total: prices.final_total,
+                calculated_at: prices.calculated_at,
             }
         })
         .from(orders)
         .leftJoin(companies, eq(orders.company_id, companies.id))
         .leftJoin(brands, eq(orders.brand_id, brands.id))
-        .leftJoin(orderPrices, eq(orders.order_pricing_id, orderPrices.id))
+        .leftJoin(prices, eq(orders.order_pricing_id, prices.id))
         .leftJoin(cities, eq(orders.venue_city_id, cities.id))
         .where(and(...conditions))
         .orderBy(sortSequence === "asc" ? asc(sortField) : desc(sortField))
@@ -824,21 +824,21 @@ const getOrderById = async (
                 name: cities.name
             },
             order_pricing: {
-                warehouse_ops_rate: orderPrices.warehouse_ops_rate,
-                base_ops_total: orderPrices.base_ops_total,
-                logistics_sub_total: orderPrices.logistics_sub_total,
-                transport: orderPrices.transport,
-                line_items: orderPrices.line_items,
-                margin: orderPrices.margin,
-                final_total: orderPrices.final_total,
-                calculated_at: orderPrices.calculated_at,
+                warehouse_ops_rate: prices.warehouse_ops_rate,
+                base_ops_total: prices.base_ops_total,
+                logistics_sub_total: prices.logistics_sub_total,
+                transport: prices.transport,
+                line_items: prices.line_items,
+                margin: prices.margin,
+                final_total: prices.final_total,
+                calculated_at: prices.calculated_at,
             }
         })
         .from(orders)
         .leftJoin(companies, eq(orders.company_id, companies.id))
         .leftJoin(brands, eq(orders.brand_id, brands.id))
         .leftJoin(users, eq(orders.user_id, users.id))
-        .leftJoin(orderPrices, eq(orders.order_pricing_id, orderPrices.id))
+        .leftJoin(prices, eq(orders.order_pricing_id, prices.id))
         .leftJoin(cities, eq(orders.venue_city_id, cities.id))
         .where(whereCondition)
         .limit(1);
@@ -1675,14 +1675,14 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
                 warehouse_ops_rate: companies.warehouse_ops_rate,
             },
             order_pricing: {
-                warehouse_ops_rate: orderPrices.warehouse_ops_rate,
-                base_ops_total: orderPrices.base_ops_total,
-                logistics_sub_total: orderPrices.logistics_sub_total,
-                transport: orderPrices.transport,
-                line_items: orderPrices.line_items,
-                margin: orderPrices.margin,
-                final_total: orderPrices.final_total,
-                calculated_at: orderPrices.calculated_at,
+                warehouse_ops_rate: prices.warehouse_ops_rate,
+                base_ops_total: prices.base_ops_total,
+                logistics_sub_total: prices.logistics_sub_total,
+                transport: prices.transport,
+                line_items: prices.line_items,
+                margin: prices.margin,
+                final_total: prices.final_total,
+                calculated_at: prices.calculated_at,
             },
             venue_city: {
                 name: cities.name
@@ -1690,7 +1690,7 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
         })
         .from(orders)
         .leftJoin(companies, eq(orders.company_id, companies.id))
-        .leftJoin(orderPrices, eq(orders.order_pricing_id, orderPrices.id))
+        .leftJoin(prices, eq(orders.order_pricing_id, prices.id))
         .leftJoin(cities, eq(orders.venue_city_id, cities.id))
         .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)))
         .limit(1);
@@ -1779,7 +1779,7 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
     // Step 6: Update order pricing and status
     await db.transaction(async (tx) => {
         // Step 6.1: Update order pricing
-        await tx.update(orderPrices).set(newPricing).where(eq(orderPrices.id, order.order_pricing_id));
+        await tx.update(prices).set(newPricing).where(eq(prices.id, order.order_pricing_id));
 
         // Step 6.2: Update order status
         await tx
@@ -1839,14 +1839,14 @@ const adminApproveQuote = async (
                 warehouse_ops_rate: companies.warehouse_ops_rate,
             },
             order_pricing: {
-                warehouse_ops_rate: orderPrices.warehouse_ops_rate,
-                base_ops_total: orderPrices.base_ops_total,
-                logistics_sub_total: orderPrices.logistics_sub_total,
-                transport: orderPrices.transport,
-                line_items: orderPrices.line_items,
-                margin: orderPrices.margin,
-                final_total: orderPrices.final_total,
-                calculated_at: orderPrices.calculated_at,
+                warehouse_ops_rate: prices.warehouse_ops_rate,
+                base_ops_total: prices.base_ops_total,
+                logistics_sub_total: prices.logistics_sub_total,
+                transport: prices.transport,
+                line_items: prices.line_items,
+                margin: prices.margin,
+                final_total: prices.final_total,
+                calculated_at: prices.calculated_at,
             },
             venue_city: {
                 name: cities.name
@@ -1854,7 +1854,7 @@ const adminApproveQuote = async (
         })
         .from(orders)
         .leftJoin(companies, eq(orders.company_id, companies.id))
-        .leftJoin(orderPrices, eq(orders.order_pricing_id, orderPrices.id))
+        .leftJoin(prices, eq(orders.order_pricing_id, prices.id))
         .leftJoin(cities, eq(orders.venue_city_id, cities.id))
         .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)))
         .limit(1);
@@ -1919,7 +1919,7 @@ const adminApproveQuote = async (
 
             finalTotal = updatedFinalTotal.toFixed(2);
 
-            await tx.update(orderPrices).set({
+            await tx.update(prices).set({
                 margin: {
                     percent: margin_override_percent,
                     amount: marginAmount,
@@ -1929,7 +1929,7 @@ const adminApproveQuote = async (
                 final_total: updatedFinalTotal.toFixed(2),
                 calculated_at: new Date(),
                 calculated_by: user.id,
-            }).where(eq(orderPrices.id, order.order_pricing_id));
+            }).where(eq(prices.id, order.order_pricing_id));
         }
 
         // Step 3.2: Update order status
@@ -2272,8 +2272,8 @@ const updateOrderVehicle = async (
     }
 
     // Step 4: Fetch order pricing details
-    const orderPricing = await db.query.orderPrices.findFirst({
-        where: and(eq(orderPrices.id, order.order_pricing_id), eq(orders.platform_id, platformId)),
+    const orderPricing = await db.query.prices.findFirst({
+        where: and(eq(prices.id, order.order_pricing_id), eq(orders.platform_id, platformId)),
     });
 
     if (!orderPricing) {
@@ -2315,7 +2315,7 @@ const updateOrderVehicle = async (
     // Step 8: Update order pricing and vehicle type in transaction
     await db.transaction(async (tx) => {
         // Step 8.1: Update order pricing with new transport rate
-        await tx.update(orderPrices).set(updatedPricing).where(eq(orderPrices.id, order.order_pricing_id));
+        await tx.update(prices).set(updatedPricing).where(eq(prices.id, order.order_pricing_id));
 
         // Step 8.2: Update order vehicle type
         await tx

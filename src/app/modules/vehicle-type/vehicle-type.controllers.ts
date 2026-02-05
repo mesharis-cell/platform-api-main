@@ -11,7 +11,8 @@ const getVehicleTypes = catchAsync(async (req, res, next) => {
   return res.status(httpStatus.OK).json({
     success: true,
     message: "Vehicle types retrieved successfully",
-    data: result,
+    meta: result.meta,
+    data: result.data,
   });
 })
 

@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../../../db";
-import { cities, orderLineItems, orderPrices, users } from "../../../db/schema";
+import { cities, orderLineItems, prices, users } from "../../../db/schema";
 import config from "../../config";
 import { sendEmail } from "../../services/email.service";
 import { formatDateForEmail, formatTimeWindow } from "../../utils/date-time";
@@ -113,8 +113,8 @@ export const buildNotificationData = async (order: any): Promise<NotificationDat
     const clientUrl = config.client_url;
     const serverUrl = config.server_url;
 
-    const orderPricing = await db.query.orderPrices.findFirst({
-        where: and(eq(orderPrices.id, order.order_pricing_id), eq(orderPrices.platform_id, order.platform_id)),
+    const orderPricing = await db.query.prices.findFirst({
+        where: and(eq(prices.id, order.order_pricing_id), eq(prices.platform_id, order.platform_id)),
     });
 
     const venueCity = await db.query.cities.findFirst({

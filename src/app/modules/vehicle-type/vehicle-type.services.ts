@@ -54,7 +54,7 @@ const getVehicleTypes = async (query: Record<string, any>, platformId: string) =
   }
 
   if (search_term) {
-    conditions.push(or(ilike(vehicleTypes.name, `%${search_term.trim()}%`), ilike(vehicleTypes.vehicle_size, `%${search_term.trim()}%`)));
+    conditions.push(or(ilike(vehicleTypes.name, `%${search_term.trim()}%`), ilike(vehicleTypes.description, `%${search_term.trim()}%`)));
   }
 
   // Always sort by display_order, then name
@@ -94,13 +94,6 @@ const updateVehicleType = async (id: string, data: UpdateVehicleTypePayload) => 
 
   if (!existing) {
     throw new CustomizedError(httpStatus.NOT_FOUND, "Vehicle type not found");
-  }
-
-  if (existing.name === name) {
-    throw new CustomizedError(
-      httpStatus.CONFLICT,
-      "Vehicle type with this name already exists"
-    );
   }
 
   const [result] = await db

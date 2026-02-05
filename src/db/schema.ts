@@ -691,7 +691,7 @@ export const orders = pgTable(
         // Pricing (NEW structure)
         order_pricing_id: uuid("order_pricing_id")
             .notNull()
-            .references(() => orderPrices.id),
+            .references(() => prices.id),
 
         // Status tracking
         order_status: orderStatusEnum("order_status").notNull().default("DRAFT"),
@@ -732,7 +732,7 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
     company: one(companies, { fields: [orders.company_id], references: [companies.id] }),
     brand: one(brands, { fields: [orders.brand_id], references: [brands.id] }),
     user: one(users, { fields: [orders.user_id], references: [users.id] }),
-    order_pricing: one(orderPrices, { fields: [orders.order_pricing_id], references: [orderPrices.id] }),
+    order_pricing: one(prices, { fields: [orders.order_pricing_id], references: [prices.id] }),
     venue_city: one(cities, { fields: [orders.venue_city_id], references: [cities.id] }),
     items: many(orderItems),
     line_items: many(orderLineItems),
@@ -1354,8 +1354,8 @@ export const citiesRelations = relations(cities, ({ one }) => ({
 }));
 
 // ---------------------------------- ORDER PRICES -----------------------------------------
-export const orderPrices = pgTable(
-    "order_prices",
+export const prices = pgTable(
+    "prices",
     {
         id: uuid("id").primaryKey().defaultRandom(),
         platform_id: uuid("platform_id")
@@ -1380,9 +1380,9 @@ export const orderPrices = pgTable(
     ]
 );
 
-export const orderPricesRelations = relations(orderPrices, ({ one }) => ({
+export const orderPricesRelations = relations(prices, ({ one }) => ({
     platform: one(platforms, {
-        fields: [orderPrices.platform_id],
+        fields: [prices.platform_id],
         references: [platforms.id],
     })
 }));
@@ -1406,13 +1406,16 @@ export const inboundRequests = pgTable(
         note: text("note"),
         request_status: inboundRequestStatusEnum("request_status").notNull().default("PRICING_REVIEW"),
         financial_status: financialStatusEnum("financial_status").notNull().default("PENDING_QUOTE"),
+        request_pricing_id: uuid("request_pricing_id")
+            .notNull()
+            .references(() => prices.id),
         created_at: timestamp("created_at").notNull().defaultNow(),
         updated_at: timestamp("updated_at")
             .$onUpdate(() => new Date())
             .notNull(),
     });
 
-export const inboundRequestsRelations = relations(inboundRequests, ({ one }) => ({
+export const inboundRequestsRelations = relations(inboundRequests, ({ one, many }) => ({
     platform: one(platforms, {
         fields: [inboundRequests.platform_id],
         references: [platforms.id],
@@ -1425,6 +1428,11 @@ export const inboundRequestsRelations = relations(inboundRequests, ({ one }) => 
         fields: [inboundRequests.requester_id],
         references: [users.id],
     }),
+    request_pricing: one(prices, {
+        fields: [inboundRequests.request_pricing_id],
+        references: [prices.id],
+    }),
+    items: many(inboundRequestItems),
 }));
 
 // ---------------------------------- INBOUND REQUEST ITEM ---------------------------------
@@ -1432,13 +1440,15 @@ export const inboundRequestItems = pgTable(
     "inbound_request_items",
     {
         id: uuid("id").primaryKey().defaultRandom(),
+        inbound_request_id: uuid("inbound_request_id")
+            .notNull()
+            .references(() => inboundRequests.id, { onDelete: "cascade" }),
         brand_id: uuid("brand_id").references(() => brands.id),
         name: varchar("name", { length: 200 }).notNull(),
         description: text("description"),
         category: varchar("category", { length: 100 }).notNull(),
         tracking_method: trackingMethodEnum("tracking_method").notNull(),
-        total_quantity: integer("total_quantity").notNull().default(1),
-        available_quantity: integer("available_quantity").notNull().default(1),
+        quantity: integer("quantity").notNull().default(1),
         packaging: varchar("packaging", { length: 100 }),
         weight_per_unit: decimal("weight_per_unit", { precision: 8, scale: 2 }).notNull(), // in kilograms
         dimensions: jsonb("dimensions").default({}).notNull(), // {length, width, height} in cm
@@ -1473,5 +1483,19 @@ export const vehicleTypesRelations = relations(vehicleTypes, ({ one }) => ({
     platform: one(platforms, {
         fields: [vehicleTypes.platform_id],
         references: [platforms.id],
+    }),
+}));
+export const inboundRequestItemsRelations = relations(inboundRequestItems, ({ one }) => ({
+    inbound_request: one(inboundRequests, {
+        fields: [inboundRequestItems.inbound_request_id],
+        references: [inboundRequests.id],
+    }),
+    brand: one(brands, {
+        fields: [inboundRequestItems.brand_id],
+        references: [brands.id],
+    }),
+    created_asset: one(assets, {
+        fields: [inboundRequestItems.created_asset_id],
+        references: [assets.id],
     }),
 }));
