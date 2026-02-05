@@ -31,7 +31,7 @@ router.get(
     "/:id",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.TRANSPORT_RATES_MANAGE),
+    // requirePermission(PERMISSIONS.TRANSPORT_RATES_MANAGE),
     TransportRatesControllers.getTransportRateById
 );
 
@@ -50,7 +50,7 @@ router.put(
     "/:id",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.TRANSPORT_RATES_MANAGE),
+    // requirePermission(PERMISSIONS.TRANSPORT_RATES_MANAGE),
     payloadValidator(TransportRatesSchemas.updateTransportRateSchema),
     TransportRatesControllers.updateTransportRate
 );
@@ -60,7 +60,7 @@ router.delete(
     "/:id",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.TRANSPORT_RATES_MANAGE),
+    // requirePermission(PERMISSIONS.TRANSPORT_RATES_MANAGE),
     TransportRatesControllers.deleteTransportRate
 );
 

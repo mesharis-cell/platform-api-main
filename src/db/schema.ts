@@ -1464,6 +1464,27 @@ export const inboundRequestItems = pgTable(
             .notNull(),
     });
 
+// ---------------------------------- VEHICLE TYPES ---------------------------------
+export const vehicleTypes = pgTable("vehicle_types", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: varchar("name", { length: 100 }).notNull(),
+    vehicle_size: varchar("vehicle_size", { length: 100 }).notNull(),
+    platform_id: uuid("platform_id").references(() => platforms.id),
+    is_active: boolean("is_active").notNull().default(true),
+    display_order: integer("display_order").notNull().default(1),
+    description: text("description"),
+    created_at: timestamp("created_at").notNull().defaultNow(),
+    updated_at: timestamp("updated_at")
+        .$onUpdate(() => new Date())
+        .notNull(),
+});
+
+export const vehicleTypesRelations = relations(vehicleTypes, ({ one }) => ({
+    platform: one(platforms, {
+        fields: [vehicleTypes.platform_id],
+        references: [platforms.id],
+    }),
+}));
 export const inboundRequestItemsRelations = relations(inboundRequestItems, ({ one }) => ({
     inbound_request: one(inboundRequests, {
         fields: [inboundRequestItems.inbound_request_id],
