@@ -29,6 +29,13 @@
       "when": 1770245189735,
       "tag": "0003_messy_hitman",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1770286646402,
+      "tag": "0004_sharp_the_stranger",
+      "breakpoints": true
     }
   ]
 }
