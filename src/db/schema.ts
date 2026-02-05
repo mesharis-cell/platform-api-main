@@ -691,7 +691,7 @@ export const orders = pgTable(
         // Pricing (NEW structure)
         order_pricing_id: uuid("order_pricing_id")
             .notNull()
-            .references(() => orderPrices.id),
+            .references(() => prices.id),
 
         // Status tracking
         order_status: orderStatusEnum("order_status").notNull().default("DRAFT"),
@@ -732,7 +732,7 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
     company: one(companies, { fields: [orders.company_id], references: [companies.id] }),
     brand: one(brands, { fields: [orders.brand_id], references: [brands.id] }),
     user: one(users, { fields: [orders.user_id], references: [users.id] }),
-    order_pricing: one(orderPrices, { fields: [orders.order_pricing_id], references: [orderPrices.id] }),
+    order_pricing: one(prices, { fields: [orders.order_pricing_id], references: [prices.id] }),
     venue_city: one(cities, { fields: [orders.venue_city_id], references: [cities.id] }),
     items: many(orderItems),
     line_items: many(orderLineItems),
@@ -1354,8 +1354,8 @@ export const citiesRelations = relations(cities, ({ one }) => ({
 }));
 
 // ---------------------------------- ORDER PRICES -----------------------------------------
-export const orderPrices = pgTable(
-    "order_prices",
+export const prices = pgTable(
+    "prices",
     {
         id: uuid("id").primaryKey().defaultRandom(),
         platform_id: uuid("platform_id")
@@ -1380,9 +1380,9 @@ export const orderPrices = pgTable(
     ]
 );
 
-export const orderPricesRelations = relations(orderPrices, ({ one }) => ({
+export const orderPricesRelations = relations(prices, ({ one }) => ({
     platform: one(platforms, {
-        fields: [orderPrices.platform_id],
+        fields: [prices.platform_id],
         references: [platforms.id],
     })
 }));
@@ -1406,6 +1406,9 @@ export const inboundRequests = pgTable(
         note: text("note"),
         request_status: inboundRequestStatusEnum("request_status").notNull().default("PRICING_REVIEW"),
         financial_status: financialStatusEnum("financial_status").notNull().default("PENDING_QUOTE"),
+        request_pricing_id: uuid("request_pricing_id")
+            .notNull()
+            .references(() => prices.id),
         created_at: timestamp("created_at").notNull().defaultNow(),
         updated_at: timestamp("updated_at")
             .$onUpdate(() => new Date())
@@ -1424,6 +1427,10 @@ export const inboundRequestsRelations = relations(inboundRequests, ({ one, many 
     requester: one(users, {
         fields: [inboundRequests.requester_id],
         references: [users.id],
+    }),
+    request_pricing: one(prices, {
+        fields: [inboundRequests.request_pricing_id],
+        references: [prices.id],
     }),
     items: many(inboundRequestItems),
 }));
