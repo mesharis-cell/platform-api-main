@@ -1,5 +1,5 @@
 {
-  "id": "31e48051-5212-482a-8282-c699a8df0829",
+  "id": "dcc26955-d0fa-4285-9d87-80c275174da0",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -1264,6 +1264,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "features": {
+          "name": "features",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
         "is_active": {
           "name": "is_active",
           "type": "boolean",
@@ -1639,6 +1646,306 @@
           "tableTo": "users",
           "columnsFrom": [
             "updated_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.inbound_request_items": {
+      "name": "inbound_request_items",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "inbound_request_id": {
+          "name": "inbound_request_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "brand_id": {
+          "name": "brand_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "category": {
+          "name": "category",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tracking_method": {
+          "name": "tracking_method",
+          "type": "tracking_method",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "quantity": {
+          "name": "quantity",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "packaging": {
+          "name": "packaging",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "weight_per_unit": {
+          "name": "weight_per_unit",
+          "type": "numeric(8, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "dimensions": {
+          "name": "dimensions",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "volume_per_unit": {
+          "name": "volume_per_unit",
+          "type": "numeric(8, 3)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "handling_tags": {
+          "name": "handling_tags",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "ARRAY[]::text[]"
+        },
+        "images": {
+          "name": "images",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "ARRAY[]::text[]"
+        },
+        "created_asset_id": {
+          "name": "created_asset_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "inbound_request_items_inbound_request_id_inbound_requests_id_fk": {
+          "name": "inbound_request_items_inbound_request_id_inbound_requests_id_fk",
+          "tableFrom": "inbound_request_items",
+          "tableTo": "inbound_requests",
+          "columnsFrom": [
+            "inbound_request_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "inbound_request_items_brand_id_brands_id_fk": {
+          "name": "inbound_request_items_brand_id_brands_id_fk",
+          "tableFrom": "inbound_request_items",
+          "tableTo": "brands",
+          "columnsFrom": [
+            "brand_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "inbound_request_items_created_asset_id_assets_id_fk": {
+          "name": "inbound_request_items_created_asset_id_assets_id_fk",
+          "tableFrom": "inbound_request_items",
+          "tableTo": "assets",
+          "columnsFrom": [
+            "created_asset_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.inbound_requests": {
+      "name": "inbound_requests",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "platform_id": {
+          "name": "platform_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "company_id": {
+          "name": "company_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "requester_id": {
+          "name": "requester_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "incoming_at": {
+          "name": "incoming_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "request_status": {
+          "name": "request_status",
+          "type": "inbound_request_status_enum",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'PRICING_REVIEW'"
+        },
+        "financial_status": {
+          "name": "financial_status",
+          "type": "financial_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'PENDING_QUOTE'"
+        },
+        "request_pricing_id": {
+          "name": "request_pricing_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "inbound_requests_platform_id_platforms_id_fk": {
+          "name": "inbound_requests_platform_id_platforms_id_fk",
+          "tableFrom": "inbound_requests",
+          "tableTo": "platforms",
+          "columnsFrom": [
+            "platform_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "inbound_requests_company_id_companies_id_fk": {
+          "name": "inbound_requests_company_id_companies_id_fk",
+          "tableFrom": "inbound_requests",
+          "tableTo": "companies",
+          "columnsFrom": [
+            "company_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "inbound_requests_requester_id_users_id_fk": {
+          "name": "inbound_requests_requester_id_users_id_fk",
+          "tableFrom": "inbound_requests",
+          "tableTo": "users",
+          "columnsFrom": [
+            "requester_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "inbound_requests_request_pricing_id_prices_id_fk": {
+          "name": "inbound_requests_request_pricing_id_prices_id_fk",
+          "tableFrom": "inbound_requests",
+          "tableTo": "prices",
+          "columnsFrom": [
+            "request_pricing_id"
           ],
           "columnsTo": [
             "id"
@@ -2248,6 +2555,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "line_item_id": {
+          "name": "line_item_id",
+          "type": "varchar(8)",
+          "primaryKey": false,
+          "notNull": true
+        },
         "service_type": {
           "name": "service_type",
           "type": "uuid",
@@ -2501,143 +2814,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.order_prices": {
-      "name": "order_prices",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "platform_id": {
-          "name": "platform_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "warehouse_ops_rate": {
-          "name": "warehouse_ops_rate",
-          "type": "numeric(10, 2)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "base_ops_total": {
-          "name": "base_ops_total",
-          "type": "numeric(10, 2)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "logistics_sub_total": {
-          "name": "logistics_sub_total",
-          "type": "numeric(10, 2)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "transport": {
-          "name": "transport",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "line_items": {
-          "name": "line_items",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "margin": {
-          "name": "margin",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "final_total": {
-          "name": "final_total",
-          "type": "numeric(10, 2)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "calculated_at": {
-          "name": "calculated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "calculated_by": {
-          "name": "calculated_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "order_prices_platform_idx": {
-          "name": "order_prices_platform_idx",
-          "columns": [
-            {
-              "expression": "platform_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "order_prices_platform_id_platforms_id_fk": {
-          "name": "order_prices_platform_id_platforms_id_fk",
-          "tableFrom": "order_prices",
-          "tableTo": "platforms",
-          "columnsFrom": [
-            "platform_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "order_prices_calculated_by_users_id_fk": {
-          "name": "order_prices_calculated_by_users_id_fk",
-          "tableFrom": "order_prices",
-          "tableTo": "users",
-          "columnsFrom": [
-            "calculated_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.order_status_history": {
       "name": "order_status_history",
       "schema": "",
@@ -2871,21 +3047,19 @@
           "primaryKey": false,
           "notNull": true
         },
-        "transport_trip_type": {
-          "name": "transport_trip_type",
+        "trip_type": {
+          "name": "trip_type",
           "type": "trip_type",
           "typeSchema": "public",
           "primaryKey": false,
           "notNull": true,
           "default": "'ROUND_TRIP'"
         },
-        "transport_vehicle_type": {
-          "name": "transport_vehicle_type",
-          "type": "vehicle_type",
-          "typeSchema": "public",
+        "vehicle_type_id": {
+          "name": "vehicle_type_id",
+          "type": "uuid",
           "primaryKey": false,
-          "notNull": true,
-          "default": "'STANDARD'"
+          "notNull": true
         },
         "order_pricing_id": {
           "name": "order_pricing_id",
@@ -2929,6 +3103,20 @@
           "primaryKey": false,
           "notNull": false,
           "default": "ARRAY[]::text[]"
+        },
+        "logistics_delivery_details": {
+          "name": "logistics_delivery_details",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'{}'"
+        },
+        "logistics_pickup_details": {
+          "name": "logistics_pickup_details",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'{}'"
         },
         "created_at": {
           "name": "created_at",
@@ -3099,10 +3287,23 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "orders_order_pricing_id_order_prices_id_fk": {
-          "name": "orders_order_pricing_id_order_prices_id_fk",
+        "orders_vehicle_type_id_vehicle_types_id_fk": {
+          "name": "orders_vehicle_type_id_vehicle_types_id_fk",
           "tableFrom": "orders",
-          "tableTo": "order_prices",
+          "tableTo": "vehicle_types",
+          "columnsFrom": [
+            "vehicle_type_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "orders_order_pricing_id_prices_id_fk": {
+          "name": "orders_order_pricing_id_prices_id_fk",
+          "tableFrom": "orders",
+          "tableTo": "prices",
           "columnsFrom": [
             "order_pricing_id"
           ],
@@ -3314,8 +3515,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.pricing_config": {
-      "name": "pricing_config",
+    "public.prices": {
+      "name": "prices",
       "schema": "",
       "columns": {
         "id": {
@@ -3325,17 +3526,11 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "platform": {
-          "name": "platform",
+        "platform_id": {
+          "name": "platform_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
-        },
-        "company": {
-          "name": "company",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
         },
         "warehouse_ops_rate": {
           "name": "warehouse_ops_rate",
@@ -3343,12 +3538,54 @@
           "primaryKey": false,
           "notNull": true
         },
-        "is_active": {
-          "name": "is_active",
-          "type": "boolean",
+        "base_ops_total": {
+          "name": "base_ops_total",
+          "type": "numeric(10, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "logistics_sub_total": {
+          "name": "logistics_sub_total",
+          "type": "numeric(10, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "transport": {
+          "name": "transport",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "line_items": {
+          "name": "line_items",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "margin": {
+          "name": "margin",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "final_total": {
+          "name": "final_total",
+          "type": "numeric(10, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "calculated_at": {
+          "name": "calculated_at",
+          "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "default": true
+          "default": "now()"
+        },
+        "calculated_by": {
+          "name": "calculated_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
         },
         "created_at": {
           "name": "created_at",
@@ -3365,17 +3602,11 @@
         }
       },
       "indexes": {
-        "pricing_config_platform_company_idx": {
-          "name": "pricing_config_platform_company_idx",
+        "order_prices_platform_idx": {
+          "name": "order_prices_platform_idx",
           "columns": [
             {
-              "expression": "platform",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "company",
+              "expression": "platform_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -3388,12 +3619,12 @@
         }
       },
       "foreignKeys": {
-        "pricing_config_platform_platforms_id_fk": {
-          "name": "pricing_config_platform_platforms_id_fk",
-          "tableFrom": "pricing_config",
+        "prices_platform_id_platforms_id_fk": {
+          "name": "prices_platform_id_platforms_id_fk",
+          "tableFrom": "prices",
           "tableTo": "platforms",
           "columnsFrom": [
-            "platform"
+            "platform_id"
           ],
           "columnsTo": [
             "id"
@@ -3401,31 +3632,22 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "pricing_config_company_companies_id_fk": {
-          "name": "pricing_config_company_companies_id_fk",
-          "tableFrom": "pricing_config",
-          "tableTo": "companies",
+        "prices_calculated_by_users_id_fk": {
+          "name": "prices_calculated_by_users_id_fk",
+          "tableFrom": "prices",
+          "tableTo": "users",
           "columnsFrom": [
-            "company"
+            "calculated_by"
           ],
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "pricing_config_platform_company_unique": {
-          "name": "pricing_config_platform_company_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "platform",
-            "company"
-          ]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -4125,10 +4347,9 @@
           "primaryKey": false,
           "notNull": true
         },
-        "vehicle_type": {
-          "name": "vehicle_type",
-          "type": "vehicle_type",
-          "typeSchema": "public",
+        "vehicle_type_id": {
+          "name": "vehicle_type_id",
+          "type": "uuid",
           "primaryKey": false,
           "notNull": true
         },
@@ -4177,12 +4398,6 @@
             },
             {
               "expression": "trip_type",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "vehicle_type",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -4248,6 +4463,19 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
+        },
+        "transport_rates_vehicle_type_id_vehicle_types_id_fk": {
+          "name": "transport_rates_vehicle_type_id_vehicle_types_id_fk",
+          "tableFrom": "transport_rates",
+          "tableTo": "vehicle_types",
+          "columnsFrom": [
+            "vehicle_type_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -4260,8 +4488,7 @@
             "company",
             "city_id",
             "area",
-            "trip_type",
-            "vehicle_type"
+            "trip_type"
           ]
         }
       },
@@ -4432,6 +4659,91 @@
           "tableTo": "companies",
           "columnsFrom": [
             "company"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.vehicle_types": {
+      "name": "vehicle_types",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vehicle_size": {
+          "name": "vehicle_size",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "platform_id": {
+          "name": "platform_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "display_order": {
+          "name": "display_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "vehicle_types_platform_id_platforms_id_fk": {
+          "name": "vehicle_types_platform_id_platforms_id_fk",
+          "tableFrom": "vehicle_types",
+          "tableTo": "platforms",
+          "columnsFrom": [
+            "platform_id"
           ],
           "columnsTo": [
             "id"
@@ -4789,6 +5101,18 @@
         "CUSTOM"
       ]
     },
+    "public.inbound_request_status_enum": {
+      "name": "inbound_request_status_enum",
+      "schema": "public",
+      "values": [
+        "PRICING_REVIEW",
+        "PENDING_APPROVAL",
+        "QUOTED",
+        "CONFIRMED",
+        "CANCELLED",
+        "COMPLETED"
+      ]
+    },
     "public.line_item_type": {
       "name": "line_item_type",
       "schema": "public",
@@ -4881,15 +5205,6 @@
         "ADMIN",
         "LOGISTICS",
         "CLIENT"
-      ]
-    },
-    "public.vehicle_type": {
-      "name": "vehicle_type",
-      "schema": "public",
-      "values": [
-        "STANDARD",
-        "7_TON",
-        "10_TON"
       ]
     }
   },

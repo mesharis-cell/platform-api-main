@@ -123,6 +123,8 @@ export const serviceCategoryEnum = pgEnum("service_category", [
 //   "bulk_import": true,
 //   "advanced_reporting": false,
 //   "api_access": false
+//   "show_estimate_on_order_creation": true,  // Default for all companies
+//   "enable_inbound_requests": true
 // }
 
 export const platforms = pgTable(
@@ -178,6 +180,7 @@ export const companies = pgTable(
         warehouse_ops_rate: decimal("warehouse_ops_rate", { precision: 10, scale: 2 }).notNull().default("25.20"), // AED per m³
         contact_email: varchar("contact_email", { length: 255 }),
         contact_phone: varchar("contact_phone", { length: 50 }),
+        features: jsonb("features").default({}).notNull(), // {show_estimate_on_order_creation: false  // This company's overrid }
         is_active: boolean("is_active").default(true).notNull(),
         created_at: timestamp("created_at").notNull().defaultNow(),
         updated_at: timestamp("updated_at")
@@ -702,6 +705,10 @@ export const orders = pgTable(
             .array()
             .default(sql`ARRAY[]::text[]`), // Outbound truck loading photos
 
+        // Logistics details
+        logistics_delivery_details: jsonb("logistics_delivery_details").default("{}"), // { truck_plate: "ABC-1234", driver_name: "Ahmed", driver_contact: "+971501234567", truck_size: "3_TON", tailgate_required: true, manpower_required: true, notes: "Call 30 min before" }
+        logistics_pickup_details: jsonb("logistics_pickup_details").default("{}"), // { truck_plate: "ABC-1234", driver_name: "Ahmed", driver_contact: "+971501234567", truck_size: "3_TON", tailgate_required: true, manpower_required: true, notes: "Call 30 min before" }
+
         // Timestamps
         created_at: timestamp("created_at").notNull().defaultNow(),
         updated_at: timestamp("updated_at")
@@ -908,7 +915,7 @@ export const orderLineItems = pgTable(
         order_id: uuid("order")
             .notNull()
             .references(() => orders.id, { onDelete: "cascade" }),
-
+        line_item_id: varchar("line_item_id", { length: 8 }).notNull(),
         // Type linkage (one or neither, not both)
         service_type_id: uuid("service_type").references(() => serviceTypes.id), // NULL for custom items
         reskin_request_id: uuid("reskin_request").references(() => reskinRequests.id), // Links custom item to reskin
