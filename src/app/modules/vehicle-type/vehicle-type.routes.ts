@@ -17,7 +17,7 @@ router.post(
   auth("ADMIN"),
   VehicleTypeControllers.createVehicleType);
 
-router.put(
+router.patch(
   "/:id",
   platformValidator,
   auth("ADMIN"),

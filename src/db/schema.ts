@@ -1485,6 +1485,7 @@ export const vehicleTypesRelations = relations(vehicleTypes, ({ one }) => ({
         references: [platforms.id],
     }),
 }));
+
 export const inboundRequestItemsRelations = relations(inboundRequestItems, ({ one }) => ({
     inbound_request: one(inboundRequests, {
         fields: [inboundRequestItems.inbound_request_id],
