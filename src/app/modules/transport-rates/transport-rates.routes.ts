@@ -60,7 +60,7 @@ router.delete(
     "/:id",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.TRANSPORT_RATES_MANAGE),
+    // requirePermission(PERMISSIONS.TRANSPORT_RATES_MANAGE),
     TransportRatesControllers.deleteTransportRate
 );
 
