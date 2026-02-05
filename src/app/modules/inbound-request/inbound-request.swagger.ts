@@ -238,17 +238,96 @@
  *                   items:
  *                     type: object
  *                     properties:
- *                       request:
+ *                       id:
+ *                         type: string
+ *                         format: uuid
+ *                       platform_id:
+ *                         type: string
+ *                         format: uuid
+ *                       incoming_at:
+ *                         type: string
+ *                         format: date-time
+ *                       note:
+ *                         type: string
+ *                         nullable: true
+ *                       request_status:
+ *                         type: string
+ *                         enum: [PRICING_REVIEW, PENDING_APPROVAL, APPROVED, REJECTED, CANCELLED]
+ *                       financial_status:
+ *                         type: string
+ *                         enum: [PENDING_QUOTE, QUOTE_GENERATED, QUOTE_REVISED, PENDING_PAYMENT, PAID, PARTIALLY_PAID, REFUNDED, VOID, CREDIT_NOTE_ISSUED]
+ *                       company:
  *                         type: object
+ *                         nullable: true
  *                         properties:
  *                           id:
  *                             type: string
  *                             format: uuid
- *                           company_id:
+ *                           name:
+ *                             type: string
+ *                       requester:
+ *                         type: object
+ *                         nullable: true
+ *                         properties:
+ *                           id:
  *                             type: string
  *                             format: uuid
- *                           status:
+ *                           name:
  *                             type: string
+ *                           email:
+ *                             type: string
+ *                             format: email
+ *                       request_pricing:
+ *                         type: object
+ *                         nullable: true
+ *                         description: Full pricing details for ADMIN/LOGISTICS, only final_total for CLIENT
+ *                         properties:
+ *                           warehouse_ops_rate:
+ *                             type: string
+ *                             description: Only visible to ADMIN/LOGISTICS roles
+ *                           base_ops_total:
+ *                             type: string
+ *                             description: Only visible to ADMIN/LOGISTICS roles
+ *                           logistics_sub_total:
+ *                             type: string
+ *                             description: Only visible to ADMIN/LOGISTICS roles
+ *                           final_total:
+ *                             type: string
+ *                           line_items:
+ *                             type: object
+ *                             description: Only visible to ADMIN/LOGISTICS roles
+ *                             properties:
+ *                               catalog_total:
+ *                                 type: number
+ *                               custom_total:
+ *                                 type: number
+ *                           margin:
+ *                             type: object
+ *                             description: Only visible to ADMIN/LOGISTICS roles
+ *                             properties:
+ *                               percent:
+ *                                 type: string
+ *                               amount:
+ *                                 type: number
+ *                               is_override:
+ *                                 type: boolean
+ *                               override_reason:
+ *                                 type: string
+ *                                 nullable: true
+ *                           calculated_by:
+ *                             type: string
+ *                             format: uuid
+ *                             description: Only visible to ADMIN/LOGISTICS roles
+ *                           calculated_at:
+ *                             type: string
+ *                             format: date-time
+ *                             description: Only visible to ADMIN/LOGISTICS roles
+ *                       created_at:
+ *                         type: string
+ *                         format: date-time
+ *                       updated_at:
+ *                         type: string
+ *                         format: date-time
  *       401:
  *         description: Unauthorized
  *       500:
