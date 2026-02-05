@@ -9,6 +9,7 @@ import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
 import { inboundRequestQueryValidationConfig, inboundRequestSortableFields } from "./inbound-request.utils";
 
+// ----------------------------------- CREATE INBOUND REQUEST --------------------------------
 const createInboundRequest = async (data: InboundRequestPayload, user: AuthUser, platformId: string) => {
     const companyId = user.company_id || data.company_id;
 
@@ -26,10 +27,19 @@ const createInboundRequest = async (data: InboundRequestPayload, user: AuthUser,
         throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found or is archived");
     }
 
+    const incomingAt = new Date(data.incoming_at);
+
+    // Step 1b: Validate incoming date is at least 24 hours in the future
+    const now = new Date();
+    const minIncomingDate = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours from now
+    if (incomingAt < minIncomingDate) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Incoming date must be at least 24 hours in the future");
+    }
+
     // Step 2: Create inbound request and items in a transaction
     return await db.transaction(async (tx) => {
         // Step 2.1: Calculate total volume from items
-        const totalVolume = data.items.reduce((acc, item) => acc + (item.quantity * Number(item.volume_per_unit)), 0);
+        const totalVolume = data.items.reduce((acc, item) => acc + ((item.quantity || 1) * Number(item.volume_per_unit)), 0);
 
         // Step 2.2: Calculate logistics costs and margin
         const logisticsSubTotal = Number(company.warehouse_ops_rate) * totalVolume;
@@ -103,6 +113,7 @@ const createInboundRequest = async (data: InboundRequestPayload, user: AuthUser,
     });
 };
 
+// ----------------------------------- GET INBOUND REQUESTS ----------------------------------
 const getInboundRequests = async (query: Record<string, any>, user: AuthUser, platformId: string) => {
     const {
         search_term,
@@ -194,10 +205,18 @@ const getInboundRequests = async (query: Record<string, any>, user: AuthUser, pl
             },
             requester: {
                 id: users.id,
+                name: users.name,
                 email: users.email,
             },
             request_pricing: {
+                warehouse_ops_rate: prices.warehouse_ops_rate,
+                base_ops_total: prices.base_ops_total,
+                logistics_sub_total: prices.logistics_sub_total,
                 final_total: prices.final_total,
+                line_items: prices.line_items,
+                margin: prices.margin,
+                calculated_by: prices.calculated_by,
+                calculated_at: prices.calculated_at,
             }
         })
         .from(inboundRequests)
@@ -218,6 +237,22 @@ const getInboundRequests = async (query: Record<string, any>, user: AuthUser, pl
 
     const total = countResult?.count || 0;
 
+    const formattedResults = results.map((result) => ({
+        id: result.request.id,
+        platform_id: result.request.platform_id,
+        incoming_at: result.request.incoming_at,
+        note: result.request.note,
+        request_status: result.request.request_status,
+        financial_status: result.request.financial_status,
+        company: result.company,
+        requester: result.requester,
+        request_pricing: user.role === "CLIENT" ? {
+            final_total: result.request_pricing?.final_total,
+        } : result.request_pricing,
+        created_at: result.request.created_at,
+        updated_at: result.request.updated_at
+    }));
+
     return {
         meta: {
             page: pageNumber,
@@ -225,7 +260,7 @@ const getInboundRequests = async (query: Record<string, any>, user: AuthUser, pl
             total,
             total_pages: Math.ceil(total / limitNumber),
         },
-        data: results,
+        data: formattedResults,
     };
 };
 
