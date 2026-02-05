@@ -18,6 +18,7 @@ const inboundRequestItemSchema = z.object({
         width: z.number().min(0).default(0),
         height: z.number().min(0).default(0),
     }).optional(),
+    images: z.array(z.string()).optional(),
     volume_per_unit: z.number().min(0, "Volume must be positive"),
     handling_tags: z.array(z.string()).optional()
 });

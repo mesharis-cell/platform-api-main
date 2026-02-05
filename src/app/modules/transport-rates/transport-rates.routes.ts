@@ -2,8 +2,6 @@ import { Router } from "express";
 import auth from "../../middleware/auth";
 import payloadValidator from "../../middleware/payload-validator";
 import platformValidator from "../../middleware/platform-validator";
-import requirePermission from "../../middleware/permission";
-import { PERMISSIONS } from "../../constants/permissions";
 import { TransportRatesControllers } from "./transport-rates.controllers";
 import { TransportRatesSchemas } from "./transport-rates.schemas";
 

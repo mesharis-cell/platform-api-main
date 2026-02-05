@@ -8,7 +8,6 @@ import {
     CreateTransportRatePayload,
     TripType,
     UpdateTransportRatePayload,
-    VehicleType,
 } from "./transport-rates.interfaces";
 import { uuidRegex } from "../../constants/common";
 
@@ -18,7 +17,7 @@ const lookupTransportRate = async (
     companyId: string | null,
     city: string,
     tripType: TripType,
-    vehicleType: VehicleType
+    vehicleTypeId: string
 ) => {
     // Step 1: Check if city is a valid UUID
     const isUUID = uuidRegex.test(city);
@@ -53,7 +52,7 @@ const lookupTransportRate = async (
                     eq(transportRates.company_id, companyId),
                     eq(transportRates.city_id, cityInfo.id),
                     eq(transportRates.trip_type, tripType),
-                    eq(transportRates.vehicle_type, vehicleType),
+                    eq(transportRates.vehicle_type_id, vehicleTypeId),
                     eq(transportRates.is_active, true)
                 )
             )
@@ -74,7 +73,7 @@ const lookupTransportRate = async (
                 isNull(transportRates.company_id),
                 eq(transportRates.city_id, cityInfo.id),
                 eq(transportRates.trip_type, tripType),
-                eq(transportRates.vehicle_type, vehicleType),
+                eq(transportRates.vehicle_type_id, vehicleTypeId),
                 eq(transportRates.is_active, true)
             )
         )
@@ -100,7 +99,7 @@ const listTransportRates = async (query: Record<string, any>, platformId: string
         sort_order,
         emirate,
         trip_type,
-        vehicle_type,
+        vehicle_type_id,
         company_id,
         include_inactive,
     } = query;
@@ -124,8 +123,8 @@ const listTransportRates = async (query: Record<string, any>, platformId: string
         conditions.push(eq(transportRates.trip_type, trip_type as any));
     }
 
-    if (vehicle_type) {
-        conditions.push(eq(transportRates.vehicle_type, vehicle_type as any));
+    if (vehicle_type_id) {
+        conditions.push(eq(transportRates.vehicle_type_id, vehicle_type_id));
     }
 
     if (company_id !== undefined) {
@@ -205,7 +204,7 @@ const getTransportRateById = async (id: string, platformId: string) => {
 
 // ----------------------------------- CREATE TRANSPORT RATE -----------------------------------
 const createTransportRate = async (data: CreateTransportRatePayload) => {
-    const { platform_id, company_id, city_id, area, trip_type, vehicle_type, rate, is_active } =
+    const { platform_id, company_id, city_id, area, trip_type, vehicle_type_id, rate, is_active } =
         data;
 
     // Check for duplicate
@@ -221,7 +220,7 @@ const createTransportRate = async (data: CreateTransportRatePayload) => {
                 eq(transportRates.city_id, city_id),
                 area ? eq(transportRates.area, area) : isNull(transportRates.area),
                 eq(transportRates.trip_type, trip_type as any),
-                eq(transportRates.vehicle_type, vehicle_type as any)
+                eq(transportRates.vehicle_type_id, vehicle_type_id as any)
             )
         )
         .limit(1);
@@ -240,8 +239,8 @@ const createTransportRate = async (data: CreateTransportRatePayload) => {
             company_id: company_id || null,
             city_id: city_id,
             area: area || null,
-            trip_type: trip_type as any,
-            vehicle_type: vehicle_type as any,
+            trip_type: trip_type,
+            vehicle_type_id: vehicle_type_id,
             rate: rate.toString(),
             is_active: is_active ?? true,
         })

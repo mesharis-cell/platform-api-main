@@ -19,6 +19,7 @@ import {
     reskinRequests,
     scanEvents,
     users,
+    vehicleTypes,
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
@@ -76,7 +77,7 @@ const calculateEstimate = async (
     payload: CalculateEstimatePayload
 ) => {
     // Step 1: Extract payload data
-    const { items, venue_city, transport_trip_type } = payload;
+    const { items, venue_city, trip_type } = payload;
 
     // Step 2: Fetch company information
     const [company] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1);
@@ -109,8 +110,8 @@ const calculateEstimate = async (
         platformId,
         companyId,
         venue_city,
-        transport_trip_type,
-        'STANDARD'
+        trip_type,
+        'vehicle_type_default_id' // TODO: change this to actual vehicle type id
     );
 
     if (!transportRateInfo) {
@@ -136,7 +137,7 @@ const calculateEstimate = async (
         },
         transport: {
             city: venue_city,
-            trip_type: transport_trip_type,
+            trip_type: trip_type,
             vehicle_type: "STANDARD",
             rate: transportRate,
         },
@@ -176,7 +177,7 @@ const submitOrderFromCart = async (
     const {
         items,
         brand_id,
-        transport_trip_type,
+        trip_type,
         event_start_date,
         event_end_date,
         venue_name,
@@ -190,8 +191,8 @@ const submitOrderFromCart = async (
         special_instructions,
     } = payload;
 
-    const tripType = transport_trip_type || "ROUND_TRIP";
-    const vehicleType = "STANDARD";
+    const tripType = trip_type || "ROUND_TRIP";
+    const vehicleType = "vehicle_type_default_id"; // TODO: change this to actual vehicle type id
     const eventStartDate = dayjs(event_start_date).toDate();
     const eventEndDate = dayjs(event_end_date).toDate();
 
@@ -340,8 +341,8 @@ const submitOrderFromCart = async (
                     volume: calculatedVolume,
                     weight: calculatedWeight,
                 },
-                transport_trip_type: tripType as any,
-                transport_vehicle_type: vehicleType,
+                trip_type: tripType,
+                vehicle_type_id: vehicleType,
                 order_pricing_id: orderPricing.id,
                 venue_city_id: venue_city,
                 order_status: "PRICING_REVIEW",
@@ -1687,11 +1688,15 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
             venue_city: {
                 name: cities.name
             },
+            vehicle_type: {
+                name: vehicleTypes.name
+            }
         })
         .from(orders)
         .leftJoin(companies, eq(orders.company_id, companies.id))
         .leftJoin(prices, eq(orders.order_pricing_id, prices.id))
         .leftJoin(cities, eq(orders.venue_city_id, cities.id))
+        .leftJoin(vehicleTypes, eq(orders.vehicle_type_id, vehicleTypes.id))
         .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)))
         .limit(1);
 
@@ -1699,6 +1704,7 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
     const company = result.company;
     const orderPricing = result.order_pricing;
     const venueCity = result.venue_city;
+    const vehicleType = result.vehicle_type;
 
     if (!order) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
@@ -1711,6 +1717,9 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
     }
     if (!venueCity) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Venue city not found for this order");
+    }
+    if (!vehicleType) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Vehicle type not found for this order");
     }
 
 
@@ -1727,12 +1736,12 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
         platformId,
         company.id,
         order.venue_city_id,
-        order.transport_trip_type,
-        order.transport_vehicle_type
+        order.trip_type,
+        order.vehicle_type_id
     );
 
     if (!transportRateInfo) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, `Transport rate not found for ${venueCity.name} to ${order.transport_trip_type} by ${order.transport_vehicle_type}`);
+        throw new CustomizedError(httpStatus.NOT_FOUND, `Transport rate not found for ${venueCity.name} to ${order.trip_type} by ${vehicleType.name}`);
     }
 
     // Step 4: Get line items totals
@@ -2252,7 +2261,7 @@ const updateOrderVehicle = async (
     payload: UpdateVehiclePayload,
 ) => {
     // Step 1: Extract payload data
-    const { vehicle_type, reason } = payload;
+    const { vehicle_type_id, reason } = payload;
 
     // Step 2: Fetch order from database
     const order = await db.query.orders.findFirst({
@@ -2280,23 +2289,32 @@ const updateOrderVehicle = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order pricing not found");
     }
 
-    // Step 5: Lookup new transport rate for the updated vehicle type
+    // Step 5: Fetch vehicle type details
+    const vehicleType = await db.query.vehicleTypes.findFirst({
+        where: eq(vehicleTypes.id, vehicle_type_id),
+    });
+
+    if (!vehicleType) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Vehicle type not found");
+    }
+
+    // Step 6: Lookup new transport rate for the updated vehicle type
     const transportRateInfo = await TransportRatesServices.lookupTransportRate(
         platformId,
         order.company_id,
         order.venue_city_id,
-        order.transport_trip_type,
-        vehicle_type
+        order.trip_type,
+        vehicle_type_id
     );
 
-    // Step 6: Calculate updated pricing with new transport rate
+    // Step 7: Calculate updated pricing with new transport rate
     const transportRate = transportRateInfo?.rate ? Number(transportRateInfo.rate) : null;
     const baseOpsTotal = Number(orderPricing.base_ops_total);
     const logisticsSubTotal = transportRate ? transportRate + baseOpsTotal : null;
     const marginAmount = logisticsSubTotal ? logisticsSubTotal * (Number((orderPricing.margin as any).percent) / 100) : null;
     const finalTotal = logisticsSubTotal && marginAmount ? logisticsSubTotal + marginAmount : null;
 
-    // Step 7: Prepare updated pricing object
+    // Step 8: Prepare updated pricing object
     const updatedPricing = {
         logistics_sub_total: logisticsSubTotal ? logisticsSubTotal.toFixed(2) : null,
         transport: {
@@ -2312,16 +2330,16 @@ const updateOrderVehicle = async (
         calculated_by: user.id,
     }
 
-    // Step 8: Update order pricing and vehicle type in transaction
+    // Step 9: Update order pricing and vehicle type in transaction
     await db.transaction(async (tx) => {
-        // Step 8.1: Update order pricing with new transport rate
+        // Step 9.1: Update order pricing with new transport rate
         await tx.update(prices).set(updatedPricing).where(eq(prices.id, order.order_pricing_id));
 
-        // Step 8.2: Update order vehicle type
+        // Step 9.2: Update order vehicle type
         await tx
             .update(orders)
             .set({
-                transport_vehicle_type: vehicle_type,
+                vehicle_type_id,
                 updated_at: new Date(),
             })
             .where(eq(orders.id, orderId));
@@ -2329,296 +2347,13 @@ const updateOrderVehicle = async (
 
     await costEstimateGenerator(orderId, platformId, user);
 
-    // Step 9: Return updated vehicle information
+    // Step 10: Return updated vehicle information
     return {
-        vehicle_type,
+        vehicle_type: vehicleType.name,
         new_rate: transportRate,
         reason: reason.trim(),
     };
 }
-
-// ----------------------------------- ADJUST LOGISTICS PRICING -------------------------------
-// const adjustLogisticsPricing = async (
-//     orderId: string,
-//     user: AuthUser,
-//     platformId: string,
-//     payload: AdjustLogisticsPricingPayload
-// ) => {
-//     // Step 1: Fetch order and verify it exists
-//     const order = await db.query.orders.findFirst({
-//         where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
-//         with: {
-//             company: true,
-//         },
-//     });
-
-//     if (!order) {
-//         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
-//     }
-
-//     // Step 2: Verify order is in PRICING_REVIEW status
-//     if (order.order_status !== "PRICING_REVIEW") {
-//         throw new CustomizedError(httpStatus.BAD_REQUEST, "Order is not in PRICING_REVIEW status");
-//     }
-
-//     // Step 3: Get base price from logistics_pricing or calculate from tier
-//     const platformPricing = order.platform_pricing as any;
-//     const logisticsPricing = order.logistics_pricing as any;
-//     const basePrice = logisticsPricing?.base_price || null;
-
-//     // Step 4: Update logistics_pricing JSONB field
-//     const updatedLogisticsPricing = {
-//         base_price: basePrice,
-//         adjusted_price: payload.adjusted_price,
-//         adjustment_reason: payload.adjustment_reason,
-//         adjusted_at: new Date().toISOString(),
-//         adjusted_by: user.email,
-//     };
-
-//     // Step 5: Update order
-//     const orderCompany: any = order.company; // ✅ FIX: Type assertion
-//     await db
-//         .update(orders)
-//         .set({
-//             logistics_pricing: updatedLogisticsPricing,
-//             platform_pricing: {
-//                 ...platformPricing,
-//                 margin_percent: orderCompany.platform_margin_percent,
-//                 margin_amount:
-//                     Number(updatedLogisticsPricing.adjusted_price) *
-//                     (Number(orderCompany.platform_margin_percent) / 100),
-//             },
-//             order_status: "PENDING_APPROVAL",
-//             updated_at: new Date(),
-//         })
-//         .where(eq(orders.id, orderId));
-
-//     // Step 6: Log status change in order_status_history
-//     await db.insert(orderStatusHistory).values({
-//         platform_id: platformId,
-//         order_id: orderId,
-//         status: "PENDING_APPROVAL",
-//         notes: `Logistics pricing adjusted: ${payload.adjustment_reason}`,
-//         updated_by: user.id,
-//     });
-
-//     // Step 7: Send notification to plaform admin
-//     const platformAdmins = await db
-//         .select({ email: users.email })
-//         .from(users)
-//         .where(
-//             and(
-//                 eq(users.platform_id, platformId),
-//                 eq(users.role, "ADMIN"),
-//                 sql`${users.permission_template} = 'PLATFORM_ADMIN' AND ${users.email} NOT LIKE '%@system.internal'`
-//             )
-//         );
-
-//     const platformAdminEmails = platformAdmins.map((admin) => admin.email);
-
-//     // TODO: Change URL
-//     await multipleEmailSender(
-//         platformAdminEmails,
-//         `Action Required: Order ${order.order_id} - Logistics Pricing Adjustment`,
-//         emailTemplates.adjust_price({
-//             order_id: order.order_id,
-//             company_name: (order.company as any).name,
-//             adjusted_price: updatedLogisticsPricing.adjusted_price,
-//             adjustment_reason: updatedLogisticsPricing.adjustment_reason,
-//             view_order_url: `http://localhost:3000/order/${order.order_id}`,
-//         })
-//     );
-
-//     return {
-//         id: order.id,
-//         order_id: order.order_id,
-//         order_status: "PENDING_APPROVAL",
-//         base_price: updatedLogisticsPricing.base_price,
-//         adjusted_price: updatedLogisticsPricing.adjusted_price,
-//         adjustment_reason: updatedLogisticsPricing.adjustment_reason,
-//         adjusted_at: updatedLogisticsPricing.adjusted_at,
-//         adjusted_by: {
-//             id: updatedLogisticsPricing.adjusted_by,
-//             name: user.name,
-//         },
-//         company: {
-//             id: (order.company as any).id,
-//             name: (order.company as any).name,
-//         },
-//     };
-// };
-
-// ----------------------------------- GET PRICING REVIEW ORDERS ------------------------------
-// const getPricingReviewOrders = async (query: any, platformId: string) => {
-//     const { search_term, page, limit, sort_by, sort_order, company_id, date_from, date_to } = query;
-
-//     // Step 1: Validate query parameters
-//     if (sort_by) queryValidator(orderQueryValidationConfig, "sort_by", sort_by);
-//     if (sort_order) queryValidator(orderQueryValidationConfig, "sort_order", sort_order);
-
-//     // Step 2: Setup pagination
-//     const { pageNumber, limitNumber, skip, sortWith, sortSequence } = paginationMaker({
-//         page,
-//         limit,
-//         sort_by,
-//         sort_order,
-//     });
-
-//     // Step 3: Build WHERE conditions
-//     const conditions: any[] = [
-//         eq(orders.platform_id, platformId),
-//         eq(orders.order_status, "PRICING_REVIEW"),
-//     ];
-
-//     // Step 3b: Optional filters
-//     if (search_term && search_term.trim().length > 0) {
-//         conditions.push(ilike(orders.order_id, `%${search_term.trim()}%`));
-//     }
-
-//     if (company_id) {
-//         conditions.push(eq(orders.company_id, company_id));
-//     }
-
-//     if (date_from) {
-//         const fromDate = new Date(date_from);
-//         if (isNaN(fromDate.getTime())) {
-//             throw new CustomizedError(httpStatus.BAD_REQUEST, "Invalid date_from format");
-//         }
-//         conditions.push(gte(orders.created_at, fromDate));
-//     }
-
-//     if (date_to) {
-//         const toDate = new Date(date_to);
-//         if (isNaN(toDate.getTime())) {
-//             throw new CustomizedError(httpStatus.BAD_REQUEST, "Invalid date_to format");
-//         }
-//         conditions.push(lte(orders.created_at, toDate));
-//     }
-
-//     // Step 3c: Search functionality
-//     if (search_term) {
-//         const searchConditions = [
-//             ilike(orders.order_id, `%${search_term}%`),
-//             ilike(orders.contact_name, `%${search_term}%`),
-//             ilike(orders.venue_name, `%${search_term}%`),
-//             // Subquery for asset names in orderItems
-//             sql`EXISTS (
-// 				SELECT 1 FROM ${orderItems}
-// 				WHERE ${orderItems.order_id} = ${orders.id}
-// 				AND ${orderItems.asset_name} ILIKE ${`%${search_term}%`}
-// 			)`,
-//         ];
-//         conditions.push(sql`(${sql.join(searchConditions, sql` OR `)})`);
-//     }
-
-//     // Step 4: Determine sort field
-//     const sortField = orderSortableFields[sortWith] || orders.created_at;
-
-//     // Step 5: Fetch orders with company and brand information
-//     const results = await db
-//         .select({
-//             order: orders,
-//             company: {
-//                 id: companies.id,
-//                 name: companies.name,
-//             },
-//         })
-//         .from(orders)
-//         .leftJoin(companies, eq(orders.company_id, companies.id))
-//         .where(and(...conditions))
-//         .orderBy(sortSequence === "asc" ? asc(sortField) : desc(sortField))
-//         .limit(limitNumber)
-//         .offset(skip);
-
-//     // Step 6: Get total count
-//     const [countResult] = await db
-//         .select({ count: count() })
-//         .from(orders)
-//         .where(and(...conditions));
-
-//     // Step 7: Flag orders with reskin requests
-//     const orderIds = results.map((r) => r.order.id);
-//     const reskinOrderIds = new Set<string>();
-//     if (orderIds.length > 0) {
-//         const reskinItems = await db
-//             .select({ order_id: orderItems.order_id })
-//             .from(orderItems)
-//             .where(and(inArray(orderItems.order_id, orderIds), eq(orderItems.is_reskin_request, true)));
-//         reskinItems.forEach((item) => reskinOrderIds.add(item.order_id));
-//     }
-
-//     const enhancedResults = results.map((result) => {
-//         const order = result.order;
-//         return {
-//             id: order.id,
-//             order_id: order.order_id,
-//             company: {
-//                 id: result.company?.id,
-//                 name: result.company?.name,
-//             },
-//             contact_name: order.contact_name,
-//             event_start_date: order.event_start_date,
-//             venue_name: order.venue_name,
-//             venue_location: order.venue_location,
-//             calculated_volume: (order.calculated_totals as any)?.volume,
-//             calculated_weight: (order.calculated_totals as any)?.weight,
-//             status: order.order_status,
-//             createdAt: order.created_at,
-//             pricing: order.pricing || null,
-//             transport_trip_type: order.transport_trip_type,
-//             transport_vehicle_type: order.transport_vehicle_type,
-//             has_reskin_requests: reskinOrderIds.has(order.id),
-//         };
-//     });
-
-//     return {
-//         data: enhancedResults,
-//         meta: {
-//             page: pageNumber,
-//             limit: limitNumber,
-//             total: countResult.count,
-//         },
-//     };
-// };
-
-// ----------------------------------- GET ORDER PRICING DETAILS ------------------------------
-// const getOrderPricingDetails = async (orderId: string, platformId: string) => {
-//     const order = await db.query.orders.findFirst({
-//         where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
-//         with: {
-//             company: true,
-//         },
-//     });
-
-//     if (!order) {
-//         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
-//     }
-
-//     const company = order.company as typeof companies.$inferSelect | null;
-//     const [lineItems, reskinRequests] = await Promise.all([
-//         OrderLineItemsServices.listOrderLineItems(orderId, platformId),
-//         ReskinRequestsServices.listReskinRequests(orderId, platformId),
-//     ]);
-
-//     return {
-//         order: {
-//             id: order.id,
-//             order_id: order.order_id,
-//             calculated_volume: (order.calculated_totals as any)?.volume || null,
-//             venue_location: order.venue_location,
-//             transport_trip_type: order.transport_trip_type,
-//             transport_vehicle_type: order.transport_vehicle_type,
-//             company: {
-//                 id: company?.id || "",
-//                 name: company?.name || "N/A",
-//                 platform_margin_percent: company?.platform_margin_percent || "0",
-//             },
-//         },
-//         pricing: order.pricing || null,
-//         line_items: lineItems,
-//         reskin_requests: reskinRequests,
-//     };
-// };
 
 export const OrderServices = {
     submitOrderFromCart,
@@ -2635,17 +2370,10 @@ export const OrderServices = {
     declineQuote,
     getClientOrderStatistics,
     sendInvoice,
-    // NEW FUNCTIONS
     submitForApproval,
     adminApproveQuote,
     returnToLogistics,
     cancelOrder,
     calculateEstimate,
     updateOrderVehicle,
-    // addOrderItem: OrderItemsAdjustmentService.addOrderItem,
-    // removeOrderItem: OrderItemsAdjustmentService.removeOrderItem,
-    // updateOrderItemQuantity: OrderItemsAdjustmentService.updateOrderItemQuantity,
-    // adjustLogisticsPricing,
-    // getPricingReviewOrders,
-    // getOrderPricingDetails,
 };

@@ -97,7 +97,6 @@ export const notificationStatusEnum = pgEnum("notification_status", [
 export const scanTypeEnum = pgEnum("scan_type", ["OUTBOUND", "INBOUND"]);
 export const discrepancyReasonEnum = pgEnum("discrepancy_reason", ["BROKEN", "LOST", "OTHER"]);
 export const tripTypeEnum = pgEnum("trip_type", ["ONE_WAY", "ROUND_TRIP"]);
-export const vehicleTypeEnum = pgEnum("vehicle_type", ["STANDARD", "7_TON", "10_TON"]);
 export const lineItemTypeEnum = pgEnum("line_item_type", ["CATALOG", "CUSTOM"]);
 export const serviceCategoryEnum = pgEnum("service_category", [
     "ASSEMBLY",
@@ -124,6 +123,8 @@ export const serviceCategoryEnum = pgEnum("service_category", [
 //   "bulk_import": true,
 //   "advanced_reporting": false,
 //   "api_access": false
+//   "show_estimate_on_order_creation": true,  // Default for all companies
+//   "enable_inbound_requests": true
 // }
 
 export const platforms = pgTable(
@@ -179,6 +180,7 @@ export const companies = pgTable(
         warehouse_ops_rate: decimal("warehouse_ops_rate", { precision: 10, scale: 2 }).notNull().default("25.20"), // AED per m³
         contact_email: varchar("contact_email", { length: 255 }),
         contact_phone: varchar("contact_phone", { length: 50 }),
+        features: jsonb("features").default({}).notNull(), // {show_estimate_on_order_creation: false  // This company's overrid }
         is_active: boolean("is_active").default(true).notNull(),
         created_at: timestamp("created_at").notNull().defaultNow(),
         updated_at: timestamp("updated_at")
@@ -572,7 +574,7 @@ export const transportRates = pgTable(
         city_id: uuid("city_id").notNull().references(() => cities.id, { onDelete: "cascade" }),
         area: varchar("area", { length: 100 }), // Optional sub-region
         trip_type: tripTypeEnum("trip_type").notNull(),
-        vehicle_type: vehicleTypeEnum("vehicle_type").notNull(),
+        vehicle_type_id: uuid("vehicle_type_id").notNull().references(() => vehicleTypes.id, { onDelete: "cascade" }),
         rate: decimal("rate", { precision: 10, scale: 2 }).notNull(), // AED
         is_active: boolean("is_active").notNull().default(true),
         created_at: timestamp("created_at").notNull().defaultNow(),
@@ -587,13 +589,11 @@ export const transportRates = pgTable(
             table.city_id,
             table.area,
             table.trip_type,
-            table.vehicle_type
         ),
         index("transport_rates_lookup_idx").on(
             table.platform_id,
             table.city_id,
             table.trip_type,
-            table.vehicle_type
         ),
         index("transport_rates_company_idx").on(table.company_id),
     ]
@@ -602,6 +602,7 @@ export const transportRates = pgTable(
 export const transportRatesRelations = relations(transportRates, ({ one }) => ({
     platform: one(platforms, { fields: [transportRates.platform_id], references: [platforms.id] }),
     company: one(companies, { fields: [transportRates.company_id], references: [companies.id] }),
+    vehicle_type: one(vehicleTypes, { fields: [transportRates.vehicle_type_id], references: [vehicleTypes.id] }),
 }));
 
 // ---------------------------------- SERVICE TYPES (NEW) --------------------------------------
@@ -681,12 +682,8 @@ export const orders = pgTable(
         calculated_totals: jsonb("calculated_totals").notNull(), // {volume, weight} totals
 
         // Transport (NEW)
-        transport_trip_type: tripTypeEnum("transport_trip_type").notNull().default("ROUND_TRIP"),
-        transport_vehicle_type: vehicleTypeEnum("transport_vehicle_type")
-            .notNull()
-            .default("STANDARD"),
-
-
+        trip_type: tripTypeEnum("trip_type").notNull().default("ROUND_TRIP"),
+        vehicle_type_id: uuid("vehicle_type_id").notNull().references(() => vehicleTypes.id),
 
         // Pricing (NEW structure)
         order_pricing_id: uuid("order_pricing_id")
@@ -707,6 +704,10 @@ export const orders = pgTable(
         truck_photos: text("truck_photos")
             .array()
             .default(sql`ARRAY[]::text[]`), // Outbound truck loading photos
+
+        // Logistics details
+        logistics_delivery_details: jsonb("logistics_delivery_details").default("{}"), // { truck_plate: "ABC-1234", driver_name: "Ahmed", driver_contact: "+971501234567", truck_size: "3_TON", tailgate_required: true, manpower_required: true, notes: "Call 30 min before" }
+        logistics_pickup_details: jsonb("logistics_pickup_details").default("{}"), // { truck_plate: "ABC-1234", driver_name: "Ahmed", driver_contact: "+971501234567", truck_size: "3_TON", tailgate_required: true, manpower_required: true, notes: "Call 30 min before" }
 
         // Timestamps
         created_at: timestamp("created_at").notNull().defaultNow(),
@@ -734,6 +735,7 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
     user: one(users, { fields: [orders.user_id], references: [users.id] }),
     order_pricing: one(prices, { fields: [orders.order_pricing_id], references: [prices.id] }),
     venue_city: one(cities, { fields: [orders.venue_city_id], references: [cities.id] }),
+    vehicle_type: one(vehicleTypes, { fields: [orders.vehicle_type_id], references: [vehicleTypes.id] }),
     items: many(orderItems),
     line_items: many(orderLineItems),
     reskin_requests: many(reskinRequests),
@@ -913,7 +915,7 @@ export const orderLineItems = pgTable(
         order_id: uuid("order")
             .notNull()
             .references(() => orders.id, { onDelete: "cascade" }),
-
+        line_item_id: varchar("line_item_id", { length: 8 }).notNull(),
         // Type linkage (one or neither, not both)
         service_type_id: uuid("service_type").references(() => serviceTypes.id), // NULL for custom items
         reskin_request_id: uuid("reskin_request").references(() => reskinRequests.id), // Links custom item to reskin
@@ -1456,6 +1458,9 @@ export const inboundRequestItems = pgTable(
         handling_tags: text("handling_tags")
             .array()
             .notNull()
+            .default(sql`ARRAY[]::text[]`),
+        images: text("images")
+            .array()
             .default(sql`ARRAY[]::text[]`),
         created_asset_id: uuid("created_asset_id").references(() => assets.id),
         created_at: timestamp("created_at").notNull().defaultNow(),
