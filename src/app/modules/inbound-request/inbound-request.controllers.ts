@@ -16,7 +16,23 @@ const createInboundRequest = catchAsync(async (req, res) => {
         data: result,
     });
 });
+const getInboundRequests = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const query = req.query;
+
+    const result = await InboundRequestServices.getInboundRequests(query, user, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Inbound requests fetched successfully",
+        meta: result.meta,
+        data: result.data,
+    });
+});
 
 export const InboundRequestControllers = {
     createInboundRequest,
+    getInboundRequests,
 };

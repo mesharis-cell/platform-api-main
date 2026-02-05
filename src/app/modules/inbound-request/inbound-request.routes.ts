@@ -16,4 +16,11 @@ router.post(
     InboundRequestControllers.createInboundRequest
 );
 
+router.get(
+    "/",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    InboundRequestControllers.getInboundRequests
+);
+
 export const InboundRequestRoutes = router;

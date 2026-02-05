@@ -131,4 +131,126 @@
  *         description: Company not found
  *       500:
  *         description: Internal server error
+ *   get:
+ *     tags:
+ *       - Inbound Request
+ *     summary: Get all inbound requests
+ *     description: Retrieves a paginated list of inbound requests. Supports filtering, sorting, and search.
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: page
+ *         in: query
+ *         description: Page number
+ *         required: false
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *       - name: limit
+ *         in: query
+ *         description: Items per page
+ *         required: false
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *       - name: search_term
+ *         in: query
+ *         description: Search by note or company name
+ *         required: false
+ *         schema:
+ *           type: string
+ *       - name: company_id
+ *         in: query
+ *         description: Filter by company ID
+ *         required: false
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - name: request_status
+ *         in: query
+ *         description: Filter by request status
+ *         required: false
+ *         schema:
+ *           type: string
+ *           enum: [PRICING_REVIEW, PENDING_APPROVAL, APPROVED, REJECTED, CANCELLED]
+ *       - name: financial_status
+ *         in: query
+ *         description: Filter by financial status
+ *         required: false
+ *         schema:
+ *           type: string
+ *           enum: [PENDING_QUOTE, QUOTE_GENERATED, QUOTE_REVISED, PENDING_PAYMENT, PAID, PARTIALLY_PAID, REFUNDED, VOID, CREDIT_NOTE_ISSUED]
+ *       - name: date_from
+ *         in: query
+ *         description: Filter by creation date from
+ *         required: false
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *       - name: date_to
+ *         in: query
+ *         description: Filter by creation date to
+ *         required: false
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *       - name: sort_by
+ *         in: query
+ *         description: Field to sort by
+ *         required: false
+ *         schema:
+ *           type: string
+ *           enum: [incoming_at, created_at, request_status, financial_status]
+ *       - name: sort_order
+ *         in: query
+ *         description: Sort order
+ *         required: false
+ *         schema:
+ *           type: string
+ *           enum: [asc, desc]
+ *     responses:
+ *       200:
+ *         description: Inbound requests fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Inbound requests fetched successfully"
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     page:
+ *                       type: integer
+ *                     limit:
+ *                       type: integer
+ *                     total:
+ *                       type: integer
+ *                     total_pages:
+ *                       type: integer
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       request:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                             format: uuid
+ *                           company_id:
+ *                             type: string
+ *                             format: uuid
+ *                           status:
+ *                             type: string
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
  */

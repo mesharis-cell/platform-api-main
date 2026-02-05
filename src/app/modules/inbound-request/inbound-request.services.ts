@@ -1,10 +1,13 @@
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { companies, inboundRequestItems, inboundRequests, prices } from "../../../db/schema";
+import { companies, inboundRequestItems, inboundRequests, prices, users } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
-import { eq, isNull, and } from "drizzle-orm";
+import { eq, isNull, and, asc, count, desc, gte, ilike, lte, or } from "drizzle-orm";
 import { InboundRequestPayload } from "./inbound-request.interfaces";
+import paginationMaker from "../../utils/pagination-maker";
+import queryValidator from "../../utils/query-validator";
+import { inboundRequestQueryValidationConfig, inboundRequestSortableFields } from "./inbound-request.utils";
 
 const createInboundRequest = async (data: InboundRequestPayload, user: AuthUser, platformId: string) => {
     const companyId = user.company_id || data.company_id;
@@ -99,6 +102,133 @@ const createInboundRequest = async (data: InboundRequestPayload, user: AuthUser,
     });
 };
 
+const getInboundRequests = async (query: Record<string, any>, user: AuthUser, platformId: string) => {
+    const {
+        search_term,
+        page,
+        limit,
+        sort_by,
+        sort_order,
+        company_id,
+        request_status,
+        financial_status,
+        date_from,
+        date_to,
+    } = query;
+
+    // Step 1: Validate query parameters
+    if (sort_by) queryValidator(inboundRequestQueryValidationConfig, "sort_by", sort_by);
+    if (sort_order) queryValidator(inboundRequestQueryValidationConfig, "sort_order", sort_order);
+
+    // Step 2: Setup pagination
+    const { pageNumber, limitNumber, skip, sortWith, sortSequence } = paginationMaker({
+        page,
+        limit,
+        sort_by,
+        sort_order,
+    });
+
+    // Step 3: Build WHERE conditions
+    const conditions: any[] = [eq(inboundRequests.platform_id, platformId)];
+
+    // Step 3a: Filter by user role (CLIENT users see only their company's requests)
+    if (user.role === "CLIENT") {
+        if (user.company_id) {
+            conditions.push(eq(inboundRequests.company_id, user.company_id));
+        } else {
+            throw new CustomizedError(httpStatus.UNAUTHORIZED, "Company not found");
+        }
+    }
+
+    // Step 3b: Optional filters
+    if (user.role !== "CLIENT" && company_id) {
+        conditions.push(eq(inboundRequests.company_id, company_id));
+    }
+
+    if (request_status) {
+        queryValidator(inboundRequestQueryValidationConfig, "request_status", request_status);
+        conditions.push(eq(inboundRequests.request_status, request_status));
+    }
+
+    if (financial_status) {
+        queryValidator(inboundRequestQueryValidationConfig, "financial_status", financial_status);
+        conditions.push(eq(inboundRequests.financial_status, financial_status));
+    }
+
+    if (date_from) {
+        const fromDate = new Date(date_from);
+        if (isNaN(fromDate.getTime())) {
+            throw new CustomizedError(httpStatus.BAD_REQUEST, "Invalid date_from format");
+        }
+        conditions.push(gte(inboundRequests.created_at, fromDate));
+    }
+
+    if (date_to) {
+        const toDate = new Date(date_to);
+        if (isNaN(toDate.getTime())) {
+            throw new CustomizedError(httpStatus.BAD_REQUEST, "Invalid date_to format");
+        }
+        conditions.push(lte(inboundRequests.created_at, toDate));
+    }
+
+    // Step 3c: Search functionality
+    if (search_term) {
+        const searchConditions = [
+            ilike(inboundRequests.note, `%${search_term}%`),
+            ilike(companies.name, `%${search_term}%`),
+        ];
+        conditions.push(or(...searchConditions));
+    }
+
+    // Step 4: Determine sort field
+    const sortField = inboundRequestSortableFields[sortWith] || inboundRequests.created_at;
+
+    // Step 5: Fetch requests with related information
+    const results = await db
+        .select({
+            request: inboundRequests,
+            company: {
+                id: companies.id,
+                name: companies.name,
+            },
+            requester: {
+                id: users.id,
+                email: users.email,
+            },
+            request_pricing: {
+                final_total: prices.final_total,
+            }
+        })
+        .from(inboundRequests)
+        .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
+        .leftJoin(users, eq(inboundRequests.requester_id, users.id))
+        .leftJoin(prices, eq(inboundRequests.request_pricing_id, prices.id))
+        .where(and(...conditions))
+        .orderBy(sortSequence === "asc" ? asc(sortField) : desc(sortField))
+        .limit(limitNumber)
+        .offset(skip);
+
+    // Step 6: Get total count
+    const [countResult] = await db
+        .select({ count: count() })
+        .from(inboundRequests)
+        .leftJoin(companies, eq(inboundRequests.company_id, companies.id)) // Join needed for search filtering
+        .where(and(...conditions));
+
+    const total = countResult?.count || 0;
+
+    return {
+        meta: {
+            page: pageNumber,
+            limit: limitNumber,
+            total,
+            total_pages: Math.ceil(total / limitNumber),
+        },
+        data: results,
+    };
+};
+
 export const InboundRequestServices = {
     createInboundRequest,
+    getInboundRequests,
 };
