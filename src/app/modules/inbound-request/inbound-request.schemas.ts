@@ -34,6 +34,20 @@ const createInboundRequestSchema = z.object({
     }),
 });
 
+const approveInboundRequestSchema = z.object({
+    body: z
+        .object({
+            margin_override_percent: z
+                .number("Margin override percent should be a number")
+                .min(0, "Margin override percent must be greater than 0")
+                .max(100, "Margin override percent must be less than 100")
+                .optional(),
+            margin_override_reason: z.string("Margin override reason should be a text").optional(),
+        })
+        .strict(),
+});
+
 export const inboundRequestSchemas = {
     createInboundRequestSchema,
+    approveInboundRequestSchema
 };

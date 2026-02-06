@@ -39,4 +39,13 @@ router.post(
     InboundRequestControllers.submitForApproval
 );
 
+// Admin approve request (Admin → Client)
+router.post(
+    "/:id/approve-request",
+    platformValidator,
+    auth("ADMIN"),
+    payloadValidator(inboundRequestSchemas.approveInboundRequestSchema),
+    InboundRequestControllers.approveInboundRequest
+);
+
 export const InboundRequestRoutes = router;

@@ -4,7 +4,7 @@ import { companies, inboundRequestItems, inboundRequests, prices, users } from "
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { eq, isNull, and, asc, count, desc, gte, ilike, lte, or } from "drizzle-orm";
-import { InboundRequestPayload } from "./inbound-request.interfaces";
+import { ApproveInboundRequestPayload, InboundRequestPayload } from "./inbound-request.interfaces";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
 import { inboundRequestQueryValidationConfig, inboundRequestSortableFields } from "./inbound-request.utils";
@@ -474,7 +474,7 @@ const approveInboundRequest = async (
     requestId: string,
     user: AuthUser,
     platformId: string,
-    payload: any
+    payload: ApproveInboundRequestPayload
 ) => {
     const { margin_override_percent, margin_override_reason } = payload;
 
