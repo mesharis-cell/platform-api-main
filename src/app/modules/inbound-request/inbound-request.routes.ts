@@ -57,4 +57,13 @@ router.post(
     InboundRequestControllers.approveOrDeclineQuoteByClient
 );
 
+// Update inbound request item
+router.put(
+    "/:id/items/:itemId",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    payloadValidator(inboundRequestSchemas.updateInboundRequestItemSchema),
+    InboundRequestControllers.updateInboundRequestItem
+);
+
 export const InboundRequestRoutes = router;

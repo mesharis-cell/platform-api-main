@@ -4,7 +4,7 @@ import { companies, inboundRequestItems, inboundRequests, prices, users } from "
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { eq, isNull, and, asc, count, desc, gte, ilike, lte, or } from "drizzle-orm";
-import { ApproveInboundRequestPayload, ApproveOrDeclineQuoteByClientPayload, InboundRequestPayload } from "./inbound-request.interfaces";
+import { ApproveInboundRequestPayload, ApproveOrDeclineQuoteByClientPayload, InboundRequestPayload, UpdateInboundRequestItemPayload } from "./inbound-request.interfaces";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
 import { inboundRequestQueryValidationConfig, inboundRequestSortableFields } from "./inbound-request.utils";
@@ -639,11 +639,154 @@ const approveOrDeclineQuoteByClient = async (
     };
 };
 
+// ----------------------------------- UPDATE INBOUND REQUEST ITEM ----------------------------
+const updateInboundRequestItem = async (
+    requestId: string,
+    itemId: string,
+    user: AuthUser,
+    platformId: string,
+    payload: UpdateInboundRequestItemPayload
+) => {
+    // Step 1: Fetch the inbound request to validate access and status
+    const [result] = await db
+        .select({
+            request: inboundRequests,
+            request_pricing: {
+                id: prices.id,
+                warehouse_ops_rate: prices.warehouse_ops_rate,
+                base_ops_total: prices.base_ops_total,
+                logistics_sub_total: prices.logistics_sub_total,
+                final_total: prices.final_total,
+                line_items: prices.line_items,
+                margin: prices.margin,
+                calculated_by: prices.calculated_by,
+                calculated_at: prices.calculated_at,
+            }
+        })
+        .from(inboundRequests)
+        .leftJoin(prices, eq(inboundRequests.request_pricing_id, prices.id))
+        .where(and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)));
+
+    const inboundRequest = result.request;
+    const requestPricing = result.request_pricing;
+
+    if (!inboundRequest || !requestPricing) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request or request pricing not found");
+    }
+
+    // Step 2: Check user access (CLIENT users can only update their company's requests)
+    if (user.role === "CLIENT" && inboundRequest.company_id !== user.company_id) {
+        throw new CustomizedError(httpStatus.FORBIDDEN, "You do not have access to this inbound request");
+    }
+
+    // Step 3: Check if the inbound request is in a status that allows updates
+    if (user.role === "CLIENT" && !["PRICING_REVIEW", "PENDING_APPROVAL"].includes(inboundRequest.request_status)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Cannot update items when request status is ${inboundRequest.request_status}. Items can only be updated in PENDING_APPROVAL or PRICING_REVIEW status.`
+        );
+    }
+
+    // Step 4: Fetch the item to verify it exists and belongs to this request
+    const [existingItem] = await db
+        .select()
+        .from(inboundRequestItems)
+        .where(and(eq(inboundRequestItems.id, itemId), eq(inboundRequestItems.inbound_request_id, requestId)))
+        .limit(1);
+
+    if (!existingItem) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request item not found");
+    }
+
+    // Step 5: Prepare update data
+    const updateData: Record<string, any> = {};
+
+    if (payload.brand_id !== undefined) {
+        updateData.brand_id = payload.brand_id || null;
+    }
+    if (payload.name !== undefined) {
+        updateData.name = payload.name;
+    }
+    if (payload.description !== undefined) {
+        updateData.description = payload.description || null;
+    }
+    if (payload.category !== undefined) {
+        updateData.category = payload.category;
+    }
+    if (payload.tracking_method !== undefined) {
+        updateData.tracking_method = payload.tracking_method;
+    }
+    if (payload.quantity !== undefined) {
+        updateData.quantity = payload.quantity;
+    }
+    if (payload.packaging !== undefined) {
+        updateData.packaging = payload.packaging || null;
+    }
+    if (payload.weight_per_unit !== undefined) {
+        updateData.weight_per_unit = payload.weight_per_unit.toString();
+    }
+    if (payload.volume_per_unit !== undefined) {
+        updateData.volume_per_unit = payload.volume_per_unit.toString();
+    }
+    if (payload.dimensions !== undefined) {
+        updateData.dimensions = payload.dimensions;
+    }
+    if (payload.images !== undefined) {
+        updateData.images = payload.images;
+    }
+    if (payload.handling_tags !== undefined) {
+        updateData.handling_tags = payload.handling_tags;
+    }
+
+    // Step 6: Update the item
+    const [updatedItem] = await db
+        .update(inboundRequestItems)
+        .set(updateData)
+        .where(eq(inboundRequestItems.id, itemId))
+        .returning();
+
+    // Step 7: Fetch items for this request to recalculate pricing
+    const items = await db
+        .select()
+        .from(inboundRequestItems)
+        .where(eq(inboundRequestItems.inbound_request_id, requestId));
+
+    // Step 7.1: Calculate total volume from items
+    const totalVolume = items.reduce((acc, item) => acc + ((item.quantity || 1) * Number(item.volume_per_unit)), 0);
+
+    // Step 7.2: Calculate logistics costs and margin
+    const baseOpsTotal = Number(requestPricing.warehouse_ops_rate) * totalVolume;
+    const logisticsSubTotal = baseOpsTotal + Number((requestPricing.line_items as any).catalog_total || 0);
+    const marginAmount = logisticsSubTotal * (Number((requestPricing.margin as any).percent) / 100);
+    const finalTotal = logisticsSubTotal + marginAmount + Number((requestPricing.line_items as any).custom_total || 0);
+
+    // Step 7.3: Prepare pricing details payload
+    const pricingDetails = {
+        base_ops_total: baseOpsTotal.toFixed(2),
+        logistics_sub_total: logisticsSubTotal.toFixed(2),
+        margin: {
+            percent: Number((requestPricing.margin as any).percent),
+            amount: marginAmount,
+            is_override: false,
+            override_reason: null
+        },
+        final_total: finalTotal.toFixed(2),
+        calculated_at: new Date(),
+        calculated_by: user.id,
+    }
+
+    // Step 7.4: Update pricing record
+    await db.update(prices).set(pricingDetails).where(eq(prices.id, requestPricing.id));
+
+    return updatedItem;
+};
+
 export const InboundRequestServices = {
     createInboundRequest,
     getInboundRequests,
     getInboundRequestById,
     submitForApproval,
     approveInboundRequestByAdmin,
-    approveOrDeclineQuoteByClient
+    approveOrDeclineQuoteByClient,
+    updateInboundRequestItem
 };
