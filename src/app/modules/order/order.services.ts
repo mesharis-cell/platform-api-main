@@ -2376,7 +2376,9 @@ const updateOrderVehicle = async (
             .where(eq(orders.id, orderId));
     })
 
-    await costEstimateGenerator(orderId, platformId, user);
+    if (order.order_status !== "PRICING_REVIEW") {
+        await costEstimateGenerator(orderId, platformId, user);
+    }
 
     // Step 10: Return updated vehicle information
     return {
