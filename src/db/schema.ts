@@ -906,21 +906,21 @@ export const reskinRequestsRelations = relations(reskinRequests, ({ one, many })
 
 // ---------------------------------- ORDER LINE ITEMS (NEW) -----------------------------------
 export const lineItems = pgTable(
-    "order_line_items",
+    "line_items",
     {
         id: uuid("id").primaryKey().defaultRandom(),
-        platform_id: uuid("platform")
+        line_item_id: varchar("line_item_id", { length: 8 }).notNull(),
+        platform_id: uuid("platform_id")
             .notNull()
             .references(() => platforms.id, { onDelete: "cascade" }),
-        order_id: uuid("order")
+        order_id: uuid("order_id")
             .references(() => orders.id, { onDelete: "cascade" }),
-        inbound_request_id: uuid("inbound_request")
+        inbound_request_id: uuid("inbound_request_id")
             .references(() => inboundRequests.id, { onDelete: "cascade" }),
         purpose_type: invoiceTypeEnum("purpose_type").notNull(),
-        line_item_id: varchar("line_item_id", { length: 8 }).notNull(),
         // Type linkage (one or neither, not both)
-        service_type_id: uuid("service_type").references(() => serviceTypes.id), // NULL for custom items
-        reskin_request_id: uuid("reskin_request").references(() => reskinRequests.id), // Links custom item to reskin
+        service_type_id: uuid("service_type_id").references(() => serviceTypes.id), // NULL for custom items
+        reskin_request_id: uuid("reskin_request_id").references(() => reskinRequests.id), // Links custom item to reskin
 
         // Item details
         line_item_type: lineItemTypeEnum("line_item_type").notNull(),
@@ -1417,6 +1417,7 @@ export const vehicleTypes = pgTable("vehicle_types", {
     name: varchar("name", { length: 100 }).notNull(),
     vehicle_size: varchar("vehicle_size", { length: 100 }).notNull(),
     platform_id: uuid("platform_id").references(() => platforms.id),
+    is_default: boolean("is_default").notNull().default(false),
     is_active: boolean("is_active").notNull().default(true),
     display_order: integer("display_order").notNull().default(1),
     description: text("description"),
@@ -1432,6 +1433,7 @@ export const vehicleTypesRelations = relations(vehicleTypes, ({ one }) => ({
         references: [platforms.id],
     }),
 }));
+
 export const inboundRequestItemsRelations = relations(inboundRequestItems, ({ one }) => ({
     inbound_request: one(inboundRequests, {
         fields: [inboundRequestItems.inbound_request_id],

@@ -1,0 +1,5 @@
+src/app/modules/order-line-items/order-line-items.services.ts(16,7): error TS6133: 'createLineItem' is declared but its value is never read.
+src/app/modules/order-line-items/order-line-items.services.ts(35,12): error TS6133: 'result' is declared but its value is never read.
+src/app/modules/order-line-items/order-line-items.services.ts(38,13): error TS2769: No overload matches this call.
+  Overload 2 of 2, '(values: { line_item_type: "CUSTOM" | "CATALOG" | SQL<unknown> | Placeholder<string, any>; description: string | SQL<unknown> | Placeholder<string, any>; ... 21 more ...; void_reason?: string | ... 3 more ... | undefined; }[]): PgInsertBase<...>', gave the following error.
+    Object literal may only specify known properties, and 'platform_id' does not exist in type '{ line_item_type: "CUSTOM" | "CATALOG" | SQL<unknown> | Placeholder<string, any>; description: string | SQL<unknown> | Placeholder<string, any>; platform_id: string | ... 1 more ... | Placeholder<...>; ... 20 more ...; void_reason?: string | ... 3 more ... | undefined; }[]'.

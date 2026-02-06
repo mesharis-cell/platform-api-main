@@ -5,7 +5,6 @@ export type CreateCatalogLineItemPayload = z.infer<
     typeof OrderLineItemsSchemas.createCatalogLineItemSchema
 >["body"] & {
     platform_id: string;
-    order_id: string;
     added_by: string;
 };
 
@@ -13,7 +12,6 @@ export type CreateCustomLineItemPayload = z.infer<
     typeof OrderLineItemsSchemas.createCustomLineItemSchema
 >["body"] & {
     platform_id: string;
-    order_id: string;
     added_by: string;
 };
 
