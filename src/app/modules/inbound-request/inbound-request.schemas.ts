@@ -10,16 +10,16 @@ const inboundRequestItemSchema = z.object({
     tracking_method: z.enum(trackingMethodEnum.enumValues, {
         message: enumMessageGenerator("Tracking method", trackingMethodEnum.enumValues),
     }),
-    quantity: z.number().int().min(1).default(1),
+    quantity: z.number("Quantity should be a number").int().min(1, "Quantity must be at least 1").default(1),
     packaging: z.string().optional().or(z.literal("")),
-    weight_per_unit: z.number().min(0, "Weight must be positive"),
+    weight_per_unit: z.number("Weight per unit should be a number").min(0, "Weight must be positive"),
+    volume_per_unit: z.number("Volume per unit should be a number").min(0, "Volume must be positive"),
     dimensions: z.object({
-        length: z.number().min(0).default(0),
-        width: z.number().min(0).default(0),
-        height: z.number().min(0).default(0),
+        length: z.number("Length should be a number").min(0).default(0),
+        width: z.number("Width should be a number").min(0).default(0),
+        height: z.number("Height should be a number").min(0).default(0),
     }).optional(),
     images: z.array(z.string()).optional(),
-    volume_per_unit: z.number().min(0, "Volume must be positive"),
     handling_tags: z.array(z.string()).optional()
 });
 

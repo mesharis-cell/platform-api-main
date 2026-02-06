@@ -103,6 +103,11 @@
  *                       items:
  *                         type: string
  *                       example: ["FRAGILE", "HEAVY"]
+ *                     images:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                       example: ["https://example.com/image.jpg"]
  *     responses:
  *       201:
  *         description: Inbound request created successfully
@@ -238,19 +243,281 @@
  *                   items:
  *                     type: object
  *                     properties:
- *                       request:
+ *                       id:
+ *                         type: string
+ *                         format: uuid
+ *                       platform_id:
+ *                         type: string
+ *                         format: uuid
+ *                       incoming_at:
+ *                         type: string
+ *                         format: date-time
+ *                       note:
+ *                         type: string
+ *                         nullable: true
+ *                       request_status:
+ *                         type: string
+ *                         enum: [PRICING_REVIEW, PENDING_APPROVAL, APPROVED, REJECTED, CANCELLED]
+ *                       financial_status:
+ *                         type: string
+ *                         enum: [PENDING_QUOTE, QUOTE_GENERATED, QUOTE_REVISED, PENDING_PAYMENT, PAID, PARTIALLY_PAID, REFUNDED, VOID, CREDIT_NOTE_ISSUED]
+ *                       company:
+ *                         type: object
+ *                         nullable: true
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                             format: uuid
+ *                           name:
+ *                             type: string
+ *                       requester:
+ *                         type: object
+ *                         nullable: true
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                             format: uuid
+ *                           name:
+ *                             type: string
+ *                           email:
+ *                             type: string
+ *                             format: email
+ *                       request_pricing:
+ *                         type: object
+ *                         nullable: true
+ *                         description: Full pricing details for ADMIN/LOGISTICS, only final_total for CLIENT
+ *                         properties:
+ *                           warehouse_ops_rate:
+ *                             type: string
+ *                             description: Only visible to ADMIN/LOGISTICS roles
+ *                           base_ops_total:
+ *                             type: string
+ *                             description: Only visible to ADMIN/LOGISTICS roles
+ *                           logistics_sub_total:
+ *                             type: string
+ *                             description: Only visible to ADMIN/LOGISTICS roles
+ *                           final_total:
+ *                             type: string
+ *                           line_items:
+ *                             type: object
+ *                             description: Only visible to ADMIN/LOGISTICS roles
+ *                             properties:
+ *                               catalog_total:
+ *                                 type: number
+ *                               custom_total:
+ *                                 type: number
+ *                           margin:
+ *                             type: object
+ *                             description: Only visible to ADMIN/LOGISTICS roles
+ *                             properties:
+ *                               percent:
+ *                                 type: string
+ *                               amount:
+ *                                 type: number
+ *                               is_override:
+ *                                 type: boolean
+ *                               override_reason:
+ *                                 type: string
+ *                                 nullable: true
+ *                           calculated_by:
+ *                             type: string
+ *                             format: uuid
+ *                             description: Only visible to ADMIN/LOGISTICS roles
+ *                           calculated_at:
+ *                             type: string
+ *                             format: date-time
+ *                             description: Only visible to ADMIN/LOGISTICS roles
+ *                       created_at:
+ *                         type: string
+ *                         format: date-time
+ *                       updated_at:
+ *                         type: string
+ *                         format: date-time
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
+ */
+
+/**
+ * @swagger
+ * /api/client/v1/inbound-request/{id}:
+ *   get:
+ *     tags:
+ *       - Inbound Request
+ *     summary: Get a single inbound request with items
+ *     description: Retrieves a single inbound request with its items, company, requester, and pricing details.
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         description: Inbound request ID
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Inbound request fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Inbound request fetched successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                     platform_id:
+ *                       type: string
+ *                       format: uuid
+ *                     incoming_at:
+ *                       type: string
+ *                       format: date-time
+ *                     note:
+ *                       type: string
+ *                       nullable: true
+ *                     request_status:
+ *                       type: string
+ *                       enum: [PRICING_REVIEW, PENDING_APPROVAL, APPROVED, REJECTED, CANCELLED]
+ *                     financial_status:
+ *                       type: string
+ *                       enum: [PENDING_QUOTE, QUOTE_GENERATED, QUOTE_REVISED, PENDING_PAYMENT, PAID, PARTIALLY_PAID, REFUNDED, VOID, CREDIT_NOTE_ISSUED]
+ *                     company:
+ *                       type: object
+ *                       nullable: true
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                           format: uuid
+ *                         name:
+ *                           type: string
+ *                     requester:
+ *                       type: object
+ *                       nullable: true
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                           format: uuid
+ *                         name:
+ *                           type: string
+ *                         email:
+ *                           type: string
+ *                           format: email
+ *                     request_pricing:
+ *                       type: object
+ *                       nullable: true
+ *                       description: Full pricing details for ADMIN/LOGISTICS, only final_total for CLIENT
+ *                       properties:
+ *                         warehouse_ops_rate:
+ *                           type: string
+ *                         base_ops_total:
+ *                           type: string
+ *                         logistics_sub_total:
+ *                           type: string
+ *                         final_total:
+ *                           type: string
+ *                         line_items:
+ *                           type: object
+ *                           properties:
+ *                             catalog_total:
+ *                               type: number
+ *                             custom_total:
+ *                               type: number
+ *                         margin:
+ *                           type: object
+ *                           properties:
+ *                             percent:
+ *                               type: string
+ *                             amount:
+ *                               type: number
+ *                             is_override:
+ *                               type: boolean
+ *                             override_reason:
+ *                               type: string
+ *                               nullable: true
+ *                         calculated_by:
+ *                           type: string
+ *                           format: uuid
+ *                         calculated_at:
+ *                           type: string
+ *                           format: date-time
+ *                     items:
+ *                       type: array
+ *                       items:
  *                         type: object
  *                         properties:
  *                           id:
  *                             type: string
  *                             format: uuid
- *                           company_id:
+ *                           inbound_request_id:
  *                             type: string
  *                             format: uuid
- *                           status:
+ *                           brand_id:
  *                             type: string
+ *                             format: uuid
+ *                             nullable: true
+ *                           name:
+ *                             type: string
+ *                           description:
+ *                             type: string
+ *                             nullable: true
+ *                           category:
+ *                             type: string
+ *                           tracking_method:
+ *                             type: string
+ *                             enum: [INDIVIDUAL, BATCH]
+ *                           quantity:
+ *                             type: integer
+ *                           packaging:
+ *                             type: string
+ *                             nullable: true
+ *                           weight_per_unit:
+ *                             type: string
+ *                           dimensions:
+ *                             type: object
+ *                             nullable: true
+ *                             properties:
+ *                               length:
+ *                                 type: number
+ *                               width:
+ *                                 type: number
+ *                               height:
+ *                                 type: number
+ *                           volume_per_unit:
+ *                             type: string
+ *                           handling_tags:
+ *                             type: array
+ *                             items:
+ *                               type: string
+ *                           images:
+ *                             type: array
+ *                             items:
+ *                               type: string
+ *                           created_at:
+ *                             type: string
+ *                             format: date-time
+ *                           updated_at:
+ *                             type: string
+ *                             format: date-time
+ *                     created_at:
+ *                       type: string
+ *                       format: date-time
+ *                     updated_at:
+ *                       type: string
+ *                       format: date-time
  *       401:
  *         description: Unauthorized
+ *       404:
+ *         description: Inbound request not found
  *       500:
  *         description: Internal server error
  */

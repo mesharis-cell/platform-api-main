@@ -1813,6 +1813,7 @@ async function seedOrderLineItems() {
                     platform_id: order.platform_id,
                     order_id: order.id,
                     line_item_id: lineItemId,
+                    purpose_type: "ORDER" as const,
                     service_type_id: null,
                     reskin_request_id: reskinReq.id,
                     line_item_type: 'CUSTOM' as const,
@@ -1854,6 +1855,7 @@ async function seedOrderLineItems() {
                         platform_id: order.platform_id,
                         order_id: order.id,
                         line_item_id: lineItemId,
+                        purpose_type: "ORDER" as const,
                         service_type_id: service.id,
                         reskin_request_id: null,
                         line_item_type: 'CATALOG' as const,
@@ -2093,6 +2095,7 @@ async function seedInvoices() {
             platform_id: order.platform_id,
             order_id: order.id,
             invoice_id: invoiceId,
+            type: "ORDER" as const,
             invoice_pdf_url: pdfUrl,
             invoice_paid_at:
                 order.financial_status === "PAID"

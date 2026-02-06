@@ -172,6 +172,7 @@ export const invoiceGenerator = async (
                 platform_id: platformId,
                 generated_by: user.id,
                 order_id: orderId,
+                type: "ORDER",
                 invoice_id: invoiceNumber,
                 invoice_pdf_url: pdfUrl,
             });
