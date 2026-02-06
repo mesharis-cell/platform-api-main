@@ -2023,7 +2023,7 @@ const adminApproveQuote = async (
         id: order.id,
         order_id: order.order_id,
         order_status: "QUOTED",
-        financial_status: "QUOTE_SENT",
+        financial_status: newFinancialStatus,
         final_total: finalTotal,
         updated_at: new Date(),
     };
@@ -2406,25 +2406,7 @@ const addTruckDetails = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
     }
 
-
-    // Step 3: Verify order is in valid status for truck details update
-    if (delivery_truck_details) {
-        if (!["CONFIRMED", "IN_PREPARATION", "READY_FOR_DELIVERY"].includes(order.order_status)) {
-            throw new CustomizedError(
-                httpStatus.BAD_REQUEST,
-                "Delivery truck details can only be added during CONFIRMED, IN_PREPARATION or READY_FOR_DELIVERY"
-            );
-        }
-    } else if (pickup_truck_details) {
-        if (!["IN_USE", "AWAITING_RETURN"].includes(order.order_status)) {
-            throw new CustomizedError(
-                httpStatus.BAD_REQUEST,
-                "Pickup truck details can only be added during IN_USE or AWAITING_RETURN"
-            );
-        }
-    }
-
-    // Step 5: Update order truck details in transaction
+    // Step 3: Update order truck details in transaction
     await db.transaction(async (tx) => {
         await tx
             .update(orders)
@@ -2435,7 +2417,7 @@ const addTruckDetails = async (
             .where(eq(orders.id, orderId));
     });
 
-    // Step 6: Return updated truck details
+    // Step 4: Return updated truck details
     return {
         delivery_truck_details: delivery_truck_details || null,
         pickup_truck_details: pickup_truck_details || null,

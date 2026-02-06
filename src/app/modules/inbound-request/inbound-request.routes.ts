@@ -39,4 +39,22 @@ router.post(
     InboundRequestControllers.submitForApproval
 );
 
+// Admin approve request (Admin → Client)
+router.post(
+    "/:id/approve-request",
+    platformValidator,
+    auth("ADMIN"),
+    payloadValidator(inboundRequestSchemas.approveInboundRequestSchema),
+    InboundRequestControllers.approveInboundRequestByAdmin
+);
+
+// Client approve or decline quote
+router.post(
+    "/:id/approve-or-decline-quote",
+    platformValidator,
+    auth("CLIENT"),
+    payloadValidator(inboundRequestSchemas.approveOrDeclineQuoteByClientSchema),
+    InboundRequestControllers.approveOrDeclineQuoteByClient
+);
+
 export const InboundRequestRoutes = router;
