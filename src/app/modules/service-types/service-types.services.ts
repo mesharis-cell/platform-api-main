@@ -105,6 +105,20 @@ const createServiceType = async (data: CreateServiceTypePayload) => {
         );
     }
 
+    console.log("create  service type data:", {
+        platform_id,
+        name,
+        category: category as any,
+        unit,
+        default_rate:
+            default_rate !== undefined && default_rate !== null
+                ? default_rate.toString()
+                : null,
+        description: description || null,
+        display_order: display_order ?? 0,
+        is_active: is_active ?? true,
+    });
+
     const [result] = await db
         .insert(serviceTypes)
         .values({

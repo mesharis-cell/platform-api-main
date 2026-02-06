@@ -3,10 +3,10 @@ import httpStatus from "http-status";
 import { VehicleTypeServices } from "./vehicle-type.services";
 
 const getVehicleTypes = catchAsync(async (req, res, next) => {
-  const { platform_id } = req as any;
+  const platformId = (req as any).platformId;
   const query = req.query;
 
-  const result = await VehicleTypeServices.getVehicleTypes(query, platform_id);
+  const result = await VehicleTypeServices.getVehicleTypes(query, platformId);
 
   return res.status(httpStatus.OK).json({
     success: true,
@@ -17,8 +17,8 @@ const getVehicleTypes = catchAsync(async (req, res, next) => {
 })
 
 const createVehicleType = catchAsync(async (req, res, next) => {
-  const { platform_id } = req as any;
-  const payload = { ...req.body, platform_id };
+  const platformId = (req as any).platformId;
+  const payload = { ...req.body, platform_id: platformId };
 
   const result = await VehicleTypeServices.createVehicleType(payload);
 
@@ -30,9 +30,9 @@ const createVehicleType = catchAsync(async (req, res, next) => {
 })
 
 const updateVehicleType = catchAsync(async (req, res, next) => {
-  const { platform_id } = req as any;
+  const platformId = (req as any).platformId;
   const { id } = req.params;
-  const payload = { ...req.body, platform_id };
+  const payload = { ...req.body, platform_id: platformId };
 
   const result = await VehicleTypeServices.updateVehicleType(id as string, payload);
 

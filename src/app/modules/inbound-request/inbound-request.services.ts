@@ -470,9 +470,129 @@ const submitForApproval = async (requestId: string, user: AuthUser, platformId: 
     };
 };
 
+const approveInboundRequest = async (
+    requestId: string,
+    user: AuthUser,
+    platformId: string,
+    payload: any
+) => {
+    const { margin_override_percent, margin_override_reason } = payload;
+
+    // Step 1: Fetch inbound request with details
+    const [result] = await db
+        .select({
+            inbound_request: inboundRequests,
+            company: {
+                id: companies.id,
+                name: companies.name,
+                platform_margin_percent: companies.platform_margin_percent,
+                warehouse_ops_rate: companies.warehouse_ops_rate,
+            },
+            request_pricing: {
+                warehouse_ops_rate: prices.warehouse_ops_rate,
+                base_ops_total: prices.base_ops_total,
+                logistics_sub_total: prices.logistics_sub_total,
+                transport: prices.transport,
+                line_items: prices.line_items,
+                margin: prices.margin,
+                final_total: prices.final_total,
+                calculated_at: prices.calculated_at,
+            }
+        })
+        .from(inboundRequests)
+        .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
+        .leftJoin(prices, eq(inboundRequests.request_pricing_id, prices.id))
+        .where(and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)))
+        .limit(1);
+
+    const inboundRequest = result.inbound_request;
+    const company = result.company;
+    const requestPricing = result.request_pricing;
+
+    if (!inboundRequest) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found");
+    }
+    if (!company) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found for this inbound request");
+    }
+    if (!requestPricing) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Request pricing not found for this inbound request");
+    }
+
+    if (inboundRequest.request_status !== "PENDING_APPROVAL") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Inbound request is not in PENDING_APPROVAL status. Current status: ${inboundRequest.request_status}`
+        );
+    }
+
+    // Determine if this is a revised quote (order was previously quoted)
+    const isRevisedQuote = ["QUOTE_SENT", "QUOTE_REVISED"].includes(inboundRequest.financial_status);
+    const newFinancialStatus = isRevisedQuote ? "QUOTE_REVISED" : "QUOTE_SENT";
+
+    let finalTotal = requestPricing.final_total;
+
+    // Step 3: Update order pricing and status
+    await db.transaction(async (tx) => {
+        // Step 3.1: Update pricing if margin override is provided
+        if (margin_override_percent) {
+            const marginAmount = Number(requestPricing.logistics_sub_total) * (margin_override_percent / 100);
+            const updatedFinalTotal = Number(requestPricing.logistics_sub_total) + marginAmount + Number((requestPricing.line_items as any).custom_total);
+
+            finalTotal = updatedFinalTotal.toFixed(2);
+
+            await tx.update(prices).set({
+                margin: {
+                    percent: margin_override_percent,
+                    amount: marginAmount,
+                    is_override: true,
+                    override_reason: margin_override_reason
+                },
+                final_total: updatedFinalTotal.toFixed(2),
+                calculated_at: new Date(),
+                calculated_by: user.id,
+            }).where(eq(prices.id, inboundRequest.request_pricing_id));
+        }
+
+        // Step 3.2: Update order status
+        await tx
+            .update(inboundRequests)
+            .set({
+                request_status: "QUOTED",
+                financial_status: newFinancialStatus,
+                updated_at: new Date(),
+            })
+            .where(eq(inboundRequests.id, inboundRequest.id));
+    })
+
+    // TODO
+    // // Generate cost estimate PDF
+    // await costEstimateGenerator(orderId, platformId, user);
+
+    // // Step 4: Send notification
+    // await NotificationLogServices.sendNotification(
+    //     platformId,
+    //     "QUOTE_SENT",
+    //     {
+    //         ...order,
+    //         company
+    //     }
+    // );
+
+    // Step 5: Return updated order
+    return {
+        id: inboundRequest.id,
+        request_status: "QUOTED",
+        financial_status: newFinancialStatus,
+        final_total: finalTotal,
+        updated_at: new Date(),
+    };
+};
+
 export const InboundRequestServices = {
     createInboundRequest,
     getInboundRequests,
     getInboundRequestById,
-    submitForApproval
+    submitForApproval,
+    approveInboundRequest
 };

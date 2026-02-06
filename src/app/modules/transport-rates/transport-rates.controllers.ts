@@ -9,10 +9,10 @@ import CustomizedError from "../../error/customized-error";
 
 // ----------------------------------- LIST TRANSPORT RATES -----------------------------------
 const listTransportRates = async (req: Request, res: Response) => {
-    const { platform_id } = req as any;
+    const platformId = (req as any).platformId;
     const query = req.query;
 
-    const result = await TransportRatesServices.listTransportRates(query, platform_id);
+    const result = await TransportRatesServices.listTransportRates(query, platformId);
 
     return res.status(httpStatus.OK).json({
         success: true,
@@ -22,10 +22,10 @@ const listTransportRates = async (req: Request, res: Response) => {
 
 // ----------------------------------- GET TRANSPORT RATE BY ID -----------------------------------
 const getTransportRateById = async (req: Request, res: Response) => {
-    const { platform_id } = req as any;
+    const platformId = (req as any).platformId;
     const { id } = req.params;
 
-    const rate = await TransportRatesServices.getTransportRateById(id as string, platform_id);
+    const rate = await TransportRatesServices.getTransportRateById(id as string, platformId);
 
     return res.status(httpStatus.OK).json({
         success: true,
@@ -35,8 +35,8 @@ const getTransportRateById = async (req: Request, res: Response) => {
 
 // ----------------------------------- CREATE TRANSPORT RATE -----------------------------------
 const createTransportRate = async (req: Request, res: Response) => {
-    const { platform_id } = req as any;
-    const payload = { ...req.body, platform_id };
+    const platformId = (req as any).platformId;
+    const payload = { ...req.body, platform_id: platformId };
 
     const rate = await TransportRatesServices.createTransportRate(payload);
 
@@ -49,13 +49,13 @@ const createTransportRate = async (req: Request, res: Response) => {
 
 // ----------------------------------- UPDATE TRANSPORT RATE -----------------------------------
 const updateTransportRate = async (req: Request, res: Response) => {
-    const { platform_id } = req as any;
+    const platformId = (req as any).platformId;
     const { id } = req.params;
     const payload = req.body;
 
     const rate = await TransportRatesServices.updateTransportRate(
         id as string,
-        platform_id,
+        platformId,
         payload
     );
 
@@ -68,10 +68,10 @@ const updateTransportRate = async (req: Request, res: Response) => {
 
 // ----------------------------------- DELETE TRANSPORT RATE -----------------------------------
 const deleteTransportRate = async (req: Request, res: Response) => {
-    const { platform_id } = req as any;
+    const platformId = (req as any).platformId;
     const { id } = req.params;
 
-    await TransportRatesServices.deleteTransportRate(id as string, platform_id);
+    await TransportRatesServices.deleteTransportRate(id as string, platformId);
 
     return res.status(httpStatus.OK).json({
         success: true,

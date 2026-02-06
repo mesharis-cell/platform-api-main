@@ -2023,7 +2023,7 @@ const adminApproveQuote = async (
         id: order.id,
         order_id: order.order_id,
         order_status: "QUOTED",
-        financial_status: "QUOTE_SENT",
+        financial_status: newFinancialStatus,
         final_total: finalTotal,
         updated_at: new Date(),
     };
