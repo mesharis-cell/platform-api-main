@@ -8,6 +8,7 @@ import { InboundRequestPayload } from "./inbound-request.interfaces";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
 import { inboundRequestQueryValidationConfig, inboundRequestSortableFields } from "./inbound-request.utils";
+import { OrderLineItemsServices } from "../order-line-items/order-line-items.services";
 
 // ----------------------------------- CREATE INBOUND REQUEST --------------------------------
 const createInboundRequest = async (data: InboundRequestPayload, user: AuthUser, platformId: string) => {
@@ -340,8 +341,138 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
     };
 };
 
+// ----------------------------------- SUBMIT FOR APPROVAL ------------------------------------
+const submitForApproval = async (requestId: string, user: AuthUser, platformId: string) => {
+    // Step 1: Fetch inbound request with details
+    const [result] = await db
+        .select({
+            inbound_request: inboundRequests,
+            company: {
+                id: companies.id,
+                name: companies.name,
+                platform_margin_percent: companies.platform_margin_percent,
+                warehouse_ops_rate: companies.warehouse_ops_rate,
+            },
+            request_pricing: {
+                warehouse_ops_rate: prices.warehouse_ops_rate,
+                base_ops_total: prices.base_ops_total,
+                logistics_sub_total: prices.logistics_sub_total,
+                transport: prices.transport,
+                line_items: prices.line_items,
+                margin: prices.margin,
+                final_total: prices.final_total,
+                calculated_at: prices.calculated_at,
+            }
+        })
+        .from(inboundRequests)
+        .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
+        .leftJoin(prices, eq(inboundRequests.request_pricing_id, prices.id))
+        .where(and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)))
+        .limit(1);
+
+    const inboundRequest = result.inbound_request;
+    const company = result.company;
+    const requestPricing = result.request_pricing;
+
+    if (!inboundRequest) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found");
+    }
+    if (!company) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found for this inbound request");
+    }
+    if (!requestPricing) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Request pricing not found for this inbound request");
+    }
+
+
+    // Step 2: Verify inbound request is in PRICING_REVIEW status
+    if (inboundRequest.request_status !== "PRICING_REVIEW") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Inbound request is not in PRICING_REVIEW status. Current status: ${inboundRequest.request_status}`
+        );
+    }
+
+    // Step 3: Get line items totals
+    const lineItemsTotals = await OrderLineItemsServices.calculateInboundRequestLineItemsTotals(
+        inboundRequest.id,
+        platformId
+    );
+
+    // Step 4: Fetch items for this request
+    const items = await db
+        .select()
+        .from(inboundRequestItems)
+        .where(eq(inboundRequestItems.inbound_request_id, requestId));
+
+    // Step 3.1: Calculate total volume from items
+    const totalVolume = items.reduce((acc, item) => acc + ((item.quantity || 1) * Number(item.volume_per_unit)), 0);
+
+    // Step 5: Calculate new pricing
+    const marginOverride = !!(requestPricing?.margin as any)?.is_override;
+    const marginPercent = marginOverride
+        ? parseFloat((requestPricing.margin as any).percent)
+        : parseFloat(company.platform_margin_percent);
+    const marginOverrideReason = marginOverride ? (requestPricing.margin as any).override_reason : null;
+    const baseOpsTotal = Number(company.warehouse_ops_rate) * totalVolume;
+    const logisticsSubtotal = baseOpsTotal + lineItemsTotals.catalog_total;
+    const marginAmount = logisticsSubtotal * (marginPercent / 100);
+    const finalTotal = logisticsSubtotal + marginAmount + lineItemsTotals.custom_total;
+
+    const newPricing = {
+        base_ops_total: baseOpsTotal.toFixed(2),
+        logistics_sub_total: logisticsSubtotal.toFixed(2),
+        line_items: {
+            catalog_total: lineItemsTotals.catalog_total,
+            custom_total: lineItemsTotals.custom_total,
+        },
+        margin: {
+            percent: marginPercent,
+            amount: marginAmount,
+            is_override: marginOverride,
+            override_reason: marginOverrideReason
+        },
+        final_total: finalTotal.toFixed(2),
+        calculated_at: new Date(),
+        calculated_by: user.id,
+    }
+
+    // Step 6: Update inbound request pricing and status
+    await db.transaction(async (tx) => {
+        // Step 6.1: Update inbound request pricing
+        await tx.update(prices).set(newPricing).where(eq(prices.id, inboundRequest.request_pricing_id));
+
+        // Step 6.2: Update inbound request status
+        await tx
+            .update(inboundRequests)
+            .set({
+                request_status: "PENDING_APPROVAL",
+                updated_at: new Date(),
+            })
+            .where(eq(inboundRequests.id, inboundRequest.id));
+    })
+
+    // TODO: Step 7: Send notification
+    // await NotificationLogServices.sendNotification(
+    //     platformId,
+    //     "A2_ADJUSTED_PRICING",
+    //     {
+    //         ...order,
+    //         company
+    //     }
+    // );
+
+    // Step 8: Return updated inbound request
+    return {
+        id: inboundRequest.id,
+        request_status: "PENDING_APPROVAL",
+        updated_at: new Date(),
+    };
+};
+
 export const InboundRequestServices = {
     createInboundRequest,
     getInboundRequests,
     getInboundRequestById,
+    submitForApproval
 };

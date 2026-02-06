@@ -12,9 +12,6 @@ const createCatalogLineItemSchema = z.object({
             quantity: z
                 .number({ message: "Quantity must be a number" })
                 .positive("Quantity must be greater than 0"),
-            unit_rate: z
-                .number({ message: "Unit rate must be a number" })
-                .min(0, "Unit rate must be at least 0"),
             notes: z.string().optional(),
         })
         .refine((data) => {
