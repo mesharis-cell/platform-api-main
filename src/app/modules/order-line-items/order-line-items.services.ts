@@ -53,7 +53,7 @@ const getLineItems = async (platformId: string, query: Record<string, any>) => {
 
 // ----------------------------------- CREATE CATALOG LINE ITEM -------------------------------
 const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
-    const { platform_id, order_id, inbound_request_id, purpose_type, service_type_id, quantity, unit_rate, notes, added_by } = data;
+    const { platform_id, order_id, inbound_request_id, purpose_type, service_type_id, quantity, notes, added_by } = data;
 
     // Get service type details
     const [serviceType] = await db
@@ -67,7 +67,7 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
     }
 
     // Calculate total
-    const total = quantity * unit_rate;
+    const total = quantity * Number(serviceType.default_rate);
 
     const lineItemId = await lineItemIdGenerator(platform_id);
 
@@ -86,7 +86,7 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
             description: serviceType.name,
             quantity: quantity.toString(),
             unit: serviceType.unit,
-            unit_rate: unit_rate.toString(),
+            unit_rate: serviceType.default_rate,
             total: total.toString(),
             added_by,
             notes: notes || null,
