@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { companies, orderLineItems, prices, orders, serviceTypes } from "../../../db/schema";
+import { companies, lineItems, prices, orders, serviceTypes } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import {
     CreateCatalogLineItemPayload,
@@ -16,9 +16,9 @@ import { lineItemIdGenerator } from "./order-line-items.utils";
 const listOrderLineItems = async (orderId: string, platformId: string) => {
     const items = await db
         .select()
-        .from(orderLineItems)
+        .from(lineItems)
         .where(
-            and(eq(orderLineItems.order_id, orderId), eq(orderLineItems.platform_id, platformId))
+            and(eq(lineItems.order_id, orderId), eq(lineItems.platform_id, platformId))
         );
 
     return items.map((item) => ({
@@ -50,7 +50,7 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
     const lineItemId = await lineItemIdGenerator(platform_id);
 
     const [result] = await db
-        .insert(orderLineItems)
+        .insert(lineItems)
         .values({
             platform_id,
             line_item_id: lineItemId,
@@ -97,7 +97,7 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
     const lineItemId = await lineItemIdGenerator(platform_id);
 
     const [result] = await db
-        .insert(orderLineItems)
+        .insert(lineItems)
         .values({
             platform_id,
             order_id,
@@ -137,12 +137,12 @@ const updateLineItem = async (
 ) => {
     const [existing] = await db
         .select()
-        .from(orderLineItems)
+        .from(lineItems)
         .where(
             and(
-                eq(orderLineItems.id, id),
-                eq(orderLineItems.order_id, orderId),
-                eq(orderLineItems.platform_id, platformId)
+                eq(lineItems.id, id),
+                eq(lineItems.order_id, orderId),
+                eq(lineItems.platform_id, platformId)
             )
         )
         .limit(1);
@@ -180,9 +180,9 @@ const updateLineItem = async (
     }
 
     const [result] = await db
-        .update(orderLineItems)
+        .update(lineItems)
         .set(dbData)
-        .where(eq(orderLineItems.id, id))
+        .where(eq(lineItems.id, id))
         .returning();
 
     // Update order pricing after updating line item
@@ -207,12 +207,12 @@ const voidLineItem = async (
 
     const [existing] = await db
         .select()
-        .from(orderLineItems)
+        .from(lineItems)
         .where(
             and(
-                eq(orderLineItems.id, id),
-                eq(orderLineItems.order_id, orderId),
-                eq(orderLineItems.platform_id, platformId)
+                eq(lineItems.id, id),
+                eq(lineItems.order_id, orderId),
+                eq(lineItems.platform_id, platformId)
             )
         )
         .limit(1);
@@ -226,14 +226,14 @@ const voidLineItem = async (
     }
 
     const [result] = await db
-        .update(orderLineItems)
+        .update(lineItems)
         .set({
             is_voided: true,
             voided_at: new Date(),
             voided_by,
             void_reason,
         })
-        .where(eq(orderLineItems.id, id))
+        .where(eq(lineItems.id, id))
         .returning();
 
     // Update order pricing after voiding line item
@@ -254,12 +254,12 @@ const calculateLineItemsTotals = async (
 ): Promise<LineItemsTotals> => {
     const items = await db
         .select()
-        .from(orderLineItems)
+        .from(lineItems)
         .where(
             and(
-                eq(orderLineItems.order_id, orderId),
-                eq(orderLineItems.platform_id, platformId),
-                eq(orderLineItems.is_voided, false) // Exclude voided items
+                eq(lineItems.order_id, orderId),
+                eq(lineItems.platform_id, platformId),
+                eq(lineItems.is_voided, false) // Exclude voided items
             )
         );
 

@@ -7,7 +7,7 @@ import {
     assets,
     orders,
     orderStatusHistory,
-    orderLineItems,
+    lineItems,
     users,
     financialStatusHistory,
     prices,
@@ -354,14 +354,14 @@ const cancelReskinRequest = async (
 
         // Void linked line items (reskin cost)
         await tx
-            .update(orderLineItems)
+            .update(lineItems)
             .set({
                 is_voided: true,
                 voided_at: new Date(),
                 voided_by: cancelled_by,
                 void_reason: `Reskin cancelled: ${cancellation_reason}`,
             })
-            .where(eq(orderLineItems.reskin_request_id, reskinId));
+            .where(eq(lineItems.reskin_request_id, reskinId));
 
         // Clear rebrand fields on order_item (continue with original asset)
         await tx

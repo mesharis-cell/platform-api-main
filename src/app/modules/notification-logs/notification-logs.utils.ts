@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../../../db";
-import { cities, orderLineItems, prices, users } from "../../../db/schema";
+import { cities, lineItems, prices, users } from "../../../db/schema";
 import config from "../../config";
 import { sendEmail } from "../../services/email.service";
 import { formatDateForEmail, formatTimeWindow } from "../../utils/date-time";
@@ -122,14 +122,14 @@ export const buildNotificationData = async (order: any): Promise<NotificationDat
     });
 
 
-    const lineItems = await db
+    const lineItemsData = await db
         .select({
-            description: orderLineItems.description,
-            total: orderLineItems.total,
-            category: orderLineItems.category,
+            description: lineItems.description,
+            total: lineItems.total,
+            category: lineItems.category,
         })
-        .from(orderLineItems)
-        .where(and(eq(orderLineItems.order_id, order.id), eq(orderLineItems.is_voided, false)));
+        .from(lineItems)
+        .where(and(eq(lineItems.order_id, order.id), eq(lineItems.is_voided, false)));
 
     return {
         platformId: order.platform_id,
@@ -177,7 +177,7 @@ export const buildNotificationData = async (order: any): Promise<NotificationDat
                 final_total: orderPricing.final_total?.toString() || "N/A",
             }
             : undefined,
-        line_items: lineItems.map((item) => ({
+        line_items: lineItemsData.map((item) => ({
             description: item.description,
             total: Number(item.total),
             category: item.category,
