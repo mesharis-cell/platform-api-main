@@ -11,6 +11,7 @@
  * Run: tsx src/db/seed.ts
  */
 
+import { lineItemIdGenerator } from "../app/modules/order-line-items/order-line-items.utils";
 import { db } from "./index";
 import * as schema from "./schema";
 import bcrypt from "bcrypt";
@@ -1806,9 +1807,12 @@ async function seedOrderLineItems() {
             const costPerReskin = customTarget / orderReskinRequests.length;
 
             for (const reskinReq of orderReskinRequests) {
+                const lineItemId = await lineItemIdGenerator(order.platform_id);
+
                 lineItems.push({
                     platform_id: order.platform_id,
                     order_id: order.id,
+                    line_item_id: lineItemId,
                     service_type_id: null,
                     reskin_request_id: reskinReq.id,
                     line_item_type: 'CUSTOM' as const,
@@ -1844,9 +1848,12 @@ async function seedOrderLineItems() {
                     const qty = Math.max(1, Math.floor(costPerService / rate));
                     const total = (qty * rate).toFixed(2);
 
+                    const lineItemId = await lineItemIdGenerator(order.platform_id);
+
                     lineItems.push({
                         platform_id: order.platform_id,
                         order_id: order.id,
+                        line_item_id: lineItemId,
                         service_type_id: service.id,
                         reskin_request_id: null,
                         line_item_type: 'CATALOG' as const,

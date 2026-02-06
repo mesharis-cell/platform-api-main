@@ -10,6 +10,7 @@ import {
     UpdateLineItemPayload,
     VoidLineItemPayload,
 } from "./order-line-items.interfaces";
+import { lineItemIdGenerator } from "./order-line-items.utils";
 
 // ----------------------------------- LIST ORDER LINE ITEMS -----------------------------------
 const listOrderLineItems = async (orderId: string, platformId: string) => {
@@ -46,10 +47,13 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
     // Calculate total
     const total = quantity * unit_rate;
 
+    const lineItemId = await lineItemIdGenerator(platform_id);
+
     const [result] = await db
         .insert(orderLineItems)
         .values({
             platform_id,
+            line_item_id: lineItemId,
             order_id,
             service_type_id,
             reskin_request_id: null,
@@ -89,11 +93,14 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
         added_by,
     } = data;
 
+    const lineItemId = await lineItemIdGenerator(platform_id);
+
     const [result] = await db
         .insert(orderLineItems)
         .values({
             platform_id,
             order_id,
+            line_item_id: lineItemId,
             service_type_id: null,
             reskin_request_id: reskin_request_id || null,
             line_item_type: "CUSTOM",
