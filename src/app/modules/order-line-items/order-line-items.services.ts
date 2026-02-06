@@ -114,6 +114,7 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
     const {
         platform_id,
         order_id,
+        inbound_request_id, purpose_type,
         description,
         category,
         total,
@@ -130,7 +131,7 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
             platform_id,
             order_id,
             line_item_id: lineItemId,
-            purpose_type: "ORDER",
+            purpose_type,
             service_type_id: null,
             reskin_request_id: reskin_request_id || null,
             line_item_type: "CUSTOM",
@@ -146,7 +147,12 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
         .returning();
 
     // Update order pricing after adding new line item
-    await updateOrderPricingAfterLineItemChange(order_id, platform_id);
+    if (order_id) {
+        await updateOrderPricingAfterLineItemChange(order_id, platform_id);
+    }
+    if (inbound_request_id) {
+        await updateInboundRequestPricingAfterLineItemChange(inbound_request_id, platform_id);
+    }
 
     return {
         ...result,
@@ -159,7 +165,6 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
 // ----------------------------------- UPDATE LINE ITEM ---------------------------------------
 const updateLineItem = async (
     id: string,
-    orderId: string,
     platformId: string,
     data: UpdateLineItemPayload
 ) => {
@@ -169,7 +174,6 @@ const updateLineItem = async (
         .where(
             and(
                 eq(lineItems.id, id),
-                eq(lineItems.order_id, orderId),
                 eq(lineItems.platform_id, platformId)
             )
         )
@@ -213,8 +217,13 @@ const updateLineItem = async (
         .where(eq(lineItems.id, id))
         .returning();
 
-    // Update order pricing after updating line item
-    await updateOrderPricingAfterLineItemChange(orderId, platformId);
+    // Update order pricing after adding new line item
+    if (result.order_id) {
+        await updateOrderPricingAfterLineItemChange(result.order_id, platformId);
+    }
+    if (result.inbound_request_id) {
+        await updateInboundRequestPricingAfterLineItemChange(result.inbound_request_id, platformId);
+    }
 
     return {
         ...result,
@@ -227,7 +236,6 @@ const updateLineItem = async (
 // ----------------------------------- VOID LINE ITEM -----------------------------------------
 const voidLineItem = async (
     id: string,
-    orderId: string,
     platformId: string,
     data: VoidLineItemPayload
 ) => {
@@ -239,7 +247,6 @@ const voidLineItem = async (
         .where(
             and(
                 eq(lineItems.id, id),
-                eq(lineItems.order_id, orderId),
                 eq(lineItems.platform_id, platformId)
             )
         )
@@ -264,8 +271,13 @@ const voidLineItem = async (
         .where(eq(lineItems.id, id))
         .returning();
 
-    // Update order pricing after voiding line item
-    await updateOrderPricingAfterLineItemChange(orderId, platformId);
+    // Update order pricing after adding new line item
+    if (result.order_id) {
+        await updateOrderPricingAfterLineItemChange(result.order_id, platformId);
+    }
+    if (result.inbound_request_id) {
+        await updateInboundRequestPricingAfterLineItemChange(result.inbound_request_id, platformId);
+    }
 
     return {
         ...result,
