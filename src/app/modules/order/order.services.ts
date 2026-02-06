@@ -54,7 +54,7 @@ import {
     shouldAwaitFabrication,
 
 } from "./order-pricing.helpers";
-import { OrderLineItemsServices } from "../order-line-items/order-line-items.services";
+import { LineItemsServices } from "../order-line-items/order-line-items.services";
 import { ReskinRequestsServices } from "../reskin-requests/reskin-requests.services";
 import { multipleEmailSender } from "../../utils/email-sender";
 import { emailTemplates } from "../../utils/email-templates";
@@ -937,7 +937,7 @@ const getOrderById = async (
         .where(eq(orderItems.order_id, orderData.order.id));
 
     const [lineItems, reskinRequests] = await Promise.all([
-        OrderLineItemsServices.getLineItems(platformId, { order_id: orderData.order.id }),
+        LineItemsServices.getLineItems(platformId, { order_id: orderData.order.id }),
         ReskinRequestsServices.listReskinRequests(orderData.order.id, platformId),
     ]);
 
@@ -1776,7 +1776,7 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
     }
 
     // Step 4: Get line items totals
-    const lineItemsTotals = await OrderLineItemsServices.calculateOrderLineItemsTotals(
+    const lineItemsTotals = await LineItemsServices.calculateOrderLineItemsTotals(
         orderId,
         platformId
     );
@@ -1859,7 +1859,7 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
     };
 };
 
-// ----------------------------------- ADMIN APPROVE QUOTE (NEW) ------------------------------
+// ----------------------------------- ADMIN APPROVE QUOTE ------------------------------------
 const adminApproveQuote = async (
     orderId: string,
     user: AuthUser,
@@ -2029,7 +2029,7 @@ const adminApproveQuote = async (
     };
 };
 
-// ----------------------------------- RETURN TO LOGISTICS (NEW) ------------------------------------
+// ----------------------------------- RETURN TO LOGISTICS ------------------------------------
 // Admin returns order to Logistics for revisions
 const returnToLogistics = async (
     orderId: string,
@@ -2210,7 +2210,7 @@ export async function cancelOrder(
     };
 }
 
-// ----------------------------------- GET PENDING APPROVAL ORDERS (NEW) ------------------------------------
+// ----------------------------------- GET PENDING APPROVAL ORDERS ---------------------------
 // Get orders waiting for Admin approval
 const getPendingApprovalOrders = async (query: any, platformId: string) => {
     const { search_term, page, limit, sort_by, sort_order, company_id, date_from, date_to } = query;
@@ -2284,7 +2284,7 @@ const getPendingApprovalOrders = async (query: any, platformId: string) => {
     };
 };
 
-// ----------------------------------- UPDATE ORDER VEHICLE -------------------------------------
+// ----------------------------------- UPDATE ORDER VEHICLE ----------------------------------
 const updateOrderVehicle = async (
     orderId: string,
     platformId: string,
@@ -2388,7 +2388,7 @@ const updateOrderVehicle = async (
     };
 }
 
-// ----------------------------------- ADD TRUCK DETAILS -----------------------------------
+// ----------------------------------- ADD TRUCK DETAILS -------------------------------------
 const addTruckDetails = async (
     orderId: string,
     platformId: string,

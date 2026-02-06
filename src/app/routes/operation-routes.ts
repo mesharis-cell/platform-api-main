@@ -16,6 +16,7 @@ import { ZoneRoutes } from "../modules/zone/zone.routes";
 import { ScanningRoutes } from "../modules/scanning/scanning.routes";
 import { UploadRoutes } from "../modules/upload/upload.route";
 import { VehicleTypeRoutes } from "../modules/vehicle-type/vehicle-type.routes";
+import { LineItemsRoutes } from "../modules/order-line-items/order-line-items.routes";
 
 const router = Router();
 
@@ -87,6 +88,10 @@ const routes = [
     {
         path: "/notification-logs",
         route: NotificationLogRoutes,
+    },
+    {
+        path: "/line-item",
+        route: LineItemsRoutes,
     },
 ];
 

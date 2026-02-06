@@ -492,7 +492,7 @@ const updateInboundRequestPricingAfterLineItemChange = async (
         .where(eq(prices.id, inboundRequest.pricing.id));
 };
 
-export const OrderLineItemsServices = {
+export const LineItemsServices = {
     getLineItems,
     createCatalogLineItem,
     createCustomLineItem,

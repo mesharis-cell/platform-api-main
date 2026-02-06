@@ -49,7 +49,7 @@ const approveInboundRequestSchema = z.object({
 
 const approveOrDeclineQuoteByClientSchema = z.object({
     body: z.object({
-        status: z.enum(["CONFIRMED", "CANCELLED"], enumMessageGenerator("Status", ["CONFIRMED", "CANCELLED"])),
+        status: z.enum(["CONFIRMED", "DECLINED"], enumMessageGenerator("Status", ["CONFIRMED", "DECLINED"])),
         note: z.string("Notes should be a text").optional(),
     }).strict()
 })
