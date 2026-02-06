@@ -69,9 +69,26 @@ const submitForApproval = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- APPROVE INBOUND REQUEST --------------------------------
+const approveInboundRequest = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const id = getRequiredString(req.params.id, "id");
+
+    const result = await InboundRequestServices.approveInboundRequest(id, user, platformId, req.body);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Inbound request approved successfully.",
+        data: result,
+    });
+});
+
 export const InboundRequestControllers = {
     createInboundRequest,
     getInboundRequests,
     getInboundRequestById,
-    submitForApproval
+    submitForApproval,
+    approveInboundRequest
 };
