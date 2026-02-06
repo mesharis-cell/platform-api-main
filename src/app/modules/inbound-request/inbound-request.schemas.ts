@@ -47,7 +47,15 @@ const approveInboundRequestSchema = z.object({
         .strict(),
 });
 
+const approveOrDeclineQuoteByClientSchema = z.object({
+    body: z.object({
+        status: z.enum(["CONFIRMED", "CANCELLED"], enumMessageGenerator("Status", ["CONFIRMED", "CANCELLED"])),
+        note: z.string("Notes should be a text").optional(),
+    }).strict()
+})
+
 export const inboundRequestSchemas = {
     createInboundRequestSchema,
-    approveInboundRequestSchema
+    approveInboundRequestSchema,
+    approveOrDeclineQuoteByClientSchema
 };

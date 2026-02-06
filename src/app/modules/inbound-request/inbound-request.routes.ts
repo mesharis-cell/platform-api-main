@@ -45,7 +45,16 @@ router.post(
     platformValidator,
     auth("ADMIN"),
     payloadValidator(inboundRequestSchemas.approveInboundRequestSchema),
-    InboundRequestControllers.approveInboundRequest
+    InboundRequestControllers.approveInboundRequestByAdmin
+);
+
+// Client approve or decline quote
+router.post(
+    "/:id/approve-or-decline-quote",
+    platformValidator,
+    auth("CLIENT"),
+    payloadValidator(inboundRequestSchemas.approveOrDeclineQuoteByClientSchema),
+    InboundRequestControllers.approveOrDeclineQuoteByClient
 );
 
 export const InboundRequestRoutes = router;

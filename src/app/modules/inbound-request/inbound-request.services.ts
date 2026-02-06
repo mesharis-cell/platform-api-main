@@ -4,7 +4,7 @@ import { companies, inboundRequestItems, inboundRequests, prices, users } from "
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { eq, isNull, and, asc, count, desc, gte, ilike, lte, or } from "drizzle-orm";
-import { ApproveInboundRequestPayload, InboundRequestPayload } from "./inbound-request.interfaces";
+import { ApproveInboundRequestPayload, ApproveOrDeclineQuoteByClientPayload, InboundRequestPayload } from "./inbound-request.interfaces";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
 import { inboundRequestQueryValidationConfig, inboundRequestSortableFields } from "./inbound-request.utils";
@@ -470,7 +470,8 @@ const submitForApproval = async (requestId: string, user: AuthUser, platformId: 
     };
 };
 
-const approveInboundRequest = async (
+// ----------------------------------- APPROVE INBOUND REQUEST BY ADMIN -----------------------
+const approveInboundRequestByAdmin = async (
     requestId: string,
     user: AuthUser,
     platformId: string,
@@ -589,10 +590,60 @@ const approveInboundRequest = async (
     };
 };
 
+// ----------------------------------- APPROVE OR DECLINE QUOTE BY CLIENT ---------------------
+const approveOrDeclineQuoteByClient = async (
+    requestId: string,
+    user: AuthUser,
+    platformId: string,
+    payload: ApproveOrDeclineQuoteByClientPayload
+) => {
+    const { note, status } = payload;
+    // Step 1: Fetch inbound request with company details
+    const inboundRequest = await db.query.inboundRequests.findFirst({
+        where: and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)),
+    });
+
+    if (!inboundRequest || user.company_id !== inboundRequest.company_id) {
+        throw new CustomizedError(
+            httpStatus.NOT_FOUND,
+            "Inbound request not found or you do not have access to this inbound request"
+        );
+    }
+
+    // Step 2: Verify inbound request is in QUOTED status
+    if (inboundRequest.request_status !== "QUOTED") {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Inbound request is not in QUOTED status");
+    }
+
+    await db
+        .update(inboundRequests)
+        .set({
+            request_status: status,
+            financial_status: status === "CONFIRMED" ? "QUOTE_ACCEPTED" : "CANCELLED",
+            note: note,
+            updated_at: new Date(),
+        })
+        .where(eq(inboundRequests.id, requestId));
+
+    // TODO
+    // await NotificationLogServices.sendNotification(platformId, "QUOTE_APPROVED", order);
+    // await NotificationLogServices.sendNotification(platformId, "QUOTE_DECLINED", order);
+
+    return {
+        id: inboundRequest.id,
+        request_status: status,
+        financial_status: status === "CONFIRMED" ? "QUOTE_ACCEPTED" : "CANCELLED",
+        note: note,
+        updated_at: new Date(),
+        message: `Quote ${status === "CONFIRMED" ? "approved" : "declined"} successfully.`
+    };
+};
+
 export const InboundRequestServices = {
     createInboundRequest,
     getInboundRequests,
     getInboundRequestById,
     submitForApproval,
-    approveInboundRequest
+    approveInboundRequestByAdmin,
+    approveOrDeclineQuoteByClient
 };

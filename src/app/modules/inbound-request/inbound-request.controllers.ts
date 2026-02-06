@@ -69,13 +69,13 @@ const submitForApproval = catchAsync(async (req, res) => {
     });
 });
 
-// ----------------------------------- APPROVE INBOUND REQUEST --------------------------------
-const approveInboundRequest = catchAsync(async (req, res) => {
+// ----------------------------------- APPROVE INBOUND REQUEST BY ADMIN -----------------------
+const approveInboundRequestByAdmin = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
     const id = getRequiredString(req.params.id, "id");
 
-    const result = await InboundRequestServices.approveInboundRequest(id, user, platformId, req.body);
+    const result = await InboundRequestServices.approveInboundRequestByAdmin(id, user, platformId, req.body);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -85,10 +85,29 @@ const approveInboundRequest = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- APPROVE OR DECLINE QUOTE BY CLIENT ---------------------
+const approveOrDeclineQuoteByClient = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const id = getRequiredString(req.params.id, "id");
+
+    const result = await InboundRequestServices.approveOrDeclineQuoteByClient(id, user, platformId, req.body);
+
+    const { message, ...rest } = result;
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message,
+        data: rest,
+    });
+});
+
 export const InboundRequestControllers = {
     createInboundRequest,
     getInboundRequests,
     getInboundRequestById,
     submitForApproval,
-    approveInboundRequest
+    approveInboundRequestByAdmin,
+    approveOrDeclineQuoteByClient
 };
