@@ -92,11 +92,8 @@ const submitOrderSchema = z.object({
                 .string("Venue name is required")
                 .min(1, "Venue name is required")
                 .max(200),
-            venue_country: z
-                .string("Venue country is required")
-                .min(1, "Venue country is required")
-                .max(50),
-            venue_city: z.string("Venue city is required").min(1, "Venue city is required").max(50),
+            venue_country_id: z.uuid("Venue country should be a valid UUID"),
+            venue_city_id: z.uuid("Venue city should be a valid UUID"),
             venue_address: z
                 .string("Venue address is required")
                 .min(1, "Venue address is required"),
