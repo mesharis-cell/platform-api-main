@@ -8,7 +8,7 @@ import { getRequiredString } from "../../utils/request";
 // ----------------------------------- CALCULATE ESTIMATE ---------------------------------
 const calculateEstimate = catchAsync(async (req, res) => {
     const user = (req as any).user;
-    const platformId = (req as any).platform_id;
+    const platformId = (req as any).platformId;
     const companyId = user.company_id;
 
     if (!companyId) {
@@ -328,7 +328,7 @@ const sendInvoice = catchAsync(async (req, res) => {
 // ----------------------------------- SUBMIT FOR APPROVAL (NEW) --------------------------
 const submitForApproval = catchAsync(async (req, res) => {
     const user = (req as any).user;
-    const platformId = (req as any).platform_id;
+    const platformId = (req as any).platformId;
     const id = getRequiredString(req.params.id, "id");
 
     const result = await OrderServices.submitForApproval(id, user, platformId);
@@ -344,7 +344,7 @@ const submitForApproval = catchAsync(async (req, res) => {
 // ----------------------------------- ADMIN APPROVE QUOTE (NEW) -----------------------------------
 const adminApproveQuote = catchAsync(async (req, res) => {
     const user = (req as any).user;
-    const platformId = (req as any).platform_id;
+    const platformId = (req as any).platformId;
     const id = getRequiredString(req.params.id, "id");
 
     const result = await OrderServices.adminApproveQuote(id, user, platformId, req.body);
@@ -360,7 +360,7 @@ const adminApproveQuote = catchAsync(async (req, res) => {
 // ----------------------------------- RETURN TO LOGISTICS (NEW) -----------------------------------
 const returnToLogistics = catchAsync(async (req, res) => {
     const user = (req as any).user;
-    const platformId = (req as any).platform_id;
+    const platformId = (req as any).platformId;
     const id = getRequiredString(req.params.id, "id");
     const { reason } = req.body;
 
@@ -381,7 +381,7 @@ const returnToLogistics = catchAsync(async (req, res) => {
 // ----------------------------------- CANCEL ORDER (NEW) -----------------------------------
 const cancelOrder = catchAsync(async (req, res) => {
     const user = (req as any).user;
-    const platformId = (req as any).platform_id;
+    const platformId = (req as any).platformId;
     const id = getRequiredString(req.params.id, "id");
 
     const result = await OrderServices.cancelOrder(id, platformId, req.body, user);
@@ -397,7 +397,7 @@ const cancelOrder = catchAsync(async (req, res) => {
 // ----------------------------------- UPDATE VEHICLE (NEW) -----------------------------------
 const updateOrderVehicle = catchAsync(async (req, res) => {
     const user = (req as any).user;
-    const platformId = (req as any).platform_id;
+    const platformId = (req as any).platformId;
     const id = getRequiredString(req.params.id, "id");
 
     const result = await OrderServices.updateOrderVehicle(id, platformId, user, req.body);
@@ -411,10 +411,9 @@ const updateOrderVehicle = catchAsync(async (req, res) => {
 });
 
 const getPendingApprovalOrders = catchAsync(async (req, res) => {
-    const platformId = (req as any).platform_id;
-    const query = req.query;
+    const platformId = (req as any).platformId;
 
-    const result = await OrderServices.getPendingApprovalOrders(query, platformId);
+    const result = await OrderServices.getPendingApprovalOrders(req.query, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -427,7 +426,7 @@ const getPendingApprovalOrders = catchAsync(async (req, res) => {
 
 // ----------------------------------- ADD TRUCK DETAILS -----------------------------------
 const addTruckDetails = catchAsync(async (req, res) => {
-    const platformId = (req as any).platform_id;
+    const platformId = (req as any).platformId;
     const orderId = getRequiredString(req.params.id, "id");
 
     const result = await OrderServices.addTruckDetails(orderId, platformId, req.body);

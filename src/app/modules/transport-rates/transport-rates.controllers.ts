@@ -83,7 +83,7 @@ const deleteTransportRate = async (req: Request, res: Response) => {
 const lookupTransportRate = catchAsync(async (req, res) => {
     // Step 1: Get user and platform
     const user = (req as any).user;
-    const platformId = (req as any).platform_id;
+    const platformId = (req as any).platformId;
     const companyId = user.company_id;
 
     // Step 2: Extract query parameters

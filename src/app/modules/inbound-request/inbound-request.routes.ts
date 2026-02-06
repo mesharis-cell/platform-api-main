@@ -31,4 +31,12 @@ router.get(
     InboundRequestControllers.getInboundRequestById
 );
 
+// Submit for approval (Logistics → Admin)
+router.post(
+    "/:id/submit-for-approval",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    InboundRequestControllers.submitForApproval
+);
+
 export const InboundRequestRoutes = router;

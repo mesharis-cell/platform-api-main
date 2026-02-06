@@ -127,8 +127,9 @@ const processReskinRequest = async (
     const targetBrandName = orderItem.reskin_target_brand_custom || "Custom Brand";
 
     const lineItem = await OrderLineItemsServices.createCustomLineItem({
-        platform_id: platformId, // ✅ FIX: Use function parameter
+        platform_id: platformId,
         order_id: orderId,
+        purpose_type: "ORDER",
         description: `${orderItem.asset_name} Rebrand (${targetBrandName})`,
         category: "RESKIN",
         total: cost,
