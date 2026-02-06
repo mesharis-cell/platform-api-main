@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { companies, lineItems, prices, orders, serviceTypes } from "../../../db/schema";
+import { companies, lineItems, prices, orders, serviceTypes, inboundRequests } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import {
     CreateCatalogLineItemPayload,
@@ -31,7 +31,7 @@ const listOrderLineItems = async (orderId: string, platformId: string) => {
 
 // ----------------------------------- CREATE CATALOG LINE ITEM -----------------------------------
 const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
-    const { platform_id, order_id, service_type_id, quantity, unit_rate, notes, added_by } = data;
+    const { platform_id, order_id, inbound_request_id, purpose_type, service_type_id, quantity, unit_rate, notes, added_by } = data;
 
     // Get service type details
     const [serviceType] = await db
@@ -54,8 +54,9 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
         .values({
             platform_id,
             line_item_id: lineItemId,
-            order_id,
-            purpose_type: "ORDER",
+            order_id: order_id || null,
+            inbound_request_id: inbound_request_id || null,
+            purpose_type,
             service_type_id,
             reskin_request_id: null,
             line_item_type: "CATALOG",
@@ -71,7 +72,12 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
         .returning();
 
     // Update order pricing after adding new line item
-    await updateOrderPricingAfterLineItemChange(order_id, platform_id);
+    if (order_id) {
+        await updateOrderPricingAfterLineItemChange(order_id, platform_id);
+    }
+    if (inbound_request_id) {
+        await updateInboundRequestPricingAfterLineItemChange(inbound_request_id, platform_id);
+    }
 
     return {
         ...result,
@@ -247,8 +253,8 @@ const voidLineItem = async (
     };
 };
 
-// ----------------------------------- CALCULATE LINE ITEMS TOTAL -----------------------------------
-const calculateLineItemsTotals = async (
+// ----------------------------------- CALCULATE ORDER LINE ITEMS TOTAL -----------------------------------
+const calculateOrderLineItemsTotals = async (
     orderId: string,
     platformId: string
 ): Promise<LineItemsTotals> => {
@@ -281,7 +287,41 @@ const calculateLineItemsTotals = async (
     };
 };
 
-// ----------------------------------- UPDATE ORDER PRICING AFTER LINE ITEM CHANGE -----------------------------------
+// ----------------------------------- CALCULATE INBOUND REQUEST LINE ITEMS TOTAL -----------------------------------
+const calculateInboundRequestLineItemsTotals = async (
+    inboundRequestId: string,
+    platformId: string
+): Promise<LineItemsTotals> => {
+    const items = await db
+        .select()
+        .from(lineItems)
+        .where(
+            and(
+                eq(lineItems.inbound_request_id, inboundRequestId),
+                eq(lineItems.platform_id, platformId),
+                eq(lineItems.is_voided, false) // Exclude voided items
+            )
+        );
+
+    let catalogTotal = 0;
+    let customTotal = 0;
+
+    for (const item of items) {
+        const itemTotal = parseFloat(item.total);
+        if (item.line_item_type === "CATALOG") {
+            catalogTotal += itemTotal;
+        } else {
+            customTotal += itemTotal;
+        }
+    }
+
+    return {
+        catalog_total: parseFloat(catalogTotal.toFixed(2)),
+        custom_total: parseFloat(customTotal.toFixed(2)),
+    };
+};
+
+// ----------------------------------- UPDATE ORDER PRICING AFTER LINE ITEM CHANGE ------------------
 const updateOrderPricingAfterLineItemChange = async (
     orderId: string,
     platformId: string
@@ -312,7 +352,7 @@ const updateOrderPricingAfterLineItemChange = async (
     }
 
     // Step 2: Calculate line items totals
-    const lineItemsTotals = await calculateLineItemsTotals(orderId, platformId);
+    const lineItemsTotals = await calculateOrderLineItemsTotals(orderId, platformId);
 
     // Step 3: Calculate new final pricing
     const transportRate = Number((orderResult.order_pricing.transport as any)?.final_rate || 0);
@@ -350,12 +390,80 @@ const updateOrderPricingAfterLineItemChange = async (
         .where(eq(prices.id, orderResult.order_pricing.id));
 };
 
+// ----------------------------------- UPDATE INBOUND REQUEST PRICING AFTER LINE ITEM CHANGE --------
+const updateInboundRequestPricingAfterLineItemChange = async (
+    inboundRequestId: string,
+    platformId: string
+): Promise<void> => {
+    // Step 1: Get the order with its pricing
+    const [inboundRequest] = await db
+        .select({
+            inbound_request: inboundRequests,
+            company: {
+                platform_margin_percent: companies.platform_margin_percent,
+                warehouse_ops_rate: companies.warehouse_ops_rate,
+            },
+            pricing: {
+                id: prices.id,
+                margin: prices.margin,
+                base_ops_total: prices.base_ops_total,
+            },
+        })
+        .from(inboundRequests)
+        .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
+        .leftJoin(prices, eq(inboundRequests.request_pricing_id, prices.id))
+        .where(and(eq(inboundRequests.id, inboundRequestId), eq(inboundRequests.platform_id, platformId)))
+        .limit(1);
+
+    if (!inboundRequest || !inboundRequest.pricing || !inboundRequest.company) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request or pricing not found");
+    }
+
+    // Step 2: Calculate line items totals
+    const lineItemsTotals = await calculateInboundRequestLineItemsTotals(inboundRequestId, platformId);
+
+    // Step 3: Calculate new final pricing
+    const baseOpsTotal = Number(inboundRequest.pricing.base_ops_total);
+    const marginData = inboundRequest.pricing.margin as any;
+    const marginOverride = !!marginData?.is_override;
+    const marginPercent = marginOverride
+        ? parseFloat(marginData.percent)
+        : parseFloat(inboundRequest.company.platform_margin_percent);
+    const marginOverrideReason = marginOverride ? marginData.override_reason : null;
+
+    // Calculate totals using the formula from order.services.ts
+    const logisticsSubtotal = baseOpsTotal + lineItemsTotals.catalog_total;
+    const marginAmount = logisticsSubtotal * (marginPercent / 100);
+    const finalTotal = logisticsSubtotal + marginAmount + lineItemsTotals.custom_total;
+
+    // Step 4: Update order pricing
+    await db
+        .update(prices)
+        .set({
+            logistics_sub_total: logisticsSubtotal.toFixed(2),
+            line_items: {
+                catalog_total: lineItemsTotals.catalog_total,
+                custom_total: lineItemsTotals.custom_total,
+            },
+            margin: {
+                percent: marginPercent,
+                amount: parseFloat(marginAmount.toFixed(2)),
+                is_override: marginOverride,
+                override_reason: marginOverrideReason,
+            },
+            final_total: finalTotal.toFixed(2),
+            calculated_at: new Date(),
+        })
+        .where(eq(prices.id, inboundRequest.pricing.id));
+};
+
 export const OrderLineItemsServices = {
     listOrderLineItems,
     createCatalogLineItem,
     createCustomLineItem,
     updateLineItem,
     voidLineItem,
-    calculateLineItemsTotals,
+    calculateOrderLineItemsTotals,
+    calculateInboundRequestLineItemsTotals,
     updateOrderPricingAfterLineItemChange,
 };

@@ -19,11 +19,9 @@ const listOrderLineItems = async (req: Request, res: Response) => {
 // ----------------------------------- CREATE CATALOG LINE ITEM -----------------------------------
 const createCatalogLineItem = async (req: Request, res: Response) => {
     const { platform_id, user } = req as any;
-    const orderId = getRequiredString(req.params.orderId, "orderId");
     const payload = {
         ...req.body,
         platform_id,
-        order_id: orderId,
         added_by: user.id,
     };
 

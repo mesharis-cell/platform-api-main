@@ -308,6 +308,38 @@ const adminApproveQuoteSchema = z.object({
         .strict(),
 });
 
+const truckDetailsSchema = z.object({
+    body: z
+        .object({
+            delivery_truck_details: z.object({
+                truck_plate: z.string().min(1, "Truck plate is required"),
+                driver_name: z.string().min(1, "Driver name is required"),
+                driver_contact: z.string().min(1, "Driver contact is required"),
+                truck_size: z.string().optional(),
+                tailgate_required: z.boolean().default(false),
+                manpower: z.number().default(0),
+                notes: z.string().optional(),
+            }).optional(),
+            pickup_truck_details: z.object({
+                truck_plate: z.string().min(1, "Truck plate is required"),
+                driver_name: z.string().min(1, "Driver name is required"),
+                driver_contact: z.string().min(1, "Driver contact is required"),
+                truck_size: z.string().optional(),
+                tailgate_required: z.boolean().default(false),
+                manpower: z.number().default(0),
+                notes: z.string().optional(),
+            }).optional(),
+        })
+        .strict()
+        .refine(
+            (data) => data.delivery_truck_details || data.pickup_truck_details,
+            {
+                message: "At least one truck details must be provided",
+                path: ["delivery_truck_details", "pickup_truck_details"],
+            }
+        ),
+});
+
 export const orderSchemas = {
     calculateEstimateSchema,
     submitOrderSchema,
@@ -323,5 +355,6 @@ export const orderSchemas = {
     cancelOrderSchema,
     addOrderItemSchema,
     updateOrderItemQuantitySchema,
-    adminApproveQuoteSchema
+    adminApproveQuoteSchema,
+    truckDetailsSchema
 };
