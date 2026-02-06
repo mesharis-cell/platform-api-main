@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "../../db";
-import { cities, companies, orderItems, orderPrices, orders } from "../../db/schema";
+import { cities, companies, orderItems, prices, orders } from "../../db/schema";
 import { uploadPDFToS3 } from "../services/s3.service";
 import { renderCostEstimatePDF } from "./cost-estimate-pdf";
 import CustomizedError from "../error/customized-error";
@@ -23,14 +23,14 @@ export const costEstimateGenerator = async (
                 warehouse_ops_rate: companies.warehouse_ops_rate,
             },
             order_pricing: {
-                warehouse_ops_rate: orderPrices.warehouse_ops_rate,
-                base_ops_total: orderPrices.base_ops_total,
-                logistics_sub_total: orderPrices.logistics_sub_total,
-                transport: orderPrices.transport,
-                line_items: orderPrices.line_items,
-                margin: orderPrices.margin,
-                final_total: orderPrices.final_total,
-                calculated_at: orderPrices.calculated_at,
+                warehouse_ops_rate: prices.warehouse_ops_rate,
+                base_ops_total: prices.base_ops_total,
+                logistics_sub_total: prices.logistics_sub_total,
+                transport: prices.transport,
+                line_items: prices.line_items,
+                margin: prices.margin,
+                final_total: prices.final_total,
+                calculated_at: prices.calculated_at,
             },
             venue_city: {
                 name: cities.name
@@ -38,7 +38,7 @@ export const costEstimateGenerator = async (
         })
         .from(orders)
         .leftJoin(companies, eq(orders.company_id, companies.id))
-        .leftJoin(orderPrices, eq(orders.order_pricing_id, orderPrices.id))
+        .leftJoin(prices, eq(orders.order_pricing_id, prices.id))
         .leftJoin(cities, eq(orders.venue_city_id, cities.id))
         .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)))
         .limit(1);

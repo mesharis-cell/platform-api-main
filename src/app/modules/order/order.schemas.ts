@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { orderStatusEnum, tripTypeEnum, vehicleTypeEnum } from "../../../db/schema";
+import { orderStatusEnum, tripTypeEnum } from "../../../db/schema";
 import { enumMessageGenerator } from "../../utils/helper";
 import { CANCEL_REASONS } from "./order.utils";
 
@@ -13,7 +13,7 @@ const calculateEstimateSchema = z.object({
             })
         ),
         venue_city: z.string("Venue city is required"),
-        transport_trip_type: z.enum(
+        trip_type: z.enum(
             tripTypeEnum.enumValues,
             enumMessageGenerator("Trip type", tripTypeEnum.enumValues)
         ),
@@ -28,7 +28,6 @@ export const orderItemSchema = z
             .int("Quantity should be an integer")
             .positive("Quantity must be a positive integer"),
         from_collection_id: z.uuid("Invalid collection ID").optional(),
-        // Reskin/rebrand fields (NEW)
         is_reskin_request: z.boolean().optional().default(false),
         reskin_target_brand_id: z.uuid("Invalid brand ID").optional(),
         reskin_target_brand_custom: z
@@ -75,7 +74,7 @@ const submitOrderSchema = z.object({
                 .min(1, "At least one item is required"),
 
             brand_id: z.uuid("Invalid brand ID").optional(),
-            transport_trip_type: z
+            trip_type: z
                 .enum(["ONE_WAY", "ROUND_TRIP"], {
                     message: "Trip type must be ONE_WAY or ROUND_TRIP",
                 })
@@ -273,10 +272,7 @@ const declineQuoteSchema = z.object({
 const updateVehicleSchema = z.object({
     body: z
         .object({
-            vehicle_type: z.enum(
-                vehicleTypeEnum.enumValues,
-                enumMessageGenerator("Vehicle type", vehicleTypeEnum.enumValues)
-            ),
+            vehicle_type_id: z.uuid("Invalid vehicle type ID"),
             reason: z
                 .string("Reason should be a text")
                 .min(10, "Reason must be at least 10 characters"),
@@ -312,6 +308,38 @@ const adminApproveQuoteSchema = z.object({
         .strict(),
 });
 
+const truckDetailsSchema = z.object({
+    body: z
+        .object({
+            delivery_truck_details: z.object({
+                truck_plate: z.string().min(1, "Truck plate is required"),
+                driver_name: z.string().min(1, "Driver name is required"),
+                driver_contact: z.string().min(1, "Driver contact is required"),
+                truck_size: z.string().optional(),
+                tailgate_required: z.boolean().default(false),
+                manpower: z.number().default(0),
+                notes: z.string().optional(),
+            }).optional(),
+            pickup_truck_details: z.object({
+                truck_plate: z.string().min(1, "Truck plate is required"),
+                driver_name: z.string().min(1, "Driver name is required"),
+                driver_contact: z.string().min(1, "Driver contact is required"),
+                truck_size: z.string().optional(),
+                tailgate_required: z.boolean().default(false),
+                manpower: z.number().default(0),
+                notes: z.string().optional(),
+            }).optional(),
+        })
+        .strict()
+        .refine(
+            (data) => data.delivery_truck_details || data.pickup_truck_details,
+            {
+                message: "At least one truck details must be provided",
+                path: ["delivery_truck_details", "pickup_truck_details"],
+            }
+        ),
+});
+
 export const orderSchemas = {
     calculateEstimateSchema,
     submitOrderSchema,
@@ -327,5 +355,6 @@ export const orderSchemas = {
     cancelOrderSchema,
     addOrderItemSchema,
     updateOrderItemQuantitySchema,
-    adminApproveQuoteSchema
+    adminApproveQuoteSchema,
+    truckDetailsSchema
 };

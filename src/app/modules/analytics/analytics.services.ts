@@ -1,7 +1,7 @@
 import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { companies, invoices, orders, orderPrices } from "../../../db/schema";
+import { companies, invoices, orders, prices } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import {
@@ -41,11 +41,11 @@ const getRevenueSummary = async (
     // Execute query with invoice paid date filter
     const result = await db
         .select({
-            totalRevenue: sql<number>`COALESCE(SUM(${orderPrices.final_total}::numeric), 0)`,
+            totalRevenue: sql<number>`COALESCE(SUM(${prices.final_total}::numeric), 0)`,
             orderCount: sql<number>`COUNT(*)`,
         })
         .from(orders)
-        .innerJoin(orderPrices, eq(orders.order_pricing_id, orderPrices.id))
+        .innerJoin(prices, eq(orders.order_pricing_id, prices.id))
         .leftJoin(invoices, eq(invoices.order_id, orders.id))
         .where(
             and(
@@ -100,7 +100,7 @@ const getTimeSeries = async (
     const conditions: any[] = [
         eq(orders.platform_id, platformId),
         eq(orders.financial_status, "PAID"),
-        sql`${orderPrices.final_total} IS NOT NULL`,
+        sql`${prices.final_total} IS NOT NULL`,
     ];
 
     // Step 2a: Add date range filter (using created_at as proxy for invoice paid date)
@@ -126,13 +126,13 @@ const getTimeSeries = async (
     const result = await db
         .select({
             period: sql<Date>`${periodExpression}`.as("period"),
-            totalRevenue: sql<number>`COALESCE(SUM(${orderPrices.final_total}::numeric), 0)`,
-            totalMarginAmount: sql<number>`COALESCE(SUM((${orderPrices.margin}->>'amount')::numeric), 0)`,
-            averageMarginPercent: sql<number>`COALESCE(AVG((${orderPrices.margin}->>'percent')::numeric), 0)`,
+            totalRevenue: sql<number>`COALESCE(SUM(${prices.final_total}::numeric), 0)`,
+            totalMarginAmount: sql<number>`COALESCE(SUM((${prices.margin}->>'amount')::numeric), 0)`,
+            averageMarginPercent: sql<number>`COALESCE(AVG((${prices.margin}->>'percent')::numeric), 0)`,
             orderCount: sql<number>`COUNT(*)`,
         })
         .from(orders)
-        .innerJoin(orderPrices, eq(orders.order_pricing_id, orderPrices.id))
+        .innerJoin(prices, eq(orders.order_pricing_id, prices.id))
         .where(and(...conditions))
         .groupBy(periodExpression)
         .orderBy(periodExpression);
@@ -247,12 +247,12 @@ const getMarginSummary = async (
     // Execute query with invoice paid date filter
     const result = await db
         .select({
-            totalMarginAmount: sql<number>`COALESCE(SUM((${orderPrices.margin}->>'amount')::numeric), 0)`,
-            averageMarginPercent: sql<number>`COALESCE(AVG((${orderPrices.margin}->>'percent')::numeric), 0)`,
+            totalMarginAmount: sql<number>`COALESCE(SUM((${prices.margin}->>'amount')::numeric), 0)`,
+            averageMarginPercent: sql<number>`COALESCE(AVG((${prices.margin}->>'percent')::numeric), 0)`,
             orderCount: sql<number>`COUNT(*)`,
         })
         .from(orders)
-        .innerJoin(orderPrices, eq(orders.order_pricing_id, orderPrices.id))
+        .innerJoin(prices, eq(orders.order_pricing_id, prices.id))
         .leftJoin(invoices, eq(invoices.order_id, orders.id))
         .where(
             and(
@@ -323,13 +323,13 @@ const getCompanyBreakdown = async (
         .select({
             companyId: orders.company_id,
             companyName: companies.name,
-            totalRevenue: sql<number>`COALESCE(SUM(${orderPrices.final_total}::numeric), 0)`,
-            totalMarginAmount: sql<number>`COALESCE(SUM((${orderPrices.margin}->>'amount')::numeric), 0)`,
-            averageMarginPercent: sql<number>`COALESCE(AVG((${orderPrices.margin}->>'percent')::numeric), 0)`,
+            totalRevenue: sql<number>`COALESCE(SUM(${prices.final_total}::numeric), 0)`,
+            totalMarginAmount: sql<number>`COALESCE(SUM((${prices.margin}->>'amount')::numeric), 0)`,
+            averageMarginPercent: sql<number>`COALESCE(AVG((${prices.margin}->>'percent')::numeric), 0)`,
             orderCount: sql<number>`COUNT(*)`,
         })
         .from(orders)
-        .innerJoin(orderPrices, eq(orders.order_pricing_id, orderPrices.id))
+        .innerJoin(prices, eq(orders.order_pricing_id, prices.id))
         .innerJoin(companies, eq(orders.company_id, companies.id))
         .leftJoin(invoices, eq(invoices.order_id, orders.id))
         .where(

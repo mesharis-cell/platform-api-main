@@ -11,6 +11,7 @@
  * Run: tsx src/db/seed.ts
  */
 
+import { lineItemIdGenerator } from "../app/modules/order-line-items/order-line-items.utils";
 import { db } from "./index";
 import * as schema from "./schema";
 import bcrypt from "bcrypt";
@@ -829,7 +830,7 @@ async function seedTransportRates() {
                     city_id: city.id,
                     area: null,
                     trip_type: tripType,
-                    vehicle_type: vehicleType,
+                    vehicle_type_id: vehicleType, // TODO: Add vehicle type id
                     rate: rate.toString(),
                     is_active: true,
                 });
@@ -1572,7 +1573,7 @@ async function seedOrders() {
             calculated_by: user.id,
         }
 
-        const [pricing] = await db.insert(schema.orderPrices).values(newPricing).returning();
+        const [pricing] = await db.insert(schema.prices).values(newPricing).returning();
 
         const cityIds = seededData.cities.map(city => city.id);
 
@@ -1639,8 +1640,8 @@ async function seedOrders() {
                 volume: volume,
                 weight: weight,
             },
-            transport_trip_type: tripType as any,
-            transport_vehicle_type: vehicleType as any,
+            trip_type: tripType as any,
+            vehicle_type_id: vehicleType as any, // TODO: Add vehicle type id
             order_pricing_id: pricing.id,
             order_status: status,
             financial_status: financial,
@@ -1788,8 +1789,8 @@ async function seedOrderLineItems() {
         }
 
         // Get pricing totals from order
-        const orderPricing = await db.query.orderPrices.findFirst({
-            where: eq(schema.orderPrices.id, order.order_pricing_id),
+        const orderPricing = await db.query.prices.findFirst({
+            where: eq(schema.prices.id, order.order_pricing_id),
         });
         // const pricing = order.pricing as any;
         if (!orderPricing) continue;
@@ -1806,9 +1807,13 @@ async function seedOrderLineItems() {
             const costPerReskin = customTarget / orderReskinRequests.length;
 
             for (const reskinReq of orderReskinRequests) {
+                const lineItemId = await lineItemIdGenerator(order.platform_id);
+
                 lineItems.push({
                     platform_id: order.platform_id,
                     order_id: order.id,
+                    line_item_id: lineItemId,
+                    purpose_type: "ORDER" as const,
                     service_type_id: null,
                     reskin_request_id: reskinReq.id,
                     line_item_type: 'CUSTOM' as const,
@@ -1844,9 +1849,13 @@ async function seedOrderLineItems() {
                     const qty = Math.max(1, Math.floor(costPerService / rate));
                     const total = (qty * rate).toFixed(2);
 
+                    const lineItemId = await lineItemIdGenerator(order.platform_id);
+
                     lineItems.push({
                         platform_id: order.platform_id,
                         order_id: order.id,
+                        line_item_id: lineItemId,
+                        purpose_type: "ORDER" as const,
                         service_type_id: service.id,
                         reskin_request_id: null,
                         line_item_type: 'CATALOG' as const,
@@ -2086,6 +2095,7 @@ async function seedInvoices() {
             platform_id: order.platform_id,
             order_id: order.id,
             invoice_id: invoiceId,
+            type: "ORDER" as const,
             invoice_pdf_url: pdfUrl,
             invoice_paid_at:
                 order.financial_status === "PAID"
@@ -2328,7 +2338,7 @@ async function cleanupExistingData() {
         await db.delete(schema.reskinRequests);
         await db.delete(schema.orderItems);
         await db.delete(schema.orders);
-        await db.delete(schema.orderPrices);
+        await db.delete(schema.prices);
         await db.delete(schema.collectionItems);
         await db.delete(schema.collections);
         await db.delete(schema.assets);

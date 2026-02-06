@@ -1,7 +1,6 @@
-import { tripTypeEnum, vehicleTypeEnum } from "../../../db/schema";
+import { tripTypeEnum } from "../../../db/schema";
 
 // Query validation configuration
 export const transportRateQueryValidationConfig = {
     trip_type: tripTypeEnum.enumValues,
-    vehicle_type: vehicleTypeEnum.enumValues,
 };

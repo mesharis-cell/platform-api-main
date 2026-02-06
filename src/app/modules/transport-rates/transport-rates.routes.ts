@@ -2,8 +2,6 @@ import { Router } from "express";
 import auth from "../../middleware/auth";
 import payloadValidator from "../../middleware/payload-validator";
 import platformValidator from "../../middleware/platform-validator";
-import requirePermission from "../../middleware/permission";
-import { PERMISSIONS } from "../../constants/permissions";
 import { TransportRatesControllers } from "./transport-rates.controllers";
 import { TransportRatesSchemas } from "./transport-rates.schemas";
 
@@ -31,7 +29,7 @@ router.get(
     "/:id",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.TRANSPORT_RATES_MANAGE),
+    // requirePermission(PERMISSIONS.TRANSPORT_RATES_MANAGE),
     TransportRatesControllers.getTransportRateById
 );
 
@@ -50,7 +48,7 @@ router.put(
     "/:id",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.TRANSPORT_RATES_MANAGE),
+    // requirePermission(PERMISSIONS.TRANSPORT_RATES_MANAGE),
     payloadValidator(TransportRatesSchemas.updateTransportRateSchema),
     TransportRatesControllers.updateTransportRate
 );
@@ -60,7 +58,7 @@ router.delete(
     "/:id",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.TRANSPORT_RATES_MANAGE),
+    // requirePermission(PERMISSIONS.TRANSPORT_RATES_MANAGE),
     TransportRatesControllers.deleteTransportRate
 );
 

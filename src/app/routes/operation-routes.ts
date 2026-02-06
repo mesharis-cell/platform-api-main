@@ -15,6 +15,7 @@ import { WarehouseRoutes } from "../modules/warehouse/warehouse.routes";
 import { ZoneRoutes } from "../modules/zone/zone.routes";
 import { ScanningRoutes } from "../modules/scanning/scanning.routes";
 import { UploadRoutes } from "../modules/upload/upload.route";
+import { VehicleTypeRoutes } from "../modules/vehicle-type/vehicle-type.routes";
 
 const router = Router();
 
@@ -62,6 +63,10 @@ const routes = [
     {
         path: "/pricing/service-types",
         route: ServiceTypesRoutes,
+    },
+    {
+        path: "/pricing/vehicle-types",
+        route: VehicleTypeRoutes,
     },
     {
         path: "/asset",

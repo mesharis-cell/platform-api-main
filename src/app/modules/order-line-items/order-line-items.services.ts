@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { companies, orderLineItems, orderPrices, orders, serviceTypes } from "../../../db/schema";
+import { companies, orderLineItems, prices, orders, serviceTypes } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import {
     CreateCatalogLineItemPayload,
@@ -10,6 +10,7 @@ import {
     UpdateLineItemPayload,
     VoidLineItemPayload,
 } from "./order-line-items.interfaces";
+import { lineItemIdGenerator } from "./order-line-items.utils";
 
 // ----------------------------------- LIST ORDER LINE ITEMS -----------------------------------
 const listOrderLineItems = async (orderId: string, platformId: string) => {
@@ -46,11 +47,15 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
     // Calculate total
     const total = quantity * unit_rate;
 
+    const lineItemId = await lineItemIdGenerator(platform_id);
+
     const [result] = await db
         .insert(orderLineItems)
         .values({
             platform_id,
+            line_item_id: lineItemId,
             order_id,
+            purpose_type: "ORDER",
             service_type_id,
             reskin_request_id: null,
             line_item_type: "CATALOG",
@@ -89,11 +94,15 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
         added_by,
     } = data;
 
+    const lineItemId = await lineItemIdGenerator(platform_id);
+
     const [result] = await db
         .insert(orderLineItems)
         .values({
             platform_id,
             order_id,
+            line_item_id: lineItemId,
+            purpose_type: "ORDER",
             service_type_id: null,
             reskin_request_id: reskin_request_id || null,
             line_item_type: "CUSTOM",
@@ -286,15 +295,15 @@ const updateOrderPricingAfterLineItemChange = async (
                 warehouse_ops_rate: companies.warehouse_ops_rate,
             },
             order_pricing: {
-                id: orderPrices.id,
-                transport: orderPrices.transport,
-                margin: orderPrices.margin,
-                base_ops_total: orderPrices.base_ops_total,
+                id: prices.id,
+                transport: prices.transport,
+                margin: prices.margin,
+                base_ops_total: prices.base_ops_total,
             },
         })
         .from(orders)
         .leftJoin(companies, eq(orders.company_id, companies.id))
-        .leftJoin(orderPrices, eq(orders.order_pricing_id, orderPrices.id))
+        .leftJoin(prices, eq(orders.order_pricing_id, prices.id))
         .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)))
         .limit(1);
 
@@ -322,7 +331,7 @@ const updateOrderPricingAfterLineItemChange = async (
 
     // Step 4: Update order pricing
     await db
-        .update(orderPrices)
+        .update(prices)
         .set({
             logistics_sub_total: logisticsSubtotal.toFixed(2),
             line_items: {
@@ -338,7 +347,7 @@ const updateOrderPricingAfterLineItemChange = async (
             final_total: finalTotal.toFixed(2),
             calculated_at: new Date(),
         })
-        .where(eq(orderPrices.id, orderResult.order_pricing.id));
+        .where(eq(prices.id, orderResult.order_pricing.id));
 };
 
 export const OrderLineItemsServices = {
