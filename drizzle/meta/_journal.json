@@ -29,6 +29,13 @@
       "when": 1770358384056,
       "tag": "0003_striped_gargoyle",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1770378069732,
+      "tag": "0004_flimsy_viper",
+      "breakpoints": true
     }
   ]
 }
