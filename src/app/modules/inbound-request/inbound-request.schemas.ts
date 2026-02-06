@@ -77,9 +77,17 @@ const updateInboundRequestItemSchema = z.object({
     }).strict()
 });
 
+const completeInboundRequestSchema = z.object({
+    body: z.object({
+        warehouse_id: z.uuid({ message: "Warehouse ID is required" }),
+        zone_id: z.uuid({ message: "Zone ID is required" }),
+    }).strict()
+});
+
 export const inboundRequestSchemas = {
     createInboundRequestSchema,
     approveInboundRequestSchema,
     approveOrDeclineQuoteByClientSchema,
-    updateInboundRequestItemSchema
+    updateInboundRequestItemSchema,
+    completeInboundRequestSchema
 };

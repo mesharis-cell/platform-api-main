@@ -66,4 +66,13 @@ router.put(
     InboundRequestControllers.updateInboundRequestItem
 );
 
+// Complete inbound request (create assets from items)
+router.post(
+    "/:id/complete",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    payloadValidator(inboundRequestSchemas.completeInboundRequestSchema),
+    InboundRequestControllers.completeInboundRequest
+);
+
 export const InboundRequestRoutes = router;

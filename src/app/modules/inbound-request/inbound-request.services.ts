@@ -1,10 +1,11 @@
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { companies, inboundRequestItems, inboundRequests, prices, users } from "../../../db/schema";
+import { assets, companies, inboundRequestItems, inboundRequests, prices, users, warehouses, zones } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { eq, isNull, and, asc, count, desc, gte, ilike, lte, or } from "drizzle-orm";
-import { ApproveInboundRequestPayload, ApproveOrDeclineQuoteByClientPayload, InboundRequestPayload, UpdateInboundRequestItemPayload } from "./inbound-request.interfaces";
+import { ApproveInboundRequestPayload, ApproveOrDeclineQuoteByClientPayload, CompleteInboundRequestPayload, InboundRequestPayload, UpdateInboundRequestItemPayload } from "./inbound-request.interfaces";
+import { qrCodeGenerator } from "../../utils/qr-code-generator";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
 import { inboundRequestQueryValidationConfig, inboundRequestSortableFields } from "./inbound-request.utils";
@@ -781,6 +782,139 @@ const updateInboundRequestItem = async (
     return updatedItem;
 };
 
+// ----------------------------------- COMPLETE INBOUND REQUEST -------------------------------
+const completeInboundRequest = async (
+    requestId: string,
+    user: AuthUser,
+    platformId: string,
+    payload: CompleteInboundRequestPayload
+) => {
+    const { warehouse_id, zone_id } = payload;
+
+    // Step 1: Fetch the inbound request to validate access and status
+    const [inboundRequest] = await db
+        .select()
+        .from(inboundRequests)
+        .where(and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)))
+        .limit(1);
+
+    if (!inboundRequest) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found");
+    }
+
+    // Step 2: Verify inbound request is in CONFIRMED status
+    if (inboundRequest.request_status !== "CONFIRMED") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Cannot complete inbound request. Current status: ${inboundRequest.request_status}. Request must be in CONFIRMED status.`
+        );
+    }
+
+    // Step 3: Validate warehouse exists and belongs to the platform
+    const [warehouse] = await db
+        .select()
+        .from(warehouses)
+        .where(and(eq(warehouses.id, warehouse_id), eq(warehouses.platform_id, platformId)))
+        .limit(1);
+
+    if (!warehouse) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Warehouse not found");
+    }
+
+    // Step 4: Validate zone exists and belongs to the warehouse and company
+    const [zone] = await db
+        .select()
+        .from(zones)
+        .where(and(
+            eq(zones.id, zone_id),
+            eq(zones.warehouse_id, warehouse_id),
+            eq(zones.company_id, inboundRequest.company_id)
+        ))
+        .limit(1);
+
+    if (!zone) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Zone not found or does not belong to the specified warehouse and company");
+    }
+
+    // Step 5: Fetch inbound request items
+    const items = await db
+        .select()
+        .from(inboundRequestItems)
+        .where(eq(inboundRequestItems.inbound_request_id, requestId));
+
+    if (items.length === 0) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "No items found for this inbound request");
+    }
+
+    // Step 6: Create assets from items in a transaction
+    const createdAssets = await db.transaction(async (tx) => {
+        const newAssets = [];
+
+        for (const item of items) {
+            // Generate unique QR code for each asset
+            const qrCode = await qrCodeGenerator(inboundRequest.company_id);
+
+            // Create asset from item
+            const [newAsset] = await tx
+                .insert(assets)
+                .values({
+                    platform_id: platformId,
+                    company_id: inboundRequest.company_id,
+                    warehouse_id: warehouse_id,
+                    zone_id: zone_id,
+                    brand_id: item.brand_id,
+                    name: item.name,
+                    description: item.description,
+                    category: item.category,
+                    tracking_method: item.tracking_method,
+                    total_quantity: item.quantity,
+                    available_quantity: item.quantity,
+                    qr_code: qrCode,
+                    packaging: item.packaging,
+                    weight_per_unit: item.weight_per_unit,
+                    dimensions: item.dimensions || {},
+                    volume_per_unit: item.volume_per_unit,
+                    handling_tags: item.handling_tags || [],
+                    images: item.images || [],
+                })
+                .returning();
+
+            newAssets.push(newAsset);
+
+            // Update the inbound request item with the created asset id
+            await tx
+                .update(inboundRequestItems)
+                .set({ created_asset_id: newAsset.id })
+                .where(eq(inboundRequestItems.id, item.id));
+        }
+
+        // Step 7: Update inbound request status to COMPLETED
+        await tx
+            .update(inboundRequests)
+            .set({
+                request_status: "COMPLETED",
+                updated_at: new Date(),
+            })
+            .where(eq(inboundRequests.id, requestId));
+
+        return newAssets;
+    });
+
+    return {
+        id: inboundRequest.id,
+        request_status: "COMPLETED",
+        assets_created: createdAssets.length,
+        assets: createdAssets.map(asset => ({
+            id: asset.id,
+            name: asset.name,
+            qr_code: asset.qr_code,
+            category: asset.category,
+            quantity: asset.total_quantity,
+        })),
+        message: `Successfully created ${createdAssets.length} assets from inbound request items.`
+    };
+};
+
 export const InboundRequestServices = {
     createInboundRequest,
     getInboundRequests,
@@ -788,5 +922,6 @@ export const InboundRequestServices = {
     submitForApproval,
     approveInboundRequestByAdmin,
     approveOrDeclineQuoteByClient,
-    updateInboundRequestItem
+    updateInboundRequestItem,
+    completeInboundRequest
 };

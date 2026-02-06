@@ -131,6 +131,7 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
         .values({
             platform_id,
             order_id,
+            inbound_request_id: inbound_request_id || null,
             line_item_id: lineItemId,
             purpose_type,
             service_type_id: null,
