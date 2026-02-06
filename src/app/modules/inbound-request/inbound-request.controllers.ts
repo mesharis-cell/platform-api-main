@@ -2,6 +2,7 @@ import httpStatus from "http-status";
 import catchAsync from "../../shared/catch-async";
 import sendResponse from "../../shared/send-response";
 import { InboundRequestServices } from "./inbound-request.services";
+import { getRequiredString } from "../../utils/request";
 
 // ----------------------------------- CREATE INBOUND REQUEST --------------------------------
 const createInboundRequest = catchAsync(async (req, res) => {
@@ -51,8 +52,26 @@ const getInboundRequestById = catchAsync(async (req, res) => {
     });
 });
 
+
+// ----------------------------------- SUBMIT FOR APPROVAL ------------------------------------
+const submitForApproval = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const id = getRequiredString(req.params.id, "id");
+
+    const result = await InboundRequestServices.submitForApproval(id, user, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Inbound request submitted for Admin approval.",
+        data: result,
+    });
+});
+
 export const InboundRequestControllers = {
     createInboundRequest,
     getInboundRequests,
     getInboundRequestById,
+    submitForApproval
 };

@@ -24,7 +24,7 @@ const listReskinRequests = catchAsync(async (req: Request, res: Response) => {
 
 // ----------------------------------- PROCESS RESKIN REQUEST -----------------------------------
 const processReskinRequest = catchAsync(async (req: Request, res: Response) => {
-    const platformId = (req as any).platform_id;
+    const platformId = (req as any).platformId;
     const user = (req as any).user;
     const orderId = getRequiredString(req.params.orderId, "orderId");
     const orderItemId = getRequiredString(req.params.orderItemId, "orderItemId");
@@ -54,7 +54,7 @@ const processReskinRequest = catchAsync(async (req: Request, res: Response) => {
 
 // ----------------------------------- COMPLETE RESKIN REQUEST -----------------------------------
 const completeReskinRequest = catchAsync(async (req: Request, res: Response) => {
-    const platformId = (req as any).platform_id;
+    const platformId = (req as any).platformId;
     const user = (req as any).user;
     const reskinId = getRequiredString(req.params.reskinId, "reskinId");
 
@@ -81,7 +81,7 @@ const completeReskinRequest = catchAsync(async (req: Request, res: Response) => 
 
 // ----------------------------------- CANCEL RESKIN REQUEST -----------------------------------
 const cancelReskinRequest = catchAsync(async (req: Request, res: Response) => {
-    const platformId = (req as any).platform_id;
+    const platformId = (req as any).platformId;
     const user = (req as any).user;
     const reskinId = getRequiredString(req.params.reskinId, "reskinId");
 

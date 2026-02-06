@@ -109,12 +109,13 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
     };
 };
 
-// ----------------------------------- CREATE CUSTOM LINE ITEM --------------------------------
+// ----------------------------------- CREATE CUSTOM LINE ITEM -------------------------------- //
 const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
     const {
         platform_id,
         order_id,
-        inbound_request_id, purpose_type,
+        inbound_request_id,
+        purpose_type,
         description,
         category,
         total,

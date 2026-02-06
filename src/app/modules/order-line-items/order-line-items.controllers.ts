@@ -7,7 +7,7 @@ import sendResponse from "../../shared/send-response";
 
 // ----------------------------------- GET LINE ITEMS -----------------------------------------
 const getLineItems = catchAsync(async (req: Request, res: Response) => {
-    const platformId = (req as any).platform_id;
+    const platformId = (req as any).platformId;
 
     const items = await OrderLineItemsServices.getLineItems(platformId, req.query);
 
