@@ -1746,7 +1746,7 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
     }
 
     // Step 4: Get line items totals
-    const lineItemsTotals = await OrderLineItemsServices.calculateLineItemsTotals(
+    const lineItemsTotals = await OrderLineItemsServices.calculateOrderLineItemsTotals(
         orderId,
         platformId
     );

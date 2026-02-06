@@ -429,7 +429,7 @@ const cancelReskinRequest = async (
     const previousTotal = orderPricing.final_total || null;
 
     // Step 4: Get line items totals
-    const lineItemsTotals = await OrderLineItemsServices.calculateLineItemsTotals(
+    const lineItemsTotals = await OrderLineItemsServices.calculateOrderLineItemsTotals(
         orderRecord.id,
         platformId
     );
