@@ -258,7 +258,7 @@ router.use("/:orderId/reskin-requests", ReskinRequestsRoutes);
 
 // ---------------------------------- TRUCK DETAILS ROUTES ----------------------------------
 
-router.post(
+router.patch(
     "/:id/truck-details",
     platformValidator,
     auth("LOGISTICS", "ADMIN"),
