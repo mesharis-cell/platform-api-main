@@ -2403,10 +2403,10 @@ const addTruckDetails = async (
 
     // Step 3: Verify order is in valid status for truck details update
     if (delivery_truck_details) {
-        if (!["IN_PREPARATION", "READY_FOR_DELIVERY"].includes(order.order_status)) {
+        if (!["CONFIRMED", "IN_PREPARATION", "READY_FOR_DELIVERY"].includes(order.order_status)) {
             throw new CustomizedError(
                 httpStatus.BAD_REQUEST,
-                "Delivery truck details can only be added during IN_PREPARATION or READY_FOR_DELIVERY"
+                "Delivery truck details can only be added during CONFIRMED, IN_PREPARATION or READY_FOR_DELIVERY"
             );
         }
     } else if (pickup_truck_details) {
