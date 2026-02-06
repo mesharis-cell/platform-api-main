@@ -846,46 +846,129 @@ const completeInboundRequest = async (
         throw new CustomizedError(httpStatus.BAD_REQUEST, "No items found for this inbound request");
     }
 
-    // Step 6: Create assets from items in a transaction
-    const createdAssets = await db.transaction(async (tx) => {
-        const newAssets = [];
+    // Step 6: Create/update assets from items in a transaction
+    const processedAssets = await db.transaction(async (tx) => {
+        const resultAssets: { asset: any; action: 'created' | 'updated'; quantityAdded: number }[] = [];
 
         for (const item of items) {
-            // Generate unique QR code for each asset
-            const qrCode = await qrCodeGenerator(inboundRequest.company_id);
+            if (item.tracking_method === "BATCH") {
+                // For BATCH items, search for existing asset by name in the same company
+                const [existingAsset] = await tx
+                    .select()
+                    .from(assets)
+                    .where(and(
+                        eq(assets.name, item.name),
+                        eq(assets.company_id, inboundRequest.company_id),
+                        eq(assets.platform_id, platformId),
+                        isNull(assets.deleted_at)
+                    ))
+                    .limit(1);
 
-            // Create asset from item
-            const [newAsset] = await tx
-                .insert(assets)
-                .values({
-                    platform_id: platformId,
-                    company_id: inboundRequest.company_id,
-                    warehouse_id: warehouse_id,
-                    zone_id: zone_id,
-                    brand_id: item.brand_id,
-                    name: item.name,
-                    description: item.description,
-                    category: item.category,
-                    tracking_method: item.tracking_method,
-                    total_quantity: item.quantity,
-                    available_quantity: item.quantity,
-                    qr_code: qrCode,
-                    packaging: item.packaging,
-                    weight_per_unit: item.weight_per_unit,
-                    dimensions: item.dimensions || {},
-                    volume_per_unit: item.volume_per_unit,
-                    handling_tags: item.handling_tags || [],
-                    images: item.images || [],
-                })
-                .returning();
+                if (existingAsset) {
+                    // Update existing asset quantity
+                    const newTotalQuantity = existingAsset.total_quantity + item.quantity;
+                    const newAvailableQuantity = existingAsset.available_quantity + item.quantity;
 
-            newAssets.push(newAsset);
+                    const [updatedAsset] = await tx
+                        .update(assets)
+                        .set({
+                            total_quantity: newTotalQuantity,
+                            available_quantity: newAvailableQuantity,
+                        })
+                        .where(eq(assets.id, existingAsset.id))
+                        .returning();
 
-            // Update the inbound request item with the created asset id
-            await tx
-                .update(inboundRequestItems)
-                .set({ created_asset_id: newAsset.id })
-                .where(eq(inboundRequestItems.id, item.id));
+                    resultAssets.push({
+                        asset: updatedAsset,
+                        action: 'updated',
+                        quantityAdded: item.quantity
+                    });
+
+                    // Update the inbound request item with the existing asset id
+                    await tx
+                        .update(inboundRequestItems)
+                        .set({ created_asset_id: existingAsset.id })
+                        .where(eq(inboundRequestItems.id, item.id));
+                } else {
+                    // Create new BATCH asset if none exists with this name
+                    const qrCode = await qrCodeGenerator(inboundRequest.company_id);
+
+                    const [newAsset] = await tx
+                        .insert(assets)
+                        .values({
+                            platform_id: platformId,
+                            company_id: inboundRequest.company_id,
+                            warehouse_id: warehouse_id,
+                            zone_id: zone_id,
+                            brand_id: item.brand_id,
+                            name: item.name,
+                            description: item.description,
+                            category: item.category,
+                            tracking_method: item.tracking_method,
+                            total_quantity: item.quantity,
+                            available_quantity: item.quantity,
+                            qr_code: qrCode,
+                            packaging: item.packaging,
+                            weight_per_unit: item.weight_per_unit,
+                            dimensions: item.dimensions || {},
+                            volume_per_unit: item.volume_per_unit,
+                            handling_tags: item.handling_tags || [],
+                            images: item.images || [],
+                        })
+                        .returning();
+
+                    resultAssets.push({
+                        asset: newAsset,
+                        action: 'created',
+                        quantityAdded: item.quantity
+                    });
+
+                    // Update the inbound request item with the created asset id
+                    await tx
+                        .update(inboundRequestItems)
+                        .set({ created_asset_id: newAsset.id })
+                        .where(eq(inboundRequestItems.id, item.id));
+                }
+            } else {
+                // For INDIVIDUAL items, always create a new asset
+                const qrCode = await qrCodeGenerator(inboundRequest.company_id);
+
+                const [newAsset] = await tx
+                    .insert(assets)
+                    .values({
+                        platform_id: platformId,
+                        company_id: inboundRequest.company_id,
+                        warehouse_id: warehouse_id,
+                        zone_id: zone_id,
+                        brand_id: item.brand_id,
+                        name: item.name,
+                        description: item.description,
+                        category: item.category,
+                        tracking_method: item.tracking_method,
+                        total_quantity: item.quantity,
+                        available_quantity: item.quantity,
+                        qr_code: qrCode,
+                        packaging: item.packaging,
+                        weight_per_unit: item.weight_per_unit,
+                        dimensions: item.dimensions || {},
+                        volume_per_unit: item.volume_per_unit,
+                        handling_tags: item.handling_tags || [],
+                        images: item.images || [],
+                    })
+                    .returning();
+
+                resultAssets.push({
+                    asset: newAsset,
+                    action: 'created',
+                    quantityAdded: item.quantity
+                });
+
+                // Update the inbound request item with the created asset id
+                await tx
+                    .update(inboundRequestItems)
+                    .set({ created_asset_id: newAsset.id })
+                    .where(eq(inboundRequestItems.id, item.id));
+            }
         }
 
         // Step 7: Update inbound request status to COMPLETED
@@ -893,25 +976,32 @@ const completeInboundRequest = async (
             .update(inboundRequests)
             .set({
                 request_status: "COMPLETED",
+                financial_status: "INVOICED",
                 updated_at: new Date(),
             })
             .where(eq(inboundRequests.id, requestId));
 
-        return newAssets;
+        return resultAssets;
     });
+
+    const createdCount = processedAssets.filter(a => a.action === 'created').length;
+    const updatedCount = processedAssets.filter(a => a.action === 'updated').length;
 
     return {
         id: inboundRequest.id,
         request_status: "COMPLETED",
-        assets_created: createdAssets.length,
-        assets: createdAssets.map(asset => ({
+        assets_created: createdCount,
+        assets_updated: updatedCount,
+        assets: processedAssets.map(({ asset, action, quantityAdded }) => ({
             id: asset.id,
             name: asset.name,
             qr_code: asset.qr_code,
             category: asset.category,
-            quantity: asset.total_quantity,
+            total_quantity: asset.total_quantity,
+            quantity_added: quantityAdded,
+            action: action,
         })),
-        message: `Successfully created ${createdAssets.length} assets from inbound request items.`
+        message: `Successfully processed ${items.length} items: ${createdCount} assets created, ${updatedCount} assets updated.`
     };
 };
 
