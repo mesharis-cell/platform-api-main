@@ -12,7 +12,7 @@ import {
     financialStatusHistory,
     invoices,
     orderItems,
-    orderLineItems,
+    lineItems,
     prices,
     orders,
     orderStatusHistory,
@@ -2119,14 +2119,14 @@ export async function cancelOrder(
 
             // Void linked line items
             await tx
-                .update(orderLineItems)
+                .update(lineItems)
                 .set({
                     is_voided: true,
                     voided_at: new Date(),
                     voided_by: user.id,
                     void_reason: "Order cancelled",
                 })
-                .where(eq(orderLineItems.reskin_request_id, reskin.id));
+                .where(eq(lineItems.reskin_request_id, reskin.id));
         }
 
         // 4. Log to order status history

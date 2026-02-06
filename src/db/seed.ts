@@ -170,7 +170,7 @@ const seededData = {
     orders: [] as any[],
     orderItems: [] as any[],
     reskinRequests: [] as any[],
-    orderLineItems: [] as any[],
+    lineItems: [] as any[],
     ordersWithReskin: [] as string[], // Track which order IDs should have reskin
 };
 
@@ -1878,8 +1878,8 @@ async function seedOrderLineItems() {
         }
     }
 
-    const inserted = await db.insert(schema.orderLineItems).values(lineItems).returning();
-    seededData.orderLineItems = inserted;
+    const inserted = await db.insert(schema.lineItems).values(lineItems).returning();
+    seededData.lineItems = inserted;
     console.log(`✓ Created ${inserted.length} order line items (${inserted.filter(i => i.category === 'RESKIN').length} reskin costs)`);
 }
 
@@ -2334,7 +2334,7 @@ async function cleanupExistingData() {
         await db.delete(schema.orderStatusHistory);
         await db.delete(schema.invoices);
         await db.delete(schema.assetBookings);
-        await db.delete(schema.orderLineItems);
+        await db.delete(schema.lineItems);
         await db.delete(schema.reskinRequests);
         await db.delete(schema.orderItems);
         await db.delete(schema.orders);
@@ -2430,7 +2430,7 @@ async function main() {
         console.log(`  - Orders: ${seededData.orders.length} (${seededData.orders.filter(o => o.order_status === 'AWAITING_FABRICATION').length} awaiting fabrication)`);
         console.log(`  - Order Items: ${seededData.orderItems.length} (${seededData.orderItems.filter(i => i.is_reskin_request).length} reskin requests)`);
         console.log(`  - Reskin Requests: ${seededData.reskinRequests.length}`);
-        console.log(`  - Order Line Items: ${seededData.orderLineItems.length} (${seededData.orderLineItems.filter(i => i.category === 'RESKIN').length} reskin costs)`);
+        console.log(`  - Order Line Items: ${seededData.lineItems.length} (${seededData.lineItems.filter(i => i.category === 'RESKIN').length} reskin costs)`);
 
         console.log('\n🖼️  Image Summary:');
         console.log(`  - Asset images: ${seededData.assets.length * 3}`);
