@@ -3,7 +3,7 @@ import { CreateVehicleTypePayload, UpdateVehicleTypePayload } from "./vehicle-ty
 import CustomizedError from "../../error/customized-error";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { and, asc, count, eq, ilike, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, or } from "drizzle-orm";
 import paginationMaker from "../../utils/pagination-maker";
 
 const createVehicleType = async (data: CreateVehicleTypePayload) => {
@@ -63,7 +63,7 @@ const getVehicleTypes = async (query: Record<string, any>, platformId: string) =
       .select()
       .from(vehicleTypes)
       .where(and(...conditions))
-      .orderBy(asc(vehicleTypes.display_order), asc(vehicleTypes.name))
+      .orderBy(desc(vehicleTypes.display_order), asc(vehicleTypes.name))
       .limit(limitNumber)
       .offset(skip),
 

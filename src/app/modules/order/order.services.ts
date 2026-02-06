@@ -104,13 +104,18 @@ const calculateEstimate = async (
     const marginPercent = parseFloat(company.platform_margin_percent);
     const hasRebrandItems = items.some((item) => item.is_reskin_request);
 
+    const vehicleType = await db.select().from(vehicleTypes).where(eq(vehicleTypes.is_default, true)).limit(1);
+    if (!vehicleType) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Default vehicle type not found");
+    }
+
     // Step 6: Lookup transport rate based on venue and trip type
     const transportRateInfo = await TransportRatesServices.lookupTransportRate(
         platformId,
         companyId,
         venue_city,
         trip_type,
-        'vehicle_type_default_id' // TODO: change this to actual vehicle type id
+        vehicleType[0].id
     );
 
     if (!transportRateInfo) {
@@ -2371,7 +2376,9 @@ const updateOrderVehicle = async (
             .where(eq(orders.id, orderId));
     })
 
-    await costEstimateGenerator(orderId, platformId, user);
+    if (order.order_status !== "PRICING_REVIEW") {
+        await costEstimateGenerator(orderId, platformId, user);
+    }
 
     // Step 10: Return updated vehicle information
     return {

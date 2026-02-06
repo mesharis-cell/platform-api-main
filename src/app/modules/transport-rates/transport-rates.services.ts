@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, isNull, getTableColumns } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { cities, companies, transportRates } from "../../../db/schema";
+import { cities, companies, transportRates, vehicleTypes } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import paginationMaker from "../../utils/pagination-maker";
 import {
@@ -156,10 +156,15 @@ const listTransportRates = async (query: Record<string, any>, platformId: string
                     id: companies.id,
                     name: companies.name,
                 },
+                vehicle_type: {
+                    id: vehicleTypes.id,
+                    name: vehicleTypes.name,
+                },
             })
             .from(transportRates)
             .leftJoin(cities, eq(transportRates.city_id, cities.id))
             .leftJoin(companies, eq(transportRates.company_id, companies.id))
+            .leftJoin(vehicleTypes, eq(transportRates.vehicle_type_id, vehicleTypes.id))
             .where(and(...conditions))
             .orderBy(orderDirection)
             .limit(limitNumber)
