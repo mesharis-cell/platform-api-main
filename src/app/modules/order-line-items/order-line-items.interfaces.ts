@@ -5,7 +5,6 @@ export type CreateCatalogLineItemPayload = z.infer<
     typeof OrderLineItemsSchemas.createCatalogLineItemSchema
 >["body"] & {
     platform_id: string;
-    order_id: string;
     added_by: string;
 };
 
