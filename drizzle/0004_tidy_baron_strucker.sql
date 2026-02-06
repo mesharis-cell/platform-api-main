@@ -1,3 +1,4 @@
+ALTER TYPE "public"."inbound_request_status_enum" ADD VALUE 'DECLINED' BEFORE 'CANCELLED';--> statement-breakpoint
 ALTER TABLE "order_line_items" RENAME TO "line_items";--> statement-breakpoint
 ALTER TABLE "line_items" RENAME COLUMN "platform" TO "platform_id";--> statement-breakpoint
 ALTER TABLE "line_items" RENAME COLUMN "order" TO "order_id";--> statement-breakpoint
