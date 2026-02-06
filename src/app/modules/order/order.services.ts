@@ -20,6 +20,7 @@ import {
     scanEvents,
     users,
     vehicleTypes,
+    countries,
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
@@ -55,9 +56,6 @@ import {
 } from "./order-pricing.helpers";
 import { OrderLineItemsServices } from "../order-line-items/order-line-items.services";
 import { ReskinRequestsServices } from "../reskin-requests/reskin-requests.services";
-// import { OrderItemsAdjustmentService } from "./order-items-adjustment.service";
-
-// Import asset availability checker
 import { multipleEmailSender } from "../../utils/email-sender";
 import { emailTemplates } from "../../utils/email-templates";
 import { NotificationType } from "../notification-logs/notification-logs.interfaces";
@@ -182,8 +180,8 @@ const submitOrderFromCart = async (
         event_start_date,
         event_end_date,
         venue_name,
-        venue_country,
-        venue_city,
+        venue_country_id,
+        venue_city_id,
         venue_address,
         contact_name,
         contact_email,
@@ -193,7 +191,7 @@ const submitOrderFromCart = async (
     } = payload;
 
     const tripType = trip_type || "ROUND_TRIP";
-    const vehicleType = "vehicle_type_default_id"; // TODO: change this to actual vehicle type id
+    // const vehicleType = "vehicle_type_default_id"; // TODO: change this to actual vehicle type id
     const eventStartDate = dayjs(event_start_date).toDate();
     const eventEndDate = dayjs(event_end_date).toDate();
 
@@ -205,6 +203,34 @@ const submitOrderFromCart = async (
 
     if (!company) {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Company not found");
+    }
+
+    const [country] = await db
+        .select()
+        .from(countries)
+        .where(and(eq(countries.id, venue_country_id), eq(countries.platform_id, platformId)));
+
+    if (!country) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Country not found");
+    }
+
+    const [city] = await db
+        .select()
+        .from(cities)
+        .where(and(eq(cities.id, venue_city_id), eq(cities.platform_id, platformId), eq(cities.country_id, venue_country_id)));
+
+    if (!city) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "City not found for the given country");
+    }
+
+    const vehicleType = await db
+        .query.vehicleTypes
+        .findFirst({
+            where: and(eq(vehicleTypes.is_default, true), eq(vehicleTypes.platform_id, platformId)),
+        });
+
+    if (!vehicleType) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Default vehicle type not found");
     }
 
     // Step 3: Check assets availability
@@ -273,9 +299,9 @@ const submitOrderFromCart = async (
     const transportRateInfo = await TransportRatesServices.lookupTransportRate(
         platformId,
         companyId,
-        venue_city,
+        venue_city_id,
         tripType,
-        vehicleType
+        vehicleType.id
     );
 
     const transportRate = transportRateInfo?.rate ? Number(transportRateInfo.rate) : null;
@@ -333,7 +359,7 @@ const submitOrderFromCart = async (
                 event_end_date: eventEndDate,
                 venue_name: venue_name,
                 venue_location: {
-                    country: venue_country,
+                    country: country.name,
                     address: venue_address,
                     access_notes: venue_access_notes || null,
                 },
@@ -343,9 +369,9 @@ const submitOrderFromCart = async (
                     weight: calculatedWeight,
                 },
                 trip_type: tripType,
-                vehicle_type_id: vehicleType,
+                vehicle_type_id: vehicleType.id,
                 order_pricing_id: orderPricing.id,
-                venue_city_id: venue_city,
+                venue_city_id: venue_city_id,
                 order_status: "PRICING_REVIEW",
                 financial_status: "PENDING_QUOTE",
             })
@@ -377,7 +403,7 @@ const submitOrderFromCart = async (
         company_name: (company as any)?.name || "N/A",
         event_start_date: formatDateForEmail(event_start_date),
         event_end_date: formatDateForEmail(event_end_date),
-        venue_city: venue_city,
+        venue_city: city.name,
         total_volume: calculatedVolume,
         item_count: items.length,
         view_order_url: `${config.client_url}/orders/${orderResult.order_id}`,
@@ -1746,7 +1772,7 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
     }
 
     // Step 4: Get line items totals
-    const lineItemsTotals = await OrderLineItemsServices.calculateLineItemsTotals(
+    const lineItemsTotals = await OrderLineItemsServices.calculateOrderLineItemsTotals(
         orderId,
         platformId
     );
