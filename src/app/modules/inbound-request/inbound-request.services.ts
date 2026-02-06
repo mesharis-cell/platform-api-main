@@ -8,7 +8,7 @@ import { ApproveInboundRequestPayload, ApproveOrDeclineQuoteByClientPayload, Inb
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
 import { inboundRequestQueryValidationConfig, inboundRequestSortableFields } from "./inbound-request.utils";
-import { OrderLineItemsServices } from "../order-line-items/order-line-items.services";
+import { LineItemsServices } from "../order-line-items/order-line-items.services";
 
 // ----------------------------------- CREATE INBOUND REQUEST --------------------------------
 const createInboundRequest = async (data: InboundRequestPayload, user: AuthUser, platformId: string) => {
@@ -394,7 +394,7 @@ const submitForApproval = async (requestId: string, user: AuthUser, platformId: 
     }
 
     // Step 3: Get line items totals
-    const lineItemsTotals = await OrderLineItemsServices.calculateInboundRequestLineItemsTotals(
+    const lineItemsTotals = await LineItemsServices.calculateInboundRequestLineItemsTotals(
         inboundRequest.id,
         platformId
     );

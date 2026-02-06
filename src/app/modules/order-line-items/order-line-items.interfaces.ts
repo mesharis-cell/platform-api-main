@@ -1,26 +1,26 @@
 import z from "zod";
-import { OrderLineItemsSchemas } from "./order-line-items.schemas";
+import { LineItemsSchemas } from "./order-line-items.schemas";
 
 export type CreateCatalogLineItemPayload = z.infer<
-    typeof OrderLineItemsSchemas.createCatalogLineItemSchema
+    typeof LineItemsSchemas.createCatalogLineItemSchema
 >["body"] & {
     platform_id: string;
     added_by: string;
 };
 
 export type CreateCustomLineItemPayload = z.infer<
-    typeof OrderLineItemsSchemas.createCustomLineItemSchema
+    typeof LineItemsSchemas.createCustomLineItemSchema
 >["body"] & {
     platform_id: string;
     added_by: string;
 };
 
 export type UpdateLineItemPayload = z.infer<
-    typeof OrderLineItemsSchemas.updateLineItemSchema
+    typeof LineItemsSchemas.updateLineItemSchema
 >["body"];
 
 export type VoidLineItemPayload = z.infer<
-    typeof OrderLineItemsSchemas.voidLineItemSchema
+    typeof LineItemsSchemas.voidLineItemSchema
 >["body"] & {
     voided_by: string;
 };

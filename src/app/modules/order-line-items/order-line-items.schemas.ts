@@ -69,7 +69,7 @@ const voidLineItemSchema = z.object({
         .strict(),
 });
 
-export const OrderLineItemsSchemas = {
+export const LineItemsSchemas = {
     createCatalogLineItemSchema,
     createCustomLineItemSchema,
     updateLineItemSchema,

@@ -74,6 +74,7 @@ export const inboundRequestStatusEnum = pgEnum("inbound_request_status_enum", [
     "PENDING_APPROVAL",
     "QUOTED",
     "CONFIRMED",
+    "DECLINED",
     "CANCELLED",
     "COMPLETED"
 ]);
