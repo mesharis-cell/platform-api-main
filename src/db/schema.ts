@@ -639,7 +639,7 @@ export const serviceTypes = pgTable(
 
 export const serviceTypesRelations = relations(serviceTypes, ({ one, many }) => ({
     platform: one(platforms, { fields: [serviceTypes.platform_id], references: [platforms.id] }),
-    order_line_items: many(orderLineItems),
+    order_line_items: many(lineItems),
 }));
 
 // ---------------------------------- ORDER ------------------------------------------------
@@ -737,7 +737,7 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
     venue_city: one(cities, { fields: [orders.venue_city_id], references: [cities.id] }),
     vehicle_type: one(vehicleTypes, { fields: [orders.vehicle_type_id], references: [vehicleTypes.id] }),
     items: many(orderItems),
-    line_items: many(orderLineItems),
+    line_items: many(lineItems),
     reskin_requests: many(reskinRequests),
     scan_events: many(scanEvents),
     asset_bookings: many(assetBookings),
@@ -901,11 +901,11 @@ export const reskinRequestsRelations = relations(reskinRequests, ({ one, many })
         references: [users.id],
         relationName: "reskin_cancelled_by",
     }),
-    line_items: many(orderLineItems),
+    line_items: many(lineItems),
 }));
 
 // ---------------------------------- ORDER LINE ITEMS (NEW) -----------------------------------
-export const orderLineItems = pgTable(
+export const lineItems = pgTable(
     "order_line_items",
     {
         id: uuid("id").primaryKey().defaultRandom(),
@@ -960,19 +960,19 @@ export const orderLineItems = pgTable(
     ]
 );
 
-export const orderLineItemsRelations = relations(orderLineItems, ({ one }) => ({
-    platform: one(platforms, { fields: [orderLineItems.platform_id], references: [platforms.id] }),
-    order: one(orders, { fields: [orderLineItems.order_id], references: [orders.id] }),
+export const lineItemsRelations = relations(lineItems, ({ one }) => ({
+    platform: one(platforms, { fields: [lineItems.platform_id], references: [platforms.id] }),
+    order: one(orders, { fields: [lineItems.order_id], references: [orders.id] }),
     service_type: one(serviceTypes, {
-        fields: [orderLineItems.service_type_id],
+        fields: [lineItems.service_type_id],
         references: [serviceTypes.id],
     }),
     reskin_request: one(reskinRequests, {
-        fields: [orderLineItems.reskin_request_id],
+        fields: [lineItems.reskin_request_id],
         references: [reskinRequests.id],
     }),
-    added_by_user: one(users, { fields: [orderLineItems.added_by], references: [users.id] }),
-    voided_by_user: one(users, { fields: [orderLineItems.voided_by], references: [users.id] }),
+    added_by_user: one(users, { fields: [lineItems.added_by], references: [users.id] }),
+    voided_by_user: one(users, { fields: [lineItems.voided_by], references: [users.id] }),
 }));
 
 // ---------------------------------- ORDER STATUS HISTORY ---------------------------------
