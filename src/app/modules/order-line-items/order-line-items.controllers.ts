@@ -21,10 +21,13 @@ const getLineItems = catchAsync(async (req: Request, res: Response) => {
 
 // ----------------------------------- CREATE CATALOG LINE ITEM -----------------------------------
 const createCatalogLineItem = catchAsync(async (req: Request, res: Response) => {
-    const { platform_id, user } = req as any;
+    // Extract user and platform ID from middleware
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+
     const payload = {
         ...req.body,
-        platform_id,
+        platform_id: platformId,
         added_by: user.id,
     };
 
@@ -39,12 +42,14 @@ const createCatalogLineItem = catchAsync(async (req: Request, res: Response) => 
 });
 
 // ----------------------------------- CREATE CUSTOM LINE ITEM -----------------------------------
-const createCustomLineItem = async (req: Request, res: Response) => {
-    const { platform_id, user } = req as any;
+const createCustomLineItem = catchAsync(async (req: Request, res: Response) => {
+    // Extract user and platform ID from middleware
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
     const orderId = getRequiredString(req.params.orderId, "orderId");
     const payload = {
         ...req.body,
-        platform_id,
+        platform_id: platformId,
         order_id: orderId,
         added_by: user.id,
     };
@@ -57,19 +62,18 @@ const createCustomLineItem = async (req: Request, res: Response) => {
         message: "Custom line item added successfully",
         data: lineItem,
     });
-};
+});
 
 // ----------------------------------- UPDATE LINE ITEM -----------------------------------
-const updateLineItem = async (req: Request, res: Response) => {
-    const { platform_id } = req as any;
-    const orderId = getRequiredString(req.params.orderId, "orderId");
+const updateLineItem = catchAsync(async (req: Request, res: Response) => {
+    // Extract platform ID from middleware
+    const platformId = (req as any).platformId;
     const itemId = getRequiredString(req.params.itemId, "itemId");
     const payload = req.body;
 
     const lineItem = await OrderLineItemsServices.updateLineItem(
         itemId,
-        orderId,
-        platform_id,
+        platformId,
         payload
     );
 
@@ -79,12 +83,13 @@ const updateLineItem = async (req: Request, res: Response) => {
         message: "Line item updated successfully",
         data: lineItem,
     });
-};
+});
 
 // ----------------------------------- VOID LINE ITEM -----------------------------------
-const voidLineItem = async (req: Request, res: Response) => {
-    const { platform_id, user } = req as any;
-    const orderId = getRequiredString(req.params.orderId, "orderId");
+const voidLineItem = catchAsync(async (req: Request, res: Response) => {
+    // Extract user and platform ID from middleware
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
     const itemId = getRequiredString(req.params.itemId, "itemId");
     const payload = {
         ...req.body,
@@ -93,8 +98,7 @@ const voidLineItem = async (req: Request, res: Response) => {
 
     const lineItem = await OrderLineItemsServices.voidLineItem(
         itemId,
-        orderId,
-        platform_id,
+        platformId,
         payload
     );
 
@@ -104,7 +108,7 @@ const voidLineItem = async (req: Request, res: Response) => {
         message: "Line item voided successfully",
         data: lineItem,
     });
-};
+});
 
 export const OrderLineItemsControllers = {
     getLineItems,

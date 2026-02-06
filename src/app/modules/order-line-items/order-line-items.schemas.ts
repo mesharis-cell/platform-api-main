@@ -32,6 +32,9 @@ const createCatalogLineItemSchema = z.object({
 const createCustomLineItemSchema = z.object({
     body: z
         .object({
+            order_id: z.uuid("Invalid order ID").optional(),
+            inbound_request_id: z.uuid("Invalid inbound request ID").optional(),
+            purpose_type: z.enum(invoiceTypeEnum.enumValues, enumMessageGenerator("Purpose type", invoiceTypeEnum.enumValues)),
             description: z
                 .string({ message: "Description is required" })
                 .min(1, "Description is required")
