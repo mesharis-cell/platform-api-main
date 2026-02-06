@@ -10,26 +10,48 @@ import {
     UpdateLineItemPayload,
     VoidLineItemPayload,
 } from "./order-line-items.interfaces";
-import { lineItemIdGenerator } from "./order-line-items.utils";
+import { lineItemIdGenerator, lineItemQueryValidationConfig } from "./order-line-items.utils";
+import queryValidator from "../../utils/query-validator";
 
-// ----------------------------------- LIST ORDER LINE ITEMS -----------------------------------
-const listOrderLineItems = async (orderId: string, platformId: string) => {
-    const items = await db
+// ----------------------------------- GET LINE ITEMS -----------------------------------------
+const getLineItems = async (platformId: string, query: Record<string, any>) => {
+    const {
+        order_id,
+        inbound_request_id,
+        purpose_type
+    } = query;
+
+    const conditions: any[] = [eq(lineItems.platform_id, platformId)];
+
+    if (order_id) {
+        conditions.push(eq(lineItems.order_id, order_id));
+    }
+
+    if (inbound_request_id) {
+        conditions.push(eq(lineItems.inbound_request_id, inbound_request_id));
+    }
+
+    if (purpose_type) {
+        queryValidator(lineItemQueryValidationConfig, "purpose_type", purpose_type);
+        conditions.push(eq(lineItems.purpose_type, purpose_type));
+    }
+
+    const results = await db
         .select()
         .from(lineItems)
-        .where(
-            and(eq(lineItems.order_id, orderId), eq(lineItems.platform_id, platformId))
-        );
+        .where(and(...conditions))
 
-    return items.map((item) => ({
+    const formattedResults = results.map((item) => ({
         ...item,
         quantity: item.quantity ? parseFloat(item.quantity) : null,
         unit_rate: item.unit_rate ? parseFloat(item.unit_rate) : null,
         total: parseFloat(item.total),
-    }));
-};
+    }))
 
-// ----------------------------------- CREATE CATALOG LINE ITEM -----------------------------------
+    return formattedResults;
+}
+
+// ----------------------------------- CREATE CATALOG LINE ITEM -------------------------------
 const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
     const { platform_id, order_id, inbound_request_id, purpose_type, service_type_id, quantity, unit_rate, notes, added_by } = data;
 
@@ -87,7 +109,7 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
     };
 };
 
-// ----------------------------------- CREATE CUSTOM LINE ITEM -----------------------------------
+// ----------------------------------- CREATE CUSTOM LINE ITEM --------------------------------
 const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
     const {
         platform_id,
@@ -134,7 +156,7 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
     };
 };
 
-// ----------------------------------- UPDATE LINE ITEM -----------------------------------
+// ----------------------------------- UPDATE LINE ITEM ---------------------------------------
 const updateLineItem = async (
     id: string,
     orderId: string,
@@ -202,7 +224,7 @@ const updateLineItem = async (
     };
 };
 
-// ----------------------------------- VOID LINE ITEM -----------------------------------
+// ----------------------------------- VOID LINE ITEM -----------------------------------------
 const voidLineItem = async (
     id: string,
     orderId: string,
@@ -253,7 +275,7 @@ const voidLineItem = async (
     };
 };
 
-// ----------------------------------- CALCULATE ORDER LINE ITEMS TOTAL -----------------------------------
+// ----------------------------------- CALCULATE ORDER LINE ITEMS TOTAL -----------------------
 const calculateOrderLineItemsTotals = async (
     orderId: string,
     platformId: string
@@ -287,7 +309,7 @@ const calculateOrderLineItemsTotals = async (
     };
 };
 
-// ----------------------------------- CALCULATE INBOUND REQUEST LINE ITEMS TOTAL -----------------------------------
+// ----------------------------------- CALCULATE INBOUND REQUEST LINE ITEMS TOTAL -------------
 const calculateInboundRequestLineItemsTotals = async (
     inboundRequestId: string,
     platformId: string
@@ -321,7 +343,7 @@ const calculateInboundRequestLineItemsTotals = async (
     };
 };
 
-// ----------------------------------- UPDATE ORDER PRICING AFTER LINE ITEM CHANGE ------------------
+// ----------------------------------- UPDATE ORDER PRICING AFTER LINE ITEM CHANGE ------------
 const updateOrderPricingAfterLineItemChange = async (
     orderId: string,
     platformId: string
@@ -390,7 +412,7 @@ const updateOrderPricingAfterLineItemChange = async (
         .where(eq(prices.id, orderResult.order_pricing.id));
 };
 
-// ----------------------------------- UPDATE INBOUND REQUEST PRICING AFTER LINE ITEM CHANGE --------
+// ----------------------------------- UPDATE INBOUND REQUEST PRICING AFTER LINE ITEM CHANGE --
 const updateInboundRequestPricingAfterLineItemChange = async (
     inboundRequestId: string,
     platformId: string
@@ -458,7 +480,7 @@ const updateInboundRequestPricingAfterLineItemChange = async (
 };
 
 export const OrderLineItemsServices = {
-    listOrderLineItems,
+    getLineItems,
     createCatalogLineItem,
     createCustomLineItem,
     updateLineItem,

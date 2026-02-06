@@ -191,7 +191,6 @@ const submitOrderFromCart = async (
     } = payload;
 
     const tripType = trip_type || "ROUND_TRIP";
-    // const vehicleType = "vehicle_type_default_id"; // TODO: change this to actual vehicle type id
     const eventStartDate = dayjs(event_start_date).toDate();
     const eventEndDate = dayjs(event_end_date).toDate();
 
@@ -933,7 +932,7 @@ const getOrderById = async (
         .where(eq(orderItems.order_id, orderData.order.id));
 
     const [lineItems, reskinRequests] = await Promise.all([
-        OrderLineItemsServices.listOrderLineItems(orderData.order.id, platformId),
+        OrderLineItemsServices.getLineItems(platformId, { order_id: orderData.order.id }),
         ReskinRequestsServices.listReskinRequests(orderData.order.id, platformId),
     ]);
 
