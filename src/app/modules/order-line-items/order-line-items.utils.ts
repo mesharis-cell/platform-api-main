@@ -1,6 +1,6 @@
 import { desc, sql } from "drizzle-orm";
 import { db } from "../../../db";
-import { lineItems } from "../../../db/schema";
+import { invoiceTypeEnum, lineItems } from "../../../db/schema";
 
 // ------------------------------------- LINE ITEM ID GENERATOR --------------------------------
 // FORMAT: K-XXXXXX (6 digits)
@@ -27,3 +27,7 @@ export const lineItemIdGenerator = async (platformId: string): Promise<string> =
     const sequenceStr = sequence.toString().padStart(6, "0");
     return `${prefix}${sequenceStr}`;
 };
+
+export const lineItemQueryValidationConfig = {
+    purpose_type: invoiceTypeEnum.enumValues,
+}

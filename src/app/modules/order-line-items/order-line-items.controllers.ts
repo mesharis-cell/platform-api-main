@@ -2,22 +2,25 @@ import { Request, Response } from "express";
 import httpStatus from "http-status";
 import { OrderLineItemsServices } from "./order-line-items.services";
 import { getRequiredString } from "../../utils/request";
+import catchAsync from "../../shared/catch-async";
+import sendResponse from "../../shared/send-response";
 
-// ----------------------------------- LIST ORDER LINE ITEMS -----------------------------------
-const listOrderLineItems = async (req: Request, res: Response) => {
-    const { platform_id } = req as any;
-    const orderId = getRequiredString(req.params.orderId, "orderId");
+// ----------------------------------- GET LINE ITEMS -----------------------------------------
+const getLineItems = catchAsync(async (req: Request, res: Response) => {
+    const platformId = (req as any).platform_id;
 
-    const items = await OrderLineItemsServices.listOrderLineItems(orderId, platform_id);
+    const items = await OrderLineItemsServices.getLineItems(platformId, req.query);
 
-    return res.status(httpStatus.OK).json({
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
         success: true,
+        message: "Line items fetched successfully",
         data: items,
     });
-};
+});
 
 // ----------------------------------- CREATE CATALOG LINE ITEM -----------------------------------
-const createCatalogLineItem = async (req: Request, res: Response) => {
+const createCatalogLineItem = catchAsync(async (req: Request, res: Response) => {
     const { platform_id, user } = req as any;
     const payload = {
         ...req.body,
@@ -27,12 +30,13 @@ const createCatalogLineItem = async (req: Request, res: Response) => {
 
     const lineItem = await OrderLineItemsServices.createCatalogLineItem(payload);
 
-    return res.status(httpStatus.CREATED).json({
+    sendResponse(res, {
+        statusCode: httpStatus.CREATED,
         success: true,
         message: "Catalog line item added successfully",
         data: lineItem,
     });
-};
+});
 
 // ----------------------------------- CREATE CUSTOM LINE ITEM -----------------------------------
 const createCustomLineItem = async (req: Request, res: Response) => {
@@ -47,7 +51,8 @@ const createCustomLineItem = async (req: Request, res: Response) => {
 
     const lineItem = await OrderLineItemsServices.createCustomLineItem(payload);
 
-    return res.status(httpStatus.CREATED).json({
+    sendResponse(res, {
+        statusCode: httpStatus.CREATED,
         success: true,
         message: "Custom line item added successfully",
         data: lineItem,
@@ -68,7 +73,8 @@ const updateLineItem = async (req: Request, res: Response) => {
         payload
     );
 
-    return res.status(httpStatus.OK).json({
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
         success: true,
         message: "Line item updated successfully",
         data: lineItem,
@@ -92,7 +98,8 @@ const voidLineItem = async (req: Request, res: Response) => {
         payload
     );
 
-    return res.status(httpStatus.OK).json({
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
         success: true,
         message: "Line item voided successfully",
         data: lineItem,
@@ -100,7 +107,7 @@ const voidLineItem = async (req: Request, res: Response) => {
 };
 
 export const OrderLineItemsControllers = {
-    listOrderLineItems,
+    getLineItems,
     createCatalogLineItem,
     createCustomLineItem,
     updateLineItem,

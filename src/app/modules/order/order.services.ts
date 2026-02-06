@@ -932,7 +932,7 @@ const getOrderById = async (
         .where(eq(orderItems.order_id, orderData.order.id));
 
     const [lineItems, reskinRequests] = await Promise.all([
-        OrderLineItemsServices.listOrderLineItems(orderData.order.id, platformId),
+        OrderLineItemsServices.getLineItems(platformId, { order_id: orderData.order.id }),
         ReskinRequestsServices.listReskinRequests(orderData.order.id, platformId),
     ]);
 
