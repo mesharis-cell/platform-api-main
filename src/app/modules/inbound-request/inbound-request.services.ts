@@ -10,6 +10,7 @@ import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
 import { inboundRequestIdGenerator, inboundRequestQueryValidationConfig, inboundRequestSortableFields } from "./inbound-request.utils";
 import { LineItemsServices } from "../order-line-items/order-line-items.services";
+import { inboundRequestInvoiceGenerator } from "../../utils/inbound-request-invoice";
 
 // ----------------------------------- CREATE INBOUND REQUEST --------------------------------
 const createInboundRequest = async (data: InboundRequestPayload, user: AuthUser, platformId: string) => {
@@ -835,6 +836,7 @@ const cancelInboundRequest = async (
 const completeInboundRequest = async (
     requestId: string,
     platformId: string,
+    user: AuthUser,
     payload: CompleteInboundRequestPayload
 ) => {
     const { warehouse_id, zone_id } = payload;
@@ -1031,6 +1033,8 @@ const completeInboundRequest = async (
 
         return resultAssets;
     });
+
+    await inboundRequestInvoiceGenerator(requestId, platformId, user);
 
     const createdCount = processedAssets.filter(a => a.action === 'created').length;
     const updatedCount = processedAssets.filter(a => a.action === 'updated').length;
