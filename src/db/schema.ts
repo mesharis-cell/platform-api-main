@@ -1407,7 +1407,7 @@ export const inboundRequestItems = pgTable(
         images: text("images")
             .array()
             .default(sql`ARRAY[]::text[]`),
-        created_asset_id: uuid("created_asset_id").references(() => assets.id),
+        asset_id: uuid("asset_id").references(() => assets.id),
         created_at: timestamp("created_at").notNull().defaultNow(),
         updated_at: timestamp("updated_at")
             .$onUpdate(() => new Date())
@@ -1447,7 +1447,7 @@ export const inboundRequestItemsRelations = relations(inboundRequestItems, ({ on
         references: [brands.id],
     }),
     created_asset: one(assets, {
-        fields: [inboundRequestItems.created_asset_id],
+        fields: [inboundRequestItems.asset_id],
         references: [assets.id],
     }),
 }));
