@@ -12,6 +12,7 @@ import {
 } from "./order-line-items.interfaces";
 import { lineItemIdGenerator, lineItemQueryValidationConfig } from "./order-line-items.utils";
 import queryValidator from "../../utils/query-validator";
+import { inboundRequestCostEstimateGenerator } from "../../utils/inbound-request-cost-estimate";
 
 // ----------------------------------- GET LINE ITEMS -----------------------------------------
 const getLineItems = async (platformId: string, query: Record<string, any>) => {
@@ -431,7 +432,7 @@ const updateInboundRequestPricingAfterLineItemChange = async (
     inboundRequestId: string,
     platformId: string
 ): Promise<void> => {
-    // Step 1: Get the order with its pricing
+    // Step 1: Get the inbound request with its pricing
     const [inboundRequest] = await db
         .select({
             inbound_request: inboundRequests,
@@ -472,7 +473,7 @@ const updateInboundRequestPricingAfterLineItemChange = async (
     const marginAmount = logisticsSubtotal * (marginPercent / 100);
     const finalTotal = logisticsSubtotal + marginAmount + lineItemsTotals.custom_total;
 
-    // Step 4: Update order pricing
+    // Step 4: Update inbound request pricing
     await db
         .update(prices)
         .set({
@@ -491,6 +492,9 @@ const updateInboundRequestPricingAfterLineItemChange = async (
             calculated_at: new Date(),
         })
         .where(eq(prices.id, inboundRequest.pricing.id));
+
+    // Step 5: Regenerate cost estimate PDF
+    await inboundRequestCostEstimateGenerator(inboundRequestId, platformId, true);
 };
 
 export const LineItemsServices = {
