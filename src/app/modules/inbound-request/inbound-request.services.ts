@@ -109,7 +109,8 @@ const createInboundRequest = async (data: InboundRequestPayload, user: AuthUser,
             dimensions: item.dimensions,
             volume_per_unit: item.volume_per_unit.toString(),
             handling_tags: item.handling_tags || [],
-            images: item.images || []
+            images: item.images || [],
+            asset_id: item.asset_id || null,
         }));
 
         // Step 2.7: Bulk insert items

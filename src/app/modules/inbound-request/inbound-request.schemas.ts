@@ -20,7 +20,8 @@ const inboundRequestItemSchema = z.object({
         height: z.number("Height should be a number").min(0).default(0),
     }).optional(),
     images: z.array(z.string()).optional(),
-    handling_tags: z.array(z.string()).optional()
+    handling_tags: z.array(z.string()).optional(),
+    asset_id: z.uuid("Asset ID should be a valid UUID").optional()
 });
 
 const createInboundRequestSchema = z.object({
