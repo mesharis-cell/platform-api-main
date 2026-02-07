@@ -1,10 +1,11 @@
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { companies, inboundRequestItems, inboundRequests, prices, users } from "../../../db/schema";
+import { assets, companies, inboundRequestItems, inboundRequests, prices, users, warehouses, zones } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { eq, isNull, and, asc, count, desc, gte, ilike, lte, or } from "drizzle-orm";
-import { ApproveInboundRequestPayload, ApproveOrDeclineQuoteByClientPayload, InboundRequestPayload } from "./inbound-request.interfaces";
+import { ApproveInboundRequestPayload, ApproveOrDeclineQuoteByClientPayload, CompleteInboundRequestPayload, InboundRequestPayload, UpdateInboundRequestItemPayload } from "./inbound-request.interfaces";
+import { qrCodeGenerator } from "../../utils/qr-code-generator";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
 import { inboundRequestQueryValidationConfig, inboundRequestSortableFields } from "./inbound-request.utils";
@@ -639,11 +640,422 @@ const approveOrDeclineQuoteByClient = async (
     };
 };
 
+// ----------------------------------- UPDATE INBOUND REQUEST ITEM ----------------------------
+const updateInboundRequestItem = async (
+    requestId: string,
+    itemId: string,
+    user: AuthUser,
+    platformId: string,
+    payload: UpdateInboundRequestItemPayload
+) => {
+    // Step 1: Fetch the inbound request to validate access and status
+    const [result] = await db
+        .select({
+            request: inboundRequests,
+            request_pricing: {
+                id: prices.id,
+                warehouse_ops_rate: prices.warehouse_ops_rate,
+                base_ops_total: prices.base_ops_total,
+                logistics_sub_total: prices.logistics_sub_total,
+                final_total: prices.final_total,
+                line_items: prices.line_items,
+                margin: prices.margin,
+                calculated_by: prices.calculated_by,
+                calculated_at: prices.calculated_at,
+            }
+        })
+        .from(inboundRequests)
+        .leftJoin(prices, eq(inboundRequests.request_pricing_id, prices.id))
+        .where(and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)));
+
+    const inboundRequest = result.request;
+    const requestPricing = result.request_pricing;
+
+    if (!inboundRequest || !requestPricing) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request or request pricing not found");
+    }
+
+    // Step 2: Check user access (CLIENT users can only update their company's requests)
+    if (user.role === "CLIENT" && inboundRequest.company_id !== user.company_id) {
+        throw new CustomizedError(httpStatus.FORBIDDEN, "You do not have access to this inbound request");
+    }
+
+    // Step 3: Check if the inbound request is in a status that allows updates
+    if (user.role === "CLIENT" && !["PRICING_REVIEW", "PENDING_APPROVAL"].includes(inboundRequest.request_status)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Cannot update items when request status is ${inboundRequest.request_status}. Items can only be updated in PENDING_APPROVAL or PRICING_REVIEW status.`
+        );
+    }
+
+    // Step 4: Fetch the item to verify it exists and belongs to this request
+    const [existingItem] = await db
+        .select()
+        .from(inboundRequestItems)
+        .where(and(eq(inboundRequestItems.id, itemId), eq(inboundRequestItems.inbound_request_id, requestId)))
+        .limit(1);
+
+    if (!existingItem) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request item not found");
+    }
+
+    // Step 5: Prepare update data
+    const updateData: Record<string, any> = {};
+
+    if (payload.brand_id !== undefined) {
+        updateData.brand_id = payload.brand_id || null;
+    }
+    if (payload.name !== undefined) {
+        updateData.name = payload.name;
+    }
+    if (payload.description !== undefined) {
+        updateData.description = payload.description || null;
+    }
+    if (payload.category !== undefined) {
+        updateData.category = payload.category;
+    }
+    if (payload.tracking_method !== undefined) {
+        updateData.tracking_method = payload.tracking_method;
+    }
+    if (payload.quantity !== undefined) {
+        updateData.quantity = payload.quantity;
+    }
+    if (payload.packaging !== undefined) {
+        updateData.packaging = payload.packaging || null;
+    }
+    if (payload.weight_per_unit !== undefined) {
+        updateData.weight_per_unit = payload.weight_per_unit.toString();
+    }
+    if (payload.volume_per_unit !== undefined) {
+        updateData.volume_per_unit = payload.volume_per_unit.toString();
+    }
+    if (payload.dimensions !== undefined) {
+        updateData.dimensions = payload.dimensions;
+    }
+    if (payload.images !== undefined) {
+        updateData.images = payload.images;
+    }
+    if (payload.handling_tags !== undefined) {
+        updateData.handling_tags = payload.handling_tags;
+    }
+
+    // Step 6: Update the item
+    const [updatedItem] = await db
+        .update(inboundRequestItems)
+        .set(updateData)
+        .where(eq(inboundRequestItems.id, itemId))
+        .returning();
+
+    // Step 7: Fetch items for this request to recalculate pricing
+    const items = await db
+        .select()
+        .from(inboundRequestItems)
+        .where(eq(inboundRequestItems.inbound_request_id, requestId));
+
+    // Step 7.1: Calculate total volume from items
+    const totalVolume = items.reduce((acc, item) => acc + ((item.quantity || 1) * Number(item.volume_per_unit)), 0);
+
+    // Step 7.2: Calculate logistics costs and margin
+    const baseOpsTotal = Number(requestPricing.warehouse_ops_rate) * totalVolume;
+    const logisticsSubTotal = baseOpsTotal + Number((requestPricing.line_items as any).catalog_total || 0);
+    const marginAmount = logisticsSubTotal * (Number((requestPricing.margin as any).percent) / 100);
+    const finalTotal = logisticsSubTotal + marginAmount + Number((requestPricing.line_items as any).custom_total || 0);
+
+    // Step 7.3: Prepare pricing details payload
+    const pricingDetails = {
+        base_ops_total: baseOpsTotal.toFixed(2),
+        logistics_sub_total: logisticsSubTotal.toFixed(2),
+        margin: {
+            percent: Number((requestPricing.margin as any).percent),
+            amount: marginAmount,
+            is_override: false,
+            override_reason: null
+        },
+        final_total: finalTotal.toFixed(2),
+        calculated_at: new Date(),
+        calculated_by: user.id,
+    }
+
+    // Step 7.4: Update pricing record
+    await db.update(prices).set(pricingDetails).where(eq(prices.id, requestPricing.id));
+
+    return updatedItem;
+};
+
+// ----------------------------------- CANCEL INBOUND REQUEST ---------------------------------
+const cancelInboundRequest = async (
+    requestId: string,
+    platformId: string
+) => {
+    // Step 1: Fetch the inbound request to validate access and status
+    const [inboundRequest] = await db
+        .select()
+        .from(inboundRequests)
+        .where(and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)))
+        .limit(1);
+
+    if (!inboundRequest) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found");
+    }
+
+    // Step 2: Check if the inbound request is in a status that allows cancellation
+    if (["COMPLETED", "CANCELLED"].includes(inboundRequest.request_status)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Cannot cancel request when status is ${inboundRequest.request_status}`
+        );
+    }
+
+    // Step 3: Update statuse
+    await db
+        .update(inboundRequests)
+        .set({
+            request_status: "CANCELLED",
+            financial_status: "CANCELLED",
+            updated_at: new Date(),
+        })
+        .where(eq(inboundRequests.id, requestId));
+
+    // Step 4: Return updated request
+    return {
+        id: inboundRequest.id,
+        request_status: "CANCELLED",
+        financial_status: "CANCELLED",
+        updated_at: new Date(),
+        message: "Inbound request cancelled successfully"
+    };
+};
+
+// ----------------------------------- COMPLETE INBOUND REQUEST -------------------------------
+const completeInboundRequest = async (
+    requestId: string,
+    platformId: string,
+    payload: CompleteInboundRequestPayload
+) => {
+    const { warehouse_id, zone_id } = payload;
+
+    // Step 1: Fetch the inbound request to validate access and status
+    const [inboundRequest] = await db
+        .select()
+        .from(inboundRequests)
+        .where(and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)))
+        .limit(1);
+
+    if (!inboundRequest) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found");
+    }
+
+    // Step 2: Verify inbound request is in CONFIRMED status
+    if (inboundRequest.request_status !== "CONFIRMED") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Cannot complete inbound request. Current status: ${inboundRequest.request_status}. Request must be in CONFIRMED status.`
+        );
+    }
+
+    // Step 3: Validate warehouse exists and belongs to the platform
+    const [warehouse] = await db
+        .select()
+        .from(warehouses)
+        .where(and(eq(warehouses.id, warehouse_id), eq(warehouses.platform_id, platformId)))
+        .limit(1);
+
+    if (!warehouse) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Warehouse not found");
+    }
+
+    // Step 4: Validate zone exists and belongs to the warehouse and company
+    const [zone] = await db
+        .select()
+        .from(zones)
+        .where(and(
+            eq(zones.id, zone_id),
+            eq(zones.warehouse_id, warehouse_id),
+            eq(zones.company_id, inboundRequest.company_id)
+        ))
+        .limit(1);
+
+    if (!zone) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Zone not found or does not belong to the specified warehouse and company");
+    }
+
+    // Step 5: Fetch inbound request items
+    const items = await db
+        .select()
+        .from(inboundRequestItems)
+        .where(eq(inboundRequestItems.inbound_request_id, requestId));
+
+    if (items.length === 0) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "No items found for this inbound request");
+    }
+
+    // Step 6: Create/update assets from items in a transaction
+    const processedAssets = await db.transaction(async (tx) => {
+        const resultAssets: { asset: any; action: 'created' | 'updated'; quantityAdded: number }[] = [];
+
+        for (const item of items) {
+            if (item.tracking_method === "BATCH") {
+                // For BATCH items, search for existing asset by name in the same company
+                const [existingAsset] = await tx
+                    .select()
+                    .from(assets)
+                    .where(and(
+                        eq(assets.name, item.name),
+                        eq(assets.company_id, inboundRequest.company_id),
+                        eq(assets.platform_id, platformId),
+                        isNull(assets.deleted_at)
+                    ))
+                    .limit(1);
+
+                if (existingAsset) {
+                    // Update existing asset quantity
+                    const newTotalQuantity = existingAsset.total_quantity + item.quantity;
+                    const newAvailableQuantity = existingAsset.available_quantity + item.quantity;
+
+                    const [updatedAsset] = await tx
+                        .update(assets)
+                        .set({
+                            total_quantity: newTotalQuantity,
+                            available_quantity: newAvailableQuantity,
+                        })
+                        .where(eq(assets.id, existingAsset.id))
+                        .returning();
+
+                    resultAssets.push({
+                        asset: updatedAsset,
+                        action: 'updated',
+                        quantityAdded: item.quantity
+                    });
+
+                    // Update the inbound request item with the existing asset id
+                    await tx
+                        .update(inboundRequestItems)
+                        .set({ created_asset_id: existingAsset.id })
+                        .where(eq(inboundRequestItems.id, item.id));
+                } else {
+                    // Create new BATCH asset if none exists with this name
+                    const qrCode = await qrCodeGenerator(inboundRequest.company_id);
+
+                    const [newAsset] = await tx
+                        .insert(assets)
+                        .values({
+                            platform_id: platformId,
+                            company_id: inboundRequest.company_id,
+                            warehouse_id: warehouse_id,
+                            zone_id: zone_id,
+                            brand_id: item.brand_id,
+                            name: item.name,
+                            description: item.description,
+                            category: item.category,
+                            tracking_method: item.tracking_method,
+                            total_quantity: item.quantity,
+                            available_quantity: item.quantity,
+                            qr_code: qrCode,
+                            packaging: item.packaging,
+                            weight_per_unit: item.weight_per_unit,
+                            dimensions: item.dimensions || {},
+                            volume_per_unit: item.volume_per_unit,
+                            handling_tags: item.handling_tags || [],
+                            images: item.images || [],
+                        })
+                        .returning();
+
+                    resultAssets.push({
+                        asset: newAsset,
+                        action: 'created',
+                        quantityAdded: item.quantity
+                    });
+
+                    // Update the inbound request item with the created asset id
+                    await tx
+                        .update(inboundRequestItems)
+                        .set({ created_asset_id: newAsset.id })
+                        .where(eq(inboundRequestItems.id, item.id));
+                }
+            } else {
+                // For INDIVIDUAL items, always create a new asset
+                const qrCode = await qrCodeGenerator(inboundRequest.company_id);
+
+                const [newAsset] = await tx
+                    .insert(assets)
+                    .values({
+                        platform_id: platformId,
+                        company_id: inboundRequest.company_id,
+                        warehouse_id: warehouse_id,
+                        zone_id: zone_id,
+                        brand_id: item.brand_id,
+                        name: item.name,
+                        description: item.description,
+                        category: item.category,
+                        tracking_method: item.tracking_method,
+                        total_quantity: item.quantity,
+                        available_quantity: item.quantity,
+                        qr_code: qrCode,
+                        packaging: item.packaging,
+                        weight_per_unit: item.weight_per_unit,
+                        dimensions: item.dimensions || {},
+                        volume_per_unit: item.volume_per_unit,
+                        handling_tags: item.handling_tags || [],
+                        images: item.images || [],
+                    })
+                    .returning();
+
+                resultAssets.push({
+                    asset: newAsset,
+                    action: 'created',
+                    quantityAdded: item.quantity
+                });
+
+                // Update the inbound request item with the created asset id
+                await tx
+                    .update(inboundRequestItems)
+                    .set({ created_asset_id: newAsset.id })
+                    .where(eq(inboundRequestItems.id, item.id));
+            }
+        }
+
+        // Step 7: Update inbound request status to COMPLETED
+        await tx
+            .update(inboundRequests)
+            .set({
+                request_status: "COMPLETED",
+                financial_status: "INVOICED",
+                updated_at: new Date(),
+            })
+            .where(eq(inboundRequests.id, requestId));
+
+        return resultAssets;
+    });
+
+    const createdCount = processedAssets.filter(a => a.action === 'created').length;
+    const updatedCount = processedAssets.filter(a => a.action === 'updated').length;
+
+    return {
+        id: inboundRequest.id,
+        request_status: "COMPLETED",
+        assets_created: createdCount,
+        assets_updated: updatedCount,
+        assets: processedAssets.map(({ asset, action, quantityAdded }) => ({
+            id: asset.id,
+            name: asset.name,
+            qr_code: asset.qr_code,
+            category: asset.category,
+            total_quantity: asset.total_quantity,
+            quantity_added: quantityAdded,
+            action: action,
+        })),
+        message: `Successfully processed ${items.length} items: ${createdCount} assets created, ${updatedCount} assets updated.`
+    };
+};
+
 export const InboundRequestServices = {
     createInboundRequest,
     getInboundRequests,
     getInboundRequestById,
     submitForApproval,
     approveInboundRequestByAdmin,
-    approveOrDeclineQuoteByClient
+    approveOrDeclineQuoteByClient,
+    updateInboundRequestItem,
+    completeInboundRequest,
+    cancelInboundRequest
 };

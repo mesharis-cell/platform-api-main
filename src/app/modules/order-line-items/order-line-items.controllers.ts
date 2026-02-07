@@ -46,11 +46,9 @@ const createCustomLineItem = catchAsync(async (req: Request, res: Response) => {
     // Extract user and platform ID from middleware
     const user = (req as any).user;
     const platformId = (req as any).platformId;
-    const orderId = getRequiredString(req.params.orderId, "orderId");
     const payload = {
         ...req.body,
         platform_id: platformId,
-        order_id: orderId,
         added_by: user.id,
     };
 

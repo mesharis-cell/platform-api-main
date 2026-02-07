@@ -6,3 +6,7 @@ export type InboundRequestPayload = z.infer<typeof inboundRequestSchemas.createI
 export type ApproveInboundRequestPayload = z.infer<typeof inboundRequestSchemas.approveInboundRequestSchema>["body"];
 
 export type ApproveOrDeclineQuoteByClientPayload = z.infer<typeof inboundRequestSchemas.approveOrDeclineQuoteByClientSchema>["body"];
+
+export type UpdateInboundRequestItemPayload = z.infer<typeof inboundRequestSchemas.updateInboundRequestItemSchema>["body"];
+
+export type CompleteInboundRequestPayload = z.infer<typeof inboundRequestSchemas.completeInboundRequestSchema>["body"];

@@ -103,11 +103,65 @@ const approveOrDeclineQuoteByClient = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- UPDATE INBOUND REQUEST ITEM ----------------------------
+const updateInboundRequestItem = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const requestId = getRequiredString(req.params.id, "id");
+    const itemId = getRequiredString(req.params.itemId, "itemId");
+
+    const result = await InboundRequestServices.updateInboundRequestItem(requestId, itemId, user, platformId, req.body);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Inbound request item updated successfully",
+        data: result,
+    });
+});
+
+// ----------------------------------- COMPLETE INBOUND REQUEST -------------------------------
+const completeInboundRequest = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const id = getRequiredString(req.params.id, "id");
+
+    const result = await InboundRequestServices.completeInboundRequest(id, platformId, req.body);
+
+    const { message, ...rest } = result;
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message,
+        data: rest,
+    });
+});
+
+// ----------------------------------- CANCEL INBOUND REQUEST ---------------------------------
+const cancelInboundRequest = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const id = getRequiredString(req.params.id, "id");
+
+    const result = await InboundRequestServices.cancelInboundRequest(id, platformId);
+
+    const { message, ...rest } = result;
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message,
+        data: rest,
+    });
+});
+
 export const InboundRequestControllers = {
     createInboundRequest,
     getInboundRequests,
     getInboundRequestById,
     submitForApproval,
     approveInboundRequestByAdmin,
-    approveOrDeclineQuoteByClient
+    approveOrDeclineQuoteByClient,
+    updateInboundRequestItem,
+    completeInboundRequest,
+    cancelInboundRequest
 };
