@@ -118,7 +118,6 @@ export const costEstimateGenerator = async (
     // Generate PDF
     const pdfBuffer = await renderCostEstimatePDF({
         ...costEstimateData,
-        estimate_number: costEstimateData.order_id,
         estimate_date: new Date(),
     });
 

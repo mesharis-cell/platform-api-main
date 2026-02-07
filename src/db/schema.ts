@@ -955,9 +955,10 @@ export const lineItems = pgTable(
             .notNull(),
     },
     (table) => [
-        index("order_line_items_order_idx").on(table.order_id),
-        index("order_line_items_reskin_idx").on(table.reskin_request_id),
-        index("order_line_items_active_idx").on(table.order_id, table.is_voided),
+        index("line_items_order_idx").on(table.order_id),
+        index("line_items_inbound_request_idx").on(table.inbound_request_id),
+        index("line_items_reskin_request_idx").on(table.reskin_request_id),
+        index("line_items_active_idx").on(table.order_id, table.is_voided),
     ]
 );
 

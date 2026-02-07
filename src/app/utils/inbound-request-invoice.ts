@@ -73,7 +73,7 @@ export const inboundRequestInvoiceGenerator = async (
     const total = logisticsSubTotal + serviceFee;
 
     const invoiceData: InboundRequestInvoicePayload = {
-        inbound_request_id: inboundRequest.id,
+        inbound_request_id: inboundRequest.inbound_request_id,
         invoice_number: invoiceNumber,
         company_name: company?.name || "N/A",
         contact_name: inboundRequest.requester?.name || "N/A",
