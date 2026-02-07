@@ -10,9 +10,10 @@ import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
 import { inboundRequestIdGenerator, inboundRequestQueryValidationConfig, inboundRequestSortableFields } from "./inbound-request.utils";
 import { LineItemsServices } from "../order-line-items/order-line-items.services";
-import { inboundRequestInvoiceGenerator } from "../../utils/inbound-request-invoice";
+// import { inboundRequestInvoiceGenerator } from "../../utils/inbound-request-invoice";
 import { inboundRequestCostEstimateGenerator } from "../../utils/inbound-request-cost-estimate";
 import { getRequestPricingToShowClient } from "../../utils/pricing-calculation";
+// import { sendEmail } from "../../services/email.service";
 
 // ----------------------------------- CREATE INBOUND REQUEST --------------------------------
 const createInboundRequest = async (data: InboundRequestPayload, user: AuthUser, platformId: string) => {
@@ -327,7 +328,19 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
 
     // Step 4: Fetch items for this request
     const items = await db
-        .select()
+        .select({
+            item: inboundRequestItems,
+            asset: {
+                name: assets.name,
+                images: assets.images,
+                qr_code: assets.qr_code,
+                tracking_method: assets.tracking_method,
+                category: assets.category,
+                status: assets.status,
+                total_quantity: assets.total_quantity,
+                available_quantity: assets.available_quantity,
+            }
+        })
         .from(inboundRequestItems)
         .where(eq(inboundRequestItems.inbound_request_id, requestId));
 
@@ -366,7 +379,10 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
         request_pricing: user.role === "CLIENT" ? {
             ...(pricingToShowClient && pricingToShowClient)
         } : result.request_pricing,
-        items: items,
+        items: items.map((item) => ({
+            ...item.item,
+            asset: item.asset
+        })),
         line_items: lineItemsData,
         created_at: result.request.created_at,
         updated_at: result.request.updated_at
@@ -873,11 +889,39 @@ const completeInboundRequest = async (
     const { warehouse_id, zone_id } = payload;
 
     // Step 1: Fetch the inbound request to validate access and status
-    const [inboundRequest] = await db
-        .select()
+    const [result] = await db
+        .select({
+            request: inboundRequests,
+            company: {
+                id: companies.id,
+                name: companies.name,
+            },
+            requester: {
+                id: users.id,
+                name: users.name,
+                email: users.email,
+            },
+            request_pricing: {
+                warehouse_ops_rate: prices.warehouse_ops_rate,
+                base_ops_total: prices.base_ops_total,
+                logistics_sub_total: prices.logistics_sub_total,
+                final_total: prices.final_total,
+                line_items: prices.line_items,
+                margin: prices.margin,
+                calculated_by: prices.calculated_by,
+                calculated_at: prices.calculated_at,
+            }
+        })
         .from(inboundRequests)
-        .where(and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)))
-        .limit(1);
+        .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
+        .leftJoin(users, eq(inboundRequests.requester_id, users.id))
+        .leftJoin(prices, eq(inboundRequests.request_pricing_id, prices.id))
+        .where(and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)));
+
+    const inboundRequest = result?.request;
+    // const company = result?.company;
+    // const requester = result?.requester;
+    // const requestPricing = result?.request_pricing;
 
     if (!inboundRequest) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found");
@@ -1063,7 +1107,44 @@ const completeInboundRequest = async (
         return resultAssets;
     });
 
-    await inboundRequestInvoiceGenerator(requestId, platformId, user);
+    // const { invoice_id, invoice_pdf_url } = await inboundRequestInvoiceGenerator(requestId, platformId, user);
+
+    // if (invoice_id && invoice_pdf_url) {
+    //     await sendEmail({
+    //         to: order.contact_email,
+    //         subject: `Invoice ${invoice_id} for Order ${order.order_id}`,
+    //         html: emailTemplates.send_invoice_to_client({
+    //             invoice_number: invoice_id,
+    //             order_id: order.order_id,
+    //             company_name: company?.name || "N/A",
+    //             final_total_price: String(pricing?.final_total),
+    //             download_invoice_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
+    //         }),
+    //         attachments: pdf_buffer
+    //             ? [
+    //                 {
+    //                     filename: `${invoice_id}.pdf`,
+    //                     content: pdf_buffer,
+    //                 },
+    //             ]
+    //             : undefined,
+    //     });
+
+    //     // Send email to plaform admin
+    //     const platformAdminEmails = await getPlatformAdminEmails(platformId);
+
+    //     await multipleEmailSender(
+    //         platformAdminEmails,
+    //         `Invoice Sent: ${invoice_id} for Order ${order.order_id}`,
+    //         emailTemplates.send_invoice_to_admin({
+    //             invoice_number: invoice_id,
+    //             order_id: order.order_id,
+    //             company_name: company?.name || "N/A",
+    //             final_total_price: String(pricing?.final_total),
+    //             download_invoice_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
+    //         })
+    //     );
+    // }
 
     const createdCount = processedAssets.filter(a => a.action === 'created').length;
     const updatedCount = processedAssets.filter(a => a.action === 'updated').length;

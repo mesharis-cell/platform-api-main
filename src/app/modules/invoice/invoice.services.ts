@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, ilike, sql } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { companies, financialStatusHistory, invoices, prices, orders, users } from "../../../db/schema";
+import { companies, financialStatusHistory, invoices, prices, orders } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { getPresignedUrl } from "../../services/s3.service";
@@ -15,6 +15,7 @@ import { sendEmail } from "../../services/email.service";
 import { emailTemplates } from "../../utils/email-templates";
 import config from "../../config";
 import { multipleEmailSender } from "../../utils/email-sender";
+import { getPlatformAdminEmails } from "../../utils/helper-query";
 
 // ----------------------------------- GET INVOICE BY ID --------------------------------------
 const getInvoiceById = async (invoiceId: string, user: AuthUser, platformId: string) => {
@@ -121,6 +122,7 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
         invoice_id,
         paid_status,
         company_id,
+        type
     } = query;
 
     // Step 1: Validate query parameters
@@ -160,6 +162,11 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
 
     if (search_term) {
         conditions.push(ilike(invoices.invoice_id, `%${search_term.trim()}%`));
+    }
+
+    if (type) {
+        queryValidator(invoiceQueryValidationConfig, "type", type)
+        conditions.push(eq(invoices.type, type));
     }
 
     // Step 3: Build order conditions for join
@@ -425,7 +432,7 @@ const generateInvoice = async (
         updated_by: user.id,
     });
 
-    // Step 6: Generate invoice
+    // Step 6: Generate invoice //
     const { invoice_id, invoice_pdf_url, pdf_buffer } = await invoiceGenerator(
         order.id,
         platformId,
@@ -454,19 +461,8 @@ const generateInvoice = async (
                 : undefined,
         });
 
-        // Send notification to plaform admin
-        const platformAdmins = await db
-            .select({ email: users.email })
-            .from(users)
-            .where(
-                and(
-                    eq(users.platform_id, platformId),
-                    eq(users.role, "ADMIN"),
-                    sql`${users.permission_template} = 'PLATFORM_ADMIN' AND ${users.email} NOT LIKE '%@system.internal'`
-                )
-            );
-
-        const platformAdminEmails = platformAdmins.map((admin) => admin.email);
+        // Send email to plaform admin
+        const platformAdminEmails = await getPlatformAdminEmails(platformId);
 
         await multipleEmailSender(
             platformAdminEmails,
