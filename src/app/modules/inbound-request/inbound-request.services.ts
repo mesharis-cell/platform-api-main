@@ -10,10 +10,10 @@ import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
 import { inboundRequestIdGenerator, inboundRequestQueryValidationConfig, inboundRequestSortableFields } from "./inbound-request.utils";
 import { LineItemsServices } from "../order-line-items/order-line-items.services";
-// import { inboundRequestInvoiceGenerator } from "../../utils/inbound-request-invoice";
+import { inboundRequestInvoiceGenerator } from "../../utils/inbound-request-invoice";
 import { inboundRequestCostEstimateGenerator } from "../../utils/inbound-request-cost-estimate";
 import { getRequestPricingToShowClient } from "../../utils/pricing-calculation";
-// import { sendEmail } from "../../services/email.service";
+import { sendEmail } from "../../services/email.service";
 
 // ----------------------------------- CREATE INBOUND REQUEST --------------------------------
 const createInboundRequest = async (data: InboundRequestPayload, user: AuthUser, platformId: string) => {
@@ -342,6 +342,7 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
             }
         })
         .from(inboundRequestItems)
+        .leftJoin(assets, eq(inboundRequestItems.asset_id, assets.id))
         .where(eq(inboundRequestItems.inbound_request_id, requestId));
 
     // Step 5: Fetch line items for this request
@@ -919,9 +920,9 @@ const completeInboundRequest = async (
         .where(and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)));
 
     const inboundRequest = result?.request;
-    // const company = result?.company;
-    // const requester = result?.requester;
-    // const requestPricing = result?.request_pricing;
+    const company = result?.company;
+    const requester = result?.requester;
+    const requestPricing = result?.request_pricing;
 
     if (!inboundRequest) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found");
