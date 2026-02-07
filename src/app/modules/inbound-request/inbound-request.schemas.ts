@@ -84,10 +84,17 @@ const completeInboundRequestSchema = z.object({
     }).strict()
 });
 
+const cancelInboundRequestSchema = z.object({
+    body: z.object({
+        note: z.string("Notes should be a text").optional(),
+    }).strict()
+})
+
 export const inboundRequestSchemas = {
     createInboundRequestSchema,
     approveInboundRequestSchema,
     approveOrDeclineQuoteByClientSchema,
     updateInboundRequestItemSchema,
-    completeInboundRequestSchema
+    completeInboundRequestSchema,
+    cancelInboundRequestSchema
 };

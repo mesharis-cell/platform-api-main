@@ -142,7 +142,7 @@ const cancelInboundRequest = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const id = getRequiredString(req.params.id, "id");
 
-    const result = await InboundRequestServices.cancelInboundRequest(id, platformId);
+    const result = await InboundRequestServices.cancelInboundRequest(id, platformId, req.body);
 
     const { message, ...rest } = result;
 

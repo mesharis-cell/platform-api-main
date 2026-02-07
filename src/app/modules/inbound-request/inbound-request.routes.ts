@@ -80,6 +80,7 @@ router.post(
     "/:id/cancel",
     platformValidator,
     auth("ADMIN"),
+    payloadValidator(inboundRequestSchemas.cancelInboundRequestSchema),
     InboundRequestControllers.cancelInboundRequest
 );
 

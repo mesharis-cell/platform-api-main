@@ -36,6 +36,13 @@
       "when": 1770395739073,
       "tag": "0004_tidy_baron_strucker",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1770445851962,
+      "tag": "0005_harsh_gladiator",
+      "breakpoints": true
     }
   ]
 }

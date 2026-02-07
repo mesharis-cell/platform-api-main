@@ -1,0 +1,1 @@
+ALTER TABLE "inbound_requests" ADD COLUMN "inbound_request_id" varchar(20) NOT NULL;

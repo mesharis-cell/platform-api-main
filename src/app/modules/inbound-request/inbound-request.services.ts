@@ -4,7 +4,7 @@ import { assets, companies, inboundRequestItems, inboundRequests, prices, users,
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { eq, isNull, and, asc, count, desc, gte, ilike, lte, or } from "drizzle-orm";
-import { ApproveInboundRequestPayload, ApproveOrDeclineQuoteByClientPayload, CompleteInboundRequestPayload, InboundRequestPayload, UpdateInboundRequestItemPayload } from "./inbound-request.interfaces";
+import { ApproveInboundRequestPayload, ApproveOrDeclineQuoteByClientPayload, CancelInboundRequestPayload, CompleteInboundRequestPayload, InboundRequestPayload, UpdateInboundRequestItemPayload } from "./inbound-request.interfaces";
 import { qrCodeGenerator } from "../../utils/qr-code-generator";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
@@ -81,6 +81,7 @@ const createInboundRequest = async (data: InboundRequestPayload, user: AuthUser,
             .insert(inboundRequests)
             .values({
                 platform_id: platformId,
+                inbound_request_id: `IR-${new Date().getFullYear()}${new Date().getMonth() + 1}${new Date().getDate()}`,
                 company_id: companyId,
                 requester_id: user.id,
                 incoming_at: new Date(data.incoming_at),
@@ -785,7 +786,8 @@ const updateInboundRequestItem = async (
 // ----------------------------------- CANCEL INBOUND REQUEST ---------------------------------
 const cancelInboundRequest = async (
     requestId: string,
-    platformId: string
+    platformId: string,
+    payload: CancelInboundRequestPayload
 ) => {
     // Step 1: Fetch the inbound request to validate access and status
     const [inboundRequest] = await db
@@ -812,6 +814,7 @@ const cancelInboundRequest = async (
         .set({
             request_status: "CANCELLED",
             financial_status: "CANCELLED",
+            note: payload.note,
             updated_at: new Date(),
         })
         .where(eq(inboundRequests.id, requestId));
