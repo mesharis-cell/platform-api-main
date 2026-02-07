@@ -75,4 +75,12 @@ router.post(
     InboundRequestControllers.completeInboundRequest
 );
 
+// Cancel inbound request by admin
+router.post(
+    "/:id/cancel",
+    platformValidator,
+    auth("ADMIN"),
+    InboundRequestControllers.cancelInboundRequest
+);
+
 export const InboundRequestRoutes = router;

@@ -782,10 +782,53 @@ const updateInboundRequestItem = async (
     return updatedItem;
 };
 
+// ----------------------------------- CANCEL INBOUND REQUEST ---------------------------------
+const cancelInboundRequest = async (
+    requestId: string,
+    platformId: string
+) => {
+    // Step 1: Fetch the inbound request to validate access and status
+    const [inboundRequest] = await db
+        .select()
+        .from(inboundRequests)
+        .where(and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)))
+        .limit(1);
+
+    if (!inboundRequest) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found");
+    }
+
+    // Step 2: Check if the inbound request is in a status that allows cancellation
+    if (["COMPLETED", "CANCELLED"].includes(inboundRequest.request_status)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Cannot cancel request when status is ${inboundRequest.request_status}`
+        );
+    }
+
+    // Step 3: Update statuse
+    await db
+        .update(inboundRequests)
+        .set({
+            request_status: "CANCELLED",
+            financial_status: "CANCELLED",
+            updated_at: new Date(),
+        })
+        .where(eq(inboundRequests.id, requestId));
+
+    // Step 4: Return updated request
+    return {
+        id: inboundRequest.id,
+        request_status: "CANCELLED",
+        financial_status: "CANCELLED",
+        updated_at: new Date(),
+        message: "Inbound request cancelled successfully"
+    };
+};
+
 // ----------------------------------- COMPLETE INBOUND REQUEST -------------------------------
 const completeInboundRequest = async (
     requestId: string,
-    user: AuthUser,
     platformId: string,
     payload: CompleteInboundRequestPayload
 ) => {
@@ -1013,5 +1056,6 @@ export const InboundRequestServices = {
     approveInboundRequestByAdmin,
     approveOrDeclineQuoteByClient,
     updateInboundRequestItem,
-    completeInboundRequest
+    completeInboundRequest,
+    cancelInboundRequest
 };
