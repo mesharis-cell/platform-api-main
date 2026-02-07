@@ -7,6 +7,8 @@ import { PERMISSIONS } from "../../constants/permissions";
 import { OrderControllers } from "./order.controllers";
 import { orderSchemas } from "./order.schemas";
 import { ReskinRequestsRoutes } from "../reskin-requests/reskin-requests.routes";
+import featureValidator from "../../middleware/feature-validator";
+import { featureNames } from "../../constants/common";
 
 const router = Router();
 
@@ -15,6 +17,7 @@ router.post(
     "/estimate",
     platformValidator,
     auth("CLIENT"),
+    featureValidator(featureNames.show_estimate_on_order_creation),
     payloadValidator(orderSchemas.calculateEstimateSchema),
     OrderControllers.calculateEstimate
 );
