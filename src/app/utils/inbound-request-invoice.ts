@@ -12,8 +12,8 @@ import CustomizedError from "../error/customized-error";
 export const inboundRequestInvoiceGenerator = async (
     requestId: string,
     platformId: string,
+    user: AuthUser,
     regenerate: boolean = false,
-    user: AuthUser
 ): Promise<{ invoice_id: string; invoice_pdf_url: string; pdf_buffer: Buffer }> => {
     // Step 1: Check if invoice already exists
     const [invoice] = await db

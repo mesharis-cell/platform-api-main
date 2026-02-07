@@ -1,4 +1,37 @@
+import { and, desc, eq, sql } from "drizzle-orm";
+import { db } from "../../../db";
 import { financialStatusEnum, inboundRequests, inboundRequestStatusEnum } from "../../../db/schema";
+
+// ------------------------------------- INBOUND REQUEST ID GENERATOR ---------------------------
+// FORMAT: IR-YYYYMMDD-XXX
+export const inboundRequestIdGenerator = async (platformId: string): Promise<string> => {
+    const today = new Date();
+    const dateStr = today.toISOString().split("T")[0].replace(/-/g, ""); // YYYYMMDD
+
+    // Find highest sequence number for today
+    const prefix = `IR-${dateStr}-`;
+    const todayRequest = await db
+        .select({ inbound_request_id: inboundRequests.inbound_request_id })
+        .from(inboundRequests)
+        .where(
+            and(
+                eq(inboundRequests.platform_id, platformId),
+                sql`${inboundRequests.inbound_request_id} LIKE ${prefix + "%"}`
+            )
+        )
+        .orderBy(desc(inboundRequests.inbound_request_id))
+        .limit(1);
+
+    let sequence = 1;
+    if (todayRequest.length > 0) {
+        const lastRequestId = todayRequest[0].inbound_request_id;
+        const lastSequence = parseInt(lastRequestId.split("-")[2], 10);
+        sequence = lastSequence + 1;
+    }
+
+    const sequenceStr = sequence.toString().padStart(3, "0");
+    return `${prefix}${sequenceStr}`;
+};
 
 export const inboundRequestSortableFields: Record<string, any> = {
     incoming_at: inboundRequests.incoming_at,

@@ -122,10 +122,11 @@ const updateInboundRequestItem = catchAsync(async (req, res) => {
 
 // ----------------------------------- COMPLETE INBOUND REQUEST -------------------------------
 const completeInboundRequest = catchAsync(async (req, res) => {
+    const user = (req as any).user;
     const platformId = (req as any).platformId;
     const id = getRequiredString(req.params.id, "id");
 
-    const result = await InboundRequestServices.completeInboundRequest(id, platformId, req.body);
+    const result = await InboundRequestServices.completeInboundRequest(id, platformId, user, req.body);
 
     const { message, ...rest } = result;
 
