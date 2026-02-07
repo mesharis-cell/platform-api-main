@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "../../db";
 import { cities, companies, orderItems, prices, orders } from "../../db/schema";
-import { uploadPDFToS3 } from "../services/s3.service";
+import { checkFileExists, deleteFileFromS3, uploadPDFToS3 } from "../services/s3.service";
 import { renderCostEstimatePDF } from "./cost-estimate-pdf";
 import CustomizedError from "../error/customized-error";
 import httpStatus from "http-status";
@@ -11,7 +11,8 @@ import { AuthUser } from "../interface/common";
 export const costEstimateGenerator = async (
     orderId: string,
     platformId: string,
-    user: AuthUser
+    user: AuthUser,
+    regenerate: boolean = false,
 ): Promise<{ estimate_pdf_url: string; pdf_buffer: Buffer }> => {
     const [result] = await db
         .select({
@@ -115,14 +116,24 @@ export const costEstimateGenerator = async (
         })),
     };
 
+    // Build S3 key using order_id
+    const key = `cost-estimates/${costEstimateData.company_name.replace(/\s/g, "-").toLowerCase()}/${costEstimateData.order_id}.pdf`;
+
+    // Check if cost estimate already exists
+    if (!regenerate) {
+        const exists = await checkFileExists(key);
+        if (exists) {
+            throw new CustomizedError(httpStatus.BAD_REQUEST, "Cost estimate already exists. Use regenerate flag to create new one.");
+        }
+    } else {
+        await deleteFileFromS3(key);
+    }
+
     // Generate PDF
     const pdfBuffer = await renderCostEstimatePDF({
         ...costEstimateData,
         estimate_date: new Date(),
     });
-
-    // Build S3 key using order_id
-    const key = `cost-estimates/${costEstimateData.company_name.replace(/\s/g, "-").toLowerCase()}/${costEstimateData.order_id}.pdf`;
 
     // Upload PDF to S3 (overwrites if exists)
     const pdfUrl = await uploadPDFToS3(pdfBuffer, costEstimateData.order_id, key);
