@@ -12,6 +12,7 @@ import { inboundRequestIdGenerator, inboundRequestQueryValidationConfig, inbound
 import { LineItemsServices } from "../order-line-items/order-line-items.services";
 import { inboundRequestInvoiceGenerator } from "../../utils/inbound-request-invoice";
 import { inboundRequestCostEstimateGenerator } from "../../utils/inbound-request-cost-estimate";
+import { getRequestPricingToShowClient } from "../../utils/pricing-calculation";
 
 // ----------------------------------- CREATE INBOUND REQUEST --------------------------------
 const createInboundRequest = async (data: InboundRequestPayload, user: AuthUser, platformId: string) => {
@@ -335,7 +336,22 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
         .from(lineItems)
         .where(eq(lineItems.inbound_request_id, requestId));
 
-    // Step 5: Format the response
+    // Step 6: Format price for client
+    let pricingToShowClient = null;
+    if (result.request_pricing) {
+        pricingToShowClient = getRequestPricingToShowClient({
+            base_ops_total: result.request_pricing.base_ops_total,
+            line_items: {
+                catalog_total: (result.request_pricing.line_items as any).catalog_total,
+                custom_total: (result.request_pricing.line_items as any).custom_total,
+            },
+            margin: {
+                percent: (result.request_pricing.margin as any).percent,
+            },
+        });
+    }
+
+    // Step 7: Format the response
     return {
         id: result.request.id,
         inbound_request_id: result.request.inbound_request_id,
@@ -347,7 +363,7 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
         company: result.company,
         requester: result.requester,
         request_pricing: user.role === "CLIENT" ? {
-            final_total: result.request_pricing?.final_total,
+            ...(pricingToShowClient && pricingToShowClient)
         } : result.request_pricing,
         items: items,
         line_items: lineItemsData,
@@ -913,17 +929,21 @@ const completeInboundRequest = async (
 
         for (const item of items) {
             if (item.tracking_method === "BATCH") {
-                // For BATCH items, search for existing asset by name in the same company
-                const [existingAsset] = await tx
-                    .select()
-                    .from(assets)
-                    .where(and(
-                        eq(assets.name, item.name),
-                        eq(assets.company_id, inboundRequest.company_id),
-                        eq(assets.platform_id, platformId),
-                        isNull(assets.deleted_at)
-                    ))
-                    .limit(1);
+                // For BATCH items, search for existing asset by id in the same company
+                let existingAsset: typeof assets.$inferSelect | undefined;
+
+                if (item.asset_id) {
+                    [existingAsset] = await tx
+                        .select()
+                        .from(assets)
+                        .where(and(
+                            eq(assets.id, item.asset_id),
+                            eq(assets.company_id, inboundRequest.company_id),
+                            eq(assets.platform_id, platformId),
+                            isNull(assets.deleted_at)
+                        ))
+                        .limit(1);
+                }
 
                 if (existingAsset) {
                     // Update existing asset quantity
@@ -945,13 +965,8 @@ const completeInboundRequest = async (
                         quantityAdded: item.quantity
                     });
 
-                    // Update the inbound request item with the existing asset id
-                    await tx
-                        .update(inboundRequestItems)
-                        .set({ created_asset_id: existingAsset.id })
-                        .where(eq(inboundRequestItems.id, item.id));
                 } else {
-                    // Create new BATCH asset if none exists with this name
+                    // Create new BATCH asset if none exists with this id
                     const qrCode = await qrCodeGenerator(inboundRequest.company_id);
 
                     const [newAsset] = await tx
@@ -959,8 +974,8 @@ const completeInboundRequest = async (
                         .values({
                             platform_id: platformId,
                             company_id: inboundRequest.company_id,
-                            warehouse_id: warehouse_id,
-                            zone_id: zone_id,
+                            warehouse_id,
+                            zone_id,
                             brand_id: item.brand_id,
                             name: item.name,
                             description: item.description,
@@ -984,10 +999,9 @@ const completeInboundRequest = async (
                         quantityAdded: item.quantity
                     });
 
-                    // Update the inbound request item with the created asset id
                     await tx
                         .update(inboundRequestItems)
-                        .set({ created_asset_id: newAsset.id })
+                        .set({ asset_id: newAsset.id })
                         .where(eq(inboundRequestItems.id, item.id));
                 }
             } else {
@@ -1027,7 +1041,7 @@ const completeInboundRequest = async (
                 // Update the inbound request item with the created asset id
                 await tx
                     .update(inboundRequestItems)
-                    .set({ created_asset_id: newAsset.id })
+                    .set({ asset_id: newAsset.id })
                     .where(eq(inboundRequestItems.id, item.id));
             }
         }

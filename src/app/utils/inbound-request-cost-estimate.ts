@@ -5,6 +5,7 @@ import { uploadPDFToS3 } from "../services/s3.service";
 import httpStatus from "http-status";
 import CustomizedError from "../error/customized-error";
 import { renderInboundRequestCostEstimatePDF } from "./inbound-request-cost-estimate-pdf";
+import { getRequestPricingToShowClient } from "./pricing-calculation";
 
 // --------------------------------- INBOUND REQUEST COST ESTIMATE GENERATOR ------------------------
 export const inboundRequestCostEstimateGenerator = async (
@@ -34,14 +35,16 @@ export const inboundRequestCostEstimateGenerator = async (
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Pricing details are missing for this inbound request");
     }
 
-    const baseOpsTotal = Number(pricing.base_ops_total);
-    const catalogAmount = Number((pricing.line_items as any).catalog_total);
-    const customTotal = Number((pricing.line_items as any).custom_total);
-    const marginPercent = Number((pricing.margin as any).percent);
-    const logisticsSubTotal = baseOpsTotal + (baseOpsTotal * (marginPercent / 100));
-    const catalogTotal = catalogAmount + (catalogAmount * (marginPercent / 100));
-    const serviceFee = catalogTotal + customTotal;
-    const total = logisticsSubTotal + serviceFee;
+    const { logistics_sub_total, service_fee, final_total } = getRequestPricingToShowClient({
+        base_ops_total: pricing.base_ops_total,
+        line_items: {
+            catalog_total: (pricing.line_items as any).catalog_total,
+            custom_total: (pricing.line_items as any).custom_total,
+        },
+        margin: {
+            percent: (pricing.margin as any).percent,
+        },
+    });
 
     const estimateData: InboundRequestCostEstimatePayload = {
         inbound_request_id: inboundRequest.inbound_request_id,
@@ -58,9 +61,9 @@ export const inboundRequestCostEstimateGenerator = async (
             category: item.category
         })),
         pricing: {
-            logistics_sub_total: String(logisticsSubTotal) || '0',
-            service_fee: String(serviceFee) || '0',
-            final_total: String(total) || '0',
+            logistics_sub_total,
+            service_fee,
+            final_total,
             show_breakdown: !!pricing,
         },
     };
