@@ -1,6 +1,10 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../../../db";
 import { financialStatusEnum, inboundRequests, inboundRequestStatusEnum } from "../../../db/schema";
+import { inboundRequestCostEstimateGenerator } from "../../utils/inbound-request-cost-estimate";
+import { sendEmail } from "../../services/email.service";
+import { emailTemplates } from "../../utils/email-templates";
+import config from "../../config";
 
 // ------------------------------------- INBOUND REQUEST ID GENERATOR ---------------------------
 // FORMAT: IR-YYYYMMDD-XXX
@@ -46,3 +50,39 @@ export const inboundRequestQueryValidationConfig = {
     request_status: inboundRequestStatusEnum.enumValues,
     financial_status: financialStatusEnum.enumValues,
 };
+
+type GenerateCostEstimateAndSendEmailPayload = {
+    request_id: string;
+    platform_id: string;
+    email: string;
+    inbound_request_id: string;
+    company_name: string;
+    final_total_price: string;
+}
+
+export const generateCostEstimateAndSendEmail = async (payload: GenerateCostEstimateAndSendEmailPayload) => {
+    const { request_id, platform_id, email, inbound_request_id, company_name, final_total_price } = payload;
+
+    // Step 4: Generate cost estimate PDF
+    const { pdf_buffer } = await inboundRequestCostEstimateGenerator(request_id, platform_id);
+
+    // Step 5: Send email to requester
+    await sendEmail({
+        to: email,
+        subject: `Invoice ${inbound_request_id} for inbound request ${inbound_request_id}`,
+        html: emailTemplates.send_ir_cost_estimate_to_client({
+            inbound_request_id: inbound_request_id,
+            company_name: company_name,
+            final_total_price: String(final_total_price),
+            download_estimate_url: `${config.server_url}/client/v1/invoice/download-ir-cost-estimate-pdf/${inbound_request_id}?pid=${platform_id}`,
+        }),
+        attachments: pdf_buffer
+            ? [
+                {
+                    filename: `${inbound_request_id}.pdf`,
+                    content: pdf_buffer,
+                },
+            ]
+            : undefined,
+    });
+}
