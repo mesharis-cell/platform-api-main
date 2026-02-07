@@ -13,3 +13,5 @@ export type CompleteInboundRequestPayload = z.infer<typeof inboundRequestSchemas
 
 export type CancelInboundRequestPayload = z.infer<typeof inboundRequestSchemas.cancelInboundRequestSchema>["body"];
 
+export type UpdateInboundRequestPayload = z.infer<typeof inboundRequestSchemas.updateInboundRequestSchema>["body"];
+

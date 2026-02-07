@@ -34,6 +34,15 @@ router.get(
     InboundRequestControllers.getInboundRequestById
 );
 
+// Update inbound request (full update)
+router.patch(
+    "/:id",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    payloadValidator(inboundRequestSchemas.updateInboundRequestSchema),
+    InboundRequestControllers.updateInboundRequest
+);
+
 // Submit for approval (Logistics → Admin)
 router.post(
     "/:id/submit-for-approval",

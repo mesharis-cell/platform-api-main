@@ -9,41 +9,44 @@ const featureValidator = (featureName: string) => {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       const platformId = req.headers["x-platform"] as string;
-      const companyId = (req as any).user.company_id;
+      const user = (req as any).user;
+      const companyId = user.company_id;
 
-      const company = await db.select({ features: companies.features })
-        .from(companies)
-        .where(and(eq(companies.id, companyId), eq(companies.platform_id, platformId)))
-        .limit(1)
-        .execute();
-
-      if (!company || company.length === 0) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found");
-      }
-
-      const companyFeatures = company[0].features as Record<string, boolean>;
-
-      // check if feature is enabled for company if feature name is present in company features
-      if (companyFeatures.hasOwnProperty(featureName)) {
-        const isFeatureEnabled = companyFeatures?.[featureName] === true;
-
-        if (!isFeatureEnabled) {
-          throw new CustomizedError(httpStatus.FORBIDDEN, `Feature ${featureName.replace(/_/g, " ")} is not enabled for this company`);
-        }
-      } else {
-        // check if feature is enabled for platform if feature name is not present in company features
-        const platform = await db.select({ features: platforms.features })
-          .from(platforms)
-          .where(eq(platforms.id, platformId))
+      if (user.role === "CLIENT") {
+        const company = await db.select({ features: companies.features })
+          .from(companies)
+          .where(and(eq(companies.id, companyId), eq(companies.platform_id, platformId)))
           .limit(1)
           .execute();
 
-        const platformFeatures = platform[0].features as Record<string, boolean>;
-        const isPlatformFeatureEnabled = platformFeatures?.[featureName] === true;
+        if (!company || company.length === 0) {
+          throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found");
+        }
 
-        // if feature is not enabled for platform then throw error
-        if (!isPlatformFeatureEnabled) {
-          throw new CustomizedError(httpStatus.FORBIDDEN, `Feature ${featureName.replace(/_/g, " ")} is not enabled for this company`);
+        const companyFeatures = company[0].features as Record<string, boolean>;
+
+        // check if feature is enabled for company if feature name is present in company features
+        if (companyFeatures.hasOwnProperty(featureName)) {
+          const isFeatureEnabled = companyFeatures?.[featureName] === true;
+
+          if (!isFeatureEnabled) {
+            throw new CustomizedError(httpStatus.FORBIDDEN, `Feature ${featureName.replace(/_/g, " ")} is not enabled for this company`);
+          }
+        } else {
+          // check if feature is enabled for platform if feature name is not present in company features
+          const platform = await db.select({ features: platforms.features })
+            .from(platforms)
+            .where(eq(platforms.id, platformId))
+            .limit(1)
+            .execute();
+
+          const platformFeatures = platform[0].features as Record<string, boolean>;
+          const isPlatformFeatureEnabled = platformFeatures?.[featureName] === true;
+
+          // if feature is not enabled for platform then throw error
+          if (!isPlatformFeatureEnabled) {
+            throw new CustomizedError(httpStatus.FORBIDDEN, `Feature ${featureName.replace(/_/g, " ")} is not enabled for this company`);
+          }
         }
       }
       next();
