@@ -43,6 +43,13 @@
       "when": 1770445851962,
       "tag": "0005_harsh_gladiator",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1770449336154,
+      "tag": "0006_even_shatterstar",
+      "breakpoints": true
     }
   ]
 }

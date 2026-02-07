@@ -1,6 +1,6 @@
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { assets, companies, inboundRequestItems, inboundRequests, prices, users, warehouses, zones } from "../../../db/schema";
+import { assets, companies, inboundRequestItems, inboundRequests, lineItems, prices, users, warehouses, zones } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { eq, isNull, and, asc, count, desc, gte, ilike, lte, or } from "drizzle-orm";
@@ -246,6 +246,7 @@ const getInboundRequests = async (query: Record<string, any>, user: AuthUser, pl
 
     const formattedResults = results.map((result) => ({
         id: result.request.id,
+        inbound_request_id: result.request.inbound_request_id,
         platform_id: result.request.platform_id,
         incoming_at: result.request.incoming_at,
         note: result.request.note,
@@ -328,9 +329,16 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
         .from(inboundRequestItems)
         .where(eq(inboundRequestItems.inbound_request_id, requestId));
 
+    // Step 5: Fetch line items for this request
+    const lineItemsData = await db
+        .select()
+        .from(lineItems)
+        .where(eq(lineItems.inbound_request_id, requestId));
+
     // Step 5: Format the response
     return {
         id: result.request.id,
+        inbound_request_id: result.request.inbound_request_id,
         platform_id: result.request.platform_id,
         incoming_at: result.request.incoming_at,
         note: result.request.note,
@@ -342,6 +350,7 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
             final_total: result.request_pricing?.final_total,
         } : result.request_pricing,
         items: items,
+        line_items: lineItemsData,
         created_at: result.request.created_at,
         updated_at: result.request.updated_at
     };
