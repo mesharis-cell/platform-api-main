@@ -8,7 +8,7 @@ import { ApproveInboundRequestPayload, ApproveOrDeclineQuoteByClientPayload, Can
 import { qrCodeGenerator } from "../../utils/qr-code-generator";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
-import { inboundRequestQueryValidationConfig, inboundRequestSortableFields } from "./inbound-request.utils";
+import { inboundRequestIdGenerator, inboundRequestQueryValidationConfig, inboundRequestSortableFields } from "./inbound-request.utils";
 import { LineItemsServices } from "../order-line-items/order-line-items.services";
 
 // ----------------------------------- CREATE INBOUND REQUEST --------------------------------
@@ -76,12 +76,14 @@ const createInboundRequest = async (data: InboundRequestPayload, user: AuthUser,
         // Step 2.4: Insert pricing record
         const [price] = await tx.insert(prices).values(pricingDetails).returning();
 
+        const requestId = await inboundRequestIdGenerator(platformId);
+
         // Step 2.5: Insert inbound request record linked to pricing
         const [request] = await tx
             .insert(inboundRequests)
             .values({
                 platform_id: platformId,
-                inbound_request_id: `IR-${new Date().getFullYear()}${new Date().getMonth() + 1}${new Date().getDate()}`,
+                inbound_request_id: requestId,
                 company_id: companyId,
                 requester_id: user.id,
                 incoming_at: new Date(data.incoming_at),

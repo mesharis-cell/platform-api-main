@@ -339,7 +339,7 @@ const submitOrderFromCart = async (
     }
 
     // Step 6: Create the order record
-    const orderId = await orderIdGenerator();
+    const orderId = await orderIdGenerator(platformId);
     const orderResult = await db.transaction(async (tx) => {
         // Step 6.a: Insert order pricing
         const [orderPricing] = await tx
