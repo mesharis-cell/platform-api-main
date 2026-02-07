@@ -811,6 +811,9 @@ const updateInboundRequestItem = async (
     // Step 7.4: Update pricing record
     await db.update(prices).set(pricingDetails).where(eq(prices.id, requestPricing.id));
 
+    // Step 7.5: Regenerate cost estimate PDF
+    await inboundRequestCostEstimateGenerator(requestId, platformId, true);
+
     return updatedItem;
 };
 

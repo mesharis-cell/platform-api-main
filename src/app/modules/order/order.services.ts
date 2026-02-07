@@ -2377,7 +2377,7 @@ const updateOrderVehicle = async (
     })
 
     if (order.order_status !== "PRICING_REVIEW") {
-        await costEstimateGenerator(orderId, platformId, user);
+        await costEstimateGenerator(orderId, platformId, user, true);
     }
 
     // Step 10: Return updated vehicle information

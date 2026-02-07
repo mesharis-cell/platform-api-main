@@ -500,7 +500,7 @@ const cancelReskinRequest = async (
         });
     }
 
-    await costEstimateGenerator(orderRecord.id, platformId, user);
+    await costEstimateGenerator(orderRecord.id, platformId, user, true);
 
     if (shouldReviseQuote) {
         await NotificationLogServices.sendNotification(
