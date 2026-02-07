@@ -69,7 +69,7 @@ export const inboundRequestCostEstimateGenerator = async (
         },
     };
 
-    const key = `cost-estimates/inbound-request/${company?.name.replace(/\s/g, "-").toLowerCase()}/${inboundRequest.id}.pdf`;
+    const key = `cost-estimates/inbound-request/${company?.name.replace(/\s/g, "-").toLowerCase()}/${inboundRequest.inbound_request_id}.pdf`;
 
     // Check if cost estimate already exists
     if (!regenerate) {

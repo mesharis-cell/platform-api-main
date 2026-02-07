@@ -4,7 +4,7 @@ import sendResponse from "../../shared/send-response";
 import { InvoiceServices } from "./invoice.services";
 import { getPDFBufferFromS3 } from "../../services/s3.service";
 import { db } from "../../../db";
-import { companies, invoices, orders } from "../../../db/schema";
+import { companies, inboundRequests, invoices, orders } from "../../../db/schema";
 import { and, eq } from "drizzle-orm";
 import CustomizedError from "../../error/customized-error";
 import { getRequiredString } from "../../utils/request";
@@ -146,6 +146,38 @@ const downloadCostEstimatePDF = catchAsync(async (req, res) => {
     res.status(httpStatus.OK).send(buffer);
 });
 
+// ----------------------------------- DOWNLOAD INBOUND REQEUEST COST ESTIMATE PDF (DIRECT) ---
+const downloadIRCostEstimatePDF = catchAsync(async (req, res) => {
+    const platformId = getRequiredString(req.query.pid as string | string[] | undefined, "pid");
+    const requestId = getRequiredString(req.params.requestId, "requestId");
+
+    const request = await db.query.inboundRequests.findFirst({
+        where: and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)),
+        with: {
+            company: true,
+        },
+    });
+
+    if (!request) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found");
+    }
+
+    const company = request.company as typeof companies.$inferSelect | null;
+    const companySlug = (company?.name || "unknown-company").replace(/\s/g, "-").toLowerCase();
+    const s3Key = `cost-estimates/inbound-request/${companySlug}/${request.inbound_request_id}.pdf`;
+
+    const buffer = await getPDFBufferFromS3(s3Key);
+    const fileName = `cost-estimate-${request.inbound_request_id}.pdf`;
+
+    // Set headers for PDF download
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    res.setHeader("Content-Length", buffer.length);
+
+    // Send PDF buffer
+    res.status(httpStatus.OK).send(buffer);
+});
+
 export const InvoiceControllers = {
     getInvoiceById,
     downloadInvoice,
@@ -154,4 +186,5 @@ export const InvoiceControllers = {
     confirmPayment,
     generateInvoice,
     downloadCostEstimatePDF,
+    downloadIRCostEstimatePDF,
 };
