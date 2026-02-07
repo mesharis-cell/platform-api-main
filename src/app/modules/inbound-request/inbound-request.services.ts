@@ -11,6 +11,7 @@ import queryValidator from "../../utils/query-validator";
 import { inboundRequestIdGenerator, inboundRequestQueryValidationConfig, inboundRequestSortableFields } from "./inbound-request.utils";
 import { LineItemsServices } from "../order-line-items/order-line-items.services";
 import { inboundRequestInvoiceGenerator } from "../../utils/inbound-request-invoice";
+import { inboundRequestCostEstimateGenerator } from "../../utils/inbound-request-cost-estimate";
 
 // ----------------------------------- CREATE INBOUND REQUEST --------------------------------
 const createInboundRequest = async (data: InboundRequestPayload, user: AuthUser, platformId: string) => {
@@ -571,10 +572,11 @@ const approveInboundRequestByAdmin = async (
             .where(eq(inboundRequests.id, inboundRequest.id));
     })
 
-    // TODO
-    // // Generate cost estimate PDF
-    // await costEstimateGenerator(orderId, platformId, user);
 
+    // Step 4: Generate cost estimate PDF
+    await inboundRequestCostEstimateGenerator(requestId, platformId);
+
+    // TODO
     // // Step 4: Send notification
     // await NotificationLogServices.sendNotification(
     //     platformId,
