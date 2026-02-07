@@ -1,6 +1,6 @@
 {
-  "id": "2bc86350-586d-4f91-8a91-b3139a14f47a",
-  "prevId": "444affa0-c514-47aa-bb01-a3588a2499ea",
+  "id": "601502cf-7ab2-48bb-ba69-0fd2f43863f1",
+  "prevId": "fe172e2f-82df-4525-a62e-8a2590ce57d2",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1712,6 +1712,12 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
+        "inbound_request_id": {
+          "name": "inbound_request_id",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true
+        },
         "platform_id": {
           "name": "platform_id",
           "type": "uuid",
@@ -2187,8 +2193,8 @@
         }
       },
       "indexes": {
-        "order_line_items_order_idx": {
-          "name": "order_line_items_order_idx",
+        "line_items_order_idx": {
+          "name": "line_items_order_idx",
           "columns": [
             {
               "expression": "order_id",
@@ -2202,8 +2208,23 @@
           "method": "btree",
           "with": {}
         },
-        "order_line_items_reskin_idx": {
-          "name": "order_line_items_reskin_idx",
+        "line_items_inbound_request_idx": {
+          "name": "line_items_inbound_request_idx",
+          "columns": [
+            {
+              "expression": "inbound_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "line_items_reskin_request_idx": {
+          "name": "line_items_reskin_request_idx",
           "columns": [
             {
               "expression": "reskin_request_id",
@@ -2217,8 +2238,8 @@
           "method": "btree",
           "with": {}
         },
-        "order_line_items_active_idx": {
-          "name": "order_line_items_active_idx",
+        "line_items_active_idx": {
+          "name": "line_items_active_idx",
           "columns": [
             {
               "expression": "order_id",

@@ -3,6 +3,7 @@ import {
     PutObjectCommand,
     DeleteObjectCommand,
     GetObjectCommand,
+    HeadObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import config from "../config";
@@ -49,11 +50,18 @@ export const uploadFileToS3 = async (
 };
 
 // ------------------------------------ DELETE FILE FROM S3 ----------------------------------
-export const deleteFileFromS3 = async (fileUrl: string): Promise<void> => {
+export const deleteFileFromS3 = async (fileUrlOrKey: string): Promise<void> => {
     try {
-        // Extract key from URL
-        const url = new URL(fileUrl);
-        const key = url.pathname.substring(1); // Remove leading slash
+        const urlRegex = /^https?:\/\//i;
+        let key: string;
+
+        if (urlRegex.test(fileUrlOrKey)) {
+            // Extract key from URL
+            const url = new URL(fileUrlOrKey);
+            key = url.pathname.substring(1); // Remove leading slash
+        } else {
+            key = fileUrlOrKey;
+        }
 
         const command = new DeleteObjectCommand({
             Bucket: config.aws_s3_bucket,
@@ -143,5 +151,34 @@ export const getPDFBufferFromS3 = async (fileUrlOrKey: string): Promise<Buffer> 
     } catch (error) {
         console.error("Error fetching PDF from S3:", error);
         throw new Error("Failed to fetch invoice PDF");
+    }
+};
+
+// ------------------------------------ CHECK FILE EXISTS IN S3 ------------------------------
+export const checkFileExists = async (fileUrlOrKey: string): Promise<boolean> => {
+    try {
+        const urlRegex = /^https?:\/\//i;
+        let key: string;
+
+        if (urlRegex.test(fileUrlOrKey)) {
+            const url = new URL(fileUrlOrKey);
+            key = url.pathname.substring(1);
+        } else {
+            key = fileUrlOrKey;
+        }
+
+        const command = new HeadObjectCommand({
+            Bucket: config.aws_s3_bucket,
+            Key: key,
+        });
+
+        await s3Client.send(command);
+        return true;
+    } catch (error: any) {
+        if (error.name === "NotFound" || error.$metadata?.httpStatusCode === 404) {
+            return false;
+        }
+        console.error("Error checking file existence in S3:", error);
+        throw new Error("Failed to check file existence in S3");
     }
 };

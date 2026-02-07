@@ -1,6 +1,6 @@
 {
-  "id": "2bc86350-586d-4f91-8a91-b3139a14f47a",
-  "prevId": "444affa0-c514-47aa-bb01-a3588a2499ea",
+  "id": "fe172e2f-82df-4525-a62e-8a2590ce57d2",
+  "prevId": "2bc86350-586d-4f91-8a91-b3139a14f47a",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1711,6 +1711,12 @@
           "primaryKey": true,
           "notNull": true,
           "default": "gen_random_uuid()"
+        },
+        "inbound_request_id": {
+          "name": "inbound_request_id",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true
         },
         "platform_id": {
           "name": "platform_id",

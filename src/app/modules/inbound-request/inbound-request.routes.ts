@@ -57,4 +57,31 @@ router.post(
     InboundRequestControllers.approveOrDeclineQuoteByClient
 );
 
+// Update inbound request item
+router.put(
+    "/:id/items/:itemId",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    payloadValidator(inboundRequestSchemas.updateInboundRequestItemSchema),
+    InboundRequestControllers.updateInboundRequestItem
+);
+
+// Complete inbound request (create assets from items)
+router.post(
+    "/:id/complete",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    payloadValidator(inboundRequestSchemas.completeInboundRequestSchema),
+    InboundRequestControllers.completeInboundRequest
+);
+
+// Cancel inbound request by admin
+router.post(
+    "/:id/cancel",
+    platformValidator,
+    auth("ADMIN"),
+    payloadValidator(inboundRequestSchemas.cancelInboundRequestSchema),
+    InboundRequestControllers.cancelInboundRequest
+);
+
 export const InboundRequestRoutes = router;

@@ -1,14 +1,23 @@
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { companies, inboundRequestItems, inboundRequests, prices, users } from "../../../db/schema";
+import { assets, companies, inboundRequestItems, inboundRequests, invoices, lineItems, prices, users, warehouses, zones } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { eq, isNull, and, asc, count, desc, gte, ilike, lte, or } from "drizzle-orm";
-import { ApproveInboundRequestPayload, ApproveOrDeclineQuoteByClientPayload, InboundRequestPayload } from "./inbound-request.interfaces";
+import { ApproveInboundRequestPayload, ApproveOrDeclineQuoteByClientPayload, CancelInboundRequestPayload, CompleteInboundRequestPayload, InboundRequestPayload, UpdateInboundRequestItemPayload } from "./inbound-request.interfaces";
+import { qrCodeGenerator } from "../../utils/qr-code-generator";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
-import { inboundRequestQueryValidationConfig, inboundRequestSortableFields } from "./inbound-request.utils";
-import { OrderLineItemsServices } from "../order-line-items/order-line-items.services";
+import { inboundRequestIdGenerator, inboundRequestQueryValidationConfig, inboundRequestSortableFields } from "./inbound-request.utils";
+import { LineItemsServices } from "../order-line-items/order-line-items.services";
+import { inboundRequestInvoiceGenerator } from "../../utils/inbound-request-invoice";
+import { inboundRequestCostEstimateGenerator } from "../../utils/inbound-request-cost-estimate";
+import { getRequestPricingToShowClient } from "../../utils/pricing-calculation";
+import { sendEmail } from "../../services/email.service";
+import { emailTemplates } from "../../utils/email-templates";
+import { getPlatformAdminEmails } from "../../utils/helper-query";
+import { multipleEmailSender } from "../../utils/email-sender";
+import config from "../../config";
 
 // ----------------------------------- CREATE INBOUND REQUEST --------------------------------
 const createInboundRequest = async (data: InboundRequestPayload, user: AuthUser, platformId: string) => {
@@ -75,11 +84,14 @@ const createInboundRequest = async (data: InboundRequestPayload, user: AuthUser,
         // Step 2.4: Insert pricing record
         const [price] = await tx.insert(prices).values(pricingDetails).returning();
 
+        const requestId = await inboundRequestIdGenerator(platformId);
+
         // Step 2.5: Insert inbound request record linked to pricing
         const [request] = await tx
             .insert(inboundRequests)
             .values({
                 platform_id: platformId,
+                inbound_request_id: requestId,
                 company_id: companyId,
                 requester_id: user.id,
                 incoming_at: new Date(data.incoming_at),
@@ -102,7 +114,8 @@ const createInboundRequest = async (data: InboundRequestPayload, user: AuthUser,
             dimensions: item.dimensions,
             volume_per_unit: item.volume_per_unit.toString(),
             handling_tags: item.handling_tags || [],
-            images: item.images || []
+            images: item.images || [],
+            asset_id: item.asset_id || null,
         }));
 
         // Step 2.7: Bulk insert items
@@ -240,6 +253,7 @@ const getInboundRequests = async (query: Record<string, any>, user: AuthUser, pl
 
     const formattedResults = results.map((result) => ({
         id: result.request.id,
+        inbound_request_id: result.request.inbound_request_id,
         platform_id: result.request.platform_id,
         incoming_at: result.request.incoming_at,
         note: result.request.note,
@@ -316,15 +330,56 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
         throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found");
     }
 
-    // Step 4: Fetch items for this request
+    // Step 4: Fetch items with asset for this request
     const items = await db
-        .select()
+        .select({
+            item: inboundRequestItems,
+            asset: {
+                name: assets.name,
+                images: assets.images,
+                qr_code: assets.qr_code,
+                tracking_method: assets.tracking_method,
+                category: assets.category,
+                status: assets.status,
+                total_quantity: assets.total_quantity,
+                available_quantity: assets.available_quantity,
+            }
+        })
         .from(inboundRequestItems)
+        .leftJoin(assets, eq(inboundRequestItems.asset_id, assets.id))
         .where(eq(inboundRequestItems.inbound_request_id, requestId));
 
-    // Step 5: Format the response
+    // Step 5: Fetch line items for this request
+    const lineItemsData = await db
+        .select()
+        .from(lineItems)
+        .where(eq(lineItems.inbound_request_id, requestId));
+
+    // Step 6: Fetch invoice for this request
+    const [invoice] = await db
+        .select()
+        .from(invoices)
+        .where(eq(invoices.inbound_request_id, requestId));
+
+    // Step 7: Format price for client
+    let pricingToShowClient = null;
+    if (result.request_pricing) {
+        pricingToShowClient = getRequestPricingToShowClient({
+            base_ops_total: result.request_pricing.base_ops_total,
+            line_items: {
+                catalog_total: (result.request_pricing.line_items as any).catalog_total,
+                custom_total: (result.request_pricing.line_items as any).custom_total,
+            },
+            margin: {
+                percent: (result.request_pricing.margin as any).percent,
+            },
+        });
+    }
+
+    // Step 8: Format the response
     return {
         id: result.request.id,
+        inbound_request_id: result.request.inbound_request_id,
         platform_id: result.request.platform_id,
         incoming_at: result.request.incoming_at,
         note: result.request.note,
@@ -333,9 +388,14 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
         company: result.company,
         requester: result.requester,
         request_pricing: user.role === "CLIENT" ? {
-            final_total: result.request_pricing?.final_total,
+            ...(pricingToShowClient && pricingToShowClient)
         } : result.request_pricing,
-        items: items,
+        items: items.map((item) => ({
+            ...item.item,
+            asset: item.asset
+        })),
+        line_items: lineItemsData,
+        invoice: invoice || null,
         created_at: result.request.created_at,
         updated_at: result.request.updated_at
     };
@@ -394,7 +454,7 @@ const submitForApproval = async (requestId: string, user: AuthUser, platformId: 
     }
 
     // Step 3: Get line items totals
-    const lineItemsTotals = await OrderLineItemsServices.calculateInboundRequestLineItemsTotals(
+    const lineItemsTotals = await LineItemsServices.calculateInboundRequestLineItemsTotals(
         inboundRequest.id,
         platformId
     );
@@ -566,10 +626,11 @@ const approveInboundRequestByAdmin = async (
             .where(eq(inboundRequests.id, inboundRequest.id));
     })
 
-    // TODO
-    // // Generate cost estimate PDF
-    // await costEstimateGenerator(orderId, platformId, user);
 
+    // Step 4: Generate cost estimate PDF
+    await inboundRequestCostEstimateGenerator(requestId, platformId);
+
+    // TODO
     // // Step 4: Send notification
     // await NotificationLogServices.sendNotification(
     //     platformId,
@@ -639,11 +700,509 @@ const approveOrDeclineQuoteByClient = async (
     };
 };
 
+// ----------------------------------- UPDATE INBOUND REQUEST ITEM ----------------------------
+const updateInboundRequestItem = async (
+    requestId: string,
+    itemId: string,
+    user: AuthUser,
+    platformId: string,
+    payload: UpdateInboundRequestItemPayload
+) => {
+    // Step 1: Fetch the inbound request to validate access and status
+    const [result] = await db
+        .select({
+            request: inboundRequests,
+            request_pricing: {
+                id: prices.id,
+                warehouse_ops_rate: prices.warehouse_ops_rate,
+                base_ops_total: prices.base_ops_total,
+                logistics_sub_total: prices.logistics_sub_total,
+                final_total: prices.final_total,
+                line_items: prices.line_items,
+                margin: prices.margin,
+                calculated_by: prices.calculated_by,
+                calculated_at: prices.calculated_at,
+            }
+        })
+        .from(inboundRequests)
+        .leftJoin(prices, eq(inboundRequests.request_pricing_id, prices.id))
+        .where(and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)));
+
+    const inboundRequest = result.request;
+    const requestPricing = result.request_pricing;
+
+    if (!inboundRequest || !requestPricing) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request or request pricing not found");
+    }
+
+    // Step 2: Check user access (CLIENT users can only update their company's requests)
+    if (user.role === "CLIENT" && inboundRequest.company_id !== user.company_id) {
+        throw new CustomizedError(httpStatus.FORBIDDEN, "You do not have access to this inbound request");
+    }
+
+    // Step 3: Check if the inbound request is in a status that allows updates
+    if (user.role === "CLIENT" && !["PRICING_REVIEW", "PENDING_APPROVAL"].includes(inboundRequest.request_status)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Cannot update items when request status is ${inboundRequest.request_status}. Items can only be updated in PENDING_APPROVAL or PRICING_REVIEW status.`
+        );
+    }
+
+    // Step 4: Fetch the item to verify it exists and belongs to this request
+    const [existingItem] = await db
+        .select()
+        .from(inboundRequestItems)
+        .where(and(eq(inboundRequestItems.id, itemId), eq(inboundRequestItems.inbound_request_id, requestId)))
+        .limit(1);
+
+    if (!existingItem) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request item not found");
+    }
+
+    // Step 5: Prepare update data
+    const updateData: Record<string, any> = {};
+
+    if (payload.brand_id !== undefined) {
+        updateData.brand_id = payload.brand_id || null;
+    }
+    if (payload.name !== undefined) {
+        updateData.name = payload.name;
+    }
+    if (payload.description !== undefined) {
+        updateData.description = payload.description || null;
+    }
+    if (payload.category !== undefined) {
+        updateData.category = payload.category;
+    }
+    if (payload.tracking_method !== undefined) {
+        updateData.tracking_method = payload.tracking_method;
+    }
+    if (payload.quantity !== undefined) {
+        updateData.quantity = payload.quantity;
+    }
+    if (payload.packaging !== undefined) {
+        updateData.packaging = payload.packaging || null;
+    }
+    if (payload.weight_per_unit !== undefined) {
+        updateData.weight_per_unit = payload.weight_per_unit.toString();
+    }
+    if (payload.volume_per_unit !== undefined) {
+        updateData.volume_per_unit = payload.volume_per_unit.toString();
+    }
+    if (payload.dimensions !== undefined) {
+        updateData.dimensions = payload.dimensions;
+    }
+    if (payload.images !== undefined) {
+        updateData.images = payload.images;
+    }
+    if (payload.handling_tags !== undefined) {
+        updateData.handling_tags = payload.handling_tags;
+    }
+
+    // Step 6: Update the item
+    const [updatedItem] = await db
+        .update(inboundRequestItems)
+        .set(updateData)
+        .where(eq(inboundRequestItems.id, itemId))
+        .returning();
+
+    // Step 7: Fetch items for this request to recalculate pricing
+    const items = await db
+        .select()
+        .from(inboundRequestItems)
+        .where(eq(inboundRequestItems.inbound_request_id, requestId));
+
+    // Step 7.1: Calculate total volume from items
+    const totalVolume = items.reduce((acc, item) => acc + ((item.quantity || 1) * Number(item.volume_per_unit)), 0);
+
+    // Step 7.2: Calculate logistics costs and margin
+    const baseOpsTotal = Number(requestPricing.warehouse_ops_rate) * totalVolume;
+    const logisticsSubTotal = baseOpsTotal + Number((requestPricing.line_items as any).catalog_total || 0);
+    const marginAmount = logisticsSubTotal * (Number((requestPricing.margin as any).percent) / 100);
+    const finalTotal = logisticsSubTotal + marginAmount + Number((requestPricing.line_items as any).custom_total || 0);
+
+    // Step 7.3: Prepare pricing details payload
+    const pricingDetails = {
+        base_ops_total: baseOpsTotal.toFixed(2),
+        logistics_sub_total: logisticsSubTotal.toFixed(2),
+        margin: {
+            percent: Number((requestPricing.margin as any).percent),
+            amount: marginAmount,
+            is_override: false,
+            override_reason: null
+        },
+        final_total: finalTotal.toFixed(2),
+        calculated_at: new Date(),
+        calculated_by: user.id,
+    }
+
+    // Step 7.4: Update pricing record
+    await db.update(prices).set(pricingDetails).where(eq(prices.id, requestPricing.id));
+
+    // Step 7.5: Regenerate cost estimate PDF
+    await inboundRequestCostEstimateGenerator(requestId, platformId, true);
+
+    return updatedItem;
+};
+
+// ----------------------------------- CANCEL INBOUND REQUEST ---------------------------------
+const cancelInboundRequest = async (
+    requestId: string,
+    platformId: string,
+    payload: CancelInboundRequestPayload
+) => {
+    // Step 1: Fetch the inbound request to validate access and status
+    const [inboundRequest] = await db
+        .select()
+        .from(inboundRequests)
+        .where(and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)))
+        .limit(1);
+
+    if (!inboundRequest) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found");
+    }
+
+    // Step 2: Check if the inbound request is in a status that allows cancellation
+    if (["COMPLETED", "CANCELLED"].includes(inboundRequest.request_status)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Cannot cancel request when status is ${inboundRequest.request_status}`
+        );
+    }
+
+    // Step 3: Update statuse
+    await db
+        .update(inboundRequests)
+        .set({
+            request_status: "CANCELLED",
+            financial_status: "CANCELLED",
+            note: payload.note,
+            updated_at: new Date(),
+        })
+        .where(eq(inboundRequests.id, requestId));
+
+    // Step 4: Return updated request
+    return {
+        id: inboundRequest.id,
+        request_status: "CANCELLED",
+        financial_status: "CANCELLED",
+        updated_at: new Date(),
+        message: "Inbound request cancelled successfully"
+    };
+};
+
+// ----------------------------------- COMPLETE INBOUND REQUEST -------------------------------
+const completeInboundRequest = async (
+    requestId: string,
+    platformId: string,
+    user: AuthUser,
+    payload: CompleteInboundRequestPayload
+) => {
+    const { warehouse_id, zone_id } = payload;
+
+    // Step 1: Fetch the inbound request to validate access and status
+    const [result] = await db
+        .select({
+            request: inboundRequests,
+            company: {
+                id: companies.id,
+                name: companies.name,
+            },
+            requester: {
+                id: users.id,
+                name: users.name,
+                email: users.email,
+            },
+            request_pricing: {
+                warehouse_ops_rate: prices.warehouse_ops_rate,
+                base_ops_total: prices.base_ops_total,
+                logistics_sub_total: prices.logistics_sub_total,
+                final_total: prices.final_total,
+                line_items: prices.line_items,
+                margin: prices.margin,
+                calculated_by: prices.calculated_by,
+                calculated_at: prices.calculated_at,
+            }
+        })
+        .from(inboundRequests)
+        .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
+        .leftJoin(users, eq(inboundRequests.requester_id, users.id))
+        .leftJoin(prices, eq(inboundRequests.request_pricing_id, prices.id))
+        .where(and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)));
+
+    const inboundRequest = result?.request;
+    const company = result?.company;
+    const requester = result?.requester;
+    const requestPricing = result?.request_pricing;
+
+    if (!inboundRequest) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found");
+    }
+
+    if (!requester) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Requester information not found");
+    }
+
+    // Step 2: Verify inbound request is in CONFIRMED status
+    if (inboundRequest.request_status !== "CONFIRMED") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Cannot complete inbound request. Current status: ${inboundRequest.request_status}. Request must be in CONFIRMED status.`
+        );
+    }
+
+    // Step 3: Validate warehouse exists and belongs to the platform
+    const [warehouse] = await db
+        .select()
+        .from(warehouses)
+        .where(and(eq(warehouses.id, warehouse_id), eq(warehouses.platform_id, platformId)))
+        .limit(1);
+
+    if (!warehouse) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Warehouse not found");
+    }
+
+    // Step 4: Validate zone exists and belongs to the warehouse and company
+    const [zone] = await db
+        .select()
+        .from(zones)
+        .where(and(
+            eq(zones.id, zone_id),
+            eq(zones.warehouse_id, warehouse_id),
+            eq(zones.company_id, inboundRequest.company_id)
+        ))
+        .limit(1);
+
+    if (!zone) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Zone not found or does not belong to the specified warehouse and company");
+    }
+
+    // Step 5: Fetch inbound request items
+    const items = await db
+        .select()
+        .from(inboundRequestItems)
+        .where(eq(inboundRequestItems.inbound_request_id, requestId));
+
+    if (items.length === 0) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "No items found for this inbound request");
+    }
+
+    // Step 6: Create/update assets from items in a transaction
+    const processedAssets = await db.transaction(async (tx) => {
+        const resultAssets: { asset: any; action: 'created' | 'updated'; quantityAdded: number }[] = [];
+
+        for (const item of items) {
+            if (item.tracking_method === "BATCH") {
+                // For BATCH items, search for existing asset by id in the same company
+                let existingAsset: typeof assets.$inferSelect | undefined;
+
+                if (item.asset_id) {
+                    [existingAsset] = await tx
+                        .select()
+                        .from(assets)
+                        .where(and(
+                            eq(assets.id, item.asset_id),
+                            eq(assets.company_id, inboundRequest.company_id),
+                            eq(assets.platform_id, platformId),
+                            isNull(assets.deleted_at)
+                        ))
+                        .limit(1);
+                }
+
+                if (existingAsset) {
+                    // Update existing asset quantity
+                    const newTotalQuantity = existingAsset.total_quantity + item.quantity;
+                    const newAvailableQuantity = existingAsset.available_quantity + item.quantity;
+
+                    const [updatedAsset] = await tx
+                        .update(assets)
+                        .set({
+                            total_quantity: newTotalQuantity,
+                            available_quantity: newAvailableQuantity,
+                            status: "AVAILABLE"
+                        })
+                        .where(eq(assets.id, existingAsset.id))
+                        .returning();
+
+                    resultAssets.push({
+                        asset: updatedAsset,
+                        action: 'updated',
+                        quantityAdded: item.quantity
+                    });
+
+                } else {
+                    // Create new BATCH asset if none exists with this id
+                    const qrCode = await qrCodeGenerator(inboundRequest.company_id);
+
+                    const [newAsset] = await tx
+                        .insert(assets)
+                        .values({
+                            platform_id: platformId,
+                            company_id: inboundRequest.company_id,
+                            warehouse_id,
+                            zone_id,
+                            brand_id: item.brand_id,
+                            name: item.name,
+                            description: item.description,
+                            category: item.category,
+                            tracking_method: item.tracking_method,
+                            total_quantity: item.quantity,
+                            available_quantity: item.quantity,
+                            qr_code: qrCode,
+                            packaging: item.packaging,
+                            weight_per_unit: item.weight_per_unit,
+                            dimensions: item.dimensions || {},
+                            volume_per_unit: item.volume_per_unit,
+                            handling_tags: item.handling_tags || [],
+                            images: item.images || [],
+                        })
+                        .returning();
+
+                    resultAssets.push({
+                        asset: newAsset,
+                        action: 'created',
+                        quantityAdded: item.quantity
+                    });
+
+                    await tx
+                        .update(inboundRequestItems)
+                        .set({ asset_id: newAsset.id })
+                        .where(eq(inboundRequestItems.id, item.id));
+                }
+            } else {
+                // For INDIVIDUAL items, always create a new asset
+                const qrCode = await qrCodeGenerator(inboundRequest.company_id);
+
+                const [newAsset] = await tx
+                    .insert(assets)
+                    .values({
+                        platform_id: platformId,
+                        company_id: inboundRequest.company_id,
+                        warehouse_id: warehouse_id,
+                        zone_id: zone_id,
+                        brand_id: item.brand_id,
+                        name: item.name,
+                        description: item.description,
+                        category: item.category,
+                        tracking_method: item.tracking_method,
+                        total_quantity: item.quantity,
+                        available_quantity: item.quantity,
+                        qr_code: qrCode,
+                        packaging: item.packaging,
+                        weight_per_unit: item.weight_per_unit,
+                        dimensions: item.dimensions || {},
+                        volume_per_unit: item.volume_per_unit,
+                        handling_tags: item.handling_tags || [],
+                        images: item.images || [],
+                    })
+                    .returning();
+
+                resultAssets.push({
+                    asset: newAsset,
+                    action: 'created',
+                    quantityAdded: item.quantity
+                });
+
+                // Update the inbound request item with the created asset id
+                await tx
+                    .update(inboundRequestItems)
+                    .set({ asset_id: newAsset.id })
+                    .where(eq(inboundRequestItems.id, item.id));
+            }
+        }
+
+        // Step 7: Update inbound request status to COMPLETED
+        await tx
+            .update(inboundRequests)
+            .set({
+                request_status: "COMPLETED",
+                financial_status: "INVOICED",
+                updated_at: new Date(),
+            })
+            .where(eq(inboundRequests.id, requestId));
+
+        return resultAssets;
+    });
+
+    // Step 7: Generate invoice
+    const { invoice_id, invoice_pdf_url, pdf_buffer } = await inboundRequestInvoiceGenerator(requestId, platformId, user);
+
+    // Step 8: Send email to client and admin
+    if (invoice_id && invoice_pdf_url) {
+        // Send email to client
+        await sendEmail({
+            to: requester.email,
+            subject: `Invoice ${invoice_id} for inbound request ${inboundRequest.inbound_request_id}`,
+            html: emailTemplates.send_ir_invoice_to_client({
+                invoice_number: invoice_id,
+                inbound_request_id: inboundRequest.inbound_request_id,
+                company_name: company?.name || "N/A",
+                final_total_price: String(requestPricing?.final_total),
+                download_invoice_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
+            }),
+            attachments: pdf_buffer
+                ? [
+                    {
+                        filename: `${invoice_id}.pdf`,
+                        content: pdf_buffer,
+                    },
+                ]
+                : undefined,
+        });
+
+        // Send email to plaform admins
+        const platformAdminEmails = await getPlatformAdminEmails(platformId);
+
+        await multipleEmailSender(
+            platformAdminEmails,
+            `Invoice Sent: ${invoice_id} for inbound request ${inboundRequest.inbound_request_id}`,
+            emailTemplates.send_ir_invoice_to_admin({
+                invoice_number: invoice_id,
+                inbound_request_id: inboundRequest.inbound_request_id,
+                company_name: company?.name || "N/A",
+                final_total_price: String(requestPricing?.final_total),
+                download_invoice_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
+            }),
+            pdf_buffer
+                ? [
+                    {
+                        filename: `${invoice_id}.pdf`,
+                        content: pdf_buffer,
+                    },
+                ]
+                : undefined,
+        );
+    }
+
+    const createdCount = processedAssets.filter(a => a.action === 'created').length;
+    const updatedCount = processedAssets.filter(a => a.action === 'updated').length;
+
+    return {
+        id: inboundRequest.id,
+        request_status: "COMPLETED",
+        assets_created: createdCount,
+        assets_updated: updatedCount,
+        assets: processedAssets.map(({ asset, action, quantityAdded }) => ({
+            id: asset.id,
+            name: asset.name,
+            qr_code: asset.qr_code,
+            category: asset.category,
+            total_quantity: asset.total_quantity,
+            quantity_added: quantityAdded,
+            action: action,
+        })),
+        message: `Successfully processed ${items.length} items: ${createdCount} assets created, ${updatedCount} assets updated.`
+    };
+};
+
 export const InboundRequestServices = {
     createInboundRequest,
     getInboundRequests,
     getInboundRequestById,
     submitForApproval,
     approveInboundRequestByAdmin,
-    approveOrDeclineQuoteByClient
+    approveOrDeclineQuoteByClient,
+    updateInboundRequestItem,
+    completeInboundRequest,
+    cancelInboundRequest
 };

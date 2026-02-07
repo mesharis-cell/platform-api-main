@@ -1,6 +1,6 @@
 import PDFDocument from "pdfkit";
-import { InvoicePayload } from "./invoice";
 import { formatDateForEmail } from "./date-time";
+import { InboundRequestCostEstimatePayload } from "./inbound-request-cost-estimate";
 
 const formatCurrency = (amount: string): string => {
     const num = parseFloat(amount);
@@ -8,13 +8,13 @@ const formatCurrency = (amount: string): string => {
 };
 
 // ============================================================
-// COST ESTIMATE PDF - Black & White Design
+// INBOUND REQUEST COST ESTIMATE PDF
 // ============================================================
-export async function renderCostEstimatePDF(
-    data: InvoicePayload & { estimate_date: Date }
+export async function renderInboundRequestCostEstimatePDF(
+    data: InboundRequestCostEstimatePayload & { estimate_date: Date }
 ): Promise<Buffer> {
-    console.log("=== Starting Cost Estimate PDF Generation ===");
-    console.log("Order ID:", data.order_id);
+    console.log("=== Starting Inbound Request Cost Estimate PDF Generation ===");
+    console.log("Inbound Request ID:", data.inbound_request_id);
 
     return new Promise((resolve, reject) => {
         try {
@@ -27,11 +27,7 @@ export async function renderCostEstimatePDF(
 
             doc.on("end", () => {
                 const buffer = Buffer.concat(chunks);
-                console.log(
-                    "Cost Estimate PDF generated successfully, size:",
-                    buffer.length,
-                    "bytes"
-                );
+                console.log("Cost Estimate PDF generated successfully, size:", buffer.length, "bytes");
                 resolve(buffer);
             });
 
@@ -47,7 +43,7 @@ export async function renderCostEstimatePDF(
             const contentWidth = pageWidth - margin * 2;
 
             // ============================================================
-            // HEADER - Minimalist Design
+            // HEADER - Minimalist Design (Following cost-estimate.ts)
             // ============================================================
             // Diagonal corner accent
             doc.moveTo(0, 0).lineTo(60, 0).lineTo(0, 60).fill("#000");
@@ -64,7 +60,7 @@ export async function renderCostEstimatePDF(
 
             doc.moveDown(1);
 
-            // Estimate details in grid (2 boxes)
+            // Estimate details in grid
             const detailsY = doc.y;
             const detailBoxWidth = (contentWidth - 10) / 2;
 
@@ -84,24 +80,24 @@ export async function renderCostEstimatePDF(
                     width: detailBoxWidth - 20,
                 });
 
-            // Order Reference
-            const orderBoxX = dateBoxX + detailBoxWidth + 10;
-            doc.rect(orderBoxX, detailsY, detailBoxWidth, 40).lineWidth(1).stroke("#ccc");
+            // Request Reference
+            const refBoxX = dateBoxX + detailBoxWidth + 10;
+            doc.rect(refBoxX, detailsY, detailBoxWidth, 40).lineWidth(1).stroke("#ccc");
 
             doc.fontSize(7)
                 .font("Helvetica-Bold")
                 .fillColor("#666")
-                .text("ORDER REF", orderBoxX + 10, detailsY + 8, { width: detailBoxWidth - 20 });
+                .text("REQUEST REF", refBoxX + 10, detailsY + 8, { width: detailBoxWidth - 20 });
 
-            doc.fontSize(10)
+            doc.fontSize(8)
                 .font("Helvetica")
                 .fillColor("#000")
-                .text(data.order_id, orderBoxX + 10, detailsY + 20, { width: detailBoxWidth - 20 });
+                .text(data.inbound_request_id.toUpperCase(), refBoxX + 10, detailsY + 20, { width: detailBoxWidth - 20 });
 
             doc.y = detailsY + 60;
 
             // ============================================================
-            // CLIENT & EVENT INFO
+            // CLIENT & INFO
             // ============================================================
             const infoY = doc.y;
 
@@ -122,13 +118,13 @@ export async function renderCostEstimatePDF(
                 .text(data.contact_email, margin)
                 .text(data.contact_phone, margin);
 
-            // Event Details Section
+            // Inbound Details Section
             const eventX = margin + contentWidth * 0.52;
 
             doc.fontSize(8)
                 .font("Helvetica-Bold")
                 .fillColor("#000")
-                .text("EVENT DETAILS", eventX, infoY);
+                .text("INBOUND DETAILS", eventX, infoY);
 
             doc.rect(eventX, infoY + 12, contentWidth * 0.48, 1).fill("#000");
 
@@ -136,22 +132,21 @@ export async function renderCostEstimatePDF(
                 .font("Helvetica")
                 .fillColor("#555")
                 .text(
-                    `${formatDateForEmail(data.event_start_date)} - ${formatDateForEmail(data.event_end_date)}`,
+                    `Incoming Date: ${formatDateForEmail(data.incoming_at)}`,
                     eventX,
                     infoY + 20,
                     { width: contentWidth * 0.48 }
-                )
-                .text(data.venue_name, eventX, doc.y + 3, { width: contentWidth * 0.48 })
-                .text(`${data.venue_city}, ${data.venue_country}`, eventX, doc.y + 2, {
-                    width: contentWidth * 0.48,
-                })
-                .text(data.venue_address, eventX, doc.y + 2, { width: contentWidth * 0.48 });
+                );
+
+            if (data.note) {
+                doc.text(`Note: ${data.note}`, eventX, doc.y + 3, { width: contentWidth * 0.48 });
+            }
 
             doc.y = Math.max(doc.y, infoY + 100);
             doc.moveDown(1);
 
             // ============================================================
-            // ITEMS TABLE - Modern Grid
+            // ITEMS TABLE
             // ============================================================
             doc.fontSize(8).font("Helvetica-Bold").fillColor("#000").text("ITEMS", margin, doc.y);
 
@@ -170,9 +165,9 @@ export async function renderCostEstimatePDF(
                 .font("Helvetica-Bold")
                 .fillColor("#000")
                 .text("S.No", colSNoX, tableTop, { width: 30, align: "center" })
-                .text("ASSET NAME", colAssetX, tableTop)
+                .text("ITEM NAME", colAssetX, tableTop)
                 .text("QTY", colQtyX, tableTop, { width: contentWidth * 0.1, align: "center" })
-                .text("NOTES", colNotesX, tableTop);
+                .text("CATEGORY", colNotesX, tableTop);
 
             // Header line
             doc.moveTo(margin, tableTop + 12)
@@ -186,17 +181,17 @@ export async function renderCostEstimatePDF(
             data.items.forEach((item, index) => {
                 const rowY = currentY;
 
-                // Serial number as plain text
+                // Serial number
                 doc.fontSize(9)
                     .font("Helvetica-Bold")
                     .fillColor("#000")
                     .text(String(index + 1), colSNoX, rowY, { width: 30, align: "center" });
 
-                // Asset name
+                // Item name
                 doc.fontSize(10)
                     .font("Helvetica")
                     .fillColor("#000")
-                    .text(item.asset_name, colAssetX, rowY, {
+                    .text(item.name, colAssetX, rowY, {
                         width: contentWidth * 0.55,
                         continued: false,
                     });
@@ -211,29 +206,14 @@ export async function renderCostEstimatePDF(
                         continued: false,
                     });
 
-                // Notes
-                let notesY = rowY;
-                if (item.from_collection_name) {
-                    doc.fontSize(7)
-                        .font("Helvetica")
-                        .fillColor("#666")
-                        .text(`From: ${item.from_collection_name}`, colNotesX, notesY, {
-                            width: contentWidth * 0.23,
-                            continued: false,
-                        });
-                    notesY = doc.y;
-                }
-
-                if (item.handling_tags && item.handling_tags.length > 0) {
-                    const tagsText = item.handling_tags.join(", ");
-                    doc.fontSize(7)
-                        .font("Helvetica")
-                        .fillColor("#999")
-                        .text(tagsText, colNotesX, notesY, {
-                            width: contentWidth * 0.23,
-                            continued: false,
-                        });
-                }
+                // Category
+                doc.fontSize(9)
+                    .font("Helvetica")
+                    .fillColor("#666")
+                    .text(item.category, colNotesX, rowY, {
+                        width: contentWidth * 0.23,
+                        continued: false,
+                    });
 
                 currentY = doc.y + 15;
 
@@ -263,6 +243,7 @@ export async function renderCostEstimatePDF(
             const summaryWidth = 260;
 
             if (data.pricing.show_breakdown) {
+                // Logistics
                 doc.fontSize(10)
                     .font("Helvetica")
                     .fillColor("#555")
@@ -271,52 +252,31 @@ export async function renderCostEstimatePDF(
                 doc.fontSize(10)
                     .font("Helvetica")
                     .fillColor("#000")
-                    .text(formatCurrency(data.pricing.logistics_base_price), summaryX, doc.y - 12, {
+                    .text(formatCurrency(data.pricing.logistics_sub_total), summaryX, doc.y - 12, {
                         align: "right",
                         width: summaryWidth,
                     });
 
                 doc.moveDown(0.6);
 
-                doc.fontSize(10)
-                    .font("Helvetica")
-                    .fillColor("#555")
-                    .text(
-                        `Transport Rate`,
-                        summaryX,
-                        doc.y
-                    );
+                // Service Fee
+                const lineItemsTotal = parseFloat(data.pricing.service_fee);
+                if (lineItemsTotal > 0) {
+                    doc.fontSize(10)
+                        .font("Helvetica")
+                        .fillColor("#555")
+                        .text("Service Fee", summaryX, doc.y);
 
-                doc.fontSize(10)
-                    .font("Helvetica")
-                    .fillColor("#000")
-                    .text(
-                        formatCurrency(data.pricing.transport_rate),
-                        summaryX,
-                        doc.y - 12,
-                        { align: "right", width: summaryWidth }
-                    );
+                    doc.fontSize(10)
+                        .font("Helvetica")
+                        .fillColor("#000")
+                        .text(formatCurrency(data.pricing.service_fee), summaryX, doc.y - 12, {
+                            align: "right",
+                            width: summaryWidth,
+                        });
 
-                doc.moveDown(0.6);
-
-                doc.fontSize(10)
-                    .font("Helvetica")
-                    .fillColor("#555")
-                    .text(
-                        `Service Fee (Including Reskin)`,
-                        summaryX,
-                        doc.y
-                    );
-
-                doc.fontSize(10)
-                    .font("Helvetica")
-                    .fillColor("#000")
-                    .text(
-                        formatCurrency(data.pricing.service_fee),
-                        summaryX,
-                        doc.y - 12,
-                        { align: "right", width: summaryWidth }
-                    );
+                    doc.moveDown(0.6);
+                }
 
                 doc.moveDown(0.8);
 
@@ -331,7 +291,7 @@ export async function renderCostEstimatePDF(
                 doc.moveDown(0.5);
             }
 
-            // Total with diagonal stripes background
+            // Total
             const totalY = doc.y;
             const totalHeight = 45;
 
@@ -354,7 +314,7 @@ export async function renderCostEstimatePDF(
             doc.fontSize(18)
                 .font("Helvetica-Bold")
                 .fillColor("#000")
-                .text(formatCurrency(data.pricing.final_total_price), summaryX + 15, totalY + 12, {
+                .text(formatCurrency(data.pricing.final_total), summaryX + 15, totalY + 12, {
                     align: "right",
                     width: summaryWidth - 30,
                 });
@@ -362,7 +322,7 @@ export async function renderCostEstimatePDF(
             doc.y = totalY + totalHeight + 25;
 
             // ============================================================
-            // IMPORTANT NOTES
+            // NOTES
             // ============================================================
             doc.fontSize(8)
                 .font("Helvetica-Bold")
@@ -380,28 +340,13 @@ export async function renderCostEstimatePDF(
             ];
 
             notes.forEach((note) => {
-                // Bullet point
                 doc.circle(margin + 3, doc.y + 3, 2).fill("#000");
-
                 doc.fontSize(8)
                     .font("Helvetica")
                     .fillColor("#333")
                     .text(note, margin + 12, doc.y, { width: contentWidth - 12 });
-
                 doc.moveDown(0.3);
             });
-
-            doc.moveDown(0.3);
-
-            doc.fontSize(7)
-                .font("Helvetica")
-                .fillColor("#666")
-                .text(
-                    "Please review this estimate carefully. If you have any questions or would like to proceed, please contact your account manager.",
-                    margin,
-                    doc.y,
-                    { width: contentWidth }
-                );
 
             // ============================================================
             // FOOTER
@@ -429,11 +374,8 @@ export async function renderCostEstimatePDF(
 
             doc.end();
         } catch (error) {
-            console.error("=== Cost Estimate PDF Generation Failed ===");
+            console.error("=== Inbound Request Cost Estimate PDF Generation Failed ===");
             console.error("Error:", error);
-            if (error instanceof Error) {
-                console.error("Stack:", error.stack);
-            }
             reject(error);
         }
     });

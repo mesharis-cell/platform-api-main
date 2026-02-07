@@ -74,6 +74,7 @@ export const inboundRequestStatusEnum = pgEnum("inbound_request_status_enum", [
     "PENDING_APPROVAL",
     "QUOTED",
     "CONFIRMED",
+    "DECLINED",
     "CANCELLED",
     "COMPLETED"
 ]);
@@ -954,9 +955,10 @@ export const lineItems = pgTable(
             .notNull(),
     },
     (table) => [
-        index("order_line_items_order_idx").on(table.order_id),
-        index("order_line_items_reskin_idx").on(table.reskin_request_id),
-        index("order_line_items_active_idx").on(table.order_id, table.is_voided),
+        index("line_items_order_idx").on(table.order_id),
+        index("line_items_inbound_request_idx").on(table.inbound_request_id),
+        index("line_items_reskin_request_idx").on(table.reskin_request_id),
+        index("line_items_active_idx").on(table.order_id, table.is_voided),
     ]
 );
 
@@ -1337,6 +1339,7 @@ export const inboundRequests = pgTable(
     "inbound_requests",
     {
         id: uuid("id").primaryKey().defaultRandom(),
+        inbound_request_id: varchar("inbound_request_id", { length: 20 }).notNull(), // Human-readable ID (IR-YYYYMMDD-XXX)
         platform_id: uuid("platform_id")
             .notNull()
             .references(() => platforms.id, { onDelete: "cascade" }),
@@ -1404,7 +1407,7 @@ export const inboundRequestItems = pgTable(
         images: text("images")
             .array()
             .default(sql`ARRAY[]::text[]`),
-        created_asset_id: uuid("created_asset_id").references(() => assets.id),
+        asset_id: uuid("asset_id").references(() => assets.id),
         created_at: timestamp("created_at").notNull().defaultNow(),
         updated_at: timestamp("updated_at")
             .$onUpdate(() => new Date())
@@ -1444,7 +1447,7 @@ export const inboundRequestItemsRelations = relations(inboundRequestItems, ({ on
         references: [brands.id],
     }),
     created_asset: one(assets, {
-        fields: [inboundRequestItems.created_asset_id],
+        fields: [inboundRequestItems.asset_id],
         references: [assets.id],
     }),
 }));

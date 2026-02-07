@@ -1,6 +1,6 @@
 {
-  "id": "2bc86350-586d-4f91-8a91-b3139a14f47a",
-  "prevId": "444affa0-c514-47aa-bb01-a3588a2499ea",
+  "id": "05b5049c-0741-4ed8-93a0-30e2da8eb22e",
+  "prevId": "601502cf-7ab2-48bb-ba69-0fd2f43863f1",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1633,8 +1633,8 @@
           "notNull": false,
           "default": "ARRAY[]::text[]"
         },
-        "created_asset_id": {
-          "name": "created_asset_id",
+        "asset_id": {
+          "name": "asset_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
@@ -1681,12 +1681,12 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "inbound_request_items_created_asset_id_assets_id_fk": {
-          "name": "inbound_request_items_created_asset_id_assets_id_fk",
+        "inbound_request_items_asset_id_assets_id_fk": {
+          "name": "inbound_request_items_asset_id_assets_id_fk",
           "tableFrom": "inbound_request_items",
           "tableTo": "assets",
           "columnsFrom": [
-            "created_asset_id"
+            "asset_id"
           ],
           "columnsTo": [
             "id"
@@ -1711,6 +1711,12 @@
           "primaryKey": true,
           "notNull": true,
           "default": "gen_random_uuid()"
+        },
+        "inbound_request_id": {
+          "name": "inbound_request_id",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true
         },
         "platform_id": {
           "name": "platform_id",
@@ -2187,8 +2193,8 @@
         }
       },
       "indexes": {
-        "order_line_items_order_idx": {
-          "name": "order_line_items_order_idx",
+        "line_items_order_idx": {
+          "name": "line_items_order_idx",
           "columns": [
             {
               "expression": "order_id",
@@ -2202,8 +2208,23 @@
           "method": "btree",
           "with": {}
         },
-        "order_line_items_reskin_idx": {
-          "name": "order_line_items_reskin_idx",
+        "line_items_inbound_request_idx": {
+          "name": "line_items_inbound_request_idx",
+          "columns": [
+            {
+              "expression": "inbound_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "line_items_reskin_request_idx": {
+          "name": "line_items_reskin_request_idx",
           "columns": [
             {
               "expression": "reskin_request_id",
@@ -2217,8 +2238,8 @@
           "method": "btree",
           "with": {}
         },
-        "order_line_items_active_idx": {
-          "name": "order_line_items_active_idx",
+        "line_items_active_idx": {
+          "name": "line_items_active_idx",
           "columns": [
             {
               "expression": "order_id",

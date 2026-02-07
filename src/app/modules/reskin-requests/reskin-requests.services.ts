@@ -19,7 +19,7 @@ import {
     ReskinStatus,
     CancelReskinRequestPayload,
 } from "./reskin-requests.interfaces";
-import { OrderLineItemsServices } from "../order-line-items/order-line-items.services";
+import { LineItemsServices } from "../order-line-items/order-line-items.services";
 import { generateAssetQRCode } from "../../utils/qr-generator";
 import { NotificationLogServices } from "../notification-logs/notification-logs.services";
 import { AuthUser } from "../../interface/common";
@@ -126,7 +126,7 @@ const processReskinRequest = async (
     // Create custom line item for reskin cost
     const targetBrandName = orderItem.reskin_target_brand_custom || "Custom Brand";
 
-    const lineItem = await OrderLineItemsServices.createCustomLineItem({
+    const lineItem = await LineItemsServices.createCustomLineItem({
         platform_id: platformId,
         order_id: orderId,
         purpose_type: "ORDER",
@@ -430,7 +430,7 @@ const cancelReskinRequest = async (
     const previousTotal = orderPricing.final_total || null;
 
     // Step 4: Get line items totals
-    const lineItemsTotals = await OrderLineItemsServices.calculateOrderLineItemsTotals(
+    const lineItemsTotals = await LineItemsServices.calculateOrderLineItemsTotals(
         orderRecord.id,
         platformId
     );
@@ -500,7 +500,7 @@ const cancelReskinRequest = async (
         });
     }
 
-    await costEstimateGenerator(orderRecord.id, platformId, user);
+    await costEstimateGenerator(orderRecord.id, platformId, user, true);
 
     if (shouldReviseQuote) {
         await NotificationLogServices.sendNotification(

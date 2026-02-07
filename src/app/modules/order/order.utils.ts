@@ -35,7 +35,7 @@ export const orderQueryValidationConfig = {
 
 // ------------------------------------- ORDER ID GENERATOR -------------------------------------
 // FORMAT: ORD-YYYYMMDD-XXX
-export const orderIdGenerator = async (): Promise<string> => {
+export const orderIdGenerator = async (platformId: string): Promise<string> => {
     const today = new Date();
     const dateStr = today.toISOString().split("T")[0].replace(/-/g, ""); // YYYYMMDD
 
@@ -44,7 +44,7 @@ export const orderIdGenerator = async (): Promise<string> => {
     const todayOrders = await db
         .select({ order_id: orders.order_id })
         .from(orders)
-        .where(sql`${orders.order_id} LIKE ${prefix + "%"}`)
+        .where(and(eq(orders.platform_id, platformId), sql`${orders.order_id} LIKE ${prefix + "%"}`))
         .orderBy(desc(orders.order_id))
         .limit(1);
 

@@ -43,7 +43,7 @@ export function getNotificationTypeForTransition(
 export const getRecipientsForNotification = async (
     platformId: string,
     notificationType: NotificationType,
-    order: any
+    clientEmail: string
 ): Promise<NotificationRecipients> => {
     // Get Admins
     const admins = await db
@@ -78,7 +78,6 @@ export const getRecipientsForNotification = async (
     );
 
     // Client email
-    const clientEmail = order.contact_email;
     console.log(`   📋 Client email: ${clientEmail || "not set"}`);
 
     // Notification Matrix (based on req.md Email Notification Matrix)

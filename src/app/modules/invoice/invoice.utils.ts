@@ -1,4 +1,4 @@
-import { invoices } from "../../../db/schema";
+import { invoices, invoiceTypeEnum } from "../../../db/schema";
 import { sortOrderType } from "../../constants/common";
 
 export const invoiceSortableFields: Record<string, any> = {
@@ -12,4 +12,5 @@ export const invoiceQueryValidationConfig = {
     sort_order: sortOrderType,
     paid_status: ["paid", "unpaid"],
     company_id: "uuid",
+    type: invoiceTypeEnum.enumValues
 };

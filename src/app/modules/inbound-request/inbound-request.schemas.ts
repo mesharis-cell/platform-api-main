@@ -20,7 +20,8 @@ const inboundRequestItemSchema = z.object({
         height: z.number("Height should be a number").min(0).default(0),
     }).optional(),
     images: z.array(z.string()).optional(),
-    handling_tags: z.array(z.string()).optional()
+    handling_tags: z.array(z.string()).optional(),
+    asset_id: z.uuid("Asset ID should be a valid UUID").optional()
 });
 
 const createInboundRequestSchema = z.object({
@@ -49,7 +50,43 @@ const approveInboundRequestSchema = z.object({
 
 const approveOrDeclineQuoteByClientSchema = z.object({
     body: z.object({
-        status: z.enum(["CONFIRMED", "CANCELLED"], enumMessageGenerator("Status", ["CONFIRMED", "CANCELLED"])),
+        status: z.enum(["CONFIRMED", "DECLINED"], enumMessageGenerator("Status", ["CONFIRMED", "DECLINED"])),
+        note: z.string("Notes should be a text").optional(),
+    }).strict()
+})
+
+const updateInboundRequestItemSchema = z.object({
+    body: z.object({
+        brand_id: z.uuid().optional().nullable(),
+        name: z.string({ message: "Item name is required" }).min(1, "Item name is required").optional(),
+        description: z.string().optional().nullable(),
+        category: z.string({ message: "Category is required" }).min(1, "Category is required").optional(),
+        tracking_method: z.enum(trackingMethodEnum.enumValues, {
+            message: enumMessageGenerator("Tracking method", trackingMethodEnum.enumValues),
+        }).optional(),
+        quantity: z.number("Quantity should be a number").int().min(1, "Quantity must be at least 1").optional(),
+        packaging: z.string().optional().nullable(),
+        weight_per_unit: z.number("Weight per unit should be a number").min(0, "Weight must be positive").optional(),
+        volume_per_unit: z.number("Volume per unit should be a number").min(0, "Volume must be positive").optional(),
+        dimensions: z.object({
+            length: z.number("Length should be a number").min(0).optional(),
+            width: z.number("Width should be a number").min(0).optional(),
+            height: z.number("Height should be a number").min(0).optional(),
+        }).optional(),
+        images: z.array(z.string()).optional(),
+        handling_tags: z.array(z.string()).optional()
+    }).strict()
+});
+
+const completeInboundRequestSchema = z.object({
+    body: z.object({
+        warehouse_id: z.uuid({ message: "Warehouse ID is required" }),
+        zone_id: z.uuid({ message: "Zone ID is required" }),
+    }).strict()
+});
+
+const cancelInboundRequestSchema = z.object({
+    body: z.object({
         note: z.string("Notes should be a text").optional(),
     }).strict()
 })
@@ -57,5 +94,8 @@ const approveOrDeclineQuoteByClientSchema = z.object({
 export const inboundRequestSchemas = {
     createInboundRequestSchema,
     approveInboundRequestSchema,
-    approveOrDeclineQuoteByClientSchema
+    approveOrDeclineQuoteByClientSchema,
+    updateInboundRequestItemSchema,
+    completeInboundRequestSchema,
+    cancelInboundRequestSchema
 };
