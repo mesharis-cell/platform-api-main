@@ -10,3 +10,6 @@ export type ApproveOrDeclineQuoteByClientPayload = z.infer<typeof inboundRequest
 export type UpdateInboundRequestItemPayload = z.infer<typeof inboundRequestSchemas.updateInboundRequestItemSchema>["body"];
 
 export type CompleteInboundRequestPayload = z.infer<typeof inboundRequestSchemas.completeInboundRequestSchema>["body"];
+
+export type CancelInboundRequestPayload = z.infer<typeof inboundRequestSchemas.cancelInboundRequestSchema>["body"];
+

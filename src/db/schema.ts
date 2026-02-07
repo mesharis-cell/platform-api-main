@@ -1338,6 +1338,7 @@ export const inboundRequests = pgTable(
     "inbound_requests",
     {
         id: uuid("id").primaryKey().defaultRandom(),
+        inbound_request_id: varchar("inbound_request_id", { length: 20 }).notNull(), // Human-readable ID (IR-YYYYMMDD-XXX)
         platform_id: uuid("platform_id")
             .notNull()
             .references(() => platforms.id, { onDelete: "cascade" }),
