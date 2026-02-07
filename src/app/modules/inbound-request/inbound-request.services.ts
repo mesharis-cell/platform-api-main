@@ -1,6 +1,6 @@
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { assets, companies, inboundRequestItems, inboundRequests, lineItems, prices, users, warehouses, zones } from "../../../db/schema";
+import { assets, companies, inboundRequestItems, inboundRequests, invoices, lineItems, prices, users, warehouses, zones } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { eq, isNull, and, asc, count, desc, gte, ilike, lte, or } from "drizzle-orm";
@@ -14,6 +14,10 @@ import { inboundRequestInvoiceGenerator } from "../../utils/inbound-request-invo
 import { inboundRequestCostEstimateGenerator } from "../../utils/inbound-request-cost-estimate";
 import { getRequestPricingToShowClient } from "../../utils/pricing-calculation";
 import { sendEmail } from "../../services/email.service";
+import { emailTemplates } from "../../utils/email-templates";
+import { getPlatformAdminEmails } from "../../utils/helper-query";
+import { multipleEmailSender } from "../../utils/email-sender";
+import config from "../../config";
 
 // ----------------------------------- CREATE INBOUND REQUEST --------------------------------
 const createInboundRequest = async (data: InboundRequestPayload, user: AuthUser, platformId: string) => {
@@ -326,7 +330,7 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
         throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found");
     }
 
-    // Step 4: Fetch items for this request
+    // Step 4: Fetch items with asset for this request
     const items = await db
         .select({
             item: inboundRequestItems,
@@ -351,7 +355,13 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
         .from(lineItems)
         .where(eq(lineItems.inbound_request_id, requestId));
 
-    // Step 6: Format price for client
+    // Step 6: Fetch invoice for this request
+    const [invoice] = await db
+        .select()
+        .from(invoices)
+        .where(eq(invoices.inbound_request_id, requestId));
+
+    // Step 7: Format price for client
     let pricingToShowClient = null;
     if (result.request_pricing) {
         pricingToShowClient = getRequestPricingToShowClient({
@@ -366,7 +376,7 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
         });
     }
 
-    // Step 7: Format the response
+    // Step 8: Format the response
     return {
         id: result.request.id,
         inbound_request_id: result.request.inbound_request_id,
@@ -385,6 +395,7 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
             asset: item.asset
         })),
         line_items: lineItemsData,
+        invoice: invoice || null,
         created_at: result.request.created_at,
         updated_at: result.request.updated_at
     };
@@ -928,6 +939,10 @@ const completeInboundRequest = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found");
     }
 
+    if (!requester) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Requester information not found");
+    }
+
     // Step 2: Verify inbound request is in CONFIRMED status
     if (inboundRequest.request_status !== "CONFIRMED") {
         throw new CustomizedError(
@@ -1004,6 +1019,7 @@ const completeInboundRequest = async (
                         .set({
                             total_quantity: newTotalQuantity,
                             available_quantity: newAvailableQuantity,
+                            status: "AVAILABLE"
                         })
                         .where(eq(assets.id, existingAsset.id))
                         .returning();
@@ -1108,44 +1124,55 @@ const completeInboundRequest = async (
         return resultAssets;
     });
 
-    // const { invoice_id, invoice_pdf_url } = await inboundRequestInvoiceGenerator(requestId, platformId, user);
+    // Step 7: Generate invoice
+    const { invoice_id, invoice_pdf_url, pdf_buffer } = await inboundRequestInvoiceGenerator(requestId, platformId, user);
 
-    // if (invoice_id && invoice_pdf_url) {
-    //     await sendEmail({
-    //         to: order.contact_email,
-    //         subject: `Invoice ${invoice_id} for Order ${order.order_id}`,
-    //         html: emailTemplates.send_invoice_to_client({
-    //             invoice_number: invoice_id,
-    //             order_id: order.order_id,
-    //             company_name: company?.name || "N/A",
-    //             final_total_price: String(pricing?.final_total),
-    //             download_invoice_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
-    //         }),
-    //         attachments: pdf_buffer
-    //             ? [
-    //                 {
-    //                     filename: `${invoice_id}.pdf`,
-    //                     content: pdf_buffer,
-    //                 },
-    //             ]
-    //             : undefined,
-    //     });
+    // Step 8: Send email to client and admin
+    if (invoice_id && invoice_pdf_url) {
+        // Send email to client
+        await sendEmail({
+            to: requester.email,
+            subject: `Invoice ${invoice_id} for inbound request ${inboundRequest.inbound_request_id}`,
+            html: emailTemplates.send_ir_invoice_to_client({
+                invoice_number: invoice_id,
+                inbound_request_id: inboundRequest.inbound_request_id,
+                company_name: company?.name || "N/A",
+                final_total_price: String(requestPricing?.final_total),
+                download_invoice_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
+            }),
+            attachments: pdf_buffer
+                ? [
+                    {
+                        filename: `${invoice_id}.pdf`,
+                        content: pdf_buffer,
+                    },
+                ]
+                : undefined,
+        });
 
-    //     // Send email to plaform admin
-    //     const platformAdminEmails = await getPlatformAdminEmails(platformId);
+        // Send email to plaform admins
+        const platformAdminEmails = await getPlatformAdminEmails(platformId);
 
-    //     await multipleEmailSender(
-    //         platformAdminEmails,
-    //         `Invoice Sent: ${invoice_id} for Order ${order.order_id}`,
-    //         emailTemplates.send_invoice_to_admin({
-    //             invoice_number: invoice_id,
-    //             order_id: order.order_id,
-    //             company_name: company?.name || "N/A",
-    //             final_total_price: String(pricing?.final_total),
-    //             download_invoice_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
-    //         })
-    //     );
-    // }
+        await multipleEmailSender(
+            platformAdminEmails,
+            `Invoice Sent: ${invoice_id} for inbound request ${inboundRequest.inbound_request_id}`,
+            emailTemplates.send_ir_invoice_to_admin({
+                invoice_number: invoice_id,
+                inbound_request_id: inboundRequest.inbound_request_id,
+                company_name: company?.name || "N/A",
+                final_total_price: String(requestPricing?.final_total),
+                download_invoice_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
+            }),
+            pdf_buffer
+                ? [
+                    {
+                        filename: `${invoice_id}.pdf`,
+                        content: pdf_buffer,
+                    },
+                ]
+                : undefined,
+        );
+    }
 
     const createdCount = processedAssets.filter(a => a.action === 'created').length;
     const updatedCount = processedAssets.filter(a => a.action === 'updated').length;
