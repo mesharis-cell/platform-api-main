@@ -1,0 +1,1 @@
+ALTER TABLE "vehicle_types" ADD COLUMN "is_default" boolean DEFAULT false NOT NULL;
