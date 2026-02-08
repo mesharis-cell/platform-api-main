@@ -496,10 +496,10 @@ const getAssetById = async (id: string, user: AuthUser, platformId: string) => {
         },
         brand_details: asset.brand
             ? {
-                  id: asset.brand.id,
-                  name: asset.brand.name,
-                  logo_url: asset.brand.logo_url,
-              }
+                id: asset.brand.id,
+                name: asset.brand.name,
+                logo_url: asset.brand.logo_url,
+            }
             : null,
     };
 };
@@ -912,7 +912,7 @@ const getBatchAvailability = async (assetIds: string[], user: AuthUser, platform
             id: assets.id,
             name: assets.name,
             status: assets.status,
-            available_quantity: assets.total_quantity, // Placeholder - real availability needs date-based calculation
+            available_quantity: assets.available_quantity,
             volume_per_unit: assets.volume_per_unit,
             weight_per_unit: assets.weight_per_unit,
         })
