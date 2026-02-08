@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, ilike, sql } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { companies, financialStatusHistory, invoices, prices, orders } from "../../../db/schema";
+import { companies, financialStatusHistory, invoices, prices, orders, inboundRequests } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { getPresignedUrl } from "../../services/s3.service";
@@ -143,6 +143,7 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
     const conditions: any[] = [eq(invoices.platform_id, platformId)];
 
     // Step 2a: Access control - CLIENT users can only see their company's invoices
+    // Logic updated: Check if company_id matches either the order's company or the inbound request's company
     if (user.role === "CLIENT") {
         if (!user.company_id) {
             throw new CustomizedError(httpStatus.BAD_REQUEST, "Company ID is required");
@@ -192,35 +193,42 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
     const results = await db
         .select({
             invoice: invoices,
-            // order: {
-            //     id: orders.id,
-            //     order_id: orders.order_id,
-            //     company_id: orders.company_id,
-            //     contact_name: orders.contact_name,
-            //     event_start_date: orders.event_start_date,
-            //     venue_name: orders.venue_name,
-            //     order_status: orders.order_status,
-            //     financial_status: orders.financial_status,
-            // },
-            // company: {
-            //     id: companies.id,
-            //     name: companies.name,
-            // },
-            // order_pricing: {
-            //     warehouse_ops_rate: prices.warehouse_ops_rate,
-            //     base_ops_total: prices.base_ops_total,
-            //     logistics_sub_total: prices.logistics_sub_total,
-            //     transport: prices.transport,
-            //     line_items: prices.line_items,
-            //     margin: prices.margin,
-            //     final_total: prices.final_total,
-            //     calculated_at: prices.calculated_at,
-            // }
+            order: {
+                id: orders.id,
+                order_id: orders.order_id,
+                company_id: orders.company_id,
+                contact_name: orders.contact_name,
+                event_start_date: orders.event_start_date,
+                venue_name: orders.venue_name,
+                order_status: orders.order_status,
+                financial_status: orders.financial_status,
+            },
+            company: {
+                id: companies.id,
+                name: companies.name,
+            },
+            order_pricing: {
+                warehouse_ops_rate: prices.warehouse_ops_rate,
+                base_ops_total: prices.base_ops_total,
+                logistics_sub_total: prices.logistics_sub_total,
+                transport: prices.transport,
+                line_items: prices.line_items,
+                margin: prices.margin,
+                final_total: prices.final_total,
+                calculated_at: prices.calculated_at,
+            }
         })
         .from(invoices)
-        // .innerJoin(orders, eq(invoices.order_id, orders.id))
-        // .leftJoin(companies, eq(orders.company_id, companies.id))
-        // .leftJoin(prices, eq(orders.order_pricing_id, prices.id))
+        .leftJoin(orders, eq(invoices.order_id, orders.id))
+        .leftJoin(inboundRequests, eq(invoices.inbound_request_id, inboundRequests.id))
+        .leftJoin(
+            companies,
+            sql`${companies.id} = COALESCE(${orders.company_id}, ${inboundRequests.company_id})`
+        )
+        .leftJoin(
+            prices,
+            sql`${prices.id} = COALESCE(${orders.order_pricing_id}, ${inboundRequests.request_pricing_id})`
+        )
         .where(and(...conditions, ...(orderConditions.length > 0 ? [and(...orderConditions)] : [])))
         .orderBy(orderDirection)
         .limit(limitNumber)
@@ -230,14 +238,15 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
     const [countResult] = await db
         .select({ count: sql<number>`count(*)` })
         .from(invoices)
-        .innerJoin(orders, eq(invoices.order_id, orders.id))
+        .leftJoin(orders, eq(invoices.order_id, orders.id))
+        .leftJoin(inboundRequests, eq(invoices.inbound_request_id, inboundRequests.id))
         .where(
             and(...conditions, ...(orderConditions.length > 0 ? [and(...orderConditions)] : []))
         );
 
     // Step 7: Format results
     const formattedResults = results.map((item) => {
-        const { invoice } = item; // order, company, order_pricing
+        const { invoice, order, company, order_pricing } = item;
         return {
             id: invoice.id,
             invoice_id: invoice.invoice_id,
@@ -245,20 +254,22 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
             invoice_paid_at: invoice.invoice_paid_at,
             payment_method: invoice.payment_method,
             payment_reference: invoice.payment_reference,
-            // order: {
-            //     id: order.id,
-            //     order_id: order.order_id,
-            //     contact_name: order.contact_name,
-            //     event_start_date: order.event_start_date,
-            //     venue_name: order.venue_name,
-            //     // order_pricing: order_pricing,
-            //     order_status: order.order_status,
-            //     financial_status: order.financial_status,
-            // },
-            // company: {
-            //     id: company?.id,
-            //     name: company?.name,
-            // },
+            order: order
+                ? {
+                    id: order.id,
+                    order_id: order.order_id,
+                    contact_name: order.contact_name,
+                    event_start_date: order.event_start_date,
+                    venue_name: order.venue_name,
+                    order_pricing: order_pricing,
+                    order_status: order.order_status,
+                    financial_status: order.financial_status,
+                }
+                : null,
+            company: {
+                id: company?.id,
+                name: company?.name,
+            },
             created_at: invoice.created_at,
             updated_at: invoice.updated_at,
         };
