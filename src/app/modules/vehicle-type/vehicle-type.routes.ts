@@ -16,9 +16,9 @@ router.get(
 // POST / -> createVehicleType
 router.post(
   "/",
-  auth("ADMIN"),
   platformValidator,
-  payloadValidator(vehicleTypeSchemas.createVehicleType),
+  auth("ADMIN"),
+  // payloadValidator(vehicleTypeSchemas.createVehicleType),
   VehicleTypeControllers.createVehicleType
 );
 

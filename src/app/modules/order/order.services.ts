@@ -104,9 +104,48 @@ const calculateEstimate = async (
     const marginPercent = parseFloat(company.platform_margin_percent);
     const hasRebrandItems = items.some((item) => item.is_reskin_request);
 
-    const vehicleType = await db.select().from(vehicleTypes).where(eq(vehicleTypes.is_default, true)).limit(1);
-    if (!vehicleType) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Default vehicle type not found");
+    // Find the suitable vehicle type
+    // Find the suitable vehicle type
+    // We want the smallest vehicle that fits the volume (vehicle_size >= totalVolume)
+    let selectedVehicleType = (await db
+        .select()
+        .from(vehicleTypes)
+        .where(
+            and(
+                eq(vehicleTypes.platform_id, platformId),
+                eq(vehicleTypes.is_active, true),
+                gte(vehicleTypes.vehicle_size, totalVolume)
+            )
+        )
+        .orderBy(asc(vehicleTypes.vehicle_size))
+        .limit(1))[0];
+
+    if (!selectedVehicleType) {
+        // Fallback to default vehicle
+        const defaultVehicle = await db.query.vehicleTypes.findFirst({
+            where: and(eq(vehicleTypes.is_default, true), eq(vehicleTypes.platform_id, platformId)),
+        });
+
+        if (defaultVehicle) {
+            selectedVehicleType = defaultVehicle;
+        } else {
+            // Fallback to check if it's a capacity issue or configuration issue
+            const [largestVehicle] = await db
+                .select()
+                .from(vehicleTypes)
+                .where(and(eq(vehicleTypes.platform_id, platformId), eq(vehicleTypes.is_active, true)))
+                .orderBy(desc(vehicleTypes.vehicle_size))
+                .limit(1);
+
+            if (!largestVehicle) {
+                throw new CustomizedError(httpStatus.NOT_FOUND, "No vehicle types configuration found");
+            }
+
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                `Total volume (${totalVolume} m3) exceeds the capacity of the largest available vehicle (${largestVehicle.vehicle_size} m3)`
+            );
+        }
     }
 
     // Step 6: Lookup transport rate based on venue and trip type
@@ -115,7 +154,7 @@ const calculateEstimate = async (
         companyId,
         venue_city,
         trip_type,
-        vehicleType[0].id
+        selectedVehicleType.id
     );
 
     if (!transportRateInfo) {
@@ -227,16 +266,6 @@ const submitOrderFromCart = async (
         throw new CustomizedError(httpStatus.BAD_REQUEST, "City not found for the given country");
     }
 
-    const vehicleType = await db
-        .query.vehicleTypes
-        .findFirst({
-            where: and(eq(vehicleTypes.is_default, true), eq(vehicleTypes.platform_id, platformId)),
-        });
-
-    if (!vehicleType) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "Default vehicle type not found");
-    }
-
     // Step 3: Check assets availability
     const requiredAssets = items.map((i) => ({ id: i.asset_id, quantity: i.quantity }));
     const foundAssets: any[] = await checkAssetsForOrder(
@@ -297,8 +326,50 @@ const submitOrderFromCart = async (
     const calculatedVolume = totalVolume.toFixed(3);
     const calculatedWeight = totalWeight.toFixed(2);
 
-    // Step 5: Calculate pricing estimate (NEW SYSTEM)
+    // Step 5: Determine the most suitable vehicle type
     const volume = parseFloat(calculatedVolume);
+
+    // Find the suitable vehicles that fits the volume (vehicle_size >= totalVolume)
+    let vehicleType = (await db
+        .select()
+        .from(vehicleTypes)
+        .where(
+            and(
+                eq(vehicleTypes.platform_id, platformId),
+                eq(vehicleTypes.is_active, true),
+                gte(vehicleTypes.vehicle_size, volume)
+            )
+        )
+        .orderBy(asc(vehicleTypes.vehicle_size))
+        .limit(1))[0];
+
+    if (!vehicleType) {
+        // Fallback to default vehicle
+        const defaultVehicle = await db.query.vehicleTypes.findFirst({
+            where: and(eq(vehicleTypes.is_default, true), eq(vehicleTypes.platform_id, platformId)),
+        });
+
+        if (defaultVehicle) {
+            vehicleType = defaultVehicle;
+        } else {
+            // Fallback to check if it's a capacity issue or configuration issue
+            const [largestVehicle] = await db
+                .select()
+                .from(vehicleTypes)
+                .where(and(eq(vehicleTypes.platform_id, platformId), eq(vehicleTypes.is_active, true)))
+                .orderBy(desc(vehicleTypes.vehicle_size))
+                .limit(1);
+
+            if (!largestVehicle) {
+                throw new CustomizedError(httpStatus.NOT_FOUND, "No vehicle types configuration found");
+            }
+
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                `Total volume (${volume} m3) exceeds the capacity of the largest available vehicle`
+            );
+        }
+    }
 
     const transportRateInfo = await TransportRatesServices.lookupTransportRate(
         platformId,
