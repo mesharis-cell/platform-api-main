@@ -25,8 +25,8 @@ router.post(
 // PATCH /:id -> updateVehicleType
 router.patch(
   "/:id",
-  auth("ADMIN"),
   platformValidator,
+  auth("ADMIN"),
   payloadValidator(vehicleTypeSchemas.updateVehicleType),
   VehicleTypeControllers.updateVehicleType
 );
