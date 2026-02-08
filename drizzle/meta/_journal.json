@@ -57,6 +57,13 @@
       "when": 1770451709349,
       "tag": "0007_aberrant_goliath",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1770538077272,
+      "tag": "0008_oval_aaron_stack",
+      "breakpoints": true
     }
   ]
 }

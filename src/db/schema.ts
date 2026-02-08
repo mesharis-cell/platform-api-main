@@ -1418,9 +1418,8 @@ export const inboundRequestItems = pgTable(
 export const vehicleTypes = pgTable("vehicle_types", {
     id: uuid("id").primaryKey().defaultRandom(),
     name: varchar("name", { length: 100 }).notNull(),
-    vehicle_size: varchar("vehicle_size", { length: 100 }).notNull(),
+    vehicle_size: integer("vehicle_size").notNull(),
     platform_id: uuid("platform_id").references(() => platforms.id),
-    is_default: boolean("is_default").notNull().default(false),
     is_active: boolean("is_active").notNull().default(true),
     display_order: integer("display_order").notNull().default(1),
     description: text("description"),
