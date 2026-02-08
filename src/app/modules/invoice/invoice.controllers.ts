@@ -152,7 +152,7 @@ const downloadIRCostEstimatePDF = catchAsync(async (req, res) => {
     const requestId = getRequiredString(req.params.requestId, "requestId");
 
     const request = await db.query.inboundRequests.findFirst({
-        where: and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)),
+        where: and(eq(inboundRequests.inbound_request_id, requestId), eq(inboundRequests.platform_id, platformId)),
         with: {
             company: true,
         },
