@@ -203,11 +203,18 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
                 order_status: orders.order_status,
                 financial_status: orders.financial_status,
             },
+            inbound_request: {
+                id: inboundRequests.id,
+                inbound_request_id: inboundRequests.inbound_request_id,
+                request_status: inboundRequests.request_status,
+                financial_status: inboundRequests.financial_status,
+                incoming_at: inboundRequests.incoming_at,
+            },
             company: {
                 id: companies.id,
                 name: companies.name,
             },
-            order_pricing: {
+            pricing: {
                 warehouse_ops_rate: prices.warehouse_ops_rate,
                 base_ops_total: prices.base_ops_total,
                 logistics_sub_total: prices.logistics_sub_total,
@@ -246,7 +253,7 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
 
     // Step 7: Format results
     const formattedResults = results.map((item) => {
-        const { invoice, order, company, order_pricing } = item;
+        const { invoice, order, inbound_request, company, pricing } = item;
         return {
             id: invoice.id,
             invoice_id: invoice.invoice_id,
@@ -261,9 +268,19 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
                     contact_name: order.contact_name,
                     event_start_date: order.event_start_date,
                     venue_name: order.venue_name,
-                    order_pricing: order_pricing,
+                    pricing: pricing,
                     order_status: order.order_status,
                     financial_status: order.financial_status,
+                }
+                : null,
+            inbound_request: inbound_request
+                ? {
+                    id: inbound_request.id,
+                    inbound_request_id: inbound_request.inbound_request_id,
+                    request_status: inbound_request.request_status,
+                    financial_status: inbound_request.financial_status,
+                    incoming_at: inbound_request.incoming_at,
+                    pricing: pricing,
                 }
                 : null,
             company: {
