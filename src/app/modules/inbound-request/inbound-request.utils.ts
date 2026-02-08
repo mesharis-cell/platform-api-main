@@ -51,6 +51,7 @@ export const inboundRequestQueryValidationConfig = {
     financial_status: financialStatusEnum.enumValues,
 };
 
+// ------------------------------------- GENERATE COST ESTIMATE AND SEND EMAIL ------------------
 type GenerateCostEstimateAndSendEmailPayload = {
     request_id: string;
     platform_id: string;
@@ -58,18 +59,19 @@ type GenerateCostEstimateAndSendEmailPayload = {
     inbound_request_id: string;
     company_name: string;
     final_total_price: string;
+    regenarate?: boolean;
 }
 
 export const generateCostEstimateAndSendEmail = async (payload: GenerateCostEstimateAndSendEmailPayload) => {
-    const { request_id, platform_id, email, inbound_request_id, company_name, final_total_price } = payload;
+    const { request_id, platform_id, email, inbound_request_id, company_name, final_total_price, regenarate = false } = payload;
 
     // Step 4: Generate cost estimate PDF
-    const { pdf_buffer } = await inboundRequestCostEstimateGenerator(request_id, platform_id);
+    const { pdf_buffer } = await inboundRequestCostEstimateGenerator(request_id, platform_id, regenarate);
 
     // Step 5: Send email to requester
     await sendEmail({
         to: email,
-        subject: `Invoice ${inbound_request_id} for inbound request ${inbound_request_id}`,
+        subject: `${regenarate ? "Regenerated" : "Cost Estimate"} for Inbound Request ${inbound_request_id}`,
         html: emailTemplates.send_ir_cost_estimate_to_client({
             inbound_request_id: inbound_request_id,
             company_name: company_name,
