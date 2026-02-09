@@ -287,12 +287,14 @@ export const checkAssetsForOrder = async (
         } else {
             const remainingQuantity = Math.max(0, availableQuantity - item.quantity);
 
-            const assetStatus: AssetStatus =
-                asset.tracking_method === "INDIVIDUAL"
-                    ? "BOOKED"
-                    : remainingQuantity <= 0
-                        ? "BOOKED"
-                        : "AVAILABLE";
+            // const assetStatus: AssetStatus =
+            //     asset.tracking_method === "INDIVIDUAL"
+            //         ? "BOOKED"
+            //         : remainingQuantity <= 0
+            //             ? "BOOKED"
+            //             : "AVAILABLE";
+
+            const assetStatus: AssetStatus = "BOOKED";
 
             availableItems.push({
                 ...asset,

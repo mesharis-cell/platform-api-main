@@ -50,14 +50,14 @@ router.post(
 );
 
 // Complete maintenance
-router.post(
-    "/complete-maintenance",
-    platformValidator,
-    auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.CONDITIONS_COMPLETE_MAINTENANCE),
-    payloadValidator(AssetSchemas.completeMaintenanceSchema),
-    AssetControllers.completeMaintenance
-);
+// router.post(
+//     "/complete-maintenance",
+//     platformValidator,
+//     auth("ADMIN", "LOGISTICS"),
+//     requirePermission(PERMISSIONS.CONDITIONS_COMPLETE_MAINTENANCE),
+//     payloadValidator(AssetSchemas.completeMaintenanceSchema),
+//     AssetControllers.completeMaintenance
+// );
 
 // Batch availability check
 router.post(
@@ -109,6 +109,24 @@ router.get(
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
     AssetControllers.getAssetScanHistory
+);
+
+// Sent asset to maintenance
+router.patch(
+    "/:id/sent-to-maintenance",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    // requirePermission(PERMISSIONS.CONDITIONS_COMPLETE_MAINTENANCE),
+    AssetControllers.sentAssetToMaintenance
+);
+
+// Complete maintenance
+router.patch(
+    "/:id/complete-maintenance",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    // requirePermission(PERMISSIONS.CONDITIONS_COMPLETE_MAINTENANCE),
+    AssetControllers.completeMaintenance
 );
 
 // Update asset

@@ -1,4 +1,4 @@
-import { and, count, desc, eq, ilike, isNull, or } from "drizzle-orm";
+import { and, count, desc, eq, ilike, isNull, ne, or } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
 import { assets, collections, companies } from "../../../db/schema";
@@ -80,7 +80,7 @@ const getCatalog = async (
         );
     }
 
-    // assetConditions.push(eq(assets.status, "AVAILABLE"));
+    assetConditions.push(ne(assets.status, "TRANSFORMED"));
     assetConditions.push(isNull(assets.deleted_at));
 
     // Build Collection Conditions

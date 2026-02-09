@@ -169,6 +169,10 @@ const completeReskinRequest = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Reskin request not found");
     }
 
+    if (reskinRequest.original_asset.condition !== "GREEN") {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Asset is need to maintenance to be reskined");
+    }
+
     if (reskinRequest.completed_at) {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Reskin request already completed");
     }
@@ -252,53 +256,53 @@ const completeReskinRequest = async (
     const stillPending = await getPendingReskins(reskinRequest.order_id, platformId);
 
     // If all complete and order is AWAITING_FABRICATION, transition to IN_PREPARATION
-    if (
-        stillPending.length === 0 &&
-        reskinRequest.order_item &&
-        (reskinRequest.order_item as any).order
-    ) {
-        const order: any = (reskinRequest.order_item as any).order;
-        if (order.order_status === "AWAITING_FABRICATION") {
-            await db
-                .update(orders)
-                .set({
-                    order_status: "IN_PREPARATION",
-                    updated_at: new Date(),
-                })
-                .where(eq(orders.id, order.id));
+    // if (
+    //     stillPending.length === 0 &&
+    //     reskinRequest.order_item &&
+    //     (reskinRequest.order_item as any).order
+    // ) {
+    //     const order: any = (reskinRequest.order_item as any).order;
+    //     if (order.order_status === "AWAITING_FABRICATION") {
+    //         await db
+    //             .update(orders)
+    //             .set({
+    //                 order_status: "IN_PREPARATION",
+    //                 updated_at: new Date(),
+    //             })
+    //             .where(eq(orders.id, order.id));
 
-            await db.insert(orderStatusHistory).values({
-                platform_id: platformId,
-                order_id: order.id,
-                status: "IN_PREPARATION",
-                notes: "All fabrication complete, ready for preparation",
-                updated_by: completed_by,
-            });
+    //         await db.insert(orderStatusHistory).values({
+    //             platform_id: platformId,
+    //             order_id: order.id,
+    //             status: "IN_PREPARATION",
+    //             notes: "All fabrication complete, ready for preparation",
+    //             updated_by: completed_by,
+    //         });
 
-            const orderForNotification = await db.query.orders.findFirst({
-                where: eq(orders.id, order.id),
-                with: { company: true },
-            });
+    //         const orderForNotification = await db.query.orders.findFirst({
+    //             where: eq(orders.id, order.id),
+    //             with: { company: true },
+    //         });
 
-            if (orderForNotification) {
-                await NotificationLogServices.sendNotification(
-                    platformId,
-                    "FABRICATION_COMPLETE",
-                    orderForNotification,
-                    undefined,
-                    {
-                        fabrication_items: [
-                            {
-                                original_asset_name: originalAsset.name,
-                                new_asset_name: new_asset_name,
-                                new_qr_code: newAsset.qr_code,
-                            },
-                        ],
-                    }
-                );
-            }
-        }
-    }
+    //         if (orderForNotification) {
+    //             await NotificationLogServices.sendNotification(
+    //                 platformId,
+    //                 "FABRICATION_COMPLETE",
+    //                 orderForNotification,
+    //                 undefined,
+    //                 {
+    //                     fabrication_items: [
+    //                         {
+    //                             original_asset_name: originalAsset.name,
+    //                             new_asset_name: new_asset_name,
+    //                             new_qr_code: newAsset.qr_code,
+    //                         },
+    //                     ],
+    //                 }
+    //             );
+    //         }
+    //     }
+    // }
 
     return {
         reskin_request: await db.query.reskinRequests.findFirst({
