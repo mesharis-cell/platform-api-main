@@ -549,6 +549,9 @@ const approveInboundRequestByAdmin = async (
                 platform_margin_percent: companies.platform_margin_percent,
                 warehouse_ops_rate: companies.warehouse_ops_rate,
             },
+            requester: {
+                email: users.email,
+            },
             request_pricing: {
                 warehouse_ops_rate: prices.warehouse_ops_rate,
                 base_ops_total: prices.base_ops_total,
@@ -563,12 +566,14 @@ const approveInboundRequestByAdmin = async (
         .from(inboundRequests)
         .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
         .leftJoin(prices, eq(inboundRequests.request_pricing_id, prices.id))
+        .leftJoin(users, eq(inboundRequests.requester_id, users.id))
         .where(and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)))
         .limit(1);
 
     const inboundRequest = result.inbound_request;
     const company = result.company;
     const requestPricing = result.request_pricing;
+    const requester = result.requester;
 
     if (!inboundRequest) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found");
@@ -578,6 +583,9 @@ const approveInboundRequestByAdmin = async (
     }
     if (!requestPricing) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Request pricing not found for this inbound request");
+    }
+    if (!requester) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Requester not found for this inbound request");
     }
 
     if (inboundRequest.request_status !== "PENDING_APPROVAL") {
@@ -628,7 +636,27 @@ const approveInboundRequestByAdmin = async (
 
 
     // Step 4: Generate cost estimate PDF
-    await inboundRequestCostEstimateGenerator(requestId, platformId);
+    const { pdf_buffer } = await inboundRequestCostEstimateGenerator(requestId, platformId);
+
+    // Step 5: Send email to requester
+    await sendEmail({
+        to: requester.email,
+        subject: `Invoice ${inboundRequest.inbound_request_id} for inbound request ${inboundRequest.inbound_request_id}`,
+        html: emailTemplates.send_ir_cost_estimate_to_client({
+            inbound_request_id: inboundRequest.inbound_request_id,
+            company_name: company?.name || "N/A",
+            final_total_price: String(requestPricing?.final_total),
+            download_estimate_url: `${config.server_url}/client/v1/invoice/download-ir-cost-estimate-pdf/${inboundRequest.inbound_request_id}?pid=${platformId}`,
+        }),
+        attachments: pdf_buffer
+            ? [
+                {
+                    filename: `${inboundRequest.inbound_request_id}.pdf`,
+                    content: pdf_buffer,
+                },
+            ]
+            : undefined,
+    });
 
     // TODO
     // // Step 4: Send notification
@@ -1127,7 +1155,7 @@ const completeInboundRequest = async (
     // Step 7: Generate invoice
     const { invoice_id, invoice_pdf_url, pdf_buffer } = await inboundRequestInvoiceGenerator(requestId, platformId, user);
 
-    // Step 8: Send email to client and admin
+    // Step 8: Send email to client and admin //
     if (invoice_id && invoice_pdf_url) {
         // Send email to client
         await sendEmail({

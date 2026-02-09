@@ -7,7 +7,7 @@ import { and, asc, count, desc, eq, ilike, or } from "drizzle-orm";
 import paginationMaker from "../../utils/pagination-maker";
 
 const createVehicleType = async (data: CreateVehicleTypePayload) => {
-  const { platform_id, name, vehicle_size, is_active, display_order, description } = data;
+  const { platform_id, name, vehicle_size, is_active, display_order, description, is_default } = data;
 
   const [existing] = await db
     .select()
@@ -22,6 +22,14 @@ const createVehicleType = async (data: CreateVehicleTypePayload) => {
     );
   }
 
+  // If this is set as default, unset others first
+  if (is_default) {
+    await db
+      .update(vehicleTypes)
+      .set({ is_default: false })
+      .where(eq(vehicleTypes.platform_id, platform_id));
+  }
+
   const [result] = await db
     .insert(vehicleTypes)
     .values({
@@ -31,6 +39,7 @@ const createVehicleType = async (data: CreateVehicleTypePayload) => {
       is_active,
       display_order,
       description,
+      is_default: is_default || false,
     })
     .returning();
 
@@ -84,7 +93,7 @@ const getVehicleTypes = async (query: Record<string, any>, platformId: string) =
 };
 
 const updateVehicleType = async (id: string, data: UpdateVehicleTypePayload) => {
-  const { platform_id, name, vehicle_size, is_active, display_order, description } = data;
+  const { platform_id, name, vehicle_size, is_active, display_order, description, is_default } = data;
 
   const [existing] = await db
     .select()
@@ -96,15 +105,29 @@ const updateVehicleType = async (id: string, data: UpdateVehicleTypePayload) => 
     throw new CustomizedError(httpStatus.NOT_FOUND, "Vehicle type not found");
   }
 
+  // If setting as default, unset others
+  if (is_default) {
+    await db
+      .update(vehicleTypes)
+      .set({ is_default: false })
+      .where(
+        and(
+          eq(vehicleTypes.platform_id, platform_id),
+          // Don't need to exclude current ID since we'll update it right after, 
+          // but logically it's cleaner to unset all then set one.
+        )
+      );
+  }
+
   const [result] = await db
     .update(vehicleTypes)
     .set({
-      platform_id,
       name,
       vehicle_size,
       is_active,
       display_order,
       description,
+      is_default,
     })
     .where(eq(vehicleTypes.id, id))
     .returning();

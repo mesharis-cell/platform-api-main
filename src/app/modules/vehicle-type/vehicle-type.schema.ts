@@ -2,15 +2,12 @@ import { z } from "zod";
 
 const createVehicleType = z.object({
   body: z.object({
-    name: z
-      .string()
-      .min(2, { message: "Vehicle type name must be at least 2 characters long" })
+    name: z.string()
+      .min(1, { message: "Vehicle type name is required" })
       .max(100, { message: "Vehicle type name cannot exceed 100 characters" }),
-    vehicle_size: z
-      .string()
-      .min(2, { message: "Vehicle size must be at least 2 characters long" })
-      .max(100, { message: "Vehicle size cannot exceed 100 characters" }),
+    vehicle_size: z.number().min(1, { message: "Vehicle size is required" }),
     is_active: z.boolean().optional().default(true),
+    is_default: z.boolean().optional().default(false),
     display_order: z.number().optional().default(1),
     description: z.string().optional(),
   }),
@@ -18,18 +15,15 @@ const createVehicleType = z.object({
 
 const updateVehicleType = z.object({
   body: z.object({
-    name: z
-      .string()
-      .min(2, { message: "Vehicle type name must be at least 2 characters long" })
+    name: z.string()
+      .min(1, { message: "Vehicle type name is required" })
       .max(100, { message: "Vehicle type name cannot exceed 100 characters" }),
-    vehicle_size: z
-      .string()
-      .min(2, { message: "Vehicle size must be at least 2 characters long" })
-      .max(100, { message: "Vehicle size cannot exceed 100 characters" }),
+    vehicle_size: z.number().min(1, { message: "Vehicle size is required" }),
     is_active: z.boolean().optional().default(true),
+    is_default: z.boolean().optional().default(false),
     display_order: z.number().optional().default(1),
     description: z.string().optional(),
-  }),
+  }).partial(),
 });
 
 export const vehicleTypeSchemas = {
