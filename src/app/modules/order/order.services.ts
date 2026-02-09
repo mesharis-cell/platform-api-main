@@ -11,7 +11,6 @@ import {
     companies,
     financialStatusHistory,
     invoices,
-    orderItems,
     lineItems,
     prices,
     orders,
@@ -21,6 +20,7 @@ import {
     users,
     vehicleTypes,
     countries,
+    orderItems,
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
@@ -993,6 +993,7 @@ const getOrderById = async (
             asset: {
                 id: assets.id,
                 name: assets.name,
+                status: assets.status,
                 condition: assets.condition,
                 refurbishment_days_estimate: assets.refurb_days_estimate,
             },
@@ -1208,6 +1209,49 @@ const progressOrderStatus = async (
 
     // Step 4.5: Validate date-based transitions
     const today = dayjs().startOf("day");
+
+    if (currentStatus === 'AWAITING_FABRICATION' || currentStatus === 'CONFIRMED') {
+        // fetch all assets item and check if all assets condition is GREEN
+        const assetsList = await db.select()
+            .from(orderItems)
+            .innerJoin(assets, eq(orderItems.asset_id, assets.id))
+            .where(eq(orderItems.order_id, order.id))
+
+        // check if all assets condition is GREEN
+        const allAssetsConditionGreen = assetsList.every((asset) => asset.assets.condition === "GREEN");
+
+        if (!allAssetsConditionGreen) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "All assets condition must be GREEN before transitioning to AWAITING_FABRICATION or CONFIRMED"
+            );
+        }
+
+        // Fetch all reskin request and check if all rekin request is completed
+        const requests = await db.query.reskinRequests.findMany({
+            where: and(
+                eq(reskinRequests.order_id, orderId),
+                eq(reskinRequests.platform_id, platformId)
+            ),
+            with: {
+                order_item: true,
+                original_asset: true,
+                target_brand: true,
+                new_asset: true,
+            },
+        });
+
+        // Check if all reskin requests are completed
+        const allReskinRequestsCompleted = requests.every((request) => request.completed_at !== null);
+
+        if (!allReskinRequestsCompleted) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "All reskin requests must be completed before transitioning to AWAITING_FABRICATION or CONFIRMED"
+            );
+        }
+
+    }
 
     // Check if transitioning from DELIVERED to IN_USE
     if (currentStatus === "DELIVERED" && new_status === "IN_USE") {
@@ -2516,5 +2560,5 @@ export const OrderServices = {
     cancelOrder,
     calculateEstimate,
     updateOrderVehicle,
-    addTruckDetails
+    addTruckDetails,
 };

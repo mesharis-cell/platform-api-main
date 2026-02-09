@@ -8,7 +8,7 @@ import { ApproveInboundRequestPayload, ApproveOrDeclineQuoteByClientPayload, Can
 import { qrCodeGenerator } from "../../utils/qr-code-generator";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
-import { inboundRequestIdGenerator, inboundRequestQueryValidationConfig, inboundRequestSortableFields } from "./inbound-request.utils";
+import { generateCostEstimateAndSendEmail, inboundRequestIdGenerator, inboundRequestQueryValidationConfig, inboundRequestSortableFields } from "./inbound-request.utils";
 import { LineItemsServices } from "../order-line-items/order-line-items.services";
 import { inboundRequestInvoiceGenerator } from "../../utils/inbound-request-invoice";
 import { inboundRequestCostEstimateGenerator } from "../../utils/inbound-request-cost-estimate";
@@ -636,26 +636,13 @@ const approveInboundRequestByAdmin = async (
 
 
     // Step 4: Generate cost estimate PDF
-    const { pdf_buffer } = await inboundRequestCostEstimateGenerator(requestId, platformId);
-
-    // Step 5: Send email to requester
-    await sendEmail({
-        to: requester.email,
-        subject: `Invoice ${inboundRequest.inbound_request_id} for inbound request ${inboundRequest.inbound_request_id}`,
-        html: emailTemplates.send_ir_cost_estimate_to_client({
-            inbound_request_id: inboundRequest.inbound_request_id,
-            company_name: company?.name || "N/A",
-            final_total_price: String(requestPricing?.final_total),
-            download_estimate_url: `${config.server_url}/client/v1/invoice/download-ir-cost-estimate-pdf/${inboundRequest.inbound_request_id}?pid=${platformId}`,
-        }),
-        attachments: pdf_buffer
-            ? [
-                {
-                    filename: `${inboundRequest.inbound_request_id}.pdf`,
-                    content: pdf_buffer,
-                },
-            ]
-            : undefined,
+    await generateCostEstimateAndSendEmail({
+        request_id: requestId,
+        platform_id: platformId,
+        email: requester.email,
+        inbound_request_id: inboundRequest.inbound_request_id,
+        company_name: company?.name || "N/A",
+        final_total_price: String(requestPricing?.final_total),
     });
 
     // TODO

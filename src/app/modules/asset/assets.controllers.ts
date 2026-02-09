@@ -217,14 +217,29 @@ const generateQRCode = catchAsync(async (req, res) => {
 // ----------------------------------- COMPLETE MAINTENANCE -------------------------------
 const completeMaintenance = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
-    const user = (req as any).user;
+    const asset_id = req.params.id;
 
-    const result = await AssetServices.completeMaintenance(req.body, user, platformId);
+    const result = await AssetServices.completeAssetMaintenance(asset_id, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
         success: true,
         message: "Maintenance completed successfully",
+        data: result,
+    });
+});
+
+// ----------------------------------- SENT ASSET TO MAINTENANCE ------------------------------
+const sentAssetToMaintenance = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const asset_id = req.params.id;
+
+    const result = await AssetServices.sentAssetToMaintenance(asset_id, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Asset sent to maintenance successfully",
         data: result,
     });
 });
@@ -243,4 +258,5 @@ export const AssetControllers = {
     addConditionHistory,
     generateQRCode,
     completeMaintenance,
+    sentAssetToMaintenance
 };
