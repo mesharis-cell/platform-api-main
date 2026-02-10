@@ -55,6 +55,10 @@ export const PERMISSIONS = {
     ASSETS_DELETE: "assets:delete", // ✅
     ASSETS_GENERATE_QR: "assets:generate_qr", // ✅
     ASSETS_UPLOAD_PHOTOS: "assets:upload_photos",
+    ASSETS_BULK_UPLOAD: "assets:bulk_upload", // ✅
+    ASSETS_CHECK_AVAILABILITY: "assets:check_availability", // ✅
+    ASSETS_AVAILABILITY_STATS: "assets:availability_stats", // ✅
+    ASSETS_SCAN_HISTORY: "assets:scan_history", // ✅
     ASSETS_ALL: "assets:*",
 
     // ==================== COLLECTION MANAGEMENT ====================
@@ -199,6 +203,9 @@ export const PERMISSION_TEMPLATES = {
         PERMISSIONS.CONDITIONS_ALL,
         PERMISSIONS.LIFECYCLE_PROGRESS_STATUS,
         PERMISSIONS.LIFECYCLE_RECEIVE_NOTIFICATIONS,
+        PERMISSIONS.ASSETS_CHECK_AVAILABILITY,
+        PERMISSIONS.ASSETS_AVAILABILITY_STATS,
+        PERMISSIONS.ASSETS_SCAN_HISTORY
     ],
     CLIENT_USER: [
         PERMISSIONS.AUTH_LOGIN,
@@ -217,6 +224,8 @@ export const PERMISSION_TEMPLATES = {
         PERMISSIONS.INVOICES_READ,
         PERMISSIONS.INVOICES_DOWNLOAD,
         PERMISSIONS.LIFECYCLE_RECEIVE_NOTIFICATIONS,
+        PERMISSIONS.ASSETS_CHECK_AVAILABILITY,
+        PERMISSIONS.ASSETS_AVAILABILITY_STATS
     ],
 };
 
