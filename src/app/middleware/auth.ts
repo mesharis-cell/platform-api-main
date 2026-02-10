@@ -15,6 +15,8 @@ const auth = (...roles: UserRole[]) => {
         try {
             const platformId = (req as any).platformId;
 
+            console.log("Platform ID:", platformId);
+
             let token = req.headers.authorization;
             if (token?.startsWith("Bearer ")) {
                 token = token.split("Bearer ")[1];
@@ -24,6 +26,8 @@ const auth = (...roles: UserRole[]) => {
             }
 
             const verifiedUser = tokenVerifier(token, config.jwt_access_secret) as AuthUser;
+
+            console.log("Verified User:", verifiedUser);
 
             const [user] = await db
                 .select()
