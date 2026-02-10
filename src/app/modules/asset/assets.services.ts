@@ -1193,7 +1193,7 @@ const bulkUploadAssets = async (file: Express.Multer.File, user: AuthUser, platf
     }
 
     // Step 4: Transform and prepare data for insertion
-    const assetsToInsert = valid_rows.map((row) => {
+    const assetsToInsert = await Promise.all(valid_rows.map(async (row) => {
         // Remove rowNumber and any other non-schema fields
         const { rowNumber, ...assetData } = row;
 
@@ -1215,7 +1215,10 @@ const bulkUploadAssets = async (file: Express.Multer.File, user: AuthUser, platf
             return field === "" || field === null || field === undefined ? undefined : field;
         };
 
+        const qrCode = await qrCodeGenerator(assetData.company_id);
+
         // Parse JSON fields
+        assetData.qr_code = qrCode;
         assetData.images = parseJsonField(assetData.images, []);
         assetData.dimensions = parseJsonField(assetData.dimensions, {});
         assetData.handling_tags = parseJsonField(assetData.handling_tags, []);
@@ -1263,7 +1266,7 @@ const bulkUploadAssets = async (file: Express.Multer.File, user: AuthUser, platf
         assetData.platform_id = platformId;
 
         return assetData;
-    });
+    }));
 
     // Step 5: Insert assets into database
     const insertedAssets = (await db

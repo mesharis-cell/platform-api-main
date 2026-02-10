@@ -148,8 +148,8 @@ const updateAssetSchema = z.object({
             .nullable(),
         handling_tags: z.array(z.string()).optional(),
         status: z
-            .enum(["AVAILABLE", "OUT"], {
-                message: enumMessageGenerator("Status", ["AVAILABLE", "OUT"]),
+            .enum(Object.values(assetStatusEnum.enumValues), {
+                message: enumMessageGenerator("Status", Object.values(assetStatusEnum.enumValues)),
             })
             .optional(),
     }),
