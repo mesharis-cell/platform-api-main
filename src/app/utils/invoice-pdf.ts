@@ -310,20 +310,21 @@ export async function renderInvoicePDF(
                         .fillColor("#000")
                         .text(String(index + 1), colSNoX, rowY, { width: 30, align: "center" });
 
-                    // Description
+                    // Line item human redable id
                     doc.fontSize(10)
                         .font("Helvetica")
                         .fillColor("#000")
-                        .text(item.description, colDescX, rowY, {
+                        .text(item.line_item_id, colDescX, rowY, {
                             width: contentWidth * 0.45,
                             continued: false,
                         });
 
-                    if (item.line_item_id) {
+                    // Description
+                    if (item.description) {
                         doc.fontSize(8)
                             .font("Helvetica")
                             .fillColor("#666")
-                            .text(item.line_item_id, colDescX, doc.y + 2, {
+                            .text(item.description, colDescX, doc.y + 2, {
                                 width: contentWidth * 0.45,
                                 continued: false,
                             });

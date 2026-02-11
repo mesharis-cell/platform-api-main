@@ -293,14 +293,25 @@ export async function renderInboundRequestInvoicePDF(
                         .fillColor("#000")
                         .text(String(index + 1), colSNoX, rowY, { width: 30, align: "center" });
 
-                    // Description
+                    // Line item human readable id
                     doc.fontSize(10)
                         .font("Helvetica")
                         .fillColor("#000")
-                        .text(item.description, colDescX, rowY, {
+                        .text(item.line_item_id, colDescX, rowY, {
                             width: contentWidth * 0.45,
                             continued: false,
                         });
+
+                    // description
+                    if (item.description) {
+                        doc.fontSize(8)
+                            .font("Helvetica")
+                            .fillColor("#666")
+                            .text(item.description, colDescX, doc.y + 2, {
+                                width: contentWidth * 0.45,
+                                continued: false,
+                            });
+                    }
 
                     // Quantity
                     doc.fontSize(10)

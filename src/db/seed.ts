@@ -208,7 +208,7 @@ async function seedPlatforms() {
             },
             {
                 name: "Production Demo Platform",
-                domain: "demo.platform.com",
+                domain: "amplifyapp.com",
                 config: {
                     logo_url: "https://via.placeholder.com/200x80/3b82f6/ffffff?text=DEMO+Platform",
                     primary_color: "#3b82f6",
@@ -264,12 +264,12 @@ async function seedCompanies() {
             // Platform 1 companies
             {
                 platform_id: platform1.id,
-                name: "Diageo",
-                domain: "diageo",
+                name: "Amplify test company",
+                domain: "staging.d2xpl5tyv9gv2p",
                 settings: {
                     branding: {
-                        title: "Diageo Events",
-                        logo_url: generateBrandLogo("Diageo"),
+                        title: "Amplify test company",
+                        logo_url: generateBrandLogo("Amplify test company"),
                         primary_color: "#8B0000",
                         secondary_color: "#FFD700",
                     },
