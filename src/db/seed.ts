@@ -163,6 +163,7 @@ const seededData = {
     zones: [] as any[],
     pricingConfigs: [] as any[],
     transportRates: [] as any[],
+    vehicleTypes: [] as any[],
     serviceTypes: [] as any[],
     assets: [] as any[],
     collections: [] as any[],
@@ -775,6 +776,45 @@ async function seedZones() {
     console.log(`✓ Created ${inserted.length} zones`);
 }
 
+async function seedVehicleTypes() {
+    console.log("🚛 Seeding vehicle types...");
+
+    const platform1 = seededData.platforms[0];
+
+    const vehicleTypes = await db
+        .insert(schema.vehicleTypes)
+        .values([
+            {
+                name: "Standard Truck",
+                vehicle_size: "Standard",
+                platform_id: platform1.id,
+                description: "Standard delivery truck suitable for most small to medium loads",
+                is_default: true,
+                display_order: 1,
+            },
+            {
+                name: "7 Ton Truck",
+                vehicle_size: "7_TON",
+                platform_id: platform1.id,
+                description: "Large truck for heavy loads up to 7 tons",
+                is_default: false,
+                display_order: 2,
+            },
+            {
+                name: "10 Ton Truck",
+                vehicle_size: "10_TON",
+                platform_id: platform1.id,
+                description: "Extra large truck for very heavy loads up to 10 tons",
+                is_default: false,
+                display_order: 3,
+            },
+        ])
+        .returning();
+
+    seededData.vehicleTypes = vehicleTypes;
+    console.log(`✓ Created ${vehicleTypes.length} vehicle types`);
+}
+
 async function seedTransportRates() {
     console.log("🚚 Seeding transport rates...");
 
@@ -812,15 +852,18 @@ async function seedTransportRates() {
     console.log(`✓ Created ${insertedCities.length} cities for ${country.name} in ${platform1.name}`);
 
     const tripTypes: ("ONE_WAY" | "ROUND_TRIP")[] = ["ONE_WAY", "ROUND_TRIP"];
-    const vehicleTypes: ("STANDARD" | "7_TON" | "10_TON")[] = ["STANDARD", "7_TON", "10_TON"];
 
     const rates = [];
 
     for (const city of insertedCities) {
         for (const tripType of tripTypes) {
-            for (const vehicleType of vehicleTypes) {
+            for (const vehicleType of seededData.vehicleTypes) {
                 const baseRate =
-                    vehicleType === "STANDARD" ? 500 : vehicleType === "7_TON" ? 800 : 1200;
+                    vehicleType.vehicle_size === "Standard"
+                        ? 500
+                        : vehicleType.vehicle_size === "7_TON"
+                            ? 800
+                            : 1200;
                 const tripMultiplier = tripType === "ROUND_TRIP" ? 1.8 : 1;
                 const rate = baseRate * tripMultiplier;
 
@@ -830,7 +873,7 @@ async function seedTransportRates() {
                     city_id: city.id,
                     area: null,
                     trip_type: tripType,
-                    vehicle_type_id: vehicleType, // TODO: Add vehicle type id
+                    vehicle_type_id: vehicleType.id,
                     rate: rate.toString(),
                     is_active: true,
                 });
@@ -2382,6 +2425,7 @@ async function main() {
         await seedUsers();
         await seedBrands();
         await seedZones();
+        await seedVehicleTypes(); // Added call to seedVehicleTypes
 
         // Phase 2: Pricing & configuration
         await seedTransportRates();
@@ -2426,6 +2470,7 @@ async function main() {
         console.log(`  - Collection Items: ${seededData.collectionItems.length}`);
         console.log(`  - Pricing Configs: ${seededData.pricingConfigs.length}`);
         console.log(`  - Transport Rates: ${seededData.transportRates.length}`);
+        console.log(`  - Vehicle Types: ${seededData.vehicleTypes.length}`);
         console.log(`  - Service Types: ${seededData.serviceTypes.length}`);
         console.log(`  - Orders: ${seededData.orders.length} (${seededData.orders.filter(o => o.order_status === 'AWAITING_FABRICATION').length} awaiting fabrication)`);
         console.log(`  - Order Items: ${seededData.orderItems.length} (${seededData.orderItems.filter(i => i.is_reskin_request).length} reskin requests)`);
