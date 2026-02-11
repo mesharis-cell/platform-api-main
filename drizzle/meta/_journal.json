@@ -71,6 +71,13 @@
       "when": 1770540615666,
       "tag": "0009_minor_lionheart",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1770793359814,
+      "tag": "0010_wandering_the_executioner",
+      "breakpoints": true
     }
   ]
 }

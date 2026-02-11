@@ -17,7 +17,7 @@ const calculateEstimateSchema = z.object({
             tripTypeEnum.enumValues,
             enumMessageGenerator("Trip type", tripTypeEnum.enumValues)
         ),
-    }),
+    }).strict(),
 });
 
 export const orderItemSchema = z

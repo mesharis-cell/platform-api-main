@@ -100,6 +100,8 @@ const calculateEstimate = async (
         }
     }
 
+    console.log("total volume: ", totalVolume)
+
     // Step 5: Determine margin and check for rebrand items
     const marginPercent = parseFloat(company.platform_margin_percent);
     const hasRebrandItems = items.some((item) => item.is_reskin_request);
@@ -114,7 +116,7 @@ const calculateEstimate = async (
             and(
                 eq(vehicleTypes.platform_id, platformId),
                 eq(vehicleTypes.is_active, true),
-                gte(vehicleTypes.vehicle_size, totalVolume)
+                gte(vehicleTypes.vehicle_size, totalVolume.toString())
             )
         )
         .orderBy(asc(vehicleTypes.vehicle_size))
@@ -337,7 +339,7 @@ const submitOrderFromCart = async (
             and(
                 eq(vehicleTypes.platform_id, platformId),
                 eq(vehicleTypes.is_active, true),
-                gte(vehicleTypes.vehicle_size, volume)
+                gte(vehicleTypes.vehicle_size, volume.toString())
             )
         )
         .orderBy(asc(vehicleTypes.vehicle_size))

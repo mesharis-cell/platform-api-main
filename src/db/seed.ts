@@ -794,7 +794,7 @@ async function seedVehicleTypes() {
         .values([
             {
                 name: "Standard Truck",
-                vehicle_size: 15, // 15 cbm
+                vehicle_size: '15', // 15 cbm
                 platform_id: platform1.id,
                 description: "Standard delivery truck suitable for most small to medium loads",
                 is_default: true,
@@ -802,7 +802,7 @@ async function seedVehicleTypes() {
             },
             {
                 name: "7 Ton Truck",
-                vehicle_size: 40, // 40 cbm
+                vehicle_size: '40', // 40 cbm
                 platform_id: platform1.id,
                 description: "Large truck for heavy loads up to 7 tons",
                 is_default: false,
@@ -810,7 +810,7 @@ async function seedVehicleTypes() {
             },
             {
                 name: "10 Ton Truck",
-                vehicle_size: 60, // 60 cbm
+                vehicle_size: '60', // 60 cbm
                 platform_id: platform1.id,
                 description: "Extra large truck for very heavy loads up to 10 tons",
                 is_default: false,

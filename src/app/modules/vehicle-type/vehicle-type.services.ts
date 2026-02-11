@@ -35,7 +35,7 @@ const createVehicleType = async (data: CreateVehicleTypePayload) => {
     .values({
       platform_id,
       name,
-      vehicle_size,
+      vehicle_size: vehicle_size.toString(),
       is_active,
       display_order,
       description,
@@ -123,7 +123,7 @@ const updateVehicleType = async (id: string, data: UpdateVehicleTypePayload) => 
     .update(vehicleTypes)
     .set({
       name,
-      vehicle_size,
+      ...(vehicle_size && { vehicle_size: vehicle_size.toString() }),
       is_active,
       display_order,
       description,
