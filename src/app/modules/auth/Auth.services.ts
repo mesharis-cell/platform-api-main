@@ -88,18 +88,165 @@ const login = async (credential: LoginCredential, platformId: string) => {
     };
 };
 
+// const getConfigByHostname = async (origin: string) => {
+//     const url = new URL(origin);
+//     const hostname = url.hostname;
+//     const subdomain = hostname.split(".")[0];
+
+//     // Production environment
+//     if (config.node_env === "production") {
+//         // Step 1: Check if sub domain is admin or warehouse
+//         if (subdomain === "admin" || subdomain === "warehouse" || ) {
+//             const rootDomain = hostname.split(".").slice(1).join(".");
+
+//             // Step 2: Return platform config
+//             const [platform] = await db
+//                 .select({
+//                     id: platforms.id,
+//                     name: platforms.name,
+//                     config: platforms.config,
+//                 })
+//                 .from(platforms)
+//                 .where(eq(platforms.domain, rootDomain))
+//                 .limit(1);
+
+//             if (platform) {
+//                 const config = platform.config as any;
+//                 return {
+//                     platform_name: platform.name,
+//                     platform_id: platform.id,
+//                     company_id: null,
+//                     company_name: null,
+//                     logo_url: config?.logo_url || null,
+//                     primary_color: config?.primary_color || null,
+//                     secondary_color: config?.secondary_color || null,
+//                     currency: config?.currency || null,
+//                 };
+//             }
+//             return null;
+//         }
+
+//         // Step 3: If it's not admin or warehouse, it's a company domain
+//         const [result] = await db
+//             .select({
+//                 platform_id: companyDomains.platform_id,
+//                 company_id: companyDomains.company_id,
+//                 company_name: companies.name,
+//                 settings: companies.settings,
+//             })
+//             .from(companyDomains)
+//             .innerJoin(companies, eq(companyDomains.company_id, companies.id))
+//             .where(eq(companyDomains.hostname, hostname))
+//             .limit(1);
+
+//         if (result) {
+//             const settings = result.settings as any;
+//             const branding = settings?.branding || {};
+
+//             return {
+//                 platform_id: result.platform_id,
+//                 company_id: result.company_id,
+//                 company_name: result.company_name,
+//                 logo_url: branding?.logo_url || null,
+//                 primary_color: branding?.primary_color || null,
+//                 secondary_color: branding?.secondary_color || null,
+//                 currency: null,
+//             };
+//         }
+
+//         return null;
+//     } else {
+//         // Check if it in platform if yes return platform if not than check in company domain and return
+//         const [platform] = await db
+//             .select({
+//                 id: platforms.id,
+//                 name: platforms.name,
+//                 config: platforms.config,
+//             })
+//             .from(platforms)
+//             .where(eq(platforms.domain, url.host || url.href))
+//             .limit(1);
+
+//         if (platform) {
+//             const config = platform.config as any;
+//             return {
+//                 platform_id: platform.id,
+//                 platform_name: platform.name,
+//                 company_id: null,
+//                 company_name: null,
+//                 logo_url: config?.logo_url || null,
+//                 primary_color: config?.primary_color || null,
+//                 secondary_color: config?.secondary_color || null,
+//                 currency: config?.currency || null,
+//             };
+//         }
+
+//         const [result] = await db
+//             .select({
+//                 platform_id: companyDomains.platform_id,
+//                 company_id: companyDomains.company_id,
+//                 company_name: companies.name,
+//                 settings: companies.settings,
+//             })
+//             .from(companyDomains)
+//             .innerJoin(companies, eq(companyDomains.company_id, companies.id))
+//             .where(eq(companyDomains.hostname, url.host || url.href))
+//             .limit(1);
+
+//         if (result) {
+//             const settings = result.settings as any;
+//             const branding = settings?.branding || {};
+
+//             return {
+//                 platform_id: result.platform_id,
+//                 company_id: result.company_id,
+//                 company_name: result.company_name,
+//                 logo_url: branding?.logo_url || null,
+//                 primary_color: branding?.primary_color || null,
+//                 secondary_color: branding?.secondary_color || null,
+//                 currency: null,
+//             };
+//         }
+
+//         return null;
+//     }
+// };
+
 const getConfigByHostname = async (origin: string) => {
     const url = new URL(origin);
     const hostname = url.hostname;
-    const subdomain = hostname.split(".")[0];
 
-    // Production environment
-    if (config.node_env === "production") {
-        // Step 1: Check if sub domain is admin or warehouse
-        if (subdomain === "admin" || subdomain === "warehouse") {
-            const rootDomain = hostname.split(".").slice(1).join(".");
+    /**
+     * CONFIGURATION
+     * PLATFORM_ROOT: The domain name stored in your 'platforms' table.
+     * AMPLIFY_MAPPING: Maps the unique AWS hash to the app's functional role.
+     */
+    const PLATFORM_ROOT = "my-saas-app.com";
 
-            // Step 2: Return platform config
+    const AMPLIFY_MAPPING: Record<string, "admin" | "warehouse" | "client"> = {
+        "d24txteqyd3gxb": "admin",
+        "da9589fgr2awj": "warehouse",
+        "d2xpl5tyv9gv2p": "client",
+    };
+
+    // 1. Detect if we are on an Amplify staging domain
+    const amplifyKey = Object.keys(AMPLIFY_MAPPING).find(key => hostname.includes(key));
+
+    // 2. Set "Effective" values to normalize logic between Normal and Amplify domains
+    let effectiveSubdomain = hostname.split(".")[0];
+    let effectiveRootDomain = hostname.split(".").slice(1).join(".");
+
+    if (amplifyKey) {
+        effectiveSubdomain = AMPLIFY_MAPPING[amplifyKey];
+        // Force the root domain to match your DB record for Admin/Warehouse lookups
+        effectiveRootDomain = PLATFORM_ROOT;
+    }
+
+    // 3. Main Logic Execution
+    if (config.node_env === "production" || amplifyKey) {
+
+        // CASE A: ADMIN or WAREHOUSE (Platform Level)
+        if (effectiveSubdomain === "admin" || effectiveSubdomain === "warehouse") {
             const [platform] = await db
                 .select({
                     id: platforms.id,
@@ -107,26 +254,28 @@ const getConfigByHostname = async (origin: string) => {
                     config: platforms.config,
                 })
                 .from(platforms)
-                .where(eq(platforms.domain, rootDomain))
+                .where(eq(platforms.domain, effectiveRootDomain))
                 .limit(1);
 
             if (platform) {
-                const config = platform.config as any;
+                const cfg = platform.config as any;
                 return {
                     platform_name: platform.name,
                     platform_id: platform.id,
                     company_id: null,
                     company_name: null,
-                    logo_url: config?.logo_url || null,
-                    primary_color: config?.primary_color || null,
-                    secondary_color: config?.secondary_color || null,
-                    currency: config?.currency || null,
+                    logo_url: cfg?.logo_url || null,
+                    primary_color: cfg?.primary_color || null,
+                    secondary_color: cfg?.secondary_color || null,
+                    currency: cfg?.currency || null,
                 };
             }
             return null;
         }
 
-        // Step 3: If it's not admin or warehouse, it's a company domain
+        // CASE B: CLIENT / COMPANY DOMAINS
+        // We use the literal 'hostname' here because your companyDomains table 
+        // should contain the specific domain (e.g., client.domain.com or the Amplify URL)
         const [result] = await db
             .select({
                 platform_id: companyDomains.platform_id,
@@ -155,8 +304,10 @@ const getConfigByHostname = async (origin: string) => {
         }
 
         return null;
+
     } else {
-        // Check if it in platform if yes return platform if not than check in company domain and return
+        // CASE C: LOCAL DEVELOPMENT FALLBACK
+        // Standard check for localhost or internal dev hostnames
         const [platform] = await db
             .select({
                 id: platforms.id,
@@ -164,20 +315,20 @@ const getConfigByHostname = async (origin: string) => {
                 config: platforms.config,
             })
             .from(platforms)
-            .where(eq(platforms.domain, url.host || url.href))
+            .where(eq(platforms.domain, hostname))
             .limit(1);
 
         if (platform) {
-            const config = platform.config as any;
+            const cfg = platform.config as any;
             return {
                 platform_id: platform.id,
                 platform_name: platform.name,
                 company_id: null,
                 company_name: null,
-                logo_url: config?.logo_url || null,
-                primary_color: config?.primary_color || null,
-                secondary_color: config?.secondary_color || null,
-                currency: config?.currency || null,
+                logo_url: cfg?.logo_url || null,
+                primary_color: cfg?.primary_color || null,
+                secondary_color: cfg?.secondary_color || null,
+                currency: cfg?.currency || null,
             };
         }
 
@@ -190,7 +341,7 @@ const getConfigByHostname = async (origin: string) => {
             })
             .from(companyDomains)
             .innerJoin(companies, eq(companyDomains.company_id, companies.id))
-            .where(eq(companyDomains.hostname, url.host || url.href))
+            .where(eq(companyDomains.hostname, hostname))
             .limit(1);
 
         if (result) {
