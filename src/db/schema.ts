@@ -1419,7 +1419,7 @@ export const inboundRequestItems = pgTable(
 export const vehicleTypes = pgTable("vehicle_types", {
     id: uuid("id").primaryKey().defaultRandom(),
     name: varchar("name", { length: 100 }).notNull(),
-    vehicle_size: integer("vehicle_size").notNull(),
+    vehicle_size: decimal("vehicle_size", { precision: 10, scale: 3 }).notNull(),
     platform_id: uuid("platform_id").references(() => platforms.id),
     is_active: boolean("is_active").notNull().default(true),
     is_default: boolean("is_default").notNull().default(false),
