@@ -164,6 +164,7 @@ const seededData = {
     zones: [] as any[],
     pricingConfigs: [] as any[],
     transportRates: [] as any[],
+    vehicleTypes: [] as any[],
     serviceTypes: [] as any[],
     assets: [] as any[],
     collections: [] as any[],
@@ -783,6 +784,45 @@ async function seedZones() {
     console.log(`✓ Created ${inserted.length} zones`);
 }
 
+async function seedVehicleTypes() {
+    console.log("🚛 Seeding vehicle types...");
+
+    const platform1 = seededData.platforms[0];
+
+    const vehicleTypes = await db
+        .insert(schema.vehicleTypes)
+        .values([
+            {
+                name: "Standard Truck",
+                vehicle_size: 15, // 15 cbm
+                platform_id: platform1.id,
+                description: "Standard delivery truck suitable for most small to medium loads",
+                is_default: true,
+                display_order: 1,
+            },
+            {
+                name: "7 Ton Truck",
+                vehicle_size: 40, // 40 cbm
+                platform_id: platform1.id,
+                description: "Large truck for heavy loads up to 7 tons",
+                is_default: false,
+                display_order: 2,
+            },
+            {
+                name: "10 Ton Truck",
+                vehicle_size: 60, // 60 cbm
+                platform_id: platform1.id,
+                description: "Extra large truck for very heavy loads up to 10 tons",
+                is_default: false,
+                display_order: 3,
+            },
+        ])
+        .returning();
+
+    seededData.vehicleTypes = vehicleTypes;
+    console.log(`✓ Created ${vehicleTypes.length} vehicle types`);
+}
+
 async function seedTransportRates() {
     console.log("🚚 Seeding transport rates...");
 
@@ -820,15 +860,18 @@ async function seedTransportRates() {
     console.log(`✓ Created ${insertedCities.length} cities for ${country.name} in ${platform1.name}`);
 
     const tripTypes: ("ONE_WAY" | "ROUND_TRIP")[] = ["ONE_WAY", "ROUND_TRIP"];
-    const vehicleTypes: ("STANDARD" | "7_TON" | "10_TON")[] = ["STANDARD", "7_TON", "10_TON"];
 
     const rates = [];
 
     for (const city of insertedCities) {
         for (const tripType of tripTypes) {
-            for (const vehicleType of vehicleTypes) {
+            for (const vehicleType of seededData.vehicleTypes) {
                 const baseRate =
-                    vehicleType === "STANDARD" ? 500 : vehicleType === "7_TON" ? 800 : 1200;
+                    vehicleType.name === "Standard Truck"
+                        ? 500
+                        : vehicleType.name === "7 Ton Truck"
+                            ? 800
+                            : 1200;
                 const tripMultiplier = tripType === "ROUND_TRIP" ? 1.8 : 1;
                 const rate = baseRate * tripMultiplier;
 
@@ -838,7 +881,7 @@ async function seedTransportRates() {
                     city_id: city.id,
                     area: null,
                     trip_type: tripType,
-                    vehicle_type_id: vehicleType, // TODO: Add vehicle type id
+                    vehicle_type_id: vehicleType.id,
                     rate: rate.toString(),
                     is_active: true,
                 });
@@ -1515,13 +1558,36 @@ async function seedOrders() {
         const eventStart = new Date(Date.now() + (Math.random() * 60 + 10) * 24 * 60 * 60 * 1000); // 10-70 days from now
         const eventEnd = new Date(eventStart.getTime() + (Math.random() * 5 + 1) * 24 * 60 * 60 * 1000); // 1-6 days duration
 
+        const cityIds = seededData.cities.map(city => city.id);
+        const venueCityId = randomItem(cityIds);
+
         // Calculate volume/weight
         const volume = (Math.random() * 50 + 10).toFixed(3); // 10-60 m³
         const weight = (parseFloat(volume) * (Math.random() * 50 + 100)).toFixed(2); // 100-150 kg/m³
 
         // Determine vehicle type based on volume
-        const vehicleType = parseFloat(volume) > 30 ? '10_TON' : parseFloat(volume) > 15 ? '7_TON' : 'STANDARD';
-        const tripType = 'ROUND_TRIP';
+        const totalVolume = parseFloat(volume);
+
+        // Find the suitable vehicles that fits the volume (vehicle_size >= totalVolume)
+        let vehicle = seededData.vehicleTypes
+            .filter(v => v.platform_id === platform1.id && v.is_active && v.vehicle_size >= totalVolume)
+            .sort((a, b) => a.vehicle_size - b.vehicle_size)[0];
+
+        if (!vehicle) {
+            // Fallback to default vehicle
+            vehicle = seededData.vehicleTypes.find(v => v.platform_id === platform1.id && v.is_default);
+
+            if (!vehicle) {
+                // Fallback to largest available vehicle
+                vehicle = seededData.vehicleTypes
+                    .filter(v => v.platform_id === platform1.id && v.is_active)
+                    .sort((a, b) => b.vehicle_size - a.vehicle_size)[0];
+            }
+        }
+
+        if (!vehicle) continue;
+
+        const tripType = "ROUND_TRIP";
 
         // Get pricing config rate (150 AED/m³ default)
         const warehouseOpsRate = company.warehouse_ops_rate;
@@ -1529,8 +1595,14 @@ async function seedOrders() {
         // Calculate base operations
         const baseOpsTotal = parseFloat(volume) * warehouseOpsRate;
 
-        // Get transport rate (simulate lookup)
-        const transportRate = vehicleType === '10_TON' ? 2160 : vehicleType === '7_TON' ? 1440 : 900; // ROUND_TRIP rates
+        // Get transport rate
+        const rateObj = seededData.transportRates.find(r =>
+            r.platform_id === platform1.id &&
+            r.city_id === venueCityId &&
+            r.vehicle_type_id === vehicle.id &&
+            r.trip_type === tripType
+        );
+        const transportRate = rateObj ? parseFloat(rateObj.rate) : 1200;
 
         // For orders with pricing, calculate line items totals
         let catalogTotal = 0;
@@ -1583,8 +1655,6 @@ async function seedOrders() {
 
         const [pricing] = await db.insert(schema.prices).values(newPricing).returning();
 
-        const cityIds = seededData.cities.map(city => city.id);
-
         orders.push({
             platform_id: platform1.id,
             order_id: generateOrderId(createdDate, i + 1),
@@ -1615,7 +1685,7 @@ async function seedOrders() {
                 "Address Downtown",
                 "JW Marriott Marquis",
             ]),
-            venue_city_id: randomItem(cityIds),
+            venue_city_id: venueCityId,
             venue_location: {
                 country: "United Arab Emirates",
                 address: `${Math.floor(Math.random() * 500) + 1} Event Street, Area ${Math.floor(Math.random() * 50) + 1}`,
@@ -1649,7 +1719,7 @@ async function seedOrders() {
                 weight: weight,
             },
             trip_type: tripType as any,
-            vehicle_type_id: vehicleType as any, // TODO: Add vehicle type id
+            vehicle_type_id: vehicle.id,
             order_pricing_id: pricing.id,
             order_status: status,
             financial_status: financial,
@@ -2346,6 +2416,8 @@ async function cleanupExistingData() {
         await db.delete(schema.reskinRequests);
         await db.delete(schema.orderItems);
         await db.delete(schema.orders);
+        await db.delete(schema.inboundRequestItems);
+        await db.delete(schema.inboundRequests);
         await db.delete(schema.prices);
         await db.delete(schema.collectionItems);
         await db.delete(schema.collections);
@@ -2360,6 +2432,7 @@ async function cleanupExistingData() {
         await db.delete(schema.users);
         await db.delete(schema.companies);
         await db.delete(schema.warehouses);
+        await db.delete(schema.vehicleTypes);
         await db.delete(schema.platforms);
 
         console.log("✓ Existing data cleaned up\n");
@@ -2390,6 +2463,7 @@ async function main() {
         await seedUsers();
         await seedBrands();
         await seedZones();
+        await seedVehicleTypes(); // Added call to seedVehicleTypes
 
         // Phase 2: Pricing & configuration
         await seedTransportRates();
@@ -2434,6 +2508,7 @@ async function main() {
         console.log(`  - Collection Items: ${seededData.collectionItems.length}`);
         console.log(`  - Pricing Configs: ${seededData.pricingConfigs.length}`);
         console.log(`  - Transport Rates: ${seededData.transportRates.length}`);
+        console.log(`  - Vehicle Types: ${seededData.vehicleTypes.length}`);
         console.log(`  - Service Types: ${seededData.serviceTypes.length}`);
         console.log(`  - Orders: ${seededData.orders.length} (${seededData.orders.filter(o => o.order_status === 'AWAITING_FABRICATION').length} awaiting fabrication)`);
         console.log(`  - Order Items: ${seededData.orderItems.length} (${seededData.orderItems.filter(i => i.is_reskin_request).length} reskin requests)`);

@@ -18,6 +18,7 @@ import { UploadRoutes } from "../modules/upload/upload.route";
 import { VehicleTypeRoutes } from "../modules/vehicle-type/vehicle-type.routes";
 import { LineItemsRoutes } from "../modules/order-line-items/order-line-items.routes";
 import { PriceRoutes } from "../modules/price/price.routes";
+import { ExportRoutes } from "../modules/export/export.routes";
 
 const router = Router();
 
@@ -97,6 +98,10 @@ const routes = [
     {
         path: "/line-item",
         route: LineItemsRoutes,
+    },
+    {
+        path: "/export",
+        route: ExportRoutes,
     },
 ];
 

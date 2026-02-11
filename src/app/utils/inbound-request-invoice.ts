@@ -49,6 +49,7 @@ export const inboundRequestInvoiceGenerator = async (
             request_pricing: true,
             items: true,
             requester: true,
+            line_items: true
         },
     });
 
@@ -58,6 +59,7 @@ export const inboundRequestInvoiceGenerator = async (
 
     const company = inboundRequest.company;
     const pricing = inboundRequest.request_pricing;
+    const requestLineItems = inboundRequest.line_items;
 
     if (!pricing) {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Pricing details are missing for this inbound request");
@@ -71,6 +73,21 @@ export const inboundRequestInvoiceGenerator = async (
     const catalogTotal = catalogAmount + (catalogAmount * (marginPercent / 100));
     const serviceFee = catalogTotal + customTotal;
     const total = logisticsSubTotal + serviceFee;
+
+    const calculatedLineItems = requestLineItems.map((item) => {
+        const unit_rate = item.unit_rate ? item.line_item_type === "CATALOG" ? Number(item.unit_rate) + (Number(item.unit_rate) * (marginPercent / 100)) : Number(item.unit_rate) : 0;
+
+        return {
+            line_item_id: item.line_item_id,
+            description: item.description,
+            quantity: item.quantity ? Number(item.quantity) : 0,
+            unit_rate,
+            total: unit_rate * Number(item.quantity),
+        }
+    })
+
+    // Calculate line items subtotal
+    const lineItemsSubTotal = calculatedLineItems.reduce((sum, item) => sum + Number(item.total), 0);
 
     const invoiceData: InboundRequestInvoicePayload = {
         inbound_request_id: inboundRequest.inbound_request_id,
@@ -88,10 +105,14 @@ export const inboundRequestInvoiceGenerator = async (
         })),
         pricing: {
             logistics_sub_total: String(logisticsSubTotal) || '0',
+            catalog_total: String(catalogTotal) || '0',
+            custom_total: String(customTotal) || '0',
             service_fee: String(serviceFee) || '0',
             final_total: String(total) || '0',
             show_breakdown: !!pricing,
         },
+        line_items: calculatedLineItems,
+        line_items_sub_total: lineItemsSubTotal,
     };
 
     // Generate PDF
@@ -164,8 +185,18 @@ export type InboundRequestInvoicePayload = {
     }>;
     pricing: {
         logistics_sub_total: string; // Base + Catalog + Margin
+        catalog_total: string;
+        custom_total: string;
         service_fee: string; // Custom items
         final_total: string;
         show_breakdown: boolean;
     };
+    line_items: Array<{
+        line_item_id: string;
+        description: string;
+        quantity: number;
+        unit_rate: number;
+        total: number;
+    }>;
+    line_items_sub_total: number;
 };

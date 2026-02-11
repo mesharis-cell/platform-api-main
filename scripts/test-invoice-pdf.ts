@@ -52,9 +52,26 @@ const sampleInvoiceData: InvoicePayload & { invoice_number: string; invoice_date
         show_breakdown: true,
         logistics_base_price: "12500.00",
         transport_rate: "250.00",
-        service_fee: "125.00",
-        final_total_price: "12875.00",
+        service_fee: "1125.00",
+        final_total_price: "13875.00",
     },
+    line_items: [
+        {
+            line_item_id: "LI-001",
+            description: "Custom Setup Service",
+            quantity: 1,
+            unit_rate: 500.00,
+            total: 500.00
+        },
+        {
+            line_item_id: "LI-002",
+            description: "Overtime Charge",
+            quantity: 5,
+            unit_rate: 100.00,
+            total: 500.00
+        }
+    ],
+    line_items_sub_total: 1000.00,
 };
 
 async function main() {

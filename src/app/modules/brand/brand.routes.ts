@@ -33,6 +33,7 @@ router.get(
     "/:id",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
+    requirePermission(PERMISSIONS.BRANDS_READ),
     BrandControllers.getBrandById
 );
 

@@ -20,11 +20,12 @@ router.post(
     AssetControllers.createAsset
 );
 
-// Bulk upload assets
+// Bulk upload assets //
 router.post(
     "/bulk-upload",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.ASSETS_BULK_UPLOAD),
     fileUploader.singleUpload.single("file"),
     AssetControllers.bulkUploadAssets
 );
@@ -64,6 +65,7 @@ router.post(
     "/batch-availability",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
+    requirePermission(PERMISSIONS.ASSETS_CHECK_AVAILABILITY),
     payloadValidator(AssetSchemas.batchAvailabilitySchema),
     AssetControllers.getBatchAvailability
 );
@@ -73,6 +75,7 @@ router.post(
     "/check-availability",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
+    requirePermission(PERMISSIONS.ASSETS_CHECK_AVAILABILITY),
     payloadValidator(AssetSchemas.checkAvailabilitySchema),
     AssetControllers.checkAssetAvailability
 );
@@ -100,6 +103,7 @@ router.get(
     "/:id/availability-stats",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
+    requirePermission(PERMISSIONS.ASSETS_AVAILABILITY_STATS),
     AssetControllers.getAssetAvailabilityStats
 );
 
@@ -108,6 +112,7 @@ router.get(
     "/:id/scan-history",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.ASSETS_SCAN_HISTORY),
     AssetControllers.getAssetScanHistory
 );
 

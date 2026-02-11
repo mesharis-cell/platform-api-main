@@ -55,6 +55,8 @@ const sampleEstimateData: InvoicePayload & { estimate_number: string; estimate_d
         service_fee: "125.00",
         final_total_price: "12875.00",
     },
+    line_items: [],
+    line_items_sub_total: 0,
 };
 
 async function main() {

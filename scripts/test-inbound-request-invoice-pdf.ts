@@ -31,6 +31,8 @@ const mockPayload: InboundRequestInvoicePayload = {
     ],
     pricing: {
         logistics_sub_total: "1500.00",
+        catalog_total: "300.00",
+        custom_total: "200.00",
         service_fee: "500.00",
         final_total: "2000.00",
         show_breakdown: true,
