@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "../../db";
-import { cities, companies, orderItems, prices, orders } from "../../db/schema";
+import { cities, companies, orderItems, prices, orders, lineItems } from "../../db/schema";
 import { checkFileExists, deleteFileFromS3, uploadPDFToS3 } from "../services/s3.service";
 import { renderCostEstimatePDF } from "./cost-estimate-pdf";
 import CustomizedError from "../error/customized-error";
@@ -35,12 +35,13 @@ export const costEstimateGenerator = async (
             },
             venue_city: {
                 name: cities.name
-            },
+            }
         })
         .from(orders)
         .leftJoin(companies, eq(orders.company_id, companies.id))
         .leftJoin(prices, eq(orders.order_pricing_id, prices.id))
         .leftJoin(cities, eq(orders.venue_city_id, cities.id))
+        .leftJoin(lineItems, eq(orders.id, lineItems.order_id))
         .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)))
         .limit(1);
 
@@ -69,6 +70,8 @@ export const costEstimateGenerator = async (
         );
     }
 
+    const orderLineItems = await db.select().from(lineItems).where(eq(lineItems.order_id, orderId));
+
     const venueLocation = order.venue_location as any;
 
     const baseOpsTotal = Number(orderPricing.base_ops_total);
@@ -83,6 +86,21 @@ export const costEstimateGenerator = async (
     const total = logisticsBasePrice + transportRateWithMargin + serviceFee;
 
     const orderItemsResult = await db.select().from(orderItems).where(eq(orderItems.order_id, orderId));
+
+    const calculatedOrderLineItems = orderLineItems.map((item) => {
+        const unit_rate = item.unit_rate ? item.line_item_type === "CATALOG" ? Number(item.unit_rate) + (Number(item.unit_rate) * (marginPercent / 100)) : Number(item.unit_rate) : 0;
+
+        return {
+            line_item_id: item.line_item_id,
+            description: item.description,
+            quantity: item.quantity ? Number(item.quantity) : 0,
+            unit_rate,
+            total: unit_rate * Number(item.quantity),
+        }
+    })
+
+    // Calculate line items subtotal
+    const lineItemsSubTotal = calculatedOrderLineItems.reduce((sum, item) => sum + Number(item.total), 0);
 
     const costEstimateData = {
         id: order.id,
@@ -114,6 +132,8 @@ export const costEstimateGenerator = async (
             handling_tags: item.handling_tags as any,
             from_collection_name: item.from_collection_name || "N/A",
         })),
+        line_items: calculatedOrderLineItems,
+        line_items_sub_total: lineItemsSubTotal,
     };
 
     // Build S3 key using order_id
