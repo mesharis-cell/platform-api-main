@@ -163,8 +163,6 @@ export const invoiceGenerator = async (
         line_items_sub_total: lineItemsSubTotal,
     };
 
-    // ... (rest of function)
-
     // Generate PDF
     const pdfBuffer = await renderInvoicePDF({
         ...invoiceData,
