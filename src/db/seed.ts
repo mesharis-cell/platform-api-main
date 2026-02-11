@@ -1558,14 +1558,35 @@ async function seedOrders() {
         const eventStart = new Date(Date.now() + (Math.random() * 60 + 10) * 24 * 60 * 60 * 1000); // 10-70 days from now
         const eventEnd = new Date(eventStart.getTime() + (Math.random() * 5 + 1) * 24 * 60 * 60 * 1000); // 1-6 days duration
 
+        const cityIds = seededData.cities.map(city => city.id);
+        const venueCityId = randomItem(cityIds);
+
         // Calculate volume/weight
         const volume = (Math.random() * 50 + 10).toFixed(3); // 10-60 m³
         const weight = (parseFloat(volume) * (Math.random() * 50 + 100)).toFixed(2); // 100-150 kg/m³
 
         // Determine vehicle type based on volume
-        const vehicleSize =
-            parseFloat(volume) > 30 ? "10_TON" : parseFloat(volume) > 15 ? "7_TON" : "Standard";
-        const vehicle = seededData.vehicleTypes.find((v) => v.vehicle_size === vehicleSize);
+        const totalVolume = parseFloat(volume);
+
+        // Find the suitable vehicles that fits the volume (vehicle_size >= totalVolume)
+        let vehicle = seededData.vehicleTypes
+            .filter(v => v.platform_id === platform1.id && v.is_active && v.vehicle_size >= totalVolume)
+            .sort((a, b) => a.vehicle_size - b.vehicle_size)[0];
+
+        if (!vehicle) {
+            // Fallback to default vehicle
+            vehicle = seededData.vehicleTypes.find(v => v.platform_id === platform1.id && v.is_default);
+
+            if (!vehicle) {
+                // Fallback to largest available vehicle
+                vehicle = seededData.vehicleTypes
+                    .filter(v => v.platform_id === platform1.id && v.is_active)
+                    .sort((a, b) => b.vehicle_size - a.vehicle_size)[0];
+            }
+        }
+
+        if (!vehicle) continue;
+
         const tripType = "ROUND_TRIP";
 
         // Get pricing config rate (150 AED/m³ default)
@@ -1574,9 +1595,14 @@ async function seedOrders() {
         // Calculate base operations
         const baseOpsTotal = parseFloat(volume) * warehouseOpsRate;
 
-        // Get transport rate (simulate lookup)
-        const transportRate =
-            vehicleSize === "10_TON" ? 2160 : vehicleSize === "7_TON" ? 1440 : 900; // ROUND_TRIP rates
+        // Get transport rate
+        const rateObj = seededData.transportRates.find(r =>
+            r.platform_id === platform1.id &&
+            r.city_id === venueCityId &&
+            r.vehicle_type_id === vehicle.id &&
+            r.trip_type === tripType
+        );
+        const transportRate = rateObj ? parseFloat(rateObj.rate) : 1200;
 
         // For orders with pricing, calculate line items totals
         let catalogTotal = 0;
@@ -1629,8 +1655,6 @@ async function seedOrders() {
 
         const [pricing] = await db.insert(schema.prices).values(newPricing).returning();
 
-        const cityIds = seededData.cities.map(city => city.id);
-
         orders.push({
             platform_id: platform1.id,
             order_id: generateOrderId(createdDate, i + 1),
@@ -1661,7 +1685,7 @@ async function seedOrders() {
                 "Address Downtown",
                 "JW Marriott Marquis",
             ]),
-            venue_city_id: randomItem(cityIds),
+            venue_city_id: venueCityId,
             venue_location: {
                 country: "United Arab Emirates",
                 address: `${Math.floor(Math.random() * 500) + 1} Event Street, Area ${Math.floor(Math.random() * 50) + 1}`,
