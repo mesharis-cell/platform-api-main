@@ -155,6 +155,23 @@ const cancelInboundRequest = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- UPDATE INBOUND REQUEST ---------------------------------
+const updateInboundRequest = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const id = getRequiredString(req.params.id, "id");
+
+    const result = await InboundRequestServices.updateInboundRequest(id, user, platformId, req.body);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Inbound request updated successfully",
+        data: result,
+    });
+});
+
+
 export const InboundRequestControllers = {
     createInboundRequest,
     getInboundRequests,
@@ -164,5 +181,6 @@ export const InboundRequestControllers = {
     approveOrDeclineQuoteByClient,
     updateInboundRequestItem,
     completeInboundRequest,
-    cancelInboundRequest
+    cancelInboundRequest,
+    updateInboundRequest
 };

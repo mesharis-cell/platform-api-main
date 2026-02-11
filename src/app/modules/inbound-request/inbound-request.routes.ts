@@ -4,6 +4,8 @@ import payloadValidator from "../../middleware/payload-validator";
 import platformValidator from "../../middleware/platform-validator";
 import { InboundRequestControllers } from "./inbound-request.controllers";
 import { inboundRequestSchemas } from "./inbound-request.schemas";
+import featureValidator from "../../middleware/feature-validator";
+import { featureNames } from "../../constants/common";
 
 const router = Router();
 
@@ -12,6 +14,7 @@ router.post(
     "/",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
+    featureValidator(featureNames.enable_inbound_requests),
     payloadValidator(inboundRequestSchemas.createInboundRequestSchema),
     InboundRequestControllers.createInboundRequest
 );
@@ -29,6 +32,15 @@ router.get(
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
     InboundRequestControllers.getInboundRequestById
+);
+
+// Update inbound request (full update)
+router.patch(
+    "/:id",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    payloadValidator(inboundRequestSchemas.updateInboundRequestSchema),
+    InboundRequestControllers.updateInboundRequest
 );
 
 // Submit for approval (Logistics → Admin)

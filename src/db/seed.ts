@@ -11,6 +11,7 @@
  * Run: tsx src/db/seed.ts
  */
 
+import { companyFeatures } from "../app/constants/common";
 import { lineItemIdGenerator } from "../app/modules/order-line-items/order-line-items.utils";
 import { db } from "./index";
 import * as schema from "./schema";
@@ -201,6 +202,7 @@ async function seedPlatforms() {
                     bulk_import: true,
                     advanced_reporting: true,
                     api_access: true,
+                    ...companyFeatures,
                 },
                 is_active: true,
             },
@@ -220,6 +222,7 @@ async function seedPlatforms() {
                     bulk_import: false,
                     advanced_reporting: false,
                     api_access: false,
+                    ...companyFeatures,
                 },
                 is_active: true,
             },
@@ -271,6 +274,7 @@ async function seedCompanies() {
                         secondary_color: "#FFD700",
                     },
                 },
+                features: companyFeatures,
                 platform_margin_percent: "25.00",
                 warehouse_ops_rate: "10.00",
                 contact_email: "events@diageo.com",
@@ -289,6 +293,7 @@ async function seedCompanies() {
                         secondary_color: "#FFFFFF",
                     },
                 },
+                features: companyFeatures,
                 platform_margin_percent: "22.00",
                 warehouse_ops_rate: "13.00",
                 contact_email: "corporate@unilever.com",
@@ -307,6 +312,7 @@ async function seedCompanies() {
                         secondary_color: "#FFFFFF",
                     },
                 },
+                features: companyFeatures,
                 platform_margin_percent: "28.00",
                 warehouse_ops_rate: "15.00",
                 contact_email: "events@pg.com",
@@ -326,6 +332,7 @@ async function seedCompanies() {
                         secondary_color: "#FFFFFF",
                     },
                 },
+                features: companyFeatures,
                 platform_margin_percent: "25.00",
                 contact_email: "experiences@coca-cola.com",
                 contact_phone: "+1-404-555-0100",
@@ -343,6 +350,7 @@ async function seedCompanies() {
                         secondary_color: "#FF6B00",
                     },
                 },
+                features: companyFeatures,
                 platform_margin_percent: "30.00",
                 contact_email: "events@nike.com",
                 contact_phone: "+1-503-555-0200",
@@ -786,7 +794,7 @@ async function seedVehicleTypes() {
         .values([
             {
                 name: "Standard Truck",
-                vehicle_size: "Standard",
+                vehicle_size: 15, // 15 cbm
                 platform_id: platform1.id,
                 description: "Standard delivery truck suitable for most small to medium loads",
                 is_default: true,
@@ -794,7 +802,7 @@ async function seedVehicleTypes() {
             },
             {
                 name: "7 Ton Truck",
-                vehicle_size: "7_TON",
+                vehicle_size: 40, // 40 cbm
                 platform_id: platform1.id,
                 description: "Large truck for heavy loads up to 7 tons",
                 is_default: false,
@@ -802,7 +810,7 @@ async function seedVehicleTypes() {
             },
             {
                 name: "10 Ton Truck",
-                vehicle_size: "10_TON",
+                vehicle_size: 60, // 60 cbm
                 platform_id: platform1.id,
                 description: "Extra large truck for very heavy loads up to 10 tons",
                 is_default: false,
@@ -859,9 +867,9 @@ async function seedTransportRates() {
         for (const tripType of tripTypes) {
             for (const vehicleType of seededData.vehicleTypes) {
                 const baseRate =
-                    vehicleType.vehicle_size === "Standard"
+                    vehicleType.name === "Standard Truck"
                         ? 500
-                        : vehicleType.vehicle_size === "7_TON"
+                        : vehicleType.name === "7 Ton Truck"
                             ? 800
                             : 1200;
                 const tripMultiplier = tripType === "ROUND_TRIP" ? 1.8 : 1;

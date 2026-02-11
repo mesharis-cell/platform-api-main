@@ -75,6 +75,7 @@ const updateCompany = z.object({
             .string()
             .max(50, { message: "Phone number cannot exceed 50 characters" })
             .optional(),
+        features: z.record(z.string(), z.boolean()).optional(),
         is_active: z.boolean().optional(),
     }),
 });

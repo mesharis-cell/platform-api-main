@@ -11,7 +11,6 @@ import {
     companies,
     financialStatusHistory,
     invoices,
-    orderItems,
     lineItems,
     prices,
     orders,
@@ -21,6 +20,7 @@ import {
     users,
     vehicleTypes,
     countries,
+    orderItems,
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
@@ -104,9 +104,48 @@ const calculateEstimate = async (
     const marginPercent = parseFloat(company.platform_margin_percent);
     const hasRebrandItems = items.some((item) => item.is_reskin_request);
 
-    const vehicleType = await db.select().from(vehicleTypes).where(eq(vehicleTypes.is_default, true)).limit(1);
-    if (!vehicleType) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Default vehicle type not found");
+    // Find the suitable vehicle type
+    // Find the suitable vehicle type
+    // We want the smallest vehicle that fits the volume (vehicle_size >= totalVolume)
+    let selectedVehicleType = (await db
+        .select()
+        .from(vehicleTypes)
+        .where(
+            and(
+                eq(vehicleTypes.platform_id, platformId),
+                eq(vehicleTypes.is_active, true),
+                gte(vehicleTypes.vehicle_size, totalVolume)
+            )
+        )
+        .orderBy(asc(vehicleTypes.vehicle_size))
+        .limit(1))[0];
+
+    if (!selectedVehicleType) {
+        // Fallback to default vehicle
+        const defaultVehicle = await db.query.vehicleTypes.findFirst({
+            where: and(eq(vehicleTypes.is_default, true), eq(vehicleTypes.platform_id, platformId)),
+        });
+
+        if (defaultVehicle) {
+            selectedVehicleType = defaultVehicle;
+        } else {
+            // Fallback to check if it's a capacity issue or configuration issue
+            const [largestVehicle] = await db
+                .select()
+                .from(vehicleTypes)
+                .where(and(eq(vehicleTypes.platform_id, platformId), eq(vehicleTypes.is_active, true)))
+                .orderBy(desc(vehicleTypes.vehicle_size))
+                .limit(1);
+
+            if (!largestVehicle) {
+                throw new CustomizedError(httpStatus.NOT_FOUND, "No vehicle types configuration found");
+            }
+
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                `Total volume (${totalVolume} m3) exceeds the capacity of the largest available vehicle (${largestVehicle.vehicle_size} m3)`
+            );
+        }
     }
 
     // Step 6: Lookup transport rate based on venue and trip type
@@ -115,7 +154,7 @@ const calculateEstimate = async (
         companyId,
         venue_city,
         trip_type,
-        vehicleType[0].id
+        selectedVehicleType.id
     );
 
     if (!transportRateInfo) {
@@ -227,16 +266,6 @@ const submitOrderFromCart = async (
         throw new CustomizedError(httpStatus.BAD_REQUEST, "City not found for the given country");
     }
 
-    const vehicleType = await db
-        .query.vehicleTypes
-        .findFirst({
-            where: and(eq(vehicleTypes.is_default, true), eq(vehicleTypes.platform_id, platformId)),
-        });
-
-    if (!vehicleType) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "Default vehicle type not found");
-    }
-
     // Step 3: Check assets availability
     const requiredAssets = items.map((i) => ({ id: i.asset_id, quantity: i.quantity }));
     const foundAssets: any[] = await checkAssetsForOrder(
@@ -297,8 +326,50 @@ const submitOrderFromCart = async (
     const calculatedVolume = totalVolume.toFixed(3);
     const calculatedWeight = totalWeight.toFixed(2);
 
-    // Step 5: Calculate pricing estimate (NEW SYSTEM)
+    // Step 5: Determine the most suitable vehicle type
     const volume = parseFloat(calculatedVolume);
+
+    // Find the suitable vehicles that fits the volume (vehicle_size >= totalVolume)
+    let vehicleType = (await db
+        .select()
+        .from(vehicleTypes)
+        .where(
+            and(
+                eq(vehicleTypes.platform_id, platformId),
+                eq(vehicleTypes.is_active, true),
+                gte(vehicleTypes.vehicle_size, volume)
+            )
+        )
+        .orderBy(asc(vehicleTypes.vehicle_size))
+        .limit(1))[0];
+
+    if (!vehicleType) {
+        // Fallback to default vehicle
+        const defaultVehicle = await db.query.vehicleTypes.findFirst({
+            where: and(eq(vehicleTypes.is_default, true), eq(vehicleTypes.platform_id, platformId)),
+        });
+
+        if (defaultVehicle) {
+            vehicleType = defaultVehicle;
+        } else {
+            // Fallback to check if it's a capacity issue or configuration issue
+            const [largestVehicle] = await db
+                .select()
+                .from(vehicleTypes)
+                .where(and(eq(vehicleTypes.platform_id, platformId), eq(vehicleTypes.is_active, true)))
+                .orderBy(desc(vehicleTypes.vehicle_size))
+                .limit(1);
+
+            if (!largestVehicle) {
+                throw new CustomizedError(httpStatus.NOT_FOUND, "No vehicle types configuration found");
+            }
+
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                `Total volume (${volume} m3) exceeds the capacity of the largest available vehicle`
+            );
+        }
+    }
 
     const transportRateInfo = await TransportRatesServices.lookupTransportRate(
         platformId,
@@ -922,6 +993,7 @@ const getOrderById = async (
             asset: {
                 id: assets.id,
                 name: assets.name,
+                status: assets.status,
                 condition: assets.condition,
                 refurbishment_days_estimate: assets.refurb_days_estimate,
             },
@@ -1137,6 +1209,49 @@ const progressOrderStatus = async (
 
     // Step 4.5: Validate date-based transitions
     const today = dayjs().startOf("day");
+
+    if (currentStatus === 'AWAITING_FABRICATION' || currentStatus === 'CONFIRMED') {
+        // fetch all assets item and check if all assets condition is GREEN
+        const assetsList = await db.select()
+            .from(orderItems)
+            .innerJoin(assets, eq(orderItems.asset_id, assets.id))
+            .where(eq(orderItems.order_id, order.id))
+
+        // check if all assets condition is GREEN
+        const allAssetsConditionGreen = assetsList.every((asset) => asset.assets.condition === "GREEN");
+
+        if (!allAssetsConditionGreen) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "All assets condition must be GREEN before transitioning to AWAITING_FABRICATION or CONFIRMED"
+            );
+        }
+
+        // Fetch all reskin request and check if all rekin request is completed
+        const requests = await db.query.reskinRequests.findMany({
+            where: and(
+                eq(reskinRequests.order_id, orderId),
+                eq(reskinRequests.platform_id, platformId)
+            ),
+            with: {
+                order_item: true,
+                original_asset: true,
+                target_brand: true,
+                new_asset: true,
+            },
+        });
+
+        // Check if all reskin requests are completed
+        const allReskinRequestsCompleted = requests.every((request) => request.completed_at !== null);
+
+        if (!allReskinRequestsCompleted) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "All reskin requests must be completed before transitioning to AWAITING_FABRICATION or CONFIRMED"
+            );
+        }
+
+    }
 
     // Check if transitioning from DELIVERED to IN_USE
     if (currentStatus === "DELIVERED" && new_status === "IN_USE") {
@@ -2445,5 +2560,5 @@ export const OrderServices = {
     cancelOrder,
     calculateEstimate,
     updateOrderVehicle,
-    addTruckDetails
+    addTruckDetails,
 };

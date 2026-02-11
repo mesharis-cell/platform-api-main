@@ -3,8 +3,8 @@ import { db } from "../../../db";
 import { assets, companies, inboundRequestItems, inboundRequests, invoices, lineItems, prices, users, warehouses, zones } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
-import { eq, isNull, and, asc, count, desc, gte, ilike, lte, or } from "drizzle-orm";
-import { ApproveInboundRequestPayload, ApproveOrDeclineQuoteByClientPayload, CancelInboundRequestPayload, CompleteInboundRequestPayload, InboundRequestPayload, UpdateInboundRequestItemPayload } from "./inbound-request.interfaces";
+import { eq, isNull, and, asc, count, desc, gte, ilike, lte, or, inArray } from "drizzle-orm";
+import { ApproveInboundRequestPayload, ApproveOrDeclineQuoteByClientPayload, CancelInboundRequestPayload, CompleteInboundRequestPayload, InboundRequestPayload, UpdateInboundRequestItemPayload, UpdateInboundRequestPayload } from "./inbound-request.interfaces";
 import { qrCodeGenerator } from "../../utils/qr-code-generator";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
@@ -1210,6 +1210,185 @@ const completeInboundRequest = async (
     };
 };
 
+// ----------------------------------- UPDATE INBOUND REQUEST --------------------------------
+const updateInboundRequest = async (
+    requestId: string,
+    user: AuthUser,
+    platformId: string,
+    payload: UpdateInboundRequestPayload
+) => {
+    // Step 1: Fetch the inbound request to validate access and status
+    const [result] = await db
+        .select({
+            request: inboundRequests,
+            request_pricing: {
+                id: prices.id,
+                warehouse_ops_rate: prices.warehouse_ops_rate,
+                base_ops_total: prices.base_ops_total,
+                logistics_sub_total: prices.logistics_sub_total,
+                final_total: prices.final_total,
+                line_items: prices.line_items,
+                margin: prices.margin,
+                calculated_by: prices.calculated_by,
+                calculated_at: prices.calculated_at,
+            }
+        })
+        .from(inboundRequests)
+        .leftJoin(prices, eq(inboundRequests.request_pricing_id, prices.id))
+        .where(and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)));
+
+    const inboundRequest = result?.request;
+    const requestPricing = result?.request_pricing;
+
+    if (!inboundRequest || !requestPricing) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request or request pricing not found");
+    }
+
+    // Step 2: Check user access (CLIENT users can only update their company's requests)
+    if (user.role === "CLIENT" && inboundRequest.company_id !== user.company_id) {
+        throw new CustomizedError(httpStatus.FORBIDDEN, "You do not have access to this inbound request");
+    }
+
+    // Step 3: Check if request is in allowed status
+    if (user.role === "CLIENT" && !["PRICING_REVIEW", "PENDING_APPROVAL"].includes(inboundRequest.request_status)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Cannot update request when status is ${inboundRequest.request_status}. Metadata can only be updated in PRICING_REVIEW or PENDING_APPROVAL status.`
+        );
+    }
+
+    // Step 4: Perform updates in transaction
+    return await db.transaction(async (tx) => {
+        // Step 4.1: Update request details
+        const updateData: any = {};
+        if (payload.note !== undefined) updateData.note = payload.note;
+        if (payload.incoming_at !== undefined) {
+            // Validate incoming date is at least 24 hours in the future
+            const incomingAt = new Date(payload.incoming_at);
+            const now = new Date();
+            const minIncomingDate = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours from now
+            if (incomingAt < minIncomingDate) {
+                throw new CustomizedError(httpStatus.BAD_REQUEST, "Incoming date must be at least 24 hours in the future");
+            }
+            updateData.incoming_at = incomingAt;
+        }
+
+        if (Object.keys(updateData).length > 0) {
+            updateData.updated_at = new Date();
+            await tx
+                .update(inboundRequests)
+                .set(updateData)
+                .where(eq(inboundRequests.id, requestId));
+        }
+
+        // Step 4.2: Handle items update if provided
+        if (payload.items) {
+            // Get existing items
+            const existingItems = await tx
+                .select()
+                .from(inboundRequestItems)
+                .where(eq(inboundRequestItems.inbound_request_id, requestId));
+
+            const existingItemIds = existingItems.map(item => item.id);
+            const payloadItemIds = payload.items
+                .filter(item => item.item_id)
+                .map(item => item.item_id as string);
+
+            // Identify items to delete
+            const itemsToDelete = existingItemIds.filter(id => !payloadItemIds.includes(id));
+            if (itemsToDelete.length > 0) {
+                await tx
+                    .delete(inboundRequestItems)
+                    .where(inArray(inboundRequestItems.id, itemsToDelete));
+            }
+
+            // Identify items to update vs create
+            const itemsToCreate: any[] = [];
+
+            for (const item of payload.items) {
+                if (item.item_id && existingItemIds.includes(item.item_id)) {
+                    // Update existing item
+                    const itemUpdateData: any = {};
+                    if (item.brand_id !== undefined) itemUpdateData.brand_id = item.brand_id || null;
+                    if (item.name) itemUpdateData.name = item.name;
+                    if (item.description !== undefined) itemUpdateData.description = item.description || null;
+                    if (item.category) itemUpdateData.category = item.category;
+                    if (item.tracking_method) itemUpdateData.tracking_method = item.tracking_method;
+                    if (item.quantity) itemUpdateData.quantity = item.quantity;
+                    if (item.packaging !== undefined) itemUpdateData.packaging = item.packaging || null;
+                    if (item.weight_per_unit !== undefined) itemUpdateData.weight_per_unit = item.weight_per_unit.toString();
+                    if (item.dimensions) itemUpdateData.dimensions = item.dimensions;
+                    if (item.volume_per_unit !== undefined) itemUpdateData.volume_per_unit = item.volume_per_unit.toString();
+                    if (item.handling_tags) itemUpdateData.handling_tags = item.handling_tags;
+                    if (item.images) itemUpdateData.images = item.images;
+                    if (item.asset_id !== undefined) itemUpdateData.asset_id = item.asset_id || null;
+
+                    if (Object.keys(itemUpdateData).length > 0) {
+                        await tx
+                            .update(inboundRequestItems)
+                            .set(itemUpdateData)
+                            .where(eq(inboundRequestItems.id, item.item_id));
+                    }
+                } else {
+                    // Prepare new item
+                    itemsToCreate.push({
+                        inbound_request_id: requestId,
+                        brand_id: item.brand_id || null,
+                        name: item.name,
+                        description: item.description,
+                        category: item.category,
+                        tracking_method: item.tracking_method,
+                        quantity: item.quantity || 1,
+                        packaging: item.packaging,
+                        weight_per_unit: (item.weight_per_unit || 0).toString(),
+                        dimensions: item.dimensions || {},
+                        volume_per_unit: (item.volume_per_unit || 0).toString(),
+                        handling_tags: item.handling_tags || [],
+                        images: item.images || [],
+                        asset_id: item.asset_id || null,
+                    });
+                }
+            }
+
+            // Insert new items
+            if (itemsToCreate.length > 0) {
+                await tx.insert(inboundRequestItems).values(itemsToCreate);
+            }
+
+            // Step 4.3: Recalculate pricing
+            // Fetch all current items
+            const currentItems = await tx
+                .select()
+                .from(inboundRequestItems)
+                .where(eq(inboundRequestItems.inbound_request_id, requestId));
+
+            // Calculate total volume
+            const totalVolume = currentItems.reduce((acc, item) => acc + ((item.quantity || 1) * Number(item.volume_per_unit)), 0);
+
+            // Calculate logistics costs and margin
+            const baseOpsTotal = Number(requestPricing.warehouse_ops_rate) * totalVolume;
+            const logisticsSubTotal = baseOpsTotal + Number((requestPricing.line_items as any).catalog_total || 0);
+            const marginAmount = logisticsSubTotal * (Number((requestPricing.margin as any).percent) / 100);
+            const finalTotal = logisticsSubTotal + marginAmount + Number((requestPricing.line_items as any).custom_total || 0);
+
+            // Update pricing record
+            await tx.update(prices).set({
+                base_ops_total: baseOpsTotal.toFixed(2),
+                logistics_sub_total: logisticsSubTotal.toFixed(2),
+                margin: {
+                    ...(requestPricing.margin as any),
+                    amount: marginAmount
+                },
+                final_total: finalTotal.toFixed(2),
+                calculated_at: new Date(),
+                calculated_by: user.id
+            }).where(eq(prices.id, inboundRequest.request_pricing_id));
+        }
+
+        return await getInboundRequestById(requestId, user, platformId);
+    });
+};
+
 export const InboundRequestServices = {
     createInboundRequest,
     getInboundRequests,
@@ -1219,5 +1398,6 @@ export const InboundRequestServices = {
     approveOrDeclineQuoteByClient,
     updateInboundRequestItem,
     completeInboundRequest,
-    cancelInboundRequest
+    cancelInboundRequest,
+    updateInboundRequest
 };

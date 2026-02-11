@@ -496,10 +496,10 @@ const getAssetById = async (id: string, user: AuthUser, platformId: string) => {
         },
         brand_details: asset.brand
             ? {
-                  id: asset.brand.id,
-                  name: asset.brand.name,
-                  logo_url: asset.brand.logo_url,
-              }
+                id: asset.brand.id,
+                name: asset.brand.name,
+                logo_url: asset.brand.logo_url,
+            }
             : null,
     };
 };
@@ -912,7 +912,7 @@ const getBatchAvailability = async (assetIds: string[], user: AuthUser, platform
             id: assets.id,
             name: assets.name,
             status: assets.status,
-            available_quantity: assets.total_quantity, // Placeholder - real availability needs date-based calculation
+            available_quantity: assets.available_quantity,
             volume_per_unit: assets.volume_per_unit,
             weight_per_unit: assets.weight_per_unit,
         })
@@ -1380,67 +1380,138 @@ const generateQRCode = async (data: GenerateQRCodePayload) => {
 };
 
 // ----------------------------------- COMPLETE MAINTENANCE -------------------------------
-const completeMaintenance = async (
-    data: CompleteMaintenancePayload,
-    user: AuthUser,
-    platformId: string
+// const completeMaintenance = async (
+//     data: CompleteMaintenancePayload,
+//     user: AuthUser,
+//     platformId: string
+// ) => {
+//     // Step 1: Fetch asset to verify it exists and is in RED condition
+//     const asset = await db.query.assets.findFirst({
+//         where: and(
+//             eq(assets.id, data.asset_id),
+//             eq(assets.platform_id, platformId),
+//             isNull(assets.deleted_at)
+//         ),
+//     });
+
+//     if (!asset) {
+//         throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found");
+//     }
+
+//     // Step 2: Validate asset is in RED condition
+//     if (asset.condition !== "RED") {
+//         throw new CustomizedError(
+//             httpStatus.BAD_REQUEST,
+//             "Only RED condition assets can have maintenance completed"
+//         );
+//     }
+
+//     // Step 3: Get existing history or initialize empty array
+//     const existingHistory = Array.isArray(asset.condition_history) ? asset.condition_history : [];
+
+//     // Step 4: Create new history entry for maintenance completion
+//     const newHistory = {
+//         condition: "GREEN" as const,
+//         notes: data.maintenance_notes,
+//         photos: [],
+//         updated_by: user.id,
+//         timestamp: new Date().toISOString(),
+//     };
+
+//     // Step 5: Prepend new entry (newest first)
+//     const condition_history = [newHistory, ...existingHistory];
+
+//     // Step 6: Update asset - set to GREEN and AVAILABLE
+//     const [result] = await db
+//         .update(assets)
+//         .set({
+//             condition: "GREEN",
+//             status: "AVAILABLE",
+//             condition_history,
+//         })
+//         .where(eq(assets.id, data.asset_id))
+//         .returning({
+//             id: assets.id,
+//             name: assets.name,
+//             condition: assets.condition,
+//             status: assets.status,
+//             condition_history: assets.condition_history,
+//             updated_at: assets.updated_at,
+//         });
+
+//     return result;
+// };
+
+const sentAssetToMaintenance = async (
+    assetId: string,
+    platformId: string,
 ) => {
-    // Step 1: Fetch asset to verify it exists and is in RED condition
+    // Step 1: Fetch order and verify status
     const asset = await db.query.assets.findFirst({
-        where: and(
-            eq(assets.id, data.asset_id),
-            eq(assets.platform_id, platformId),
-            isNull(assets.deleted_at)
-        ),
+        where: and(eq(assets.id, assetId), eq(assets.platform_id, platformId)),
     });
 
     if (!asset) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found");
     }
 
-    // Step 2: Validate asset is in RED condition
-    if (asset.condition !== "RED") {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            "Only RED condition assets can have maintenance completed"
-        );
+    if (asset.status === "MAINTENANCE") {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Asset is already in maintenance");
     }
 
-    // Step 3: Get existing history or initialize empty array
-    const existingHistory = Array.isArray(asset.condition_history) ? asset.condition_history : [];
+    if (asset.status !== "BOOKED") {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Asset is not in booked status");
+    }
 
-    // Step 4: Create new history entry for maintenance completion
-    const newHistory = {
-        condition: "GREEN" as const,
-        notes: data.maintenance_notes,
-        photos: [],
-        updated_by: user.id,
-        timestamp: new Date().toISOString(),
+    await db.transaction(async (tx) => {
+        await tx
+            .update(assets)
+            .set({
+                status: "MAINTENANCE",
+                updated_at: new Date(),
+            })
+            .where(and(eq(assets.id, assetId), eq(assets.platform_id, platformId)));
+    });
+
+    return {
+        asset_id: assetId,
+        status: "MAINTENANCE",
     };
+}
 
-    // Step 5: Prepend new entry (newest first)
-    const condition_history = [newHistory, ...existingHistory];
+const completeAssetMaintenance = async (
+    assetId: string,
+    platformId: string,
+) => {
+    // Step 1: Fetch order and verify status
+    const asset = await db.query.assets.findFirst({
+        where: and(eq(assets.id, assetId), eq(assets.platform_id, platformId)),
+    });
 
-    // Step 6: Update asset - set to GREEN and AVAILABLE
-    const [result] = await db
-        .update(assets)
-        .set({
-            condition: "GREEN",
-            status: "AVAILABLE",
-            condition_history,
-        })
-        .where(eq(assets.id, data.asset_id))
-        .returning({
-            id: assets.id,
-            name: assets.name,
-            condition: assets.condition,
-            status: assets.status,
-            condition_history: assets.condition_history,
-            updated_at: assets.updated_at,
-        });
+    if (!asset) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found");
+    }
 
-    return result;
-};
+    if (asset.status !== "MAINTENANCE") {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Asset is not in maintenance status");
+    }
+
+    await db.transaction(async (tx) => {
+        await tx
+            .update(assets)
+            .set({
+                status: "BOOKED",
+                condition: "GREEN",
+                updated_at: new Date(),
+            })
+            .where(and(eq(assets.id, assetId), eq(assets.platform_id, platformId)));
+    });
+
+    return {
+        asset_id: assetId,
+        status: "BOOKED",
+    };
+}
 
 export const AssetServices = {
     createAsset,
@@ -1456,5 +1527,7 @@ export const AssetServices = {
     bulkUploadAssets,
     addConditionHistory,
     generateQRCode,
-    completeMaintenance,
+    // completeMaintenance,
+    sentAssetToMaintenance,
+    completeAssetMaintenance
 };
