@@ -70,6 +70,7 @@ export const invoiceGenerator = async (
     } else {
         invoiceNumber = await invoiceNumberGenerator(platformId);
     }
+    // ... (existing code)
 
     const order = await db.query.orders.findFirst({
         where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
@@ -89,6 +90,7 @@ export const invoiceGenerator = async (
                     },
                 },
             },
+            line_items: true,
         },
     });
 
@@ -99,6 +101,7 @@ export const invoiceGenerator = async (
     const company = order.company as typeof companies.$inferSelect | null;
     const venueLocation = order.venue_location as any;
     const pricing = order.order_pricing;
+    const orderLineItems = order.line_items;
 
     const baseOpsTotal = Number(pricing.base_ops_total);
     const transportRate = Number((pricing.transport as any).final_rate);
@@ -110,6 +113,9 @@ export const invoiceGenerator = async (
     const transportRateWithMargin = transportRate + (transportRate * (marginPercent / 100));
     const serviceFee = catalogTotal + customTotal;
     const total = logisticsBasePrice + transportRateWithMargin + serviceFee;
+
+    // Calculate line items subtotal
+    const lineItemsSubTotal = orderLineItems.reduce((sum, item) => sum + Number(item.total), 0);
 
     const invoiceData = {
         id: order.id,
@@ -141,7 +147,17 @@ export const invoiceGenerator = async (
             handling_tags: item.handling_tags as any,
             from_collection_name: item.from_collection_name || "N/A",
         })),
+        line_items: orderLineItems.map((item) => ({
+            line_item_id: item.line_item_id,
+            description: item.description,
+            quantity: item.quantity ? Number(item.quantity) : 0,
+            unit_rate: item.unit_rate ? Number(item.unit_rate) : 0,
+            total: Number(item.total),
+        })),
+        line_items_sub_total: lineItemsSubTotal,
     };
+
+    // ... (rest of function)
 
     // Generate PDF
     const pdfBuffer = await renderInvoicePDF({
@@ -228,4 +244,12 @@ export type InvoicePayload = {
         final_total_price: string;
         show_breakdown: boolean;
     };
+    line_items: Array<{
+        line_item_id: string;
+        description: string;
+        quantity: number;
+        unit_rate: number;
+        total: number;
+    }>;
+    line_items_sub_total: number;
 };
