@@ -1380,6 +1380,7 @@ export const inboundRequestsRelations = relations(inboundRequests, ({ one, many 
         references: [prices.id],
     }),
     items: many(inboundRequestItems),
+    line_items: many(lineItems),
 }));
 
 // ---------------------------------- INBOUND REQUEST ITEM ---------------------------------
