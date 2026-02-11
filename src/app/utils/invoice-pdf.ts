@@ -250,7 +250,7 @@ export async function renderInvoicePDF(
             doc.fontSize(10)
                 .font("Helvetica-Bold")
                 .fillColor("#000")
-                .text("Logistics Base Cost", margin + contentWidth * 0.55, logisticsCostY, {
+                .text("Total", margin + contentWidth * 0.55, logisticsCostY, {
                     width: contentWidth * 0.25,
                     align: "right",
                 });
@@ -359,7 +359,7 @@ export async function renderInvoicePDF(
                             continued: false,
                         });
 
-                    currentLineItemY = doc.y + 15;
+                    currentLineItemY = doc.y + 25;
 
                     // Dotted separator
                     if (index < data.line_items.length - 1) {
@@ -383,7 +383,7 @@ export async function renderInvoicePDF(
                 doc.fontSize(10)
                     .font("Helvetica-Bold")
                     .fillColor("#000")
-                    .text("Sub Total", colRateX, subTotalY, {
+                    .text("Total", colRateX, subTotalY, {
                         width: contentWidth * 0.15,
                         align: "right",
                     });

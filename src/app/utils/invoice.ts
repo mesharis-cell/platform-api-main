@@ -114,8 +114,20 @@ export const invoiceGenerator = async (
     const serviceFee = catalogTotal + customTotal;
     const total = logisticsBasePrice + transportRateWithMargin + serviceFee;
 
+    const calculatedOrderLineItems = orderLineItems.map((item) => {
+        const unit_rate = item.unit_rate ? item.line_item_type === "CATALOG" ? Number(item.unit_rate) + (Number(item.unit_rate) * (marginPercent / 100)) : Number(item.unit_rate) : 0;
+
+        return {
+            line_item_id: item.line_item_id,
+            description: item.description,
+            quantity: item.quantity ? Number(item.quantity) : 0,
+            unit_rate,
+            total: unit_rate * Number(item.quantity),
+        }
+    })
+
     // Calculate line items subtotal
-    const lineItemsSubTotal = orderLineItems.reduce((sum, item) => sum + Number(item.total), 0);
+    const lineItemsSubTotal = calculatedOrderLineItems.reduce((sum, item) => sum + Number(item.total), 0);
 
     const invoiceData = {
         id: order.id,
@@ -147,13 +159,7 @@ export const invoiceGenerator = async (
             handling_tags: item.handling_tags as any,
             from_collection_name: item.from_collection_name || "N/A",
         })),
-        line_items: orderLineItems.map((item) => ({
-            line_item_id: item.line_item_id,
-            description: item.description,
-            quantity: item.quantity ? Number(item.quantity) : 0,
-            unit_rate: item.unit_rate ? Number(item.unit_rate) : 0,
-            total: Number(item.total),
-        })),
+        line_items: calculatedOrderLineItems,
         line_items_sub_total: lineItemsSubTotal,
     };
 
