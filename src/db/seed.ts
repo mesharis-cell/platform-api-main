@@ -1555,8 +1555,10 @@ async function seedOrders() {
         const weight = (parseFloat(volume) * (Math.random() * 50 + 100)).toFixed(2); // 100-150 kg/m³
 
         // Determine vehicle type based on volume
-        const vehicleType = parseFloat(volume) > 30 ? '10_TON' : parseFloat(volume) > 15 ? '7_TON' : 'STANDARD';
-        const tripType = 'ROUND_TRIP';
+        const vehicleSize =
+            parseFloat(volume) > 30 ? "10_TON" : parseFloat(volume) > 15 ? "7_TON" : "Standard";
+        const vehicle = seededData.vehicleTypes.find((v) => v.vehicle_size === vehicleSize);
+        const tripType = "ROUND_TRIP";
 
         // Get pricing config rate (150 AED/m³ default)
         const warehouseOpsRate = company.warehouse_ops_rate;
@@ -1565,7 +1567,8 @@ async function seedOrders() {
         const baseOpsTotal = parseFloat(volume) * warehouseOpsRate;
 
         // Get transport rate (simulate lookup)
-        const transportRate = vehicleType === '10_TON' ? 2160 : vehicleType === '7_TON' ? 1440 : 900; // ROUND_TRIP rates
+        const transportRate =
+            vehicleSize === "10_TON" ? 2160 : vehicleSize === "7_TON" ? 1440 : 900; // ROUND_TRIP rates
 
         // For orders with pricing, calculate line items totals
         let catalogTotal = 0;
@@ -1684,7 +1687,7 @@ async function seedOrders() {
                 weight: weight,
             },
             trip_type: tripType as any,
-            vehicle_type_id: vehicleType as any, // TODO: Add vehicle type id
+            vehicle_type_id: vehicle.id,
             order_pricing_id: pricing.id,
             order_status: status,
             financial_status: financial,
@@ -2381,6 +2384,8 @@ async function cleanupExistingData() {
         await db.delete(schema.reskinRequests);
         await db.delete(schema.orderItems);
         await db.delete(schema.orders);
+        await db.delete(schema.inboundRequestItems);
+        await db.delete(schema.inboundRequests);
         await db.delete(schema.prices);
         await db.delete(schema.collectionItems);
         await db.delete(schema.collections);
@@ -2395,6 +2400,7 @@ async function cleanupExistingData() {
         await db.delete(schema.users);
         await db.delete(schema.companies);
         await db.delete(schema.warehouses);
+        await db.delete(schema.vehicleTypes);
         await db.delete(schema.platforms);
 
         console.log("✓ Existing data cleaned up\n");
