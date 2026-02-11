@@ -20,7 +20,6 @@ import { qrCodeGenerator } from "../../utils/qr-code-generator";
 import queryValidator from "../../utils/query-validator";
 import {
     AddConditionHistoryPayload,
-    CompleteMaintenancePayload,
     CreateAssetPayload,
     GenerateQRCodePayload,
     SingleAssetAvailabilityResponse,
