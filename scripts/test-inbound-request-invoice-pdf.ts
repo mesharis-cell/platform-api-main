@@ -37,6 +37,23 @@ const mockPayload: InboundRequestInvoicePayload = {
         final_total: "2000.00",
         show_breakdown: true,
     },
+    line_items: [
+        {
+            line_item_id: "CAT-001",
+            description: "Catalog Item 1",
+            quantity: 1,
+            unit_rate: 300,
+            total: 300
+        },
+        {
+            line_item_id: "CUST-001",
+            description: "Custom Item 1",
+            quantity: 1,
+            unit_rate: 200,
+            total: 200
+        }
+    ],
+    line_items_sub_total: 500,
 };
 
 const outputPath = path.resolve(__dirname, "test-inbound-request-invoice.pdf");
