@@ -1,14 +1,38 @@
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { assets, companies, inboundRequestItems, inboundRequests, invoices, lineItems, prices, users, warehouses, zones } from "../../../db/schema";
+import {
+    assets,
+    companies,
+    inboundRequestItems,
+    inboundRequests,
+    invoices,
+    lineItems,
+    prices,
+    users,
+    warehouses,
+    zones,
+} from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { eq, isNull, and, asc, count, desc, gte, ilike, lte, or, inArray } from "drizzle-orm";
-import { ApproveInboundRequestPayload, ApproveOrDeclineQuoteByClientPayload, CancelInboundRequestPayload, CompleteInboundRequestPayload, InboundRequestPayload, UpdateInboundRequestItemPayload, UpdateInboundRequestPayload } from "./inbound-request.interfaces";
+import {
+    ApproveInboundRequestPayload,
+    ApproveOrDeclineQuoteByClientPayload,
+    CancelInboundRequestPayload,
+    CompleteInboundRequestPayload,
+    InboundRequestPayload,
+    UpdateInboundRequestItemPayload,
+    UpdateInboundRequestPayload,
+} from "./inbound-request.interfaces";
 import { qrCodeGenerator } from "../../utils/qr-code-generator";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
-import { generateCostEstimateAndSendEmail, inboundRequestIdGenerator, inboundRequestQueryValidationConfig, inboundRequestSortableFields } from "./inbound-request.utils";
+import {
+    generateCostEstimateAndSendEmail,
+    inboundRequestIdGenerator,
+    inboundRequestQueryValidationConfig,
+    inboundRequestSortableFields,
+} from "./inbound-request.utils";
 import { LineItemsServices } from "../order-line-items/order-line-items.services";
 import { inboundRequestInvoiceGenerator } from "../../utils/inbound-request-invoice";
 import { inboundRequestCostEstimateGenerator } from "../../utils/inbound-request-cost-estimate";
@@ -20,7 +44,11 @@ import { multipleEmailSender } from "../../utils/email-sender";
 import config from "../../config";
 
 // ----------------------------------- CREATE INBOUND REQUEST --------------------------------
-const createInboundRequest = async (data: InboundRequestPayload, user: AuthUser, platformId: string) => {
+const createInboundRequest = async (
+    data: InboundRequestPayload,
+    user: AuthUser,
+    platformId: string
+) => {
     const companyId = user.company_id || data.company_id;
 
     if (!companyId) {
@@ -31,7 +59,13 @@ const createInboundRequest = async (data: InboundRequestPayload, user: AuthUser,
     const [company] = await db
         .select()
         .from(companies)
-        .where(and(eq(companies.id, companyId), isNull(companies.deleted_at), eq(companies.platform_id, platformId)));
+        .where(
+            and(
+                eq(companies.id, companyId),
+                isNull(companies.deleted_at),
+                eq(companies.platform_id, platformId)
+            )
+        );
 
     if (!company) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found or is archived");
@@ -43,13 +77,19 @@ const createInboundRequest = async (data: InboundRequestPayload, user: AuthUser,
     const now = new Date();
     const minIncomingDate = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours from now
     if (incomingAt < minIncomingDate) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "Incoming date must be at least 24 hours in the future");
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Incoming date must be at least 24 hours in the future"
+        );
     }
 
     // Step 2: Create inbound request and items in a transaction
     return await db.transaction(async (tx) => {
         // Step 2.1: Calculate total volume from items
-        const totalVolume = data.items.reduce((acc, item) => acc + ((item.quantity || 1) * Number(item.volume_per_unit)), 0);
+        const totalVolume = data.items.reduce(
+            (acc, item) => acc + (item.quantity || 1) * Number(item.volume_per_unit),
+            0
+        );
 
         // Step 2.2: Calculate logistics costs and margin
         const logisticsSubTotal = Number(company.warehouse_ops_rate) * totalVolume;
@@ -64,7 +104,7 @@ const createInboundRequest = async (data: InboundRequestPayload, user: AuthUser,
             logistics_sub_total: logisticsSubTotal.toFixed(2),
             transport: {
                 system_rate: 0,
-                final_rate: 0
+                final_rate: 0,
             },
             line_items: {
                 catalog_total: 0,
@@ -74,12 +114,12 @@ const createInboundRequest = async (data: InboundRequestPayload, user: AuthUser,
                 percent: company.platform_margin_percent,
                 amount: marginAmount,
                 is_override: false,
-                override_reason: null
+                override_reason: null,
             },
             final_total: finalTotal.toFixed(2),
             calculated_at: new Date(),
             calculated_by: user.id,
-        }
+        };
 
         // Step 2.4: Insert pricing record
         const [price] = await tx.insert(prices).values(pricingDetails).returning();
@@ -128,7 +168,11 @@ const createInboundRequest = async (data: InboundRequestPayload, user: AuthUser,
 };
 
 // ----------------------------------- GET INBOUND REQUESTS ----------------------------------
-const getInboundRequests = async (query: Record<string, any>, user: AuthUser, platformId: string) => {
+const getInboundRequests = async (
+    query: Record<string, any>,
+    user: AuthUser,
+    platformId: string
+) => {
     const {
         search_term,
         page,
@@ -231,7 +275,7 @@ const getInboundRequests = async (query: Record<string, any>, user: AuthUser, pl
                 margin: prices.margin,
                 calculated_by: prices.calculated_by,
                 calculated_at: prices.calculated_at,
-            }
+            },
         })
         .from(inboundRequests)
         .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
@@ -261,11 +305,14 @@ const getInboundRequests = async (query: Record<string, any>, user: AuthUser, pl
         financial_status: result.request.financial_status,
         company: result.company,
         requester: result.requester,
-        request_pricing: user.role === "CLIENT" ? {
-            final_total: result.request_pricing?.final_total,
-        } : result.request_pricing,
+        request_pricing:
+            user.role === "CLIENT"
+                ? {
+                      final_total: result.request_pricing?.final_total,
+                  }
+                : result.request_pricing,
         created_at: result.request.created_at,
-        updated_at: result.request.updated_at
+        updated_at: result.request.updated_at,
     }));
 
     return {
@@ -284,7 +331,7 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
     // Step 1: Build WHERE conditions
     const conditions: any[] = [
         eq(inboundRequests.id, requestId),
-        eq(inboundRequests.platform_id, platformId)
+        eq(inboundRequests.platform_id, platformId),
     ];
 
     // Step 2: Filter by user role (CLIENT users see only their company's requests)
@@ -318,7 +365,7 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
                 margin: prices.margin,
                 calculated_by: prices.calculated_by,
                 calculated_at: prices.calculated_at,
-            }
+            },
         })
         .from(inboundRequests)
         .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
@@ -343,7 +390,7 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
                 status: assets.status,
                 total_quantity: assets.total_quantity,
                 available_quantity: assets.available_quantity,
-            }
+            },
         })
         .from(inboundRequestItems)
         .leftJoin(assets, eq(inboundRequestItems.asset_id, assets.id))
@@ -387,17 +434,20 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
         financial_status: result.request.financial_status,
         company: result.company,
         requester: result.requester,
-        request_pricing: user.role === "CLIENT" ? {
-            ...(pricingToShowClient && pricingToShowClient)
-        } : result.request_pricing,
+        request_pricing:
+            user.role === "CLIENT"
+                ? {
+                      ...(pricingToShowClient && pricingToShowClient),
+                  }
+                : result.request_pricing,
         items: items.map((item) => ({
             ...item.item,
-            asset: item.asset
+            asset: item.asset,
         })),
         line_items: lineItemsData,
         invoice: invoice || null,
         created_at: result.request.created_at,
-        updated_at: result.request.updated_at
+        updated_at: result.request.updated_at,
     };
 };
 
@@ -422,7 +472,7 @@ const submitForApproval = async (requestId: string, user: AuthUser, platformId: 
                 margin: prices.margin,
                 final_total: prices.final_total,
                 calculated_at: prices.calculated_at,
-            }
+            },
         })
         .from(inboundRequests)
         .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
@@ -438,12 +488,17 @@ const submitForApproval = async (requestId: string, user: AuthUser, platformId: 
         throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found");
     }
     if (!company) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found for this inbound request");
+        throw new CustomizedError(
+            httpStatus.NOT_FOUND,
+            "Company not found for this inbound request"
+        );
     }
     if (!requestPricing) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Request pricing not found for this inbound request");
+        throw new CustomizedError(
+            httpStatus.NOT_FOUND,
+            "Request pricing not found for this inbound request"
+        );
     }
-
 
     // Step 2: Verify inbound request is in PRICING_REVIEW status
     if (inboundRequest.request_status !== "PRICING_REVIEW") {
@@ -466,14 +521,19 @@ const submitForApproval = async (requestId: string, user: AuthUser, platformId: 
         .where(eq(inboundRequestItems.inbound_request_id, requestId));
 
     // Step 3.1: Calculate total volume from items
-    const totalVolume = items.reduce((acc, item) => acc + ((item.quantity || 1) * Number(item.volume_per_unit)), 0);
+    const totalVolume = items.reduce(
+        (acc, item) => acc + (item.quantity || 1) * Number(item.volume_per_unit),
+        0
+    );
 
     // Step 5: Calculate new pricing
     const marginOverride = !!(requestPricing?.margin as any)?.is_override;
     const marginPercent = marginOverride
         ? parseFloat((requestPricing.margin as any).percent)
         : parseFloat(company.platform_margin_percent);
-    const marginOverrideReason = marginOverride ? (requestPricing.margin as any).override_reason : null;
+    const marginOverrideReason = marginOverride
+        ? (requestPricing.margin as any).override_reason
+        : null;
     const baseOpsTotal = Number(company.warehouse_ops_rate) * totalVolume;
     const logisticsSubtotal = baseOpsTotal + lineItemsTotals.catalog_total;
     const marginAmount = logisticsSubtotal * (marginPercent / 100);
@@ -490,17 +550,20 @@ const submitForApproval = async (requestId: string, user: AuthUser, platformId: 
             percent: marginPercent,
             amount: marginAmount,
             is_override: marginOverride,
-            override_reason: marginOverrideReason
+            override_reason: marginOverrideReason,
         },
         final_total: finalTotal.toFixed(2),
         calculated_at: new Date(),
         calculated_by: user.id,
-    }
+    };
 
     // Step 6: Update inbound request pricing and status
     await db.transaction(async (tx) => {
         // Step 6.1: Update inbound request pricing
-        await tx.update(prices).set(newPricing).where(eq(prices.id, inboundRequest.request_pricing_id));
+        await tx
+            .update(prices)
+            .set(newPricing)
+            .where(eq(prices.id, inboundRequest.request_pricing_id));
 
         // Step 6.2: Update inbound request status
         await tx
@@ -510,7 +573,7 @@ const submitForApproval = async (requestId: string, user: AuthUser, platformId: 
                 updated_at: new Date(),
             })
             .where(eq(inboundRequests.id, inboundRequest.id));
-    })
+    });
 
     // TODO: Step 7: Send notification
     // await NotificationLogServices.sendNotification(
@@ -561,7 +624,7 @@ const approveInboundRequestByAdmin = async (
                 margin: prices.margin,
                 final_total: prices.final_total,
                 calculated_at: prices.calculated_at,
-            }
+            },
         })
         .from(inboundRequests)
         .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
@@ -579,13 +642,22 @@ const approveInboundRequestByAdmin = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found");
     }
     if (!company) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found for this inbound request");
+        throw new CustomizedError(
+            httpStatus.NOT_FOUND,
+            "Company not found for this inbound request"
+        );
     }
     if (!requestPricing) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Request pricing not found for this inbound request");
+        throw new CustomizedError(
+            httpStatus.NOT_FOUND,
+            "Request pricing not found for this inbound request"
+        );
     }
     if (!requester) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Requester not found for this inbound request");
+        throw new CustomizedError(
+            httpStatus.NOT_FOUND,
+            "Requester not found for this inbound request"
+        );
     }
 
     if (inboundRequest.request_status !== "PENDING_APPROVAL") {
@@ -596,7 +668,9 @@ const approveInboundRequestByAdmin = async (
     }
 
     // Determine if this is a revised quote (order was previously quoted)
-    const isRevisedQuote = ["QUOTE_SENT", "QUOTE_REVISED"].includes(inboundRequest.financial_status);
+    const isRevisedQuote = ["QUOTE_SENT", "QUOTE_REVISED"].includes(
+        inboundRequest.financial_status
+    );
     const newFinancialStatus = isRevisedQuote ? "QUOTE_REVISED" : "QUOTE_SENT";
 
     let finalTotal = requestPricing.final_total;
@@ -605,22 +679,29 @@ const approveInboundRequestByAdmin = async (
     await db.transaction(async (tx) => {
         // Step 3.1: Update pricing if margin override is provided
         if (margin_override_percent) {
-            const marginAmount = Number(requestPricing.logistics_sub_total) * (margin_override_percent / 100);
-            const updatedFinalTotal = Number(requestPricing.logistics_sub_total) + marginAmount + Number((requestPricing.line_items as any).custom_total);
+            const marginAmount =
+                Number(requestPricing.logistics_sub_total) * (margin_override_percent / 100);
+            const updatedFinalTotal =
+                Number(requestPricing.logistics_sub_total) +
+                marginAmount +
+                Number((requestPricing.line_items as any).custom_total);
 
             finalTotal = updatedFinalTotal.toFixed(2);
 
-            await tx.update(prices).set({
-                margin: {
-                    percent: margin_override_percent,
-                    amount: marginAmount,
-                    is_override: true,
-                    override_reason: margin_override_reason
-                },
-                final_total: updatedFinalTotal.toFixed(2),
-                calculated_at: new Date(),
-                calculated_by: user.id,
-            }).where(eq(prices.id, inboundRequest.request_pricing_id));
+            await tx
+                .update(prices)
+                .set({
+                    margin: {
+                        percent: margin_override_percent,
+                        amount: marginAmount,
+                        is_override: true,
+                        override_reason: margin_override_reason,
+                    },
+                    final_total: updatedFinalTotal.toFixed(2),
+                    calculated_at: new Date(),
+                    calculated_by: user.id,
+                })
+                .where(eq(prices.id, inboundRequest.request_pricing_id));
         }
 
         // Step 3.2: Update order status
@@ -632,8 +713,7 @@ const approveInboundRequestByAdmin = async (
                 updated_at: new Date(),
             })
             .where(eq(inboundRequests.id, inboundRequest.id));
-    })
-
+    });
 
     // Step 4: Generate cost estimate PDF
     await generateCostEstimateAndSendEmail({
@@ -688,7 +768,10 @@ const approveOrDeclineQuoteByClient = async (
 
     // Step 2: Verify inbound request is in QUOTED status
     if (inboundRequest.request_status !== "QUOTED") {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "Inbound request is not in QUOTED status");
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Inbound request is not in QUOTED status"
+        );
     }
 
     await db
@@ -711,7 +794,7 @@ const approveOrDeclineQuoteByClient = async (
         financial_status: status === "CONFIRMED" ? "QUOTE_ACCEPTED" : "CANCELLED",
         note: note,
         updated_at: new Date(),
-        message: `Quote ${status === "CONFIRMED" ? "approved" : "declined"} successfully.`
+        message: `Quote ${status === "CONFIRMED" ? "approved" : "declined"} successfully.`,
     };
 };
 
@@ -737,7 +820,7 @@ const updateInboundRequestItem = async (
                 margin: prices.margin,
                 calculated_by: prices.calculated_by,
                 calculated_at: prices.calculated_at,
-            }
+            },
         })
         .from(inboundRequests)
         .leftJoin(prices, eq(inboundRequests.request_pricing_id, prices.id))
@@ -747,16 +830,25 @@ const updateInboundRequestItem = async (
     const requestPricing = result.request_pricing;
 
     if (!inboundRequest || !requestPricing) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request or request pricing not found");
+        throw new CustomizedError(
+            httpStatus.NOT_FOUND,
+            "Inbound request or request pricing not found"
+        );
     }
 
     // Step 2: Check user access (CLIENT users can only update their company's requests)
     if (user.role === "CLIENT" && inboundRequest.company_id !== user.company_id) {
-        throw new CustomizedError(httpStatus.FORBIDDEN, "You do not have access to this inbound request");
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            "You do not have access to this inbound request"
+        );
     }
 
     // Step 3: Check if the inbound request is in a status that allows updates
-    if (user.role === "CLIENT" && !["PRICING_REVIEW", "PENDING_APPROVAL"].includes(inboundRequest.request_status)) {
+    if (
+        user.role === "CLIENT" &&
+        !["PRICING_REVIEW", "PENDING_APPROVAL"].includes(inboundRequest.request_status)
+    ) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
             `Cannot update items when request status is ${inboundRequest.request_status}. Items can only be updated in PENDING_APPROVAL or PRICING_REVIEW status.`
@@ -767,7 +859,12 @@ const updateInboundRequestItem = async (
     const [existingItem] = await db
         .select()
         .from(inboundRequestItems)
-        .where(and(eq(inboundRequestItems.id, itemId), eq(inboundRequestItems.inbound_request_id, requestId)))
+        .where(
+            and(
+                eq(inboundRequestItems.id, itemId),
+                eq(inboundRequestItems.inbound_request_id, requestId)
+            )
+        )
         .limit(1);
 
     if (!existingItem) {
@@ -828,13 +925,20 @@ const updateInboundRequestItem = async (
         .where(eq(inboundRequestItems.inbound_request_id, requestId));
 
     // Step 7.1: Calculate total volume from items
-    const totalVolume = items.reduce((acc, item) => acc + ((item.quantity || 1) * Number(item.volume_per_unit)), 0);
+    const totalVolume = items.reduce(
+        (acc, item) => acc + (item.quantity || 1) * Number(item.volume_per_unit),
+        0
+    );
 
     // Step 7.2: Calculate logistics costs and margin
     const baseOpsTotal = Number(requestPricing.warehouse_ops_rate) * totalVolume;
-    const logisticsSubTotal = baseOpsTotal + Number((requestPricing.line_items as any).catalog_total || 0);
+    const logisticsSubTotal =
+        baseOpsTotal + Number((requestPricing.line_items as any).catalog_total || 0);
     const marginAmount = logisticsSubTotal * (Number((requestPricing.margin as any).percent) / 100);
-    const finalTotal = logisticsSubTotal + marginAmount + Number((requestPricing.line_items as any).custom_total || 0);
+    const finalTotal =
+        logisticsSubTotal +
+        marginAmount +
+        Number((requestPricing.line_items as any).custom_total || 0);
 
     // Step 7.3: Prepare pricing details payload
     const pricingDetails = {
@@ -844,12 +948,12 @@ const updateInboundRequestItem = async (
             percent: Number((requestPricing.margin as any).percent),
             amount: marginAmount,
             is_override: false,
-            override_reason: null
+            override_reason: null,
         },
         final_total: finalTotal.toFixed(2),
         calculated_at: new Date(),
         calculated_by: user.id,
-    }
+    };
 
     // Step 7.4: Update pricing record
     await db.update(prices).set(pricingDetails).where(eq(prices.id, requestPricing.id));
@@ -902,7 +1006,7 @@ const cancelInboundRequest = async (
         request_status: "CANCELLED",
         financial_status: "CANCELLED",
         updated_at: new Date(),
-        message: "Inbound request cancelled successfully"
+        message: "Inbound request cancelled successfully",
     };
 };
 
@@ -937,7 +1041,7 @@ const completeInboundRequest = async (
                 margin: prices.margin,
                 calculated_by: prices.calculated_by,
                 calculated_at: prices.calculated_at,
-            }
+            },
         })
         .from(inboundRequests)
         .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
@@ -981,15 +1085,20 @@ const completeInboundRequest = async (
     const [zone] = await db
         .select()
         .from(zones)
-        .where(and(
-            eq(zones.id, zone_id),
-            eq(zones.warehouse_id, warehouse_id),
-            eq(zones.company_id, inboundRequest.company_id)
-        ))
+        .where(
+            and(
+                eq(zones.id, zone_id),
+                eq(zones.warehouse_id, warehouse_id),
+                eq(zones.company_id, inboundRequest.company_id)
+            )
+        )
         .limit(1);
 
     if (!zone) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Zone not found or does not belong to the specified warehouse and company");
+        throw new CustomizedError(
+            httpStatus.NOT_FOUND,
+            "Zone not found or does not belong to the specified warehouse and company"
+        );
     }
 
     // Step 5: Fetch inbound request items
@@ -999,12 +1108,16 @@ const completeInboundRequest = async (
         .where(eq(inboundRequestItems.inbound_request_id, requestId));
 
     if (items.length === 0) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "No items found for this inbound request");
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "No items found for this inbound request"
+        );
     }
 
     // Step 6: Create/update assets from items in a transaction
     const processedAssets = await db.transaction(async (tx) => {
-        const resultAssets: { asset: any; action: 'created' | 'updated'; quantityAdded: number }[] = [];
+        const resultAssets: { asset: any; action: "created" | "updated"; quantityAdded: number }[] =
+            [];
 
         for (const item of items) {
             if (item.tracking_method === "BATCH") {
@@ -1015,12 +1128,14 @@ const completeInboundRequest = async (
                     [existingAsset] = await tx
                         .select()
                         .from(assets)
-                        .where(and(
-                            eq(assets.id, item.asset_id),
-                            eq(assets.company_id, inboundRequest.company_id),
-                            eq(assets.platform_id, platformId),
-                            isNull(assets.deleted_at)
-                        ))
+                        .where(
+                            and(
+                                eq(assets.id, item.asset_id),
+                                eq(assets.company_id, inboundRequest.company_id),
+                                eq(assets.platform_id, platformId),
+                                isNull(assets.deleted_at)
+                            )
+                        )
                         .limit(1);
                 }
 
@@ -1034,17 +1149,16 @@ const completeInboundRequest = async (
                         .set({
                             total_quantity: newTotalQuantity,
                             available_quantity: newAvailableQuantity,
-                            status: "AVAILABLE"
+                            status: "AVAILABLE",
                         })
                         .where(eq(assets.id, existingAsset.id))
                         .returning();
 
                     resultAssets.push({
                         asset: updatedAsset,
-                        action: 'updated',
-                        quantityAdded: item.quantity
+                        action: "updated",
+                        quantityAdded: item.quantity,
                     });
-
                 } else {
                     // Create new BATCH asset if none exists with this id
                     const qrCode = await qrCodeGenerator(inboundRequest.company_id);
@@ -1075,8 +1189,8 @@ const completeInboundRequest = async (
 
                     resultAssets.push({
                         asset: newAsset,
-                        action: 'created',
-                        quantityAdded: item.quantity
+                        action: "created",
+                        quantityAdded: item.quantity,
                     });
 
                     await tx
@@ -1114,8 +1228,8 @@ const completeInboundRequest = async (
 
                 resultAssets.push({
                     asset: newAsset,
-                    action: 'created',
-                    quantityAdded: item.quantity
+                    action: "created",
+                    quantityAdded: item.quantity,
                 });
 
                 // Update the inbound request item with the created asset id
@@ -1140,7 +1254,11 @@ const completeInboundRequest = async (
     });
 
     // Step 7: Generate invoice
-    const { invoice_id, invoice_pdf_url, pdf_buffer } = await inboundRequestInvoiceGenerator(requestId, platformId, user);
+    const { invoice_id, invoice_pdf_url, pdf_buffer } = await inboundRequestInvoiceGenerator(
+        requestId,
+        platformId,
+        user
+    );
 
     // Step 8: Send email to client and admin //
     if (invoice_id && invoice_pdf_url) {
@@ -1157,11 +1275,11 @@ const completeInboundRequest = async (
             }),
             attachments: pdf_buffer
                 ? [
-                    {
-                        filename: `${invoice_id}.pdf`,
-                        content: pdf_buffer,
-                    },
-                ]
+                      {
+                          filename: `${invoice_id}.pdf`,
+                          content: pdf_buffer,
+                      },
+                  ]
                 : undefined,
         });
 
@@ -1180,17 +1298,17 @@ const completeInboundRequest = async (
             }),
             pdf_buffer
                 ? [
-                    {
-                        filename: `${invoice_id}.pdf`,
-                        content: pdf_buffer,
-                    },
-                ]
-                : undefined,
+                      {
+                          filename: `${invoice_id}.pdf`,
+                          content: pdf_buffer,
+                      },
+                  ]
+                : undefined
         );
     }
 
-    const createdCount = processedAssets.filter(a => a.action === 'created').length;
-    const updatedCount = processedAssets.filter(a => a.action === 'updated').length;
+    const createdCount = processedAssets.filter((a) => a.action === "created").length;
+    const updatedCount = processedAssets.filter((a) => a.action === "updated").length;
 
     return {
         id: inboundRequest.id,
@@ -1206,7 +1324,7 @@ const completeInboundRequest = async (
             quantity_added: quantityAdded,
             action: action,
         })),
-        message: `Successfully processed ${items.length} items: ${createdCount} assets created, ${updatedCount} assets updated.`
+        message: `Successfully processed ${items.length} items: ${createdCount} assets created, ${updatedCount} assets updated.`,
     };
 };
 
@@ -1231,7 +1349,7 @@ const updateInboundRequest = async (
                 margin: prices.margin,
                 calculated_by: prices.calculated_by,
                 calculated_at: prices.calculated_at,
-            }
+            },
         })
         .from(inboundRequests)
         .leftJoin(prices, eq(inboundRequests.request_pricing_id, prices.id))
@@ -1241,16 +1359,25 @@ const updateInboundRequest = async (
     const requestPricing = result?.request_pricing;
 
     if (!inboundRequest || !requestPricing) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request or request pricing not found");
+        throw new CustomizedError(
+            httpStatus.NOT_FOUND,
+            "Inbound request or request pricing not found"
+        );
     }
 
     // Step 2: Check user access (CLIENT users can only update their company's requests)
     if (user.role === "CLIENT" && inboundRequest.company_id !== user.company_id) {
-        throw new CustomizedError(httpStatus.FORBIDDEN, "You do not have access to this inbound request");
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            "You do not have access to this inbound request"
+        );
     }
 
     // Step 3: Check if request is in allowed status
-    if (user.role === "CLIENT" && !["PRICING_REVIEW", "PENDING_APPROVAL"].includes(inboundRequest.request_status)) {
+    if (
+        user.role === "CLIENT" &&
+        !["PRICING_REVIEW", "PENDING_APPROVAL"].includes(inboundRequest.request_status)
+    ) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
             `Cannot update request when status is ${inboundRequest.request_status}. Metadata can only be updated in PRICING_REVIEW or PENDING_APPROVAL status.`
@@ -1268,7 +1395,10 @@ const updateInboundRequest = async (
             const now = new Date();
             const minIncomingDate = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours from now
             if (incomingAt < minIncomingDate) {
-                throw new CustomizedError(httpStatus.BAD_REQUEST, "Incoming date must be at least 24 hours in the future");
+                throw new CustomizedError(
+                    httpStatus.BAD_REQUEST,
+                    "Incoming date must be at least 24 hours in the future"
+                );
             }
             updateData.incoming_at = incomingAt;
         }
@@ -1289,13 +1419,13 @@ const updateInboundRequest = async (
                 .from(inboundRequestItems)
                 .where(eq(inboundRequestItems.inbound_request_id, requestId));
 
-            const existingItemIds = existingItems.map(item => item.id);
+            const existingItemIds = existingItems.map((item) => item.id);
             const payloadItemIds = payload.items
-                .filter(item => item.item_id)
-                .map(item => item.item_id as string);
+                .filter((item) => item.item_id)
+                .map((item) => item.item_id as string);
 
             // Identify items to delete
-            const itemsToDelete = existingItemIds.filter(id => !payloadItemIds.includes(id));
+            const itemsToDelete = existingItemIds.filter((id) => !payloadItemIds.includes(id));
             if (itemsToDelete.length > 0) {
                 await tx
                     .delete(inboundRequestItems)
@@ -1309,19 +1439,25 @@ const updateInboundRequest = async (
                 if (item.item_id && existingItemIds.includes(item.item_id)) {
                     // Update existing item
                     const itemUpdateData: any = {};
-                    if (item.brand_id !== undefined) itemUpdateData.brand_id = item.brand_id || null;
+                    if (item.brand_id !== undefined)
+                        itemUpdateData.brand_id = item.brand_id || null;
                     if (item.name) itemUpdateData.name = item.name;
-                    if (item.description !== undefined) itemUpdateData.description = item.description || null;
+                    if (item.description !== undefined)
+                        itemUpdateData.description = item.description || null;
                     if (item.category) itemUpdateData.category = item.category;
                     if (item.tracking_method) itemUpdateData.tracking_method = item.tracking_method;
                     if (item.quantity) itemUpdateData.quantity = item.quantity;
-                    if (item.packaging !== undefined) itemUpdateData.packaging = item.packaging || null;
-                    if (item.weight_per_unit !== undefined) itemUpdateData.weight_per_unit = item.weight_per_unit.toString();
+                    if (item.packaging !== undefined)
+                        itemUpdateData.packaging = item.packaging || null;
+                    if (item.weight_per_unit !== undefined)
+                        itemUpdateData.weight_per_unit = item.weight_per_unit.toString();
                     if (item.dimensions) itemUpdateData.dimensions = item.dimensions;
-                    if (item.volume_per_unit !== undefined) itemUpdateData.volume_per_unit = item.volume_per_unit.toString();
+                    if (item.volume_per_unit !== undefined)
+                        itemUpdateData.volume_per_unit = item.volume_per_unit.toString();
                     if (item.handling_tags) itemUpdateData.handling_tags = item.handling_tags;
                     if (item.images) itemUpdateData.images = item.images;
-                    if (item.asset_id !== undefined) itemUpdateData.asset_id = item.asset_id || null;
+                    if (item.asset_id !== undefined)
+                        itemUpdateData.asset_id = item.asset_id || null;
 
                     if (Object.keys(itemUpdateData).length > 0) {
                         await tx
@@ -1363,26 +1499,37 @@ const updateInboundRequest = async (
                 .where(eq(inboundRequestItems.inbound_request_id, requestId));
 
             // Calculate total volume
-            const totalVolume = currentItems.reduce((acc, item) => acc + ((item.quantity || 1) * Number(item.volume_per_unit)), 0);
+            const totalVolume = currentItems.reduce(
+                (acc, item) => acc + (item.quantity || 1) * Number(item.volume_per_unit),
+                0
+            );
 
             // Calculate logistics costs and margin
             const baseOpsTotal = Number(requestPricing.warehouse_ops_rate) * totalVolume;
-            const logisticsSubTotal = baseOpsTotal + Number((requestPricing.line_items as any).catalog_total || 0);
-            const marginAmount = logisticsSubTotal * (Number((requestPricing.margin as any).percent) / 100);
-            const finalTotal = logisticsSubTotal + marginAmount + Number((requestPricing.line_items as any).custom_total || 0);
+            const logisticsSubTotal =
+                baseOpsTotal + Number((requestPricing.line_items as any).catalog_total || 0);
+            const marginAmount =
+                logisticsSubTotal * (Number((requestPricing.margin as any).percent) / 100);
+            const finalTotal =
+                logisticsSubTotal +
+                marginAmount +
+                Number((requestPricing.line_items as any).custom_total || 0);
 
             // Update pricing record
-            await tx.update(prices).set({
-                base_ops_total: baseOpsTotal.toFixed(2),
-                logistics_sub_total: logisticsSubTotal.toFixed(2),
-                margin: {
-                    ...(requestPricing.margin as any),
-                    amount: marginAmount
-                },
-                final_total: finalTotal.toFixed(2),
-                calculated_at: new Date(),
-                calculated_by: user.id
-            }).where(eq(prices.id, inboundRequest.request_pricing_id));
+            await tx
+                .update(prices)
+                .set({
+                    base_ops_total: baseOpsTotal.toFixed(2),
+                    logistics_sub_total: logisticsSubTotal.toFixed(2),
+                    margin: {
+                        ...(requestPricing.margin as any),
+                        amount: marginAmount,
+                    },
+                    final_total: finalTotal.toFixed(2),
+                    calculated_at: new Date(),
+                    calculated_by: user.id,
+                })
+                .where(eq(prices.id, inboundRequest.request_pricing_id));
         }
 
         return await getInboundRequestById(requestId, user, platformId);
@@ -1399,5 +1546,5 @@ export const InboundRequestServices = {
     updateInboundRequestItem,
     completeInboundRequest,
     cancelInboundRequest,
-    updateInboundRequest
+    updateInboundRequest,
 };

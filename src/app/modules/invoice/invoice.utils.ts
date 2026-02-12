@@ -12,5 +12,5 @@ export const invoiceQueryValidationConfig = {
     sort_order: sortOrderType,
     paid_status: ["paid", "unpaid"],
     company_id: "uuid",
-    type: invoiceTypeEnum.enumValues
+    type: invoiceTypeEnum.enumValues,
 };

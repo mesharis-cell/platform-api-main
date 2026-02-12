@@ -22,20 +22,13 @@ const lookupTransportRate = async (
     // Step 1: Check if city is a valid UUID
     const isUUID = uuidRegex.test(city);
 
-    // Step 2: Build where condition for city based on input type 
+    // Step 2: Build where condition for city based on input type
     const whereCondition = isUUID
-        ? and(
-            eq(cities.id, city),
-            eq(cities.platform_id, platformId)
-        )
+        ? and(eq(cities.id, city), eq(cities.platform_id, platformId))
         : and(eq(cities.name, city), eq(cities.platform_id, platformId));
 
     // Step 3: Fetch order with relations
-    const [cityInfo] = await db
-        .select()
-        .from(cities)
-        .where(whereCondition)
-        .limit(1);
+    const [cityInfo] = await db.select().from(cities).where(whereCondition).limit(1);
 
     if (!cityInfo) {
         return null;

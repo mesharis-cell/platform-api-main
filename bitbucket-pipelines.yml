@@ -8,26 +8,26 @@
 image: alpine/git
 
 pipelines:
-  branches:
-    staging:
-      - step:
-          name: Sync Staging to GitHub Main
-          script:
-            # SSH Setup
-            - mkdir -p ~/.ssh
-            - echo "$GITHUB_SSH_KEY" | base64 -d > ~/.ssh/id_ed25519
-            - chmod 600 ~/.ssh/id_ed25519
-            - ssh-keyscan -t ed25519,rsa github.com >> ~/.ssh/known_hosts
-            
-            # Git Configuration
-            - git config --global user.email "pipeline@bitbucket.org"
-            - git config --global user.name "Bitbucket Pipeline"
-            
-            # Add GitHub Remote
-            - git remote add github git@github.com:mesharis-cell/platform-api-main.git || git remote set-url github git@github.com:mesharis-cell/platform-api-main.git
-            
-            # Push staging branch to GitHub main (always force)
-            - echo "Pushing Bitbucket staging to GitHub main..."
-            - git fetch --unshallow || true
-            - git push github :main --force || true
-            - git push github staging:main --force
+    branches:
+        staging:
+            - step:
+                  name: Sync Staging to GitHub Main
+                  script:
+                      # SSH Setup
+                      - mkdir -p ~/.ssh
+                      - echo "$GITHUB_SSH_KEY" | base64 -d > ~/.ssh/id_ed25519
+                      - chmod 600 ~/.ssh/id_ed25519
+                      - ssh-keyscan -t ed25519,rsa github.com >> ~/.ssh/known_hosts
+
+                      # Git Configuration
+                      - git config --global user.email "pipeline@bitbucket.org"
+                      - git config --global user.name "Bitbucket Pipeline"
+
+                      # Add GitHub Remote
+                      - git remote add github git@github.com:mesharis-cell/platform-api-main.git || git remote set-url github git@github.com:mesharis-cell/platform-api-main.git
+
+                      # Push staging branch to GitHub main (always force)
+                      - echo "Pushing Bitbucket staging to GitHub main..."
+                      - git fetch --unshallow || true
+                      - git push github :main --force || true
+                      - git push github staging:main --force

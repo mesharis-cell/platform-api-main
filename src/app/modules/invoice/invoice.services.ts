@@ -1,7 +1,14 @@
 import { and, asc, desc, eq, ilike, sql } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { companies, financialStatusHistory, invoices, prices, orders, inboundRequests } from "../../../db/schema";
+import {
+    companies,
+    financialStatusHistory,
+    invoices,
+    prices,
+    orders,
+    inboundRequests,
+} from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { getPresignedUrl } from "../../services/s3.service";
@@ -49,7 +56,7 @@ const getInvoiceById = async (invoiceId: string, user: AuthUser, platformId: str
                 margin: prices.margin,
                 final_total: prices.final_total,
                 calculated_at: prices.calculated_at,
-            }
+            },
         })
         .from(invoices)
         .innerJoin(orders, eq(invoices.order_id, orders.id))
@@ -122,7 +129,7 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
         invoice_id,
         paid_status,
         company_id,
-        type
+        type,
     } = query;
 
     // Step 1: Validate query parameters
@@ -166,7 +173,7 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
     }
 
     if (type) {
-        queryValidator(invoiceQueryValidationConfig, "type", type)
+        queryValidator(invoiceQueryValidationConfig, "type", type);
         conditions.push(eq(invoices.type, type));
     }
 
@@ -223,7 +230,7 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
                 margin: prices.margin,
                 final_total: prices.final_total,
                 calculated_at: prices.calculated_at,
-            }
+            },
         })
         .from(invoices)
         .leftJoin(orders, eq(invoices.order_id, orders.id))
@@ -263,25 +270,25 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
             payment_reference: invoice.payment_reference,
             order: order
                 ? {
-                    id: order.id,
-                    order_id: order.order_id,
-                    contact_name: order.contact_name,
-                    event_start_date: order.event_start_date,
-                    venue_name: order.venue_name,
-                    pricing: pricing,
-                    order_status: order.order_status,
-                    financial_status: order.financial_status,
-                }
+                      id: order.id,
+                      order_id: order.order_id,
+                      contact_name: order.contact_name,
+                      event_start_date: order.event_start_date,
+                      venue_name: order.venue_name,
+                      pricing: pricing,
+                      order_status: order.order_status,
+                      financial_status: order.financial_status,
+                  }
                 : null,
             inbound_request: inbound_request
                 ? {
-                    id: inbound_request.id,
-                    inbound_request_id: inbound_request.inbound_request_id,
-                    request_status: inbound_request.request_status,
-                    financial_status: inbound_request.financial_status,
-                    incoming_at: inbound_request.incoming_at,
-                    pricing: pricing,
-                }
+                      id: inbound_request.id,
+                      inbound_request_id: inbound_request.inbound_request_id,
+                      request_status: inbound_request.request_status,
+                      financial_status: inbound_request.financial_status,
+                      incoming_at: inbound_request.incoming_at,
+                      pricing: pricing,
+                  }
                 : null,
             company: {
                 id: company?.id,
@@ -426,7 +433,18 @@ const generateInvoice = async (
     }
 
     // Step 2: Validate order can be invoiced
-    const allowedStatuses = ["CONFIRMED", "AWAITING_FABRICATION", "IN_PREPARATION", "READY_FOR_DELIVERY", "IN_TRANSIT", "DELIVERED", "IN_USE", "AWAITING_RETURN", "RETURN_IN_TRANSIT", "CLOSED"];
+    const allowedStatuses = [
+        "CONFIRMED",
+        "AWAITING_FABRICATION",
+        "IN_PREPARATION",
+        "READY_FOR_DELIVERY",
+        "IN_TRANSIT",
+        "DELIVERED",
+        "IN_USE",
+        "AWAITING_RETURN",
+        "RETURN_IN_TRANSIT",
+        "CLOSED",
+    ];
     if (!allowedStatuses.includes(order.order_status)) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
@@ -481,11 +499,11 @@ const generateInvoice = async (
             }),
             attachments: pdf_buffer
                 ? [
-                    {
-                        filename: `${invoice_id}.pdf`,
-                        content: pdf_buffer,
-                    },
-                ]
+                      {
+                          filename: `${invoice_id}.pdf`,
+                          content: pdf_buffer,
+                      },
+                  ]
                 : undefined,
         });
 

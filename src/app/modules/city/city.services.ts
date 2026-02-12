@@ -15,7 +15,9 @@ const createCity = async (data: CityPayload) => {
         const [country] = await db
             .select()
             .from(countries)
-            .where(and(eq(countries.id, data.country_id), eq(countries.platform_id, data.platform_id)));
+            .where(
+                and(eq(countries.id, data.country_id), eq(countries.platform_id, data.platform_id))
+            );
 
         if (!country) {
             throw new CustomizedError(httpStatus.NOT_FOUND, "Country not found");
@@ -161,7 +163,9 @@ const updateCity = async (id: string, platformId: string, data: CityPayload) => 
             const [country] = await db
                 .select()
                 .from(countries)
-                .where(and(eq(countries.id, data.country_id), eq(countries.platform_id, platformId)));
+                .where(
+                    and(eq(countries.id, data.country_id), eq(countries.platform_id, platformId))
+                );
 
             if (!country) {
                 throw new CustomizedError(httpStatus.NOT_FOUND, "Country not found");

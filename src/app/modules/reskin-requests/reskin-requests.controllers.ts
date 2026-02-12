@@ -97,9 +97,10 @@ const cancelReskinRequest = catchAsync(async (req: Request, res: Response) => {
         user
     );
 
-    const message = result.action === "cancel_order"
-        ? "Reskin cancelled. Order cancellation initiated."
-        : "Reskin cancelled. Order will continue with original asset.";
+    const message =
+        result.action === "cancel_order"
+            ? "Reskin cancelled. Order cancellation initiated."
+            : "Reskin cancelled. Order will continue with original asset.";
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

@@ -8,27 +8,28 @@ import { vehicleTypeSchemas } from "./vehicle-type.schema";
 const router = Router();
 
 router.get(
-  "/",
-  platformValidator,
-  auth("ADMIN", "LOGISTICS", "CLIENT"),
-  VehicleTypeControllers.getVehicleTypes);
+    "/",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    VehicleTypeControllers.getVehicleTypes
+);
 
 // POST / -> createVehicleType
 router.post(
-  "/",
-  platformValidator,
-  auth("ADMIN"),
-  // payloadValidator(vehicleTypeSchemas.createVehicleType),
-  VehicleTypeControllers.createVehicleType
+    "/",
+    platformValidator,
+    auth("ADMIN"),
+    // payloadValidator(vehicleTypeSchemas.createVehicleType),
+    VehicleTypeControllers.createVehicleType
 );
 
 // PATCH /:id -> updateVehicleType
 router.patch(
-  "/:id",
-  platformValidator,
-  auth("ADMIN"),
-  payloadValidator(vehicleTypeSchemas.updateVehicleType),
-  VehicleTypeControllers.updateVehicleType
+    "/:id",
+    platformValidator,
+    auth("ADMIN"),
+    payloadValidator(vehicleTypeSchemas.updateVehicleType),
+    VehicleTypeControllers.updateVehicleType
 );
 
 export const VehicleTypeRoutes = router;

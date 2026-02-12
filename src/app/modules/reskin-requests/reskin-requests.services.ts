@@ -170,7 +170,10 @@ const completeReskinRequest = async (
     }
 
     if (reskinRequest.original_asset.condition !== "GREEN") {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "Asset is need to maintenance to be reskined");
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Asset is need to maintenance to be reskined"
+        );
     }
 
     if (reskinRequest.completed_at) {
@@ -254,7 +257,12 @@ const completeReskinRequest = async (
 
     // Version snapshot for the new asset
     const { AssetServices } = await import("../asset/assets.services");
-    await AssetServices.createAssetVersionSnapshot(newAsset.id, platformId, "Reskin completed", completed_by);
+    await AssetServices.createAssetVersionSnapshot(
+        newAsset.id,
+        platformId,
+        "Reskin completed",
+        completed_by
+    );
 
     // Check if all reskins complete for this order
     const stillPending = await getPendingReskins(reskinRequest.order_id, platformId);
@@ -445,7 +453,10 @@ const cancelReskinRequest = async (
 
     // Step 5: Calculate final pricing
     const baseOpsTotal = Number(orderPricing.base_ops_total);
-    const logisticsSubtotal = baseOpsTotal + Number((orderPricing.transport as any).final_rate) + lineItemsTotals.catalog_total;
+    const logisticsSubtotal =
+        baseOpsTotal +
+        Number((orderPricing.transport as any).final_rate) +
+        lineItemsTotals.catalog_total;
     const marginAmount = logisticsSubtotal * (Number((orderPricing.margin as any).percent) / 100);
     const finalTotal = logisticsSubtotal + marginAmount + lineItemsTotals.custom_total;
 
@@ -462,11 +473,14 @@ const cancelReskinRequest = async (
         final_total: finalTotal.toFixed(2),
         calculated_at: new Date(),
         calculated_by: user.id,
-    }
+    };
 
-    const shouldReviseQuote = ["QUOTED", "CONFIRMED", "AWAITING_FABRICATION", "IN_PREPARATION"].includes(
-        orderRecord.order_status
-    );
+    const shouldReviseQuote = [
+        "QUOTED",
+        "CONFIRMED",
+        "AWAITING_FABRICATION",
+        "IN_PREPARATION",
+    ].includes(orderRecord.order_status);
     const nextOrderStatus = shouldReviseQuote ? "QUOTED" : orderRecord.order_status;
     const nextFinancialStatus = shouldReviseQuote ? "QUOTE_REVISED" : orderRecord.financial_status;
 

@@ -113,13 +113,15 @@ export const buildNotificationData = async (order: any): Promise<NotificationDat
     const serverUrl = config.server_url;
 
     const orderPricing = await db.query.prices.findFirst({
-        where: and(eq(prices.id, order.order_pricing_id), eq(prices.platform_id, order.platform_id)),
+        where: and(
+            eq(prices.id, order.order_pricing_id),
+            eq(prices.platform_id, order.platform_id)
+        ),
     });
 
     const venueCity = await db.query.cities.findFirst({
         where: and(eq(cities.id, order.venue_city_id), eq(cities.platform_id, order.platform_id)),
     });
-
 
     const lineItemsData = await db
         .select({
@@ -146,7 +148,9 @@ export const buildNotificationData = async (order: any): Promise<NotificationDat
         venueCity: venueCity?.name || "",
         tripType: order.transport_trip_type || "",
         vehicleType: order.transport_vehicle_type || "",
-        finalTotalPrice: orderPricing?.final_total ? Number(orderPricing.final_total).toFixed(2) : "",
+        finalTotalPrice: orderPricing?.final_total
+            ? Number(orderPricing.final_total).toFixed(2)
+            : "",
         invoiceNumber: order.invoiceNumber || "",
         deliveryWindow: formatTimeWindow(order.delivery_window?.start, order.delivery_window?.end),
         pickupWindow: formatTimeWindow(order.pickup_window?.start, order.pickup_window?.end),
@@ -156,25 +160,28 @@ export const buildNotificationData = async (order: any): Promise<NotificationDat
         supportPhone: "+971 XX XXX XXXX",
         pricing: orderPricing
             ? {
-                warehouse_ops_rate: orderPricing.warehouse_ops_rate?.toString() || "N/A",
-                base_ops_total: orderPricing.base_ops_total?.toString() || "N/A",
-                logistics_sub_total: orderPricing.logistics_sub_total?.toString() || "N/A",
-                transport: {
-                    final_rate: (orderPricing.transport as any)?.final_rate?.toString() || "N/A",
-                    system_rate: (orderPricing.transport as any)?.system_rate?.toString() || "N/A",
-                },
-                line_items: {
-                    catalog_total: (orderPricing.line_items as any)?.catalog_total?.toString() || "N/A",
-                    custom_total: (orderPricing.line_items as any)?.custom_total?.toString() || "N/A",
-                },
-                margin: {
-                    percent: (orderPricing.margin as any)?.percent?.toString() || "N/A",
-                    amount: (orderPricing.margin as any)?.amount?.toString() || "N/A",
-                    is_override: (orderPricing.margin as any)?.is_override || false,
-                    override_reason: (orderPricing.margin as any)?.override_reason || "",
-                },
-                final_total: orderPricing.final_total?.toString() || "N/A",
-            }
+                  warehouse_ops_rate: orderPricing.warehouse_ops_rate?.toString() || "N/A",
+                  base_ops_total: orderPricing.base_ops_total?.toString() || "N/A",
+                  logistics_sub_total: orderPricing.logistics_sub_total?.toString() || "N/A",
+                  transport: {
+                      final_rate: (orderPricing.transport as any)?.final_rate?.toString() || "N/A",
+                      system_rate:
+                          (orderPricing.transport as any)?.system_rate?.toString() || "N/A",
+                  },
+                  line_items: {
+                      catalog_total:
+                          (orderPricing.line_items as any)?.catalog_total?.toString() || "N/A",
+                      custom_total:
+                          (orderPricing.line_items as any)?.custom_total?.toString() || "N/A",
+                  },
+                  margin: {
+                      percent: (orderPricing.margin as any)?.percent?.toString() || "N/A",
+                      amount: (orderPricing.margin as any)?.amount?.toString() || "N/A",
+                      is_override: (orderPricing.margin as any)?.is_override || false,
+                      override_reason: (orderPricing.margin as any)?.override_reason || "",
+                  },
+                  final_total: orderPricing.final_total?.toString() || "N/A",
+              }
             : undefined,
         line_items: lineItemsData.map((item) => ({
             description: item.description,

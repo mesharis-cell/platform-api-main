@@ -17,12 +17,7 @@ router.post(
 );
 
 // Get all cities
-router.get(
-    "/",
-    platformValidator,
-    auth("ADMIN", "LOGISTICS", "CLIENT"),
-    CityControllers.getCities
-);
+router.get("/", platformValidator, auth("ADMIN", "LOGISTICS", "CLIENT"), CityControllers.getCities);
 
 // Get city by id
 router.get(
@@ -42,11 +37,6 @@ router.patch(
 );
 
 // Delete city
-router.delete(
-    "/:id",
-    platformValidator,
-    auth("ADMIN"),
-    CityControllers.deleteCity
-);
+router.delete("/:id", platformValidator, auth("ADMIN"), CityControllers.deleteCity);
 
 export const CityRoutes = router;

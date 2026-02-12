@@ -76,7 +76,7 @@ export const inboundRequestStatusEnum = pgEnum("inbound_request_status_enum", [
     "CONFIRMED",
     "DECLINED",
     "CANCELLED",
-    "COMPLETED"
+    "COMPLETED",
 ]);
 
 export const financialStatusEnum = pgEnum("financial_status", [
@@ -150,7 +150,7 @@ export const platforms = pgTable(
 export const platformsRelations = relations(platforms, ({ many }) => ({
     companies: many(companies),
     users: many(users),
-    warehouses: many(warehouses)
+    warehouses: many(warehouses),
 }));
 
 // ---------------------------------- COMPANY & COMPANY DOMAINS ---------------------------
@@ -180,7 +180,9 @@ export const companies = pgTable(
         })
             .notNull()
             .default("25.00"),
-        warehouse_ops_rate: decimal("warehouse_ops_rate", { precision: 10, scale: 2 }).notNull().default("25.20"), // AED per m³
+        warehouse_ops_rate: decimal("warehouse_ops_rate", { precision: 10, scale: 2 })
+            .notNull()
+            .default("25.20"), // AED per m³
         contact_email: varchar("contact_email", { length: 255 }),
         contact_phone: varchar("contact_phone", { length: 50 }),
         features: jsonb("features").default({}).notNull(), // {show_estimate_on_order_creation: false  // This company's overrid }
@@ -573,10 +575,14 @@ export const transportRates = pgTable(
             .notNull()
             .references(() => platforms.id, { onDelete: "cascade" }),
         company_id: uuid("company").references(() => companies.id, { onDelete: "cascade" }), // NULL = platform-wide
-        city_id: uuid("city_id").notNull().references(() => cities.id, { onDelete: "cascade" }),
+        city_id: uuid("city_id")
+            .notNull()
+            .references(() => cities.id, { onDelete: "cascade" }),
         area: varchar("area", { length: 100 }), // Optional sub-region
         trip_type: tripTypeEnum("trip_type").notNull(),
-        vehicle_type_id: uuid("vehicle_type_id").notNull().references(() => vehicleTypes.id, { onDelete: "cascade" }),
+        vehicle_type_id: uuid("vehicle_type_id")
+            .notNull()
+            .references(() => vehicleTypes.id, { onDelete: "cascade" }),
         rate: decimal("rate", { precision: 10, scale: 2 }).notNull(), // AED
         is_active: boolean("is_active").notNull().default(true),
         created_at: timestamp("created_at").notNull().defaultNow(),
@@ -590,13 +596,9 @@ export const transportRates = pgTable(
             table.company_id,
             table.city_id,
             table.area,
-            table.trip_type,
+            table.trip_type
         ),
-        index("transport_rates_lookup_idx").on(
-            table.platform_id,
-            table.city_id,
-            table.trip_type,
-        ),
+        index("transport_rates_lookup_idx").on(table.platform_id, table.city_id, table.trip_type),
         index("transport_rates_company_idx").on(table.company_id),
     ]
 );
@@ -604,7 +606,10 @@ export const transportRates = pgTable(
 export const transportRatesRelations = relations(transportRates, ({ one }) => ({
     platform: one(platforms, { fields: [transportRates.platform_id], references: [platforms.id] }),
     company: one(companies, { fields: [transportRates.company_id], references: [companies.id] }),
-    vehicle_type: one(vehicleTypes, { fields: [transportRates.vehicle_type_id], references: [vehicleTypes.id] }),
+    vehicle_type: one(vehicleTypes, {
+        fields: [transportRates.vehicle_type_id],
+        references: [vehicleTypes.id],
+    }),
 }));
 
 // ---------------------------------- SERVICE TYPES (NEW) --------------------------------------
@@ -672,7 +677,9 @@ export const orders = pgTable(
         event_start_date: timestamp("event_start_date", { mode: "date" }).notNull(),
         event_end_date: timestamp("event_end_date", { mode: "date" }).notNull(),
         venue_name: varchar("venue_name", { length: 200 }).notNull(),
-        venue_city_id: uuid("venue_city_id").notNull().references(() => cities.id),
+        venue_city_id: uuid("venue_city_id")
+            .notNull()
+            .references(() => cities.id),
         venue_location: jsonb("venue_location").notNull(), // {country, city, address, access_notes}
         special_instructions: text("special_instructions"),
 
@@ -685,7 +692,9 @@ export const orders = pgTable(
 
         // Transport (NEW)
         trip_type: tripTypeEnum("trip_type").notNull().default("ROUND_TRIP"),
-        vehicle_type_id: uuid("vehicle_type_id").notNull().references(() => vehicleTypes.id),
+        vehicle_type_id: uuid("vehicle_type_id")
+            .notNull()
+            .references(() => vehicleTypes.id),
 
         // Pricing (NEW structure)
         order_pricing_id: uuid("order_pricing_id")
@@ -737,7 +746,10 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
     user: one(users, { fields: [orders.user_id], references: [users.id] }),
     order_pricing: one(prices, { fields: [orders.order_pricing_id], references: [prices.id] }),
     venue_city: one(cities, { fields: [orders.venue_city_id], references: [cities.id] }),
-    vehicle_type: one(vehicleTypes, { fields: [orders.vehicle_type_id], references: [vehicleTypes.id] }),
+    vehicle_type: one(vehicleTypes, {
+        fields: [orders.vehicle_type_id],
+        references: [vehicleTypes.id],
+    }),
     items: many(orderItems),
     line_items: many(lineItems),
     reskin_requests: many(reskinRequests),
@@ -915,10 +927,10 @@ export const lineItems = pgTable(
         platform_id: uuid("platform_id")
             .notNull()
             .references(() => platforms.id, { onDelete: "cascade" }),
-        order_id: uuid("order_id")
-            .references(() => orders.id, { onDelete: "cascade" }),
-        inbound_request_id: uuid("inbound_request_id")
-            .references(() => inboundRequests.id, { onDelete: "cascade" }),
+        order_id: uuid("order_id").references(() => orders.id, { onDelete: "cascade" }),
+        inbound_request_id: uuid("inbound_request_id").references(() => inboundRequests.id, {
+            onDelete: "cascade",
+        }),
         purpose_type: invoiceTypeEnum("purpose_type").notNull(),
         // Type linkage (one or neither, not both)
         service_type_id: uuid("service_type_id").references(() => serviceTypes.id), // NULL for custom items
@@ -1052,10 +1064,10 @@ export const invoices = pgTable(
         platform_id: uuid("platform_id")
             .notNull()
             .references(() => platforms.id, { onDelete: "cascade" }),
-        order_id: uuid("order_id")
-            .references(() => orders.id, { onDelete: "cascade" }),
-        inbound_request_id: uuid("inbound_request_id")
-            .references(() => inboundRequests.id, { onDelete: "cascade" }),
+        order_id: uuid("order_id").references(() => orders.id, { onDelete: "cascade" }),
+        inbound_request_id: uuid("inbound_request_id").references(() => inboundRequests.id, {
+            onDelete: "cascade",
+        }),
         type: invoiceTypeEnum("type").notNull(),
         invoice_id: varchar("invoice_id", { length: 50 }).notNull(),
         invoice_pdf_url: varchar("invoice_pdf_url", { length: 255 }).notNull(),
@@ -1242,7 +1254,6 @@ export const otp = pgTable(
     ]
 );
 
-
 // ---------------------------------- COUNTRY ----------------------------------------------
 export const countries = pgTable(
     "countries",
@@ -1252,7 +1263,7 @@ export const countries = pgTable(
             .notNull()
             .references(() => platforms.id, { onDelete: "cascade" }),
         name: varchar("name", { length: 100 }).notNull(),
-        created_at: timestamp("created_at").notNull().defaultNow()
+        created_at: timestamp("created_at").notNull().defaultNow(),
     },
     (table) => [
         index("countries_platform_idx").on(table.platform_id),
@@ -1285,7 +1296,11 @@ export const cities = pgTable(
     (table) => [
         index("cities_platform_idx").on(table.platform_id),
         index("cities_country_idx").on(table.country_id),
-        unique("cities_platform_country_name_unique").on(table.platform_id, table.country_id, table.name) // City name must be unique within a platform and country
+        unique("cities_platform_country_name_unique").on(
+            table.platform_id,
+            table.country_id,
+            table.name
+        ), // City name must be unique within a platform and country
     ]
 );
 
@@ -1316,52 +1331,49 @@ export const prices = pgTable(
         margin: jsonb("margin").notNull(), // { "percent": 10, "amount": 20, is_override: false, override_reason: "" }
         final_total: decimal("final_total", { precision: 10, scale: 2 }),
         calculated_at: timestamp("calculated_at").notNull().defaultNow(),
-        calculated_by: uuid("calculated_by").notNull().references(() => users.id),
+        calculated_by: uuid("calculated_by")
+            .notNull()
+            .references(() => users.id),
         created_at: timestamp("created_at").notNull().defaultNow(),
         updated_at: timestamp("updated_at")
             .$onUpdate(() => new Date())
             .notNull(),
     },
-    (table) => [
-        index("order_prices_platform_idx").on(table.platform_id),
-    ]
+    (table) => [index("order_prices_platform_idx").on(table.platform_id)]
 );
 
 export const orderPricesRelations = relations(prices, ({ one }) => ({
     platform: one(platforms, {
         fields: [prices.platform_id],
         references: [platforms.id],
-    })
+    }),
 }));
 
-
 // ---------------------------------- INBOUND REQUEST --------------------------------------
-export const inboundRequests = pgTable(
-    "inbound_requests",
-    {
-        id: uuid("id").primaryKey().defaultRandom(),
-        inbound_request_id: varchar("inbound_request_id", { length: 20 }).notNull(), // Human-readable ID (IR-YYYYMMDD-XXX)
-        platform_id: uuid("platform_id")
-            .notNull()
-            .references(() => platforms.id, { onDelete: "cascade" }),
-        company_id: uuid("company_id")
-            .notNull()
-            .references(() => companies.id, { onDelete: "cascade" }),
-        requester_id: uuid("requester_id")
-            .notNull()
-            .references(() => users.id, { onDelete: "cascade" }),
-        incoming_at: timestamp("incoming_at").notNull(),
-        note: text("note"),
-        request_status: inboundRequestStatusEnum("request_status").notNull().default("PRICING_REVIEW"),
-        financial_status: financialStatusEnum("financial_status").notNull().default("PENDING_QUOTE"),
-        request_pricing_id: uuid("request_pricing_id")
-            .notNull()
-            .references(() => prices.id),
-        created_at: timestamp("created_at").notNull().defaultNow(),
-        updated_at: timestamp("updated_at")
-            .$onUpdate(() => new Date())
-            .notNull(),
-    });
+export const inboundRequests = pgTable("inbound_requests", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    inbound_request_id: varchar("inbound_request_id", { length: 20 }).notNull(), // Human-readable ID (IR-YYYYMMDD-XXX)
+    platform_id: uuid("platform_id")
+        .notNull()
+        .references(() => platforms.id, { onDelete: "cascade" }),
+    company_id: uuid("company_id")
+        .notNull()
+        .references(() => companies.id, { onDelete: "cascade" }),
+    requester_id: uuid("requester_id")
+        .notNull()
+        .references(() => users.id, { onDelete: "cascade" }),
+    incoming_at: timestamp("incoming_at").notNull(),
+    note: text("note"),
+    request_status: inboundRequestStatusEnum("request_status").notNull().default("PRICING_REVIEW"),
+    financial_status: financialStatusEnum("financial_status").notNull().default("PENDING_QUOTE"),
+    request_pricing_id: uuid("request_pricing_id")
+        .notNull()
+        .references(() => prices.id),
+    created_at: timestamp("created_at").notNull().defaultNow(),
+    updated_at: timestamp("updated_at")
+        .$onUpdate(() => new Date())
+        .notNull(),
+});
 
 export const inboundRequestsRelations = relations(inboundRequests, ({ one, many }) => ({
     platform: one(platforms, {
@@ -1385,36 +1397,34 @@ export const inboundRequestsRelations = relations(inboundRequests, ({ one, many 
 }));
 
 // ---------------------------------- INBOUND REQUEST ITEM ---------------------------------
-export const inboundRequestItems = pgTable(
-    "inbound_request_items",
-    {
-        id: uuid("id").primaryKey().defaultRandom(),
-        inbound_request_id: uuid("inbound_request_id")
-            .notNull()
-            .references(() => inboundRequests.id, { onDelete: "cascade" }),
-        brand_id: uuid("brand_id").references(() => brands.id),
-        name: varchar("name", { length: 200 }).notNull(),
-        description: text("description"),
-        category: varchar("category", { length: 100 }).notNull(),
-        tracking_method: trackingMethodEnum("tracking_method").notNull(),
-        quantity: integer("quantity").notNull().default(1),
-        packaging: varchar("packaging", { length: 100 }),
-        weight_per_unit: decimal("weight_per_unit", { precision: 8, scale: 2 }).notNull(), // in kilograms
-        dimensions: jsonb("dimensions").default({}).notNull(), // {length, width, height} in cm
-        volume_per_unit: decimal("volume_per_unit", { precision: 8, scale: 3 }).notNull(), // in cubic meters
-        handling_tags: text("handling_tags")
-            .array()
-            .notNull()
-            .default(sql`ARRAY[]::text[]`),
-        images: text("images")
-            .array()
-            .default(sql`ARRAY[]::text[]`),
-        asset_id: uuid("asset_id").references(() => assets.id),
-        created_at: timestamp("created_at").notNull().defaultNow(),
-        updated_at: timestamp("updated_at")
-            .$onUpdate(() => new Date())
-            .notNull(),
-    });
+export const inboundRequestItems = pgTable("inbound_request_items", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    inbound_request_id: uuid("inbound_request_id")
+        .notNull()
+        .references(() => inboundRequests.id, { onDelete: "cascade" }),
+    brand_id: uuid("brand_id").references(() => brands.id),
+    name: varchar("name", { length: 200 }).notNull(),
+    description: text("description"),
+    category: varchar("category", { length: 100 }).notNull(),
+    tracking_method: trackingMethodEnum("tracking_method").notNull(),
+    quantity: integer("quantity").notNull().default(1),
+    packaging: varchar("packaging", { length: 100 }),
+    weight_per_unit: decimal("weight_per_unit", { precision: 8, scale: 2 }).notNull(), // in kilograms
+    dimensions: jsonb("dimensions").default({}).notNull(), // {length, width, height} in cm
+    volume_per_unit: decimal("volume_per_unit", { precision: 8, scale: 3 }).notNull(), // in cubic meters
+    handling_tags: text("handling_tags")
+        .array()
+        .notNull()
+        .default(sql`ARRAY[]::text[]`),
+    images: text("images")
+        .array()
+        .default(sql`ARRAY[]::text[]`),
+    asset_id: uuid("asset_id").references(() => assets.id),
+    created_at: timestamp("created_at").notNull().defaultNow(),
+    updated_at: timestamp("updated_at")
+        .$onUpdate(() => new Date())
+        .notNull(),
+});
 
 // ---------------------------------- VEHICLE TYPES ---------------------------------
 export const vehicleTypes = pgTable("vehicle_types", {

@@ -60,18 +60,18 @@ const sampleInvoiceData: InvoicePayload & { invoice_number: string; invoice_date
             line_item_id: "LI-001",
             description: "Custom Setup Service",
             quantity: 1,
-            unit_rate: 500.00,
-            total: 500.00
+            unit_rate: 500.0,
+            total: 500.0,
         },
         {
             line_item_id: "LI-002",
             description: "Overtime Charge",
             quantity: 5,
-            unit_rate: 100.00,
-            total: 500.00
-        }
+            unit_rate: 100.0,
+            total: 500.0,
+        },
     ],
-    line_items_sub_total: 1000.00,
+    line_items_sub_total: 1000.0,
 };
 
 async function main() {

@@ -30,18 +30,18 @@ export type DeclineQuotePayload = z.infer<typeof orderSchemas.declineQuoteSchema
 
 export type AdminApproveQuotePayload = z.infer<typeof orderSchemas.adminApproveQuoteSchema>["body"];
 
-export type UpdateVehiclePayload = z.infer<typeof orderSchemas.updateVehicleSchema>["body"]
+export type UpdateVehiclePayload = z.infer<typeof orderSchemas.updateVehicleSchema>["body"];
 
-export type TruckDetailsPayload = z.infer<typeof orderSchemas.truckDetailsSchema>["body"]
+export type TruckDetailsPayload = z.infer<typeof orderSchemas.truckDetailsSchema>["body"];
 
 export interface CancelOrderPayload {
     reason:
-    | "client_requested"
-    | "asset_unavailable"
-    | "pricing_dispute"
-    | "event_cancelled"
-    | "fabrication_failed"
-    | "other";
+        | "client_requested"
+        | "asset_unavailable"
+        | "pricing_dispute"
+        | "event_cancelled"
+        | "fabrication_failed"
+        | "other";
     notes: string;
     notify_client: boolean;
 }

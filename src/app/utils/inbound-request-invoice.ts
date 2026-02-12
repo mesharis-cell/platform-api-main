@@ -13,21 +13,29 @@ export const inboundRequestInvoiceGenerator = async (
     requestId: string,
     platformId: string,
     user: AuthUser,
-    regenerate: boolean = false,
+    regenerate: boolean = false
 ): Promise<{ invoice_id: string; invoice_pdf_url: string; pdf_buffer: Buffer }> => {
     // Step 1: Check if invoice already exists
     const [invoice] = await db
         .select()
         .from(invoices)
-        .where(and(eq(invoices.inbound_request_id, requestId), eq(invoices.platform_id, platformId)));
+        .where(
+            and(eq(invoices.inbound_request_id, requestId), eq(invoices.platform_id, platformId))
+        );
 
     if (invoice && !regenerate) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "Invoice already exists for this inbound request. Use regenerate flag to create new invoice.");
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Invoice already exists for this inbound request. Use regenerate flag to create new invoice."
+        );
     }
 
     // Step 2: Prevent regeneration after payment confirmed
     if (regenerate && invoice && invoice.invoice_paid_at) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "Cannot regenerate invoice after payment has been confirmed");
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Cannot regenerate invoice after payment has been confirmed"
+        );
     }
 
     // Step 3: Generate or reuse invoice number
@@ -49,12 +57,15 @@ export const inboundRequestInvoiceGenerator = async (
             request_pricing: true,
             items: true,
             requester: true,
-            line_items: true
+            line_items: true,
         },
     });
 
     if (!inboundRequest) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found to generate invoice");
+        throw new CustomizedError(
+            httpStatus.NOT_FOUND,
+            "Inbound request not found to generate invoice"
+        );
     }
 
     const company = inboundRequest.company;
@@ -62,20 +73,27 @@ export const inboundRequestInvoiceGenerator = async (
     const requestLineItems = inboundRequest.line_items;
 
     if (!pricing) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "Pricing details are missing for this inbound request");
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Pricing details are missing for this inbound request"
+        );
     }
 
     const baseOpsTotal = Number(pricing.base_ops_total);
     const catalogAmount = Number((pricing.line_items as any).catalog_total);
     const customTotal = Number((pricing.line_items as any).custom_total);
     const marginPercent = Number((pricing.margin as any).percent);
-    const logisticsSubTotal = baseOpsTotal + (baseOpsTotal * (marginPercent / 100));
-    const catalogTotal = catalogAmount + (catalogAmount * (marginPercent / 100));
+    const logisticsSubTotal = baseOpsTotal + baseOpsTotal * (marginPercent / 100);
+    const catalogTotal = catalogAmount + catalogAmount * (marginPercent / 100);
     const serviceFee = catalogTotal + customTotal;
     const total = logisticsSubTotal + serviceFee;
 
     const calculatedLineItems = requestLineItems.map((item) => {
-        const unit_rate = item.unit_rate ? item.line_item_type === "CATALOG" ? Number(item.unit_rate) + (Number(item.unit_rate) * (marginPercent / 100)) : Number(item.unit_rate) : 0;
+        const unit_rate = item.unit_rate
+            ? item.line_item_type === "CATALOG"
+                ? Number(item.unit_rate) + Number(item.unit_rate) * (marginPercent / 100)
+                : Number(item.unit_rate)
+            : 0;
 
         return {
             line_item_id: item.line_item_id,
@@ -83,11 +101,14 @@ export const inboundRequestInvoiceGenerator = async (
             quantity: item.quantity ? Number(item.quantity) : 0,
             unit_rate,
             total: unit_rate * Number(item.quantity),
-        }
-    })
+        };
+    });
 
     // Calculate line items subtotal
-    const lineItemsSubTotal = calculatedLineItems.reduce((sum, item) => sum + Number(item.total), 0);
+    const lineItemsSubTotal = calculatedLineItems.reduce(
+        (sum, item) => sum + Number(item.total),
+        0
+    );
 
     const invoiceData: InboundRequestInvoicePayload = {
         inbound_request_id: inboundRequest.inbound_request_id,
@@ -98,17 +119,17 @@ export const inboundRequestInvoiceGenerator = async (
         contact_phone: company?.contact_phone || "N/A",
         incoming_at: inboundRequest.incoming_at,
         note: inboundRequest.note || "",
-        items: inboundRequest.items.map(item => ({
+        items: inboundRequest.items.map((item) => ({
             name: item.name,
             quantity: item.quantity,
-            category: item.category
+            category: item.category,
         })),
         pricing: {
-            logistics_sub_total: String(logisticsSubTotal) || '0',
-            catalog_total: String(catalogTotal) || '0',
-            custom_total: String(customTotal) || '0',
-            service_fee: String(serviceFee) || '0',
-            final_total: String(total) || '0',
+            logistics_sub_total: String(logisticsSubTotal) || "0",
+            catalog_total: String(catalogTotal) || "0",
+            custom_total: String(customTotal) || "0",
+            service_fee: String(serviceFee) || "0",
+            final_total: String(total) || "0",
             show_breakdown: !!pricing,
         },
         line_items: calculatedLineItems,
@@ -156,7 +177,12 @@ export const inboundRequestInvoiceGenerator = async (
                     financial_status: "INVOICED",
                     updated_at: new Date(),
                 })
-                .where(and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)));
+                .where(
+                    and(
+                        eq(inboundRequests.id, requestId),
+                        eq(inboundRequests.platform_id, platformId)
+                    )
+                );
         });
     }
 
@@ -166,7 +192,6 @@ export const inboundRequestInvoiceGenerator = async (
         pdf_buffer: pdfBuffer,
     };
 };
-
 
 // --------------------------------- TYPES ----------------------------------------------------
 export type InboundRequestInvoicePayload = {

@@ -50,10 +50,7 @@ import {
     validateInboundScanningComplete,
     validateRoleBasedTransition,
 } from "./order.utils";
-import {
-    shouldAwaitFabrication,
-
-} from "./order-pricing.helpers";
+import { shouldAwaitFabrication } from "./order-pricing.helpers";
 import { LineItemsServices } from "../order-line-items/order-line-items.services";
 import { ReskinRequestsServices } from "../reskin-requests/reskin-requests.services";
 import { multipleEmailSender } from "../../utils/email-sender";
@@ -100,7 +97,7 @@ const calculateEstimate = async (
         }
     }
 
-    console.log("total volume: ", totalVolume)
+    console.log("total volume: ", totalVolume);
 
     // Step 5: Determine margin and check for rebrand items
     const marginPercent = parseFloat(company.platform_margin_percent);
@@ -109,18 +106,20 @@ const calculateEstimate = async (
     // Find the suitable vehicle type
     // Find the suitable vehicle type
     // We want the smallest vehicle that fits the volume (vehicle_size >= totalVolume)
-    let selectedVehicleType = (await db
-        .select()
-        .from(vehicleTypes)
-        .where(
-            and(
-                eq(vehicleTypes.platform_id, platformId),
-                eq(vehicleTypes.is_active, true),
-                gte(vehicleTypes.vehicle_size, totalVolume.toString())
+    let selectedVehicleType = (
+        await db
+            .select()
+            .from(vehicleTypes)
+            .where(
+                and(
+                    eq(vehicleTypes.platform_id, platformId),
+                    eq(vehicleTypes.is_active, true),
+                    gte(vehicleTypes.vehicle_size, totalVolume.toString())
+                )
             )
-        )
-        .orderBy(asc(vehicleTypes.vehicle_size))
-        .limit(1))[0];
+            .orderBy(asc(vehicleTypes.vehicle_size))
+            .limit(1)
+    )[0];
 
     if (!selectedVehicleType) {
         // Fallback to default vehicle
@@ -135,12 +134,17 @@ const calculateEstimate = async (
             const [largestVehicle] = await db
                 .select()
                 .from(vehicleTypes)
-                .where(and(eq(vehicleTypes.platform_id, platformId), eq(vehicleTypes.is_active, true)))
+                .where(
+                    and(eq(vehicleTypes.platform_id, platformId), eq(vehicleTypes.is_active, true))
+                )
                 .orderBy(desc(vehicleTypes.vehicle_size))
                 .limit(1);
 
             if (!largestVehicle) {
-                throw new CustomizedError(httpStatus.NOT_FOUND, "No vehicle types configuration found");
+                throw new CustomizedError(
+                    httpStatus.NOT_FOUND,
+                    "No vehicle types configuration found"
+                );
             }
 
             throw new CustomizedError(
@@ -262,7 +266,13 @@ const submitOrderFromCart = async (
     const [city] = await db
         .select()
         .from(cities)
-        .where(and(eq(cities.id, venue_city_id), eq(cities.platform_id, platformId), eq(cities.country_id, venue_country_id)));
+        .where(
+            and(
+                eq(cities.id, venue_city_id),
+                eq(cities.platform_id, platformId),
+                eq(cities.country_id, venue_country_id)
+            )
+        );
 
     if (!city) {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "City not found for the given country");
@@ -332,18 +342,20 @@ const submitOrderFromCart = async (
     const volume = parseFloat(calculatedVolume);
 
     // Find the suitable vehicles that fits the volume (vehicle_size >= totalVolume)
-    let vehicleType = (await db
-        .select()
-        .from(vehicleTypes)
-        .where(
-            and(
-                eq(vehicleTypes.platform_id, platformId),
-                eq(vehicleTypes.is_active, true),
-                gte(vehicleTypes.vehicle_size, volume.toString())
+    let vehicleType = (
+        await db
+            .select()
+            .from(vehicleTypes)
+            .where(
+                and(
+                    eq(vehicleTypes.platform_id, platformId),
+                    eq(vehicleTypes.is_active, true),
+                    gte(vehicleTypes.vehicle_size, volume.toString())
+                )
             )
-        )
-        .orderBy(asc(vehicleTypes.vehicle_size))
-        .limit(1))[0];
+            .orderBy(asc(vehicleTypes.vehicle_size))
+            .limit(1)
+    )[0];
 
     if (!vehicleType) {
         // Fallback to default vehicle
@@ -358,12 +370,17 @@ const submitOrderFromCart = async (
             const [largestVehicle] = await db
                 .select()
                 .from(vehicleTypes)
-                .where(and(eq(vehicleTypes.platform_id, platformId), eq(vehicleTypes.is_active, true)))
+                .where(
+                    and(eq(vehicleTypes.platform_id, platformId), eq(vehicleTypes.is_active, true))
+                )
                 .orderBy(desc(vehicleTypes.vehicle_size))
                 .limit(1);
 
             if (!largestVehicle) {
-                throw new CustomizedError(httpStatus.NOT_FOUND, "No vehicle types configuration found");
+                throw new CustomizedError(
+                    httpStatus.NOT_FOUND,
+                    "No vehicle types configuration found"
+                );
             }
 
             throw new CustomizedError(
@@ -384,7 +401,9 @@ const submitOrderFromCart = async (
     const transportRate = transportRateInfo?.rate ? Number(transportRateInfo.rate) : null;
     const baseOpsTotal = Number(company.warehouse_ops_rate) * volume;
     const logisticsSubTotal = transportRate ? transportRate + baseOpsTotal : null;
-    const marginAmount = logisticsSubTotal ? logisticsSubTotal * (Number(company.platform_margin_percent) / 100) : null;
+    const marginAmount = logisticsSubTotal
+        ? logisticsSubTotal * (Number(company.platform_margin_percent) / 100)
+        : null;
     const finalTotal = logisticsSubTotal && marginAmount ? logisticsSubTotal + marginAmount : null;
 
     const pricingDetails = {
@@ -394,7 +413,7 @@ const submitOrderFromCart = async (
         logistics_sub_total: logisticsSubTotal ? logisticsSubTotal.toFixed(2) : null,
         transport: {
             system_rate: transportRate,
-            final_rate: transportRate
+            final_rate: transportRate,
         },
         line_items: {
             catalog_total: 0,
@@ -404,21 +423,18 @@ const submitOrderFromCart = async (
             percent: company.platform_margin_percent,
             amount: marginAmount,
             is_override: false,
-            override_reason: null
+            override_reason: null,
         },
         final_total: finalTotal ? finalTotal.toFixed(2) : null,
         calculated_at: new Date(),
         calculated_by: user.id,
-    }
+    };
 
     // Step 6: Create the order record
     const orderId = await orderIdGenerator(platformId);
     const orderResult = await db.transaction(async (tx) => {
         // Step 6.a: Insert order pricing
-        const [orderPricing] = await tx
-            .insert(prices)
-            .values(pricingDetails)
-            .returning();
+        const [orderPricing] = await tx.insert(prices).values(pricingDetails).returning();
 
         // Step 6.b: Create the order record
         const [order] = await tx
@@ -647,7 +663,7 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
                 name: brands.name,
             },
             venue_city: {
-                name: cities.name
+                name: cities.name,
             },
             order_pricing: {
                 warehouse_ops_rate: prices.warehouse_ops_rate,
@@ -658,7 +674,7 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
                 margin: prices.margin,
                 final_total: prices.final_total,
                 calculated_at: prices.calculated_at,
-            }
+            },
         })
         .from(orders)
         .leftJoin(companies, eq(orders.company_id, companies.id))
@@ -840,7 +856,7 @@ const getMyOrders = async (query: Record<string, any>, user: AuthUser, platformI
                 name: brands.name,
             },
             venue_city: {
-                name: cities.name
+                name: cities.name,
             },
             order_pricing: {
                 warehouse_ops_rate: prices.warehouse_ops_rate,
@@ -851,7 +867,7 @@ const getMyOrders = async (query: Record<string, any>, user: AuthUser, platformI
                 margin: prices.margin,
                 final_total: prices.final_total,
                 calculated_at: prices.calculated_at,
-            }
+            },
         })
         .from(orders)
         .leftJoin(companies, eq(orders.company_id, companies.id))
@@ -902,9 +918,9 @@ const getOrderById = async (
     // Step 2: Build where condition based on input type
     const whereCondition = isUUID
         ? and(
-            or(eq(orders.id, orderId), eq(orders.order_id, orderId)),
-            eq(orders.platform_id, platformId)
-        )
+              or(eq(orders.id, orderId), eq(orders.order_id, orderId)),
+              eq(orders.platform_id, platformId)
+          )
         : and(eq(orders.order_id, orderId), eq(orders.platform_id, platformId));
 
     // Step 3: Fetch order with relations
@@ -926,7 +942,7 @@ const getOrderById = async (
                 email: users.email,
             },
             venue_city: {
-                name: cities.name
+                name: cities.name,
             },
             order_pricing: {
                 warehouse_ops_rate: prices.warehouse_ops_rate,
@@ -937,7 +953,7 @@ const getOrderById = async (
                 margin: prices.margin,
                 final_total: prices.final_total,
                 calculated_at: prices.calculated_at,
-            }
+            },
         })
         .from(orders)
         .leftJoin(companies, eq(orders.company_id, companies.id))
@@ -1034,28 +1050,38 @@ const getOrderById = async (
             and(eq(invoices.order_id, orderData.order.id), eq(invoices.platform_id, platformId))
         );
 
-    const invoiceData = invoice.length > 0
-        ? invoice.map((i) => ({
-            id: i.id,
-            invoice_id: i.invoice_id,
-            invoice_pdf_url: i.invoice_pdf_url,
-            invoice_paid_at: i.invoice_paid_at,
-            payment_method: i.payment_method,
-            payment_reference: i.payment_reference,
-            created_at: i.created_at,
-            updated_at: i.updated_at,
-        }))[0]
-        : null;
+    const invoiceData =
+        invoice.length > 0
+            ? invoice.map((i) => ({
+                  id: i.id,
+                  invoice_id: i.invoice_id,
+                  invoice_pdf_url: i.invoice_pdf_url,
+                  invoice_paid_at: i.invoice_paid_at,
+                  payment_method: i.payment_method,
+                  payment_reference: i.payment_reference,
+                  created_at: i.created_at,
+                  updated_at: i.updated_at,
+              }))[0]
+            : null;
 
     // Filter for CLIENT role: strip financial history and internal status details
     if (user.role === "CLIENT") {
         const CLIENT_SAFE_LABELS: Record<string, string> = {
-            DRAFT: "Order Created", PRICING_REVIEW: "Order Received", PENDING_APPROVAL: "Order Under Review",
-            QUOTED: "Quote Ready", DECLINED: "Quote Declined", CONFIRMED: "Order Confirmed",
-            AWAITING_FABRICATION: "Custom Work In Progress", IN_PREPARATION: "Preparing Items",
-            READY_FOR_DELIVERY: "Ready for Delivery", IN_TRANSIT: "In Transit", DELIVERED: "Delivered",
-            AWAITING_RETURN: "Awaiting Pickup", RETURN_IN_TRANSIT: "Return In Transit",
-            CLOSED: "Complete", CANCELLED: "Cancelled",
+            DRAFT: "Order Created",
+            PRICING_REVIEW: "Order Received",
+            PENDING_APPROVAL: "Order Under Review",
+            QUOTED: "Quote Ready",
+            DECLINED: "Quote Declined",
+            CONFIRMED: "Order Confirmed",
+            AWAITING_FABRICATION: "Custom Work In Progress",
+            IN_PREPARATION: "Preparing Items",
+            READY_FOR_DELIVERY: "Ready for Delivery",
+            IN_TRANSIT: "In Transit",
+            DELIVERED: "Delivered",
+            AWAITING_RETURN: "Awaiting Pickup",
+            RETURN_IN_TRANSIT: "Return In Transit",
+            CLOSED: "Complete",
+            CANCELLED: "Cancelled",
         };
 
         return {
@@ -1243,15 +1269,18 @@ const progressOrderStatus = async (
     // Step 4.5: Validate date-based transitions
     const today = dayjs().startOf("day");
 
-    if (currentStatus === 'AWAITING_FABRICATION' || currentStatus === 'CONFIRMED') {
+    if (currentStatus === "AWAITING_FABRICATION" || currentStatus === "CONFIRMED") {
         // fetch all assets item and check if all assets condition is GREEN
-        const assetsList = await db.select()
+        const assetsList = await db
+            .select()
             .from(orderItems)
             .innerJoin(assets, eq(orderItems.asset_id, assets.id))
-            .where(eq(orderItems.order_id, order.id))
+            .where(eq(orderItems.order_id, order.id));
 
         // check if all assets condition is GREEN
-        const allAssetsConditionGreen = assetsList.every((asset) => asset.assets.condition === "GREEN");
+        const allAssetsConditionGreen = assetsList.every(
+            (asset) => asset.assets.condition === "GREEN"
+        );
 
         if (!allAssetsConditionGreen) {
             throw new CustomizedError(
@@ -1275,7 +1304,9 @@ const progressOrderStatus = async (
         });
 
         // Check if all reskin requests are completed
-        const allReskinRequestsCompleted = requests.every((request) => request.completed_at !== null);
+        const allReskinRequestsCompleted = requests.every(
+            (request) => request.completed_at !== null
+        );
 
         if (!allReskinRequestsCompleted) {
             throw new CustomizedError(
@@ -1283,7 +1314,6 @@ const progressOrderStatus = async (
                 "All reskin requests must be completed before transitioning to AWAITING_FABRICATION or CONFIRMED"
             );
         }
-
     }
 
     // Check if transitioning from DELIVERED to IN_USE
@@ -1643,7 +1673,7 @@ const approveQuote = async (
                 : notes || "Client approved quote",
             updated_by: user.id,
         });
-    })
+    });
 
     await NotificationLogServices.sendNotification(platformId, "QUOTE_APPROVED", order);
 
@@ -1716,7 +1746,7 @@ const declineQuote = async (
             notes: `Quote declined by client: ${decline_reason}`,
             updated_by: user.id,
         });
-    })
+    });
 
     // Step 6: Send decline notification (asynchronous, non-blocking)
     await NotificationLogServices.sendNotification(platformId, "QUOTE_DECLINED", order);
@@ -1901,11 +1931,11 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
                 calculated_at: prices.calculated_at,
             },
             venue_city: {
-                name: cities.name
+                name: cities.name,
             },
             vehicle_type: {
-                name: vehicleTypes.name
-            }
+                name: vehicleTypes.name,
+            },
         })
         .from(orders)
         .leftJoin(companies, eq(orders.company_id, companies.id))
@@ -1937,7 +1967,6 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
         throw new CustomizedError(httpStatus.NOT_FOUND, "Vehicle type not found for this order");
     }
 
-
     // Step 2: Verify order is in PRICING_REVIEW status
     if (order.order_status !== "PRICING_REVIEW") {
         throw new CustomizedError(
@@ -1956,7 +1985,10 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
     );
 
     if (!transportRateInfo) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, `Transport rate not found for ${venueCity.name} to ${order.trip_type} by ${vehicleType.name}`);
+        throw new CustomizedError(
+            httpStatus.NOT_FOUND,
+            `Transport rate not found for ${venueCity.name} to ${order.trip_type} by ${vehicleType.name}`
+        );
     }
 
     // Step 4: Get line items totals
@@ -1972,7 +2004,9 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
     const marginPercent = marginOverride
         ? parseFloat((orderPricing.margin as any).percent)
         : parseFloat(company.platform_margin_percent);
-    const marginOverrideReason = marginOverride ? (orderPricing.margin as any).override_reason : null;
+    const marginOverrideReason = marginOverride
+        ? (orderPricing.margin as any).override_reason
+        : null;
     const baseOpsTotal = volume * Number(company.warehouse_ops_rate);
     const logisticsSubtotal = baseOpsTotal + transportRate + lineItemsTotals.catalog_total;
     const marginAmount = logisticsSubtotal * (marginPercent / 100);
@@ -1983,7 +2017,7 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
         logistics_sub_total: logisticsSubtotal.toFixed(2),
         transport: {
             system_rate: transportRate,
-            final_rate: transportRate
+            final_rate: transportRate,
         },
         line_items: {
             catalog_total: lineItemsTotals.catalog_total,
@@ -1993,12 +2027,12 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
             percent: marginPercent,
             amount: marginAmount,
             is_override: marginOverride,
-            override_reason: marginOverrideReason
+            override_reason: marginOverrideReason,
         },
         final_total: finalTotal.toFixed(2),
         calculated_at: new Date(),
         calculated_by: user.id,
-    }
+    };
 
     // Step 6: Update order pricing and status
     await db.transaction(async (tx) => {
@@ -2022,17 +2056,13 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
             notes: "Logistics submitted for Admin approval",
             updated_by: user.id,
         });
-    })
+    });
 
     // Step 7: Send notification
-    await NotificationLogServices.sendNotification(
-        platformId,
-        "A2_ADJUSTED_PRICING",
-        {
-            ...order,
-            company
-        }
-    );
+    await NotificationLogServices.sendNotification(platformId, "A2_ADJUSTED_PRICING", {
+        ...order,
+        company,
+    });
 
     // Step 8: Return updated order
     return {
@@ -2073,7 +2103,7 @@ const adminApproveQuote = async (
                 calculated_at: prices.calculated_at,
             },
             venue_city: {
-                name: cities.name
+                name: cities.name,
             },
         })
         .from(orders)
@@ -2138,22 +2168,29 @@ const adminApproveQuote = async (
     await db.transaction(async (tx) => {
         // Step 3.1: Update pricing if margin override is provided
         if (margin_override_percent) {
-            const marginAmount = Number(orderPricing.logistics_sub_total) * (margin_override_percent / 100);
-            const updatedFinalTotal = Number(orderPricing.logistics_sub_total) + marginAmount + Number((orderPricing.line_items as any).custom_total);
+            const marginAmount =
+                Number(orderPricing.logistics_sub_total) * (margin_override_percent / 100);
+            const updatedFinalTotal =
+                Number(orderPricing.logistics_sub_total) +
+                marginAmount +
+                Number((orderPricing.line_items as any).custom_total);
 
             finalTotal = updatedFinalTotal.toFixed(2);
 
-            await tx.update(prices).set({
-                margin: {
-                    percent: margin_override_percent,
-                    amount: marginAmount,
-                    is_override: true,
-                    override_reason: margin_override_reason
-                },
-                final_total: updatedFinalTotal.toFixed(2),
-                calculated_at: new Date(),
-                calculated_by: user.id,
-            }).where(eq(prices.id, order.order_pricing_id));
+            await tx
+                .update(prices)
+                .set({
+                    margin: {
+                        percent: margin_override_percent,
+                        amount: marginAmount,
+                        is_override: true,
+                        override_reason: margin_override_reason,
+                    },
+                    final_total: updatedFinalTotal.toFixed(2),
+                    calculated_at: new Date(),
+                    calculated_by: user.id,
+                })
+                .where(eq(prices.id, order.order_pricing_id));
         }
 
         // Step 3.2: Update order status
@@ -2174,8 +2211,8 @@ const adminApproveQuote = async (
             notes: margin_override_percent
                 ? `Admin approved with margin override (${margin_override_percent}%): ${margin_override_reason}`
                 : isRevisedQuote
-                    ? "Admin approved revised quote"
-                    : "Admin approved quote",
+                  ? "Admin approved revised quote"
+                  : "Admin approved quote",
             updated_by: user.id,
         });
 
@@ -2187,20 +2224,16 @@ const adminApproveQuote = async (
             notes: isRevisedQuote ? "Revised quote sent to client" : "Quote sent to client",
             updated_by: user.id,
         });
-    })
+    });
 
     // Generate cost estimate PDF
     await costEstimateGenerator(orderId, platformId, user);
 
     // Step 4: Send notification
-    await NotificationLogServices.sendNotification(
-        platformId,
-        "QUOTE_SENT",
-        {
-            ...order,
-            company
-        }
-    );
+    await NotificationLogServices.sendNotification(platformId, "QUOTE_SENT", {
+        ...order,
+        company,
+    });
 
     // Step 5: Return updated order
     return {
@@ -2473,7 +2506,7 @@ const updateOrderVehicle = async (
     orderId: string,
     platformId: string,
     user: AuthUser,
-    payload: UpdateVehiclePayload,
+    payload: UpdateVehiclePayload
 ) => {
     // Step 1: Extract payload data
     const { vehicle_type_id, reason } = payload;
@@ -2526,7 +2559,9 @@ const updateOrderVehicle = async (
     const transportRate = transportRateInfo?.rate ? Number(transportRateInfo.rate) : null;
     const baseOpsTotal = Number(orderPricing.base_ops_total);
     const logisticsSubTotal = transportRate ? transportRate + baseOpsTotal : null;
-    const marginAmount = logisticsSubTotal ? logisticsSubTotal * (Number((orderPricing.margin as any).percent) / 100) : null;
+    const marginAmount = logisticsSubTotal
+        ? logisticsSubTotal * (Number((orderPricing.margin as any).percent) / 100)
+        : null;
     const finalTotal = logisticsSubTotal && marginAmount ? logisticsSubTotal + marginAmount : null;
 
     // Step 8: Prepare updated pricing object
@@ -2534,7 +2569,7 @@ const updateOrderVehicle = async (
         logistics_sub_total: logisticsSubTotal ? logisticsSubTotal.toFixed(2) : null,
         transport: {
             system_rate: (orderPricing.transport as any).system_rate,
-            final_rate: transportRate
+            final_rate: transportRate,
         },
         margin: {
             ...(orderPricing.margin as Record<string, any>),
@@ -2543,7 +2578,7 @@ const updateOrderVehicle = async (
         final_total: finalTotal ? finalTotal.toFixed(2) : null,
         calculated_at: new Date(),
         calculated_by: user.id,
-    }
+    };
 
     // Step 9: Update order pricing and vehicle type in transaction
     await db.transaction(async (tx) => {
@@ -2558,7 +2593,7 @@ const updateOrderVehicle = async (
                 updated_at: new Date(),
             })
             .where(eq(orders.id, orderId));
-    })
+    });
 
     if (order.order_status !== "PRICING_REVIEW") {
         await costEstimateGenerator(orderId, platformId, user, true);
@@ -2570,13 +2605,13 @@ const updateOrderVehicle = async (
         new_rate: transportRate,
         reason: reason.trim(),
     };
-}
+};
 
 // ----------------------------------- ADD TRUCK DETAILS -------------------------------------
 const addTruckDetails = async (
     orderId: string,
     platformId: string,
-    payload: TruckDetailsPayload,
+    payload: TruckDetailsPayload
 ) => {
     // Step 1: Validate payload
     const { delivery_truck_details, pickup_truck_details } = payload;

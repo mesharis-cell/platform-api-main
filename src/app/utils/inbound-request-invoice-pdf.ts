@@ -86,7 +86,12 @@ export async function renderInboundRequestInvoicePDF(
             doc.fontSize(8) // Smaller font for UUID
                 .font("Helvetica")
                 .fillColor("#000")
-                .text(data.inbound_request_id.slice(0, 8).toUpperCase(), refBoxX + 10, detailsY + 20, { width: detailBoxWidth - 20 }); // Shortened ID
+                .text(
+                    data.inbound_request_id.slice(0, 8).toUpperCase(),
+                    refBoxX + 10,
+                    detailsY + 20,
+                    { width: detailBoxWidth - 20 }
+                ); // Shortened ID
 
             doc.y = detailsY + 60;
 
@@ -241,10 +246,15 @@ export async function renderInboundRequestInvoicePDF(
             doc.fontSize(10)
                 .font("Helvetica-Bold")
                 .fillColor("#000")
-                .text(formatCurrency(data.pricing.logistics_sub_total), margin + contentWidth * 0.8, logisticsCostY, {
-                    width: contentWidth * 0.15,
-                    align: "right",
-                });
+                .text(
+                    formatCurrency(data.pricing.logistics_sub_total),
+                    margin + contentWidth * 0.8,
+                    logisticsCostY,
+                    {
+                        width: contentWidth * 0.15,
+                        align: "right",
+                    }
+                );
 
             doc.y = logisticsCostY + 30;
 
@@ -252,7 +262,10 @@ export async function renderInboundRequestInvoicePDF(
             // LINE ITEMS TABLE (New - Constructed from totals)
             // ============================================================
             if (data.line_items.length > 0) {
-                doc.fontSize(8).font("Helvetica-Bold").fillColor("#000").text("LINE ITEMS", margin, doc.y);
+                doc.fontSize(8)
+                    .font("Helvetica-Bold")
+                    .fillColor("#000")
+                    .text("LINE ITEMS", margin, doc.y);
 
                 doc.rect(margin, doc.y + 2, 60, 1).fill("#000");
 
@@ -272,8 +285,14 @@ export async function renderInboundRequestInvoicePDF(
                     .text("S.No", colSNoX, tableTop, { width: 30, align: "center" })
                     .text("DESCRIPTION", colDescX, tableTop)
                     .text("QTY", colQtyX, tableTop, { width: contentWidth * 0.1, align: "center" })
-                    .text("UNIT RATE", colRateX, tableTop, { width: contentWidth * 0.15, align: "right" })
-                    .text("TOTAL", colTotalX, tableTop, { width: contentWidth * 0.15, align: "right" });
+                    .text("UNIT RATE", colRateX, tableTop, {
+                        width: contentWidth * 0.15,
+                        align: "right",
+                    })
+                    .text("TOTAL", colTotalX, tableTop, {
+                        width: contentWidth * 0.15,
+                        align: "right",
+                    });
 
                 // Header line
                 doc.moveTo(margin, tableTop + 12)
@@ -375,10 +394,15 @@ export async function renderInboundRequestInvoicePDF(
                 doc.fontSize(10)
                     .font("Helvetica-Bold")
                     .fillColor("#000")
-                    .text(formatCurrency(data.line_items_sub_total.toString()), colTotalX, subTotalY, {
-                        width: contentWidth * 0.15,
-                        align: "right",
-                    });
+                    .text(
+                        formatCurrency(data.line_items_sub_total.toString()),
+                        colTotalX,
+                        subTotalY,
+                        {
+                            width: contentWidth * 0.15,
+                            align: "right",
+                        }
+                    );
 
                 doc.y = subTotalY + 30;
             } else {

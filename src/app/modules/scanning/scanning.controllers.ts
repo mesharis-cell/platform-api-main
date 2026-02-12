@@ -140,7 +140,12 @@ const uploadTruckPhotos = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const orderId = getRequiredString(req.params.order_id, "order_id");
 
-    const result = await ScanningServices.uploadTruckPhotos(orderId, req.body.photos, user, platformId);
+    const result = await ScanningServices.uploadTruckPhotos(
+        orderId,
+        req.body.photos,
+        user,
+        platformId
+    );
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

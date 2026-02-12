@@ -2,14 +2,7 @@ import { and, asc, desc, eq, gte, ilike, lte, sql } from "drizzle-orm";
 import httpStatus from "http-status";
 import Papa from "papaparse";
 import { db } from "../../../db";
-import {
-    brands,
-    companies,
-    cities,
-    orderItems,
-    orders,
-    prices,
-} from "../../../db/schema";
+import { brands, companies, cities, orderItems, orders, prices } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import queryValidator from "../../utils/query-validator";
 import { ExportOrderQuery } from "./export.interfaces";
@@ -155,16 +148,15 @@ const exportOrdersService = async (
         const { order, company, brand, venue_city, pricing, item } = row;
 
         // Helper to format date
-        const formatDate = (date: Date | null) =>
-            date ? new Date(date).toLocaleDateString() : "";
+        const formatDate = (date: Date | null) => (date ? new Date(date).toLocaleDateString() : "");
 
         return {
             "Order ID": order.order_id,
             "Job Number": order.job_number || "",
-            "Status": order.order_status,
+            Status: order.order_status,
             "Financial Status": order.financial_status,
-            "Company": company?.name || "",
-            "Brand": brand?.name || "",
+            Company: company?.name || "",
+            Brand: brand?.name || "",
             "Contact Name": order.contact_name,
             "Contact Email": order.contact_email,
             "Event Start": formatDate(order.event_start_date),

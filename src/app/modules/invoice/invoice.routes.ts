@@ -62,6 +62,9 @@ router.patch(
 router.get("/download-cost-estimate-pdf/:orderId", InvoiceControllers.downloadCostEstimatePDF);
 
 // Download inbound request cost estimate PDF (direct download)
-router.get("/download-ir-cost-estimate-pdf/:requestId", InvoiceControllers.downloadIRCostEstimatePDF);
+router.get(
+    "/download-ir-cost-estimate-pdf/:requestId",
+    InvoiceControllers.downloadIRCostEstimatePDF
+);
 
 export const InvoiceRoutes = router;

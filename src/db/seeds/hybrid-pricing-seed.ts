@@ -29,12 +29,32 @@ export async function seedHybridPricing() {
         const transportData = [
             { emirate: "Dubai", trip_type: "ONE_WAY", vehicle_type: "STANDARD", rate: "300.00" },
             { emirate: "Dubai", trip_type: "ROUND_TRIP", vehicle_type: "STANDARD", rate: "500.00" },
-            { emirate: "Abu Dhabi", trip_type: "ONE_WAY", vehicle_type: "STANDARD", rate: "495.00" },
-            { emirate: "Abu Dhabi", trip_type: "ROUND_TRIP", vehicle_type: "STANDARD", rate: "990.00" },
+            {
+                emirate: "Abu Dhabi",
+                trip_type: "ONE_WAY",
+                vehicle_type: "STANDARD",
+                rate: "495.00",
+            },
+            {
+                emirate: "Abu Dhabi",
+                trip_type: "ROUND_TRIP",
+                vehicle_type: "STANDARD",
+                rate: "990.00",
+            },
             { emirate: "Al Ain", trip_type: "ONE_WAY", vehicle_type: "STANDARD", rate: "550.00" },
-            { emirate: "Al Ain", trip_type: "ROUND_TRIP", vehicle_type: "STANDARD", rate: "1100.00" },
+            {
+                emirate: "Al Ain",
+                trip_type: "ROUND_TRIP",
+                vehicle_type: "STANDARD",
+                rate: "1100.00",
+            },
             { emirate: "Sharjah", trip_type: "ONE_WAY", vehicle_type: "STANDARD", rate: "400.00" },
-            { emirate: "Sharjah", trip_type: "ROUND_TRIP", vehicle_type: "STANDARD", rate: "600.00" },
+            {
+                emirate: "Sharjah",
+                trip_type: "ROUND_TRIP",
+                vehicle_type: "STANDARD",
+                rate: "600.00",
+            },
             { emirate: "Ajman", trip_type: "ONE_WAY", vehicle_type: "STANDARD", rate: "400.00" },
             { emirate: "Ajman", trip_type: "ROUND_TRIP", vehicle_type: "STANDARD", rate: "750.00" },
             {
@@ -62,7 +82,12 @@ export async function seedHybridPricing() {
                 rate: "1100.00",
             },
             { emirate: "Fujairah", trip_type: "ONE_WAY", vehicle_type: "STANDARD", rate: "600.00" },
-            { emirate: "Fujairah", trip_type: "ROUND_TRIP", vehicle_type: "STANDARD", rate: "1100.00" },
+            {
+                emirate: "Fujairah",
+                trip_type: "ROUND_TRIP",
+                vehicle_type: "STANDARD",
+                rate: "1100.00",
+            },
         ];
 
         const existingTransport = await db

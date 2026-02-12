@@ -3,7 +3,11 @@ import { db } from "../../../db";
 import httpStatus from "http-status";
 import { companies, notificationLogs, orders } from "../../../db/schema";
 import { getEmailTemplate } from "../../utils/email-template";
-import { NotificationData, NotificationRecipients, NotificationType } from "./notification-logs.interfaces";
+import {
+    NotificationData,
+    NotificationRecipients,
+    NotificationType,
+} from "./notification-logs.interfaces";
 import {
     buildNotificationData,
     getRecipientsForNotification,

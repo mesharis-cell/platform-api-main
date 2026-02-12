@@ -111,9 +111,7 @@ const createServiceType = async (data: CreateServiceTypePayload) => {
         category: category as any,
         unit,
         default_rate:
-            default_rate !== undefined && default_rate !== null
-                ? default_rate.toString()
-                : null,
+            default_rate !== undefined && default_rate !== null ? default_rate.toString() : null,
         description: description || null,
         display_order: display_order ?? 0,
         is_active: is_active ?? true,

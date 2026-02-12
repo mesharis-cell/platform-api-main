@@ -91,7 +91,10 @@ const lookupTransportRate = catchAsync(async (req, res) => {
 
     // Step 3: Check for required parameters
     if (!city || !trip_type || !vehicle_type) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "city, trip_type, and vehicle_type query parameters are required");
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "city, trip_type, and vehicle_type query parameters are required"
+        );
     }
 
     // Step 4: Validate specific parameters

@@ -478,7 +478,8 @@ const getAssetById = async (id: string, user: AuthUser, platformId: string) => {
         .where(eq(assetConditionHistory.asset_id, id))
         .orderBy(desc(assetConditionHistory.timestamp));
 
-    const latestConditionNotes = conditionHistory.length > 0 ? conditionHistory[0].notes : undefined;
+    const latestConditionNotes =
+        conditionHistory.length > 0 ? conditionHistory[0].notes : undefined;
 
     // Step 6: Return asset with enhanced details
     return {
@@ -502,10 +503,10 @@ const getAssetById = async (id: string, user: AuthUser, platformId: string) => {
         },
         brand_details: asset.brand
             ? {
-                id: asset.brand.id,
-                name: asset.brand.name,
-                logo_url: asset.brand.logo_url,
-            }
+                  id: asset.brand.id,
+                  name: asset.brand.name,
+                  logo_url: asset.brand.logo_url,
+              }
             : null,
     };
 };
@@ -1196,80 +1197,82 @@ const bulkUploadAssets = async (file: Express.Multer.File, user: AuthUser, platf
     }
 
     // Step 4: Transform and prepare data for insertion
-    const assetsToInsert = await Promise.all(valid_rows.map(async (row) => {
-        // Remove rowNumber and any other non-schema fields
-        const { rowNumber, ...assetData } = row;
+    const assetsToInsert = await Promise.all(
+        valid_rows.map(async (row) => {
+            // Remove rowNumber and any other non-schema fields
+            const { rowNumber, ...assetData } = row;
 
-        // Helper function to parse JSON strings or return default
-        const parseJsonField = (field: any, defaultValue: any) => {
-            if (!field || field === "") return defaultValue;
-            if (typeof field === "string") {
-                try {
-                    return JSON.parse(field);
-                } catch {
-                    return defaultValue;
+            // Helper function to parse JSON strings or return default
+            const parseJsonField = (field: any, defaultValue: any) => {
+                if (!field || field === "") return defaultValue;
+                if (typeof field === "string") {
+                    try {
+                        return JSON.parse(field);
+                    } catch {
+                        return defaultValue;
+                    }
                 }
+                return field;
+            };
+
+            // Helper function to handle empty strings for optional fields
+            const handleOptionalField = (field: any) => {
+                return field === "" || field === null || field === undefined ? undefined : field;
+            };
+
+            const qrCode = await qrCodeGenerator(assetData.company_id);
+
+            // Parse JSON fields
+            assetData.qr_code = qrCode;
+            assetData.images = parseJsonField(assetData.images, []);
+            assetData.dimensions = parseJsonField(assetData.dimensions, {});
+            assetData.handling_tags = parseJsonField(assetData.handling_tags, []);
+            assetData.condition_history = parseJsonField(assetData.condition_history, []);
+
+            // Convert numeric fields from strings to numbers
+            if (assetData.total_quantity) {
+                assetData.total_quantity = parseInt(assetData.total_quantity.toString());
             }
-            return field;
-        };
+            if (assetData.available_quantity) {
+                assetData.available_quantity = parseInt(assetData.available_quantity.toString());
+            }
 
-        // Helper function to handle empty strings for optional fields
-        const handleOptionalField = (field: any) => {
-            return field === "" || field === null || field === undefined ? undefined : field;
-        };
+            // Handle decimal fields (keep as strings for Drizzle)
+            if (assetData.weight_per_unit) {
+                assetData.weight_per_unit = assetData.weight_per_unit.toString();
+            }
+            if (assetData.volume_per_unit) {
+                assetData.volume_per_unit = assetData.volume_per_unit.toString();
+            }
 
-        const qrCode = await qrCodeGenerator(assetData.company_id);
+            // Handle optional numeric fields
+            assetData.refurb_days_estimate =
+                assetData.refurb_days_estimate && assetData.refurb_days_estimate !== ""
+                    ? parseInt(assetData.refurb_days_estimate.toString())
+                    : undefined;
 
-        // Parse JSON fields
-        assetData.qr_code = qrCode;
-        assetData.images = parseJsonField(assetData.images, []);
-        assetData.dimensions = parseJsonField(assetData.dimensions, {});
-        assetData.handling_tags = parseJsonField(assetData.handling_tags, []);
-        assetData.condition_history = parseJsonField(assetData.condition_history, []);
+            // Handle optional string fields (convert empty strings to undefined)
+            assetData.brand_id = handleOptionalField(assetData.brand_id);
+            assetData.description = handleOptionalField(assetData.description);
+            assetData.packaging = handleOptionalField(assetData.packaging);
+            assetData.condition_notes = handleOptionalField(assetData.condition_notes);
 
-        // Convert numeric fields from strings to numbers
-        if (assetData.total_quantity) {
-            assetData.total_quantity = parseInt(assetData.total_quantity.toString());
-        }
-        if (assetData.available_quantity) {
-            assetData.available_quantity = parseInt(assetData.available_quantity.toString());
-        }
+            // Handle optional timestamp fields
+            assetData.last_scanned_at = handleOptionalField(assetData.last_scanned_at);
+            assetData.last_scanned_by = handleOptionalField(assetData.last_scanned_by);
+            assetData.deleted_at = handleOptionalField(assetData.deleted_at);
 
-        // Handle decimal fields (keep as strings for Drizzle)
-        if (assetData.weight_per_unit) {
-            assetData.weight_per_unit = assetData.weight_per_unit.toString();
-        }
-        if (assetData.volume_per_unit) {
-            assetData.volume_per_unit = assetData.volume_per_unit.toString();
-        }
+            // Remove timestamp fields that should be auto-generated
+            delete assetData.created_at;
+            delete assetData.updated_at;
+            delete assetData.id;
 
-        // Handle optional numeric fields
-        assetData.refurb_days_estimate =
-            assetData.refurb_days_estimate && assetData.refurb_days_estimate !== ""
-                ? parseInt(assetData.refurb_days_estimate.toString())
-                : undefined;
+            // Ensure platform_id is set
+            assetData.platform_id = platformId;
 
-        // Handle optional string fields (convert empty strings to undefined)
-        assetData.brand_id = handleOptionalField(assetData.brand_id);
-        assetData.description = handleOptionalField(assetData.description);
-        assetData.packaging = handleOptionalField(assetData.packaging);
-        assetData.condition_notes = handleOptionalField(assetData.condition_notes);
-
-        // Handle optional timestamp fields
-        assetData.last_scanned_at = handleOptionalField(assetData.last_scanned_at);
-        assetData.last_scanned_by = handleOptionalField(assetData.last_scanned_by);
-        assetData.deleted_at = handleOptionalField(assetData.deleted_at);
-
-        // Remove timestamp fields that should be auto-generated
-        delete assetData.created_at;
-        delete assetData.updated_at;
-        delete assetData.id;
-
-        // Ensure platform_id is set
-        assetData.platform_id = platformId;
-
-        return assetData;
-    }));
+            return assetData;
+        })
+    );
 
     // Step 5: Insert assets into database
     const insertedAssets = (await db
@@ -1329,7 +1332,8 @@ const addConditionHistory = async (
     const updatedData: any = { condition: newCondition };
 
     if (data.condition === "GREEN") updatedData.refurb_days_estimate = null;
-    else if (data.refurb_days_estimate) updatedData.refurb_days_estimate = data.refurb_days_estimate;
+    else if (data.refurb_days_estimate)
+        updatedData.refurb_days_estimate = data.refurb_days_estimate;
 
     // Step 3: Update asset condition
     await db.update(assets).set(updatedData).where(eq(assets.id, data.asset_id));
@@ -1431,10 +1435,7 @@ const generateQRCode = async (data: GenerateQRCodePayload) => {
 //     return result;
 // };
 
-const sentAssetToMaintenance = async (
-    assetId: string,
-    platformId: string,
-) => {
+const sentAssetToMaintenance = async (assetId: string, platformId: string) => {
     // Step 1: Fetch order and verify status
     const asset = await db.query.assets.findFirst({
         where: and(eq(assets.id, assetId), eq(assets.platform_id, platformId)),
@@ -1466,19 +1467,16 @@ const sentAssetToMaintenance = async (
         asset_id: assetId,
         status: "MAINTENANCE",
     };
-}
+};
 
-const completeAssetMaintenance = async (
-    assetId: string,
-    platformId: string,
-    user: AuthUser,
-) => {
+const completeAssetMaintenance = async (assetId: string, platformId: string, user: AuthUser) => {
     const asset = await db.query.assets.findFirst({
         where: and(eq(assets.id, assetId), eq(assets.platform_id, platformId)),
     });
 
     if (!asset) throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found");
-    if (asset.status !== "MAINTENANCE") throw new CustomizedError(httpStatus.BAD_REQUEST, "Asset is not in maintenance status");
+    if (asset.status !== "MAINTENANCE")
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Asset is not in maintenance status");
 
     await db.transaction(async (tx) => {
         await tx
@@ -1507,7 +1505,7 @@ const completeAssetMaintenance = async (
     await createAssetVersionSnapshot(assetId, platformId, "Maintenance completed", user.id);
 
     return { asset_id: assetId, status: "BOOKED" };
-}
+};
 
 // ----------------------------------- ASSET VERSION SNAPSHOT --------------------------------
 const createAssetVersionSnapshot = async (
@@ -1515,7 +1513,7 @@ const createAssetVersionSnapshot = async (
     platformId: string,
     reason: string,
     userId: string,
-    orderId?: string,
+    orderId?: string
 ) => {
     const asset = await db.query.assets.findFirst({
         where: and(eq(assets.id, assetId), eq(assets.platform_id, platformId)),
@@ -1584,10 +1582,7 @@ const getAssetVersions = async (assetId: string, platformId: string) => {
             created_at: assetVersions.created_at,
         })
         .from(assetVersions)
-        .where(and(
-            eq(assetVersions.asset_id, assetId),
-            eq(assetVersions.platform_id, platformId),
-        ))
+        .where(and(eq(assetVersions.asset_id, assetId), eq(assetVersions.platform_id, platformId)))
         .orderBy(desc(assetVersions.version_number));
 
     return versions;

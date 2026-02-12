@@ -27,7 +27,7 @@ const mockPayload: InboundRequestInvoicePayload = {
             name: "Misc Monitors",
             quantity: 20,
             category: "ELECTRONICS",
-        }
+        },
     ],
     pricing: {
         logistics_sub_total: "1500.00",
@@ -43,15 +43,15 @@ const mockPayload: InboundRequestInvoicePayload = {
             description: "Catalog Item 1",
             quantity: 1,
             unit_rate: 300,
-            total: 300
+            total: 300,
         },
         {
             line_item_id: "CUST-001",
             description: "Custom Item 1",
             quantity: 1,
             unit_rate: 200,
-            total: 200
-        }
+            total: 200,
+        },
     ],
     line_items_sub_total: 500,
 };

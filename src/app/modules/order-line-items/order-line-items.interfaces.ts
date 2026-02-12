@@ -15,13 +15,9 @@ export type CreateCustomLineItemPayload = z.infer<
     added_by: string;
 };
 
-export type UpdateLineItemPayload = z.infer<
-    typeof LineItemsSchemas.updateLineItemSchema
->["body"];
+export type UpdateLineItemPayload = z.infer<typeof LineItemsSchemas.updateLineItemSchema>["body"];
 
-export type VoidLineItemPayload = z.infer<
-    typeof LineItemsSchemas.voidLineItemSchema
->["body"] & {
+export type VoidLineItemPayload = z.infer<typeof LineItemsSchemas.voidLineItemSchema>["body"] & {
     voided_by: string;
 };
 

@@ -274,7 +274,7 @@ const getConfigByHostname = async (origin: string) => {
 //         }
 
 //         // CASE B: CLIENT / COMPANY DOMAINS
-//         // We use the literal 'hostname' here because your companyDomains table 
+//         // We use the literal 'hostname' here because your companyDomains table
 //         // should contain the specific domain (e.g., client.domain.com or the Amplify URL)
 //         const [result] = await db
 //             .select({

@@ -11,5 +11,5 @@ const citySchema = z.object({
 });
 
 export const citiesSchemas = {
-    citySchema
+    citySchema,
 };

@@ -12,7 +12,7 @@ export const costEstimateGenerator = async (
     orderId: string,
     platformId: string,
     user: AuthUser,
-    regenerate: boolean = false,
+    regenerate: boolean = false
 ): Promise<{ estimate_pdf_url: string; pdf_buffer: Buffer }> => {
     const [result] = await db
         .select({
@@ -34,8 +34,8 @@ export const costEstimateGenerator = async (
                 calculated_at: prices.calculated_at,
             },
             venue_city: {
-                name: cities.name
-            }
+                name: cities.name,
+            },
         })
         .from(orders)
         .leftJoin(companies, eq(orders.company_id, companies.id))
@@ -51,16 +51,28 @@ export const costEstimateGenerator = async (
     const venueCity = result.venue_city;
 
     if (!order) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found to generate cost estimate");
+        throw new CustomizedError(
+            httpStatus.NOT_FOUND,
+            "Order not found to generate cost estimate"
+        );
     }
     if (!company) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found for this order to generate cost estimate");
+        throw new CustomizedError(
+            httpStatus.NOT_FOUND,
+            "Company not found for this order to generate cost estimate"
+        );
     }
     if (!orderPricing) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Order pricing not found for this order to generate cost estimate");
+        throw new CustomizedError(
+            httpStatus.NOT_FOUND,
+            "Order pricing not found for this order to generate cost estimate"
+        );
     }
     if (!venueCity) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Venue city not found for this order to generate cost estimate");
+        throw new CustomizedError(
+            httpStatus.NOT_FOUND,
+            "Venue city not found for this order to generate cost estimate"
+        );
     }
 
     if (order.order_status !== "PENDING_APPROVAL") {
@@ -79,16 +91,23 @@ export const costEstimateGenerator = async (
     const catalogAmount = Number((orderPricing.line_items as any).catalog_total);
     const customTotal = Number((orderPricing.line_items as any).custom_total);
     const marginPercent = Number((orderPricing.margin as any).percent);
-    const logisticsBasePrice = baseOpsTotal + (baseOpsTotal * (marginPercent / 100));
-    const catalogTotal = catalogAmount + (catalogAmount * (marginPercent / 100));
-    const transportRateWithMargin = transportRate + (transportRate * (marginPercent / 100));
+    const logisticsBasePrice = baseOpsTotal + baseOpsTotal * (marginPercent / 100);
+    const catalogTotal = catalogAmount + catalogAmount * (marginPercent / 100);
+    const transportRateWithMargin = transportRate + transportRate * (marginPercent / 100);
     const serviceFee = catalogTotal + customTotal;
     const total = logisticsBasePrice + transportRateWithMargin + serviceFee;
 
-    const orderItemsResult = await db.select().from(orderItems).where(eq(orderItems.order_id, orderId));
+    const orderItemsResult = await db
+        .select()
+        .from(orderItems)
+        .where(eq(orderItems.order_id, orderId));
 
     const calculatedOrderLineItems = orderLineItems.map((item) => {
-        const unit_rate = item.unit_rate ? item.line_item_type === "CATALOG" ? Number(item.unit_rate) + (Number(item.unit_rate) * (marginPercent / 100)) : Number(item.unit_rate) : 0;
+        const unit_rate = item.unit_rate
+            ? item.line_item_type === "CATALOG"
+                ? Number(item.unit_rate) + Number(item.unit_rate) * (marginPercent / 100)
+                : Number(item.unit_rate)
+            : 0;
 
         return {
             line_item_id: item.line_item_id,
@@ -96,11 +115,14 @@ export const costEstimateGenerator = async (
             quantity: item.quantity ? Number(item.quantity) : 0,
             unit_rate,
             total: unit_rate * Number(item.quantity),
-        }
-    })
+        };
+    });
 
     // Calculate line items subtotal
-    const lineItemsSubTotal = calculatedOrderLineItems.reduce((sum, item) => sum + Number(item.total), 0);
+    const lineItemsSubTotal = calculatedOrderLineItems.reduce(
+        (sum, item) => sum + Number(item.total),
+        0
+    );
 
     const costEstimateData = {
         id: order.id,
@@ -120,10 +142,10 @@ export const costEstimateGenerator = async (
         order_status: order.order_status,
         financial_status: order.financial_status,
         pricing: {
-            logistics_base_price: String(logisticsBasePrice) || '0',
-            transport_rate: String(transportRateWithMargin) || '0',
-            service_fee: String(serviceFee) || '0',
-            final_total_price: String(total) || '0',
+            logistics_base_price: String(logisticsBasePrice) || "0",
+            transport_rate: String(transportRateWithMargin) || "0",
+            service_fee: String(serviceFee) || "0",
+            final_total_price: String(total) || "0",
             show_breakdown: !!orderPricing, // Show breakdown if using new pricing
         },
         items: orderItemsResult.map((item) => ({
@@ -143,7 +165,10 @@ export const costEstimateGenerator = async (
     if (!regenerate) {
         const exists = await checkFileExists(key);
         if (exists) {
-            throw new CustomizedError(httpStatus.BAD_REQUEST, "Cost estimate already exists. Use regenerate flag to create new one.");
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Cost estimate already exists. Use regenerate flag to create new one."
+            );
         }
     } else {
         await deleteFileFromS3(key);

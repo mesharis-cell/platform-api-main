@@ -4,20 +4,22 @@ import { enumMessageGenerator } from "../../utils/helper";
 import { CANCEL_REASONS } from "./order.utils";
 
 const calculateEstimateSchema = z.object({
-    body: z.object({
-        items: z.array(
-            z.object({
-                asset_id: z.uuid("Invalid asset ID"),
-                quantity: z.number().int().positive("Quantity must be positive"),
-                is_reskin_request: z.boolean().optional(),
-            })
-        ),
-        venue_city: z.string("Venue city is required"),
-        trip_type: z.enum(
-            tripTypeEnum.enumValues,
-            enumMessageGenerator("Trip type", tripTypeEnum.enumValues)
-        ),
-    }).strict(),
+    body: z
+        .object({
+            items: z.array(
+                z.object({
+                    asset_id: z.uuid("Invalid asset ID"),
+                    quantity: z.number().int().positive("Quantity must be positive"),
+                    is_reskin_request: z.boolean().optional(),
+                })
+            ),
+            venue_city: z.string("Venue city is required"),
+            trip_type: z.enum(
+                tripTypeEnum.enumValues,
+                enumMessageGenerator("Trip type", tripTypeEnum.enumValues)
+            ),
+        })
+        .strict(),
 });
 
 export const orderItemSchema = z
@@ -308,33 +310,34 @@ const adminApproveQuoteSchema = z.object({
 const truckDetailsSchema = z.object({
     body: z
         .object({
-            delivery_truck_details: z.object({
-                truck_plate: z.string().min(1, "Truck plate is required"),
-                driver_name: z.string().min(1, "Driver name is required"),
-                driver_contact: z.string().min(1, "Driver contact is required"),
-                truck_size: z.string().optional(),
-                tailgate_required: z.boolean().default(false),
-                manpower: z.number().default(0),
-                notes: z.string().optional(),
-            }).optional(),
-            pickup_truck_details: z.object({
-                truck_plate: z.string().min(1, "Truck plate is required"),
-                driver_name: z.string().min(1, "Driver name is required"),
-                driver_contact: z.string().min(1, "Driver contact is required"),
-                truck_size: z.string().optional(),
-                tailgate_required: z.boolean().default(false),
-                manpower: z.number().default(0),
-                notes: z.string().optional(),
-            }).optional(),
+            delivery_truck_details: z
+                .object({
+                    truck_plate: z.string().min(1, "Truck plate is required"),
+                    driver_name: z.string().min(1, "Driver name is required"),
+                    driver_contact: z.string().min(1, "Driver contact is required"),
+                    truck_size: z.string().optional(),
+                    tailgate_required: z.boolean().default(false),
+                    manpower: z.number().default(0),
+                    notes: z.string().optional(),
+                })
+                .optional(),
+            pickup_truck_details: z
+                .object({
+                    truck_plate: z.string().min(1, "Truck plate is required"),
+                    driver_name: z.string().min(1, "Driver name is required"),
+                    driver_contact: z.string().min(1, "Driver contact is required"),
+                    truck_size: z.string().optional(),
+                    tailgate_required: z.boolean().default(false),
+                    manpower: z.number().default(0),
+                    notes: z.string().optional(),
+                })
+                .optional(),
         })
         .strict()
-        .refine(
-            (data) => data.delivery_truck_details || data.pickup_truck_details,
-            {
-                message: "At least one truck details must be provided",
-                path: ["delivery_truck_details", "pickup_truck_details"],
-            }
-        ),
+        .refine((data) => data.delivery_truck_details || data.pickup_truck_details, {
+            message: "At least one truck details must be provided",
+            path: ["delivery_truck_details", "pickup_truck_details"],
+        }),
 });
 
 export const orderSchemas = {
@@ -353,5 +356,5 @@ export const orderSchemas = {
     addOrderItemSchema,
     updateOrderItemQuantitySchema,
     adminApproveQuoteSchema,
-    truckDetailsSchema
+    truckDetailsSchema,
 };

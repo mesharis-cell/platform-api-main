@@ -1,7 +1,14 @@
 import { and, eq } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { companies, lineItems, prices, orders, serviceTypes, inboundRequests } from "../../../db/schema";
+import {
+    companies,
+    lineItems,
+    prices,
+    orders,
+    serviceTypes,
+    inboundRequests,
+} from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import {
     CreateCatalogLineItemPayload,
@@ -16,11 +23,7 @@ import { inboundRequestCostEstimateGenerator } from "../../utils/inbound-request
 
 // ----------------------------------- GET LINE ITEMS -----------------------------------------
 const getLineItems = async (platformId: string, query: Record<string, any>) => {
-    const {
-        order_id,
-        inbound_request_id,
-        purpose_type
-    } = query;
+    const { order_id, inbound_request_id, purpose_type } = query;
 
     const conditions: any[] = [eq(lineItems.platform_id, platformId)];
 
@@ -40,21 +43,30 @@ const getLineItems = async (platformId: string, query: Record<string, any>) => {
     const results = await db
         .select()
         .from(lineItems)
-        .where(and(...conditions))
+        .where(and(...conditions));
 
     const formattedResults = results.map((item) => ({
         ...item,
         quantity: item.quantity ? parseFloat(item.quantity) : null,
         unit_rate: item.unit_rate ? parseFloat(item.unit_rate) : null,
         total: parseFloat(item.total),
-    }))
+    }));
 
     return formattedResults;
-}
+};
 
 // ----------------------------------- CREATE CATALOG LINE ITEM -------------------------------
 const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
-    const { platform_id, order_id, inbound_request_id, purpose_type, service_type_id, quantity, notes, added_by } = data;
+    const {
+        platform_id,
+        order_id,
+        inbound_request_id,
+        purpose_type,
+        service_type_id,
+        quantity,
+        notes,
+        added_by,
+    } = data;
 
     // Get service type details
     const [serviceType] = await db
@@ -166,20 +178,11 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
 };
 
 // ----------------------------------- UPDATE LINE ITEM ---------------------------------------
-const updateLineItem = async (
-    id: string,
-    platformId: string,
-    data: UpdateLineItemPayload
-) => {
+const updateLineItem = async (id: string, platformId: string, data: UpdateLineItemPayload) => {
     const [existing] = await db
         .select()
         .from(lineItems)
-        .where(
-            and(
-                eq(lineItems.id, id),
-                eq(lineItems.platform_id, platformId)
-            )
-        )
+        .where(and(eq(lineItems.id, id), eq(lineItems.platform_id, platformId)))
         .limit(1);
 
     if (!existing) {
@@ -214,11 +217,7 @@ const updateLineItem = async (
         dbData.total = data.total.toString();
     }
 
-    const [result] = await db
-        .update(lineItems)
-        .set(dbData)
-        .where(eq(lineItems.id, id))
-        .returning();
+    const [result] = await db.update(lineItems).set(dbData).where(eq(lineItems.id, id)).returning();
 
     // Update order pricing after adding new line item
     if (result.order_id) {
@@ -237,22 +236,13 @@ const updateLineItem = async (
 };
 
 // ----------------------------------- VOID LINE ITEM -----------------------------------------
-const voidLineItem = async (
-    id: string,
-    platformId: string,
-    data: VoidLineItemPayload
-) => {
+const voidLineItem = async (id: string, platformId: string, data: VoidLineItemPayload) => {
     const { void_reason, voided_by } = data;
 
     const [existing] = await db
         .select()
         .from(lineItems)
-        .where(
-            and(
-                eq(lineItems.id, id),
-                eq(lineItems.platform_id, platformId)
-            )
-        )
+        .where(and(eq(lineItems.id, id), eq(lineItems.platform_id, platformId)))
         .limit(1);
 
     if (!existing) {
@@ -449,7 +439,12 @@ const updateInboundRequestPricingAfterLineItemChange = async (
         .from(inboundRequests)
         .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
         .leftJoin(prices, eq(inboundRequests.request_pricing_id, prices.id))
-        .where(and(eq(inboundRequests.id, inboundRequestId), eq(inboundRequests.platform_id, platformId)))
+        .where(
+            and(
+                eq(inboundRequests.id, inboundRequestId),
+                eq(inboundRequests.platform_id, platformId)
+            )
+        )
         .limit(1);
 
     if (!inboundRequest || !inboundRequest.pricing || !inboundRequest.company) {
@@ -457,7 +452,10 @@ const updateInboundRequestPricingAfterLineItemChange = async (
     }
 
     // Step 2: Calculate line items totals
-    const lineItemsTotals = await calculateInboundRequestLineItemsTotals(inboundRequestId, platformId);
+    const lineItemsTotals = await calculateInboundRequestLineItemsTotals(
+        inboundRequestId,
+        platformId
+    );
 
     // Step 3: Calculate new final pricing
     const baseOpsTotal = Number(inboundRequest.pricing.base_ops_total);

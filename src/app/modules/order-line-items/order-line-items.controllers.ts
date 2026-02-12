@@ -69,11 +69,7 @@ const updateLineItem = catchAsync(async (req: Request, res: Response) => {
     const itemId = getRequiredString(req.params.itemId, "itemId");
     const payload = req.body;
 
-    const lineItem = await LineItemsServices.updateLineItem(
-        itemId,
-        platformId,
-        payload
-    );
+    const lineItem = await LineItemsServices.updateLineItem(itemId, platformId, payload);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -94,11 +90,7 @@ const voidLineItem = catchAsync(async (req: Request, res: Response) => {
         voided_by: user.id,
     };
 
-    const lineItem = await LineItemsServices.voidLineItem(
-        itemId,
-        platformId,
-        payload
-    );
+    const lineItem = await LineItemsServices.voidLineItem(itemId, platformId, payload);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

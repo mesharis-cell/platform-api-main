@@ -42,11 +42,6 @@ router.patch(
 );
 
 // Delete country
-router.delete(
-    "/:id",
-    platformValidator,
-    auth("ADMIN"),
-    CountryControllers.deleteCountry
-);
+router.delete("/:id", platformValidator, auth("ADMIN"), CountryControllers.deleteCountry);
 
 export const CountryRoutes = router;

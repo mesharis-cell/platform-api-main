@@ -27,7 +27,11 @@ export async function renderInboundRequestCostEstimatePDF(
 
             doc.on("end", () => {
                 const buffer = Buffer.concat(chunks);
-                console.log("Cost Estimate PDF generated successfully, size:", buffer.length, "bytes");
+                console.log(
+                    "Cost Estimate PDF generated successfully, size:",
+                    buffer.length,
+                    "bytes"
+                );
                 resolve(buffer);
             });
 
@@ -92,7 +96,9 @@ export async function renderInboundRequestCostEstimatePDF(
             doc.fontSize(8)
                 .font("Helvetica")
                 .fillColor("#000")
-                .text(data.inbound_request_id.toUpperCase(), refBoxX + 10, detailsY + 20, { width: detailBoxWidth - 20 });
+                .text(data.inbound_request_id.toUpperCase(), refBoxX + 10, detailsY + 20, {
+                    width: detailBoxWidth - 20,
+                });
 
             doc.y = detailsY + 60;
 

@@ -1,50 +1,51 @@
 import {
-	NotificationData,
-	NotificationType,
+    NotificationData,
+    NotificationType,
 } from "../modules/notification-logs/notification-logs.interfaces";
 
 export async function getEmailTemplate(
-	notificationType: NotificationType,
-	data: NotificationData
+    notificationType: NotificationType,
+    data: NotificationData
 ): Promise<{ subject: string; html: string }> {
-	const baseStyle = `
+    const baseStyle = `
 		margin: 0; padding: 0;
 		font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 		background-color: #f6f9fc;
 	`;
-	const formatAmount = (value?: number | string | null) =>
-		value === undefined || value === null ? "—" : Number(value).toFixed(2);
-	const lineItemsHtml =
-		data.line_items && data.line_items.length > 0
-			? data.line_items
-				.map(
-					(item) =>
-						`<p style="margin: 6px 0;"><strong>${item.description}:</strong> ${formatAmount(item.total)} AED</p>`
-				)
-				.join("")
-			: `<p style="margin: 6px 0; color: #6b7280;">No additional line items</p>`;
-	const pricingBreakdownHtml = data.pricing
-		? `
+    const formatAmount = (value?: number | string | null) =>
+        value === undefined || value === null ? "—" : Number(value).toFixed(2);
+    const lineItemsHtml =
+        data.line_items && data.line_items.length > 0
+            ? data.line_items
+                  .map(
+                      (item) =>
+                          `<p style="margin: 6px 0;"><strong>${item.description}:</strong> ${formatAmount(item.total)} AED</p>`
+                  )
+                  .join("")
+            : `<p style="margin: 6px 0; color: #6b7280;">No additional line items</p>`;
+    const pricingBreakdownHtml = data.pricing
+        ? `
             <p style="margin: 6px 0;"><strong>Logistics & Handling:</strong> ${formatAmount(
-			data.pricing.base_ops_total
-		)} AED</p>
-            <p style="margin: 6px 0;"><strong>Transport (${data.venueCity || "—"}, ${data.tripType || "—"
-		}):</strong> ${formatAmount(data.pricing.transport?.final_rate)} AED</p>
+                data.pricing.base_ops_total
+            )} AED</p>
+            <p style="margin: 6px 0;"><strong>Transport (${data.venueCity || "—"}, ${
+                data.tripType || "—"
+            }):</strong> ${formatAmount(data.pricing.transport?.final_rate)} AED</p>
             ${lineItemsHtml}
             <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 12px 0;">
             <p style="margin: 6px 0;"><strong>Subtotal:</strong> ${formatAmount(
-			data.pricing.logistics_sub_total
-		)} AED</p>
+                data.pricing.logistics_sub_total
+            )} AED</p>
             <p style="margin: 6px 0;"><strong>Service Fee:</strong> ${formatAmount(
-			data.pricing.margin?.amount
-		)} AED</p>
+                data.pricing.margin?.amount
+            )} AED</p>
         `
-		: "";
+        : "";
 
-	const templates: Record<NotificationType, { subject: string; html: string }> = {
-		ORDER_SUBMITTED: {
-			subject: `Order Submitted: ${data.orderIdReadable}`,
-			html: `
+    const templates: Record<NotificationType, { subject: string; html: string }> = {
+        ORDER_SUBMITTED: {
+            subject: `Order Submitted: ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -67,11 +68,11 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
+        },
 
-		QUOTE_SENT: {
-			subject: `Quote Ready: ${data.orderIdReadable}`,
-			html: `
+        QUOTE_SENT: {
+            subject: `Quote Ready: ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -85,8 +86,8 @@ export async function getEmailTemplate(
 					<p style="margin: 8px 0;"><strong>Company:</strong> ${data.companyName}</p>
                     ${pricingBreakdownHtml}
 					<p style="margin: 8px 0; font-size: 18px; font-weight: bold; color: #111827;">Total: ${formatAmount(
-				data.pricing?.final_total || data.finalTotalPrice
-			)} AED</p>
+                        data.pricing?.final_total || data.finalTotalPrice
+                    )} AED</p>
 				</div>
 				<p style="margin: 16px 0; color: #dc2626; font-weight: 600;">⚠️ Action Required: Please review and approve or decline the quote.</p>
 				<a href="${data.orderUrl}" style="display: inline-block; margin: 24px 0; padding: 12px 24px; background: #2563eb; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600;">View Quote</a>
@@ -95,11 +96,11 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
+        },
 
-		QUOTE_REVISED: {
-			subject: `Revised Quote: ${data.orderIdReadable}`,
-			html: `
+        QUOTE_REVISED: {
+            subject: `Revised Quote: ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -110,8 +111,8 @@ export async function getEmailTemplate(
 				<p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Your quote for order ${data.orderIdReadable} has been updated.</p>
 				<div style="background: #f9fafb; border-radius: 8px; padding: 24px; margin: 24px 0;">
 					<p style="margin: 8px 0;"><strong>Previous Total:</strong> ${formatAmount(
-				data.previous_total
-			)} AED</p>
+                        data.previous_total
+                    )} AED</p>
 					<p style="margin: 8px 0;"><strong>New Total:</strong> ${formatAmount(data.new_total)} AED</p>
 					${data.revision_reason ? `<p style="margin: 8px 0;"><strong>Reason:</strong> ${data.revision_reason}</p>` : ""}
 				</div>
@@ -122,11 +123,11 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
+        },
 
-		INVOICE_GENERATED: {
-			subject: `Invoice Ready: ${data.invoiceNumber}`,
-			html: `
+        INVOICE_GENERATED: {
+            subject: `Invoice Ready: ${data.invoiceNumber}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -148,11 +149,11 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
+        },
 
-		ORDER_CANCELLED: {
-			subject: `Order Cancelled: ${data.orderIdReadable}`,
-			html: `
+        ORDER_CANCELLED: {
+            subject: `Order Cancelled: ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -171,11 +172,11 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
+        },
 
-		FABRICATION_COMPLETE: {
-			subject: `Fabrication Complete: ${data.orderIdReadable}`,
-			html: `
+        FABRICATION_COMPLETE: {
+            subject: `Fabrication Complete: ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -185,12 +186,16 @@ export async function getEmailTemplate(
 				<h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #10b981;">Fabrication Complete</h1>
 				<p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Fabrication for order ${data.orderIdReadable} is complete and ready for preparation.</p>
 				<div style="background: #f0fdf4; border-radius: 8px; padding: 24px; margin: 24px 0;">
-					${data.fabrication_items?.length ? data.fabrication_items
-					.map(
-						(item) =>
-							`<p style="margin: 8px 0;"><strong>${item.original_asset_name}</strong> → ${item.new_asset_name} (QR: ${item.new_qr_code})</p>`
-					)
-					.join("") : `<p style="margin: 8px 0;">All rebranding items complete.</p>`}
+					${
+                        data.fabrication_items?.length
+                            ? data.fabrication_items
+                                  .map(
+                                      (item) =>
+                                          `<p style="margin: 8px 0;"><strong>${item.original_asset_name}</strong> → ${item.new_asset_name} (QR: ${item.new_qr_code})</p>`
+                                  )
+                                  .join("")
+                            : `<p style="margin: 8px 0;">All rebranding items complete.</p>`
+                    }
 				</div>
 				<a href="${data.orderUrl}" style="display: inline-block; margin: 24px 0; padding: 12px 24px; background: #2563eb; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600;">View Order</a>
 			</td></tr>
@@ -198,11 +203,11 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
+        },
 
-		DELIVERED: {
-			subject: `Order Delivered: ${data.orderIdReadable}`,
-			html: `
+        DELIVERED: {
+            subject: `Order Delivered: ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -222,11 +227,11 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
+        },
 
-		PICKUP_REMINDER: {
-			subject: `Pickup Reminder: ${data.orderIdReadable} in 48 Hours`,
-			html: `
+        PICKUP_REMINDER: {
+            subject: `Pickup Reminder: ${data.orderIdReadable} in 48 Hours`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -246,12 +251,12 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
+        },
 
-		// Enhanced templates for all remaining types
-		A2_APPROVED_STANDARD: {
-			subject: `FYI: Standard Pricing Approved for ${data.orderIdReadable}`,
-			html: `
+        // Enhanced templates for all remaining types
+        A2_APPROVED_STANDARD: {
+            subject: `FYI: Standard Pricing Approved for ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -271,10 +276,10 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
-		A2_ADJUSTED_PRICING: {
-			subject: `Action Required: Pricing Adjustment for ${data.orderIdReadable}`,
-			html: `
+        },
+        A2_ADJUSTED_PRICING: {
+            subject: `Action Required: Pricing Adjustment for ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -291,10 +296,10 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
-		QUOTE_APPROVED: {
-			subject: `Quote Approved: ${data.orderIdReadable}`,
-			html: `
+        },
+        QUOTE_APPROVED: {
+            subject: `Quote Approved: ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -315,10 +320,10 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
-		QUOTE_DECLINED: {
-			subject: `Quote Declined: ${data.orderIdReadable}`,
-			html: `
+        },
+        QUOTE_DECLINED: {
+            subject: `Quote Declined: ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -339,10 +344,10 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
-		PAYMENT_CONFIRMED: {
-			subject: `Payment Confirmed: ${data.orderIdReadable}`,
-			html: `
+        },
+        PAYMENT_CONFIRMED: {
+            subject: `Payment Confirmed: ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -363,10 +368,10 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
-		ORDER_CONFIRMED: {
-			subject: `Order Confirmed: ${data.orderIdReadable}`,
-			html: `
+        },
+        ORDER_CONFIRMED: {
+            subject: `Order Confirmed: ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -388,10 +393,10 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
-		READY_FOR_DELIVERY: {
-			subject: `Ready for Delivery: ${data.orderIdReadable}`,
-			html: `
+        },
+        READY_FOR_DELIVERY: {
+            subject: `Ready for Delivery: ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -412,10 +417,10 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
-		IN_TRANSIT: {
-			subject: `Order In Transit: ${data.orderIdReadable}`,
-			html: `
+        },
+        IN_TRANSIT: {
+            subject: `Order In Transit: ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -436,10 +441,10 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
-		ORDER_CLOSED: {
-			subject: `Order Completed: ${data.orderIdReadable}`,
-			html: `
+        },
+        ORDER_CLOSED: {
+            subject: `Order Completed: ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -460,10 +465,10 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
-		TIME_WINDOWS_UPDATED: {
-			subject: `Delivery Schedule Updated: ${data.orderIdReadable}`,
-			html: `
+        },
+        TIME_WINDOWS_UPDATED: {
+            subject: `Delivery Schedule Updated: ${data.orderIdReadable}`,
+            html: `
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="${baseStyle}">
@@ -484,10 +489,10 @@ export async function getEmailTemplate(
 	</td></tr></table>
 </body></html>
 			`,
-		},
-	};
+        },
+    };
 
-	return templates[notificationType];
+    return templates[notificationType];
 }
 
 // <div style="background: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 8px; padding: 24px; margin: 24px 0;" >

@@ -7,7 +7,10 @@ const createCatalogLineItemSchema = z.object({
         .object({
             order_id: z.uuid("Invalid order ID").optional(),
             inbound_request_id: z.uuid("Invalid inbound request ID").optional(),
-            purpose_type: z.enum(invoiceTypeEnum.enumValues, enumMessageGenerator("Purpose type", invoiceTypeEnum.enumValues)),
+            purpose_type: z.enum(
+                invoiceTypeEnum.enumValues,
+                enumMessageGenerator("Purpose type", invoiceTypeEnum.enumValues)
+            ),
             service_type_id: z.uuid("Invalid service type ID"),
             quantity: z
                 .number({ message: "Quantity must be a number" })
@@ -31,7 +34,10 @@ const createCustomLineItemSchema = z.object({
         .object({
             order_id: z.uuid("Invalid order ID").optional(),
             inbound_request_id: z.uuid("Invalid inbound request ID").optional(),
-            purpose_type: z.enum(invoiceTypeEnum.enumValues, enumMessageGenerator("Purpose type", invoiceTypeEnum.enumValues)),
+            purpose_type: z.enum(
+                invoiceTypeEnum.enumValues,
+                enumMessageGenerator("Purpose type", invoiceTypeEnum.enumValues)
+            ),
             description: z
                 .string({ message: "Description is required" })
                 .min(1, "Description is required")

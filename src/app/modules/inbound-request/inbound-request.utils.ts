@@ -60,13 +60,27 @@ type GenerateCostEstimateAndSendEmailPayload = {
     company_name: string;
     final_total_price: string;
     regenarate?: boolean;
-}
+};
 
-export const generateCostEstimateAndSendEmail = async (payload: GenerateCostEstimateAndSendEmailPayload) => {
-    const { request_id, platform_id, email, inbound_request_id, company_name, final_total_price, regenarate = false } = payload;
+export const generateCostEstimateAndSendEmail = async (
+    payload: GenerateCostEstimateAndSendEmailPayload
+) => {
+    const {
+        request_id,
+        platform_id,
+        email,
+        inbound_request_id,
+        company_name,
+        final_total_price,
+        regenarate = false,
+    } = payload;
 
     // Step 4: Generate cost estimate PDF
-    const { pdf_buffer } = await inboundRequestCostEstimateGenerator(request_id, platform_id, regenarate);
+    const { pdf_buffer } = await inboundRequestCostEstimateGenerator(
+        request_id,
+        platform_id,
+        regenarate
+    );
 
     // Step 5: Send email to requester
     await sendEmail({
@@ -80,11 +94,11 @@ export const generateCostEstimateAndSendEmail = async (payload: GenerateCostEsti
         }),
         attachments: pdf_buffer
             ? [
-                {
-                    filename: `${inbound_request_id}.pdf`,
-                    content: pdf_buffer,
-                },
-            ]
+                  {
+                      filename: `${inbound_request_id}.pdf`,
+                      content: pdf_buffer,
+                  },
+              ]
             : undefined,
     });
-}
+};

@@ -44,7 +44,9 @@ export const orderIdGenerator = async (platformId: string): Promise<string> => {
     const todayOrders = await db
         .select({ order_id: orders.order_id })
         .from(orders)
-        .where(and(eq(orders.platform_id, platformId), sql`${orders.order_id} LIKE ${prefix + "%"}`))
+        .where(
+            and(eq(orders.platform_id, platformId), sql`${orders.order_id} LIKE ${prefix + "%"}`)
+        )
         .orderBy(desc(orders.order_id))
         .limit(1);
 

@@ -15,7 +15,7 @@ import { lineItemIdGenerator } from "../app/modules/order-line-items/order-line-
 import { db } from "./index";
 import * as schema from "./schema";
 import bcrypt from "bcrypt";
-import { eq, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 
 // ============================================================
 // TYPE ALIASES
@@ -101,7 +101,6 @@ const S = {
 const companyByName = (name: string) => S.companies.find((c) => c.name === name)!;
 const userByEmail = (email: string) => S.users.find((u) => u.email === email)!;
 const brandByName = (name: string) => S.brands.find((b) => b.name === name)!;
-const assetByQR = (qr: string) => S.assets.find((a) => a.qr_code === qr)!;
 const zoneForCompany = (companyId: string) => S.zones.find((z) => z.company_id === companyId)!;
 const cityByName = (name: string) => S.cities.find((c) => c.name === name)!;
 
@@ -197,7 +196,15 @@ async function seedCountriesAndCities() {
         .returning();
     S.country = country;
 
-    const cityNames = ["Dubai", "Abu Dhabi", "Sharjah", "Ajman", "Ras Al Khaimah", "Fujairah", "Umm Al Quwain"];
+    const cityNames = [
+        "Dubai",
+        "Abu Dhabi",
+        "Sharjah",
+        "Ajman",
+        "Ras Al Khaimah",
+        "Fujairah",
+        "Umm Al Quwain",
+    ];
     const cities = await db
         .insert(schema.cities)
         .values(cityNames.map((name) => ({ platform_id: pid, country_id: country.id, name })))
@@ -246,33 +253,133 @@ async function seedUsers() {
     const dg = companyByName("Diageo");
 
     const allPerms = [
-        "auth:*", "users:*", "companies:*", "brands:*", "warehouses:*", "zones:*",
-        "pricing_tiers:*", "orders:*", "pricing:*", "invoices:*", "lifecycle:*",
-        "notifications:*", "analytics:*", "system:*", "assets:*", "collections:*",
-        "conditions:*", "inventory:*", "quotes:*", "scanning:*",
+        "auth:*",
+        "users:*",
+        "companies:*",
+        "brands:*",
+        "warehouses:*",
+        "zones:*",
+        "pricing_tiers:*",
+        "orders:*",
+        "pricing:*",
+        "invoices:*",
+        "lifecycle:*",
+        "notifications:*",
+        "analytics:*",
+        "system:*",
+        "assets:*",
+        "collections:*",
+        "conditions:*",
+        "inventory:*",
+        "quotes:*",
+        "scanning:*",
     ];
     const logisticsPerms = [
-        "auth:*", "users:read", "companies:read", "brands:read", "warehouses:read",
-        "zones:read", "assets:*", "collections:*", "orders:read", "orders:update",
-        "orders:add_time_windows", "pricing:review", "pricing:approve_standard",
-        "pricing:adjust", "lifecycle:progress_status", "lifecycle:receive_notifications",
-        "scanning:*", "inventory:*", "conditions:*",
+        "auth:*",
+        "users:read",
+        "companies:read",
+        "brands:read",
+        "warehouses:read",
+        "zones:read",
+        "assets:*",
+        "collections:*",
+        "orders:read",
+        "orders:update",
+        "orders:add_time_windows",
+        "pricing:review",
+        "pricing:approve_standard",
+        "pricing:adjust",
+        "lifecycle:progress_status",
+        "lifecycle:receive_notifications",
+        "scanning:*",
+        "inventory:*",
+        "conditions:*",
     ];
     const clientPerms = [
-        "auth:*", "companies:read", "brands:read", "assets:read", "collections:read",
-        "orders:create", "orders:read", "orders:update", "quotes:approve", "quotes:decline",
-        "invoices:read", "invoices:download", "lifecycle:receive_notifications",
+        "auth:*",
+        "companies:read",
+        "brands:read",
+        "assets:read",
+        "collections:read",
+        "orders:create",
+        "orders:read",
+        "orders:update",
+        "quotes:approve",
+        "quotes:decline",
+        "invoices:read",
+        "invoices:download",
+        "lifecycle:receive_notifications",
     ];
 
     const users = await db
         .insert(schema.users)
         .values([
-            { platform_id: pid, company_id: null, name: "Admin User", email: "admin@test.com", password: pw, role: "ADMIN" as const, permissions: allPerms, permission_template: "PLATFORM_ADMIN" as const, is_active: true },
-            { platform_id: pid, company_id: null, name: "Sarah Johnson", email: "sarah.admin@platform.com", password: pw, role: "ADMIN" as const, permissions: allPerms, permission_template: "PLATFORM_ADMIN" as const, is_active: true },
-            { platform_id: pid, company_id: null, name: "Logistics User", email: "logistics@test.com", password: pw, role: "LOGISTICS" as const, permissions: logisticsPerms, permission_template: "LOGISTICS_STAFF" as const, is_active: true },
-            { platform_id: pid, company_id: null, name: "Ahmed Al-Rashid", email: "ahmed.logistics@a2logistics.com", password: pw, role: "LOGISTICS" as const, permissions: logisticsPerms, permission_template: "LOGISTICS_STAFF" as const, is_active: true },
-            { platform_id: pid, company_id: pr.id, name: "Pernod Ricard Event Manager", email: "client@pernod-ricard.com", password: pw, role: "CLIENT" as const, permissions: clientPerms, permission_template: "CLIENT_USER" as const, is_active: true },
-            { platform_id: pid, company_id: dg.id, name: "Diageo Event Manager", email: "client@diageo.com", password: pw, role: "CLIENT" as const, permissions: clientPerms, permission_template: "CLIENT_USER" as const, is_active: true },
+            {
+                platform_id: pid,
+                company_id: null,
+                name: "Admin User",
+                email: "admin@test.com",
+                password: pw,
+                role: "ADMIN" as const,
+                permissions: allPerms,
+                permission_template: "PLATFORM_ADMIN" as const,
+                is_active: true,
+            },
+            {
+                platform_id: pid,
+                company_id: null,
+                name: "Sarah Johnson",
+                email: "sarah.admin@platform.com",
+                password: pw,
+                role: "ADMIN" as const,
+                permissions: allPerms,
+                permission_template: "PLATFORM_ADMIN" as const,
+                is_active: true,
+            },
+            {
+                platform_id: pid,
+                company_id: null,
+                name: "Logistics User",
+                email: "logistics@test.com",
+                password: pw,
+                role: "LOGISTICS" as const,
+                permissions: logisticsPerms,
+                permission_template: "LOGISTICS_STAFF" as const,
+                is_active: true,
+            },
+            {
+                platform_id: pid,
+                company_id: null,
+                name: "Ahmed Al-Rashid",
+                email: "ahmed.logistics@a2logistics.com",
+                password: pw,
+                role: "LOGISTICS" as const,
+                permissions: logisticsPerms,
+                permission_template: "LOGISTICS_STAFF" as const,
+                is_active: true,
+            },
+            {
+                platform_id: pid,
+                company_id: pr.id,
+                name: "Pernod Ricard Event Manager",
+                email: "client@pernod-ricard.com",
+                password: pw,
+                role: "CLIENT" as const,
+                permissions: clientPerms,
+                permission_template: "CLIENT_USER" as const,
+                is_active: true,
+            },
+            {
+                platform_id: pid,
+                company_id: dg.id,
+                name: "Diageo Event Manager",
+                email: "client@diageo.com",
+                password: pw,
+                role: "CLIENT" as const,
+                permissions: clientPerms,
+                permission_template: "CLIENT_USER" as const,
+                is_active: true,
+            },
         ])
         .returning();
     S.users = users;
@@ -288,12 +395,54 @@ async function seedBrands() {
     const brands = await db
         .insert(schema.brands)
         .values([
-            { platform_id: pid, company_id: pr.id, name: "Absolut", description: "Absolut Vodka activations", logo_url: brandLogo("Absolut"), is_active: true },
-            { platform_id: pid, company_id: pr.id, name: "Chivas Regal", description: "Chivas Regal events", logo_url: brandLogo("Chivas Regal"), is_active: true },
-            { platform_id: pid, company_id: pr.id, name: "Jameson", description: "Jameson brand experiences", logo_url: brandLogo("Jameson"), is_active: true },
-            { platform_id: pid, company_id: dg.id, name: "Johnnie Walker", description: "Johnnie Walker activations", logo_url: brandLogo("Johnnie Walker"), is_active: true },
-            { platform_id: pid, company_id: dg.id, name: "Guinness", description: "Guinness experiences", logo_url: brandLogo("Guinness"), is_active: true },
-            { platform_id: pid, company_id: dg.id, name: "Baileys", description: "Baileys brand events", logo_url: brandLogo("Baileys"), is_active: true },
+            {
+                platform_id: pid,
+                company_id: pr.id,
+                name: "Absolut",
+                description: "Absolut Vodka activations",
+                logo_url: brandLogo("Absolut"),
+                is_active: true,
+            },
+            {
+                platform_id: pid,
+                company_id: pr.id,
+                name: "Chivas Regal",
+                description: "Chivas Regal events",
+                logo_url: brandLogo("Chivas Regal"),
+                is_active: true,
+            },
+            {
+                platform_id: pid,
+                company_id: pr.id,
+                name: "Jameson",
+                description: "Jameson brand experiences",
+                logo_url: brandLogo("Jameson"),
+                is_active: true,
+            },
+            {
+                platform_id: pid,
+                company_id: dg.id,
+                name: "Johnnie Walker",
+                description: "Johnnie Walker activations",
+                logo_url: brandLogo("Johnnie Walker"),
+                is_active: true,
+            },
+            {
+                platform_id: pid,
+                company_id: dg.id,
+                name: "Guinness",
+                description: "Guinness experiences",
+                logo_url: brandLogo("Guinness"),
+                is_active: true,
+            },
+            {
+                platform_id: pid,
+                company_id: dg.id,
+                name: "Baileys",
+                description: "Baileys brand events",
+                logo_url: brandLogo("Baileys"),
+                is_active: true,
+            },
         ])
         .returning();
     S.brands = brands;
@@ -309,8 +458,24 @@ async function seedZones() {
         .insert(schema.zones)
         .values(
             S.companies.flatMap((c) => [
-                { platform_id: pid, warehouse_id: wh.id, company_id: c.id, name: `${c.name.substring(0, 3).toUpperCase()}-A`, description: `${c.name} primary zone`, capacity: 500, is_active: true },
-                { platform_id: pid, warehouse_id: wh.id, company_id: c.id, name: `${c.name.substring(0, 3).toUpperCase()}-B`, description: `${c.name} overflow zone`, capacity: 300, is_active: true },
+                {
+                    platform_id: pid,
+                    warehouse_id: wh.id,
+                    company_id: c.id,
+                    name: `${c.name.substring(0, 3).toUpperCase()}-A`,
+                    description: `${c.name} primary zone`,
+                    capacity: 500,
+                    is_active: true,
+                },
+                {
+                    platform_id: pid,
+                    warehouse_id: wh.id,
+                    company_id: c.id,
+                    name: `${c.name.substring(0, 3).toUpperCase()}-B`,
+                    description: `${c.name} overflow zone`,
+                    capacity: 300,
+                    is_active: true,
+                },
             ])
         )
         .returning();
@@ -324,9 +489,30 @@ async function seedVehicleTypes() {
     const types = await db
         .insert(schema.vehicleTypes)
         .values([
-            { name: "Standard Truck", vehicle_size: "15", platform_id: pid, description: "Standard delivery truck", is_default: true, display_order: 1 },
-            { name: "7 Ton Truck", vehicle_size: "40", platform_id: pid, description: "Large truck up to 7 tons", is_default: false, display_order: 2 },
-            { name: "10 Ton Truck", vehicle_size: "60", platform_id: pid, description: "Extra large truck up to 10 tons", is_default: false, display_order: 3 },
+            {
+                name: "Standard Truck",
+                vehicle_size: "15",
+                platform_id: pid,
+                description: "Standard delivery truck",
+                is_default: true,
+                display_order: 1,
+            },
+            {
+                name: "7 Ton Truck",
+                vehicle_size: "40",
+                platform_id: pid,
+                description: "Large truck up to 7 tons",
+                is_default: false,
+                display_order: 2,
+            },
+            {
+                name: "10 Ton Truck",
+                vehicle_size: "60",
+                platform_id: pid,
+                description: "Extra large truck up to 10 tons",
+                is_default: false,
+                display_order: 3,
+            },
         ])
         .returning();
     S.vehicleTypes = types;
@@ -342,11 +528,18 @@ async function seedTransportRates() {
     for (const city of S.cities) {
         for (const trip of trips) {
             for (const vt of S.vehicleTypes) {
-                const base = vt.name === "Standard Truck" ? 500 : vt.name === "7 Ton Truck" ? 800 : 1200;
+                const base =
+                    vt.name === "Standard Truck" ? 500 : vt.name === "7 Ton Truck" ? 800 : 1200;
                 const mult = trip === "ROUND_TRIP" ? 1.8 : 1;
                 rates.push({
-                    platform_id: pid, company_id: null, city_id: city.id, area: null,
-                    trip_type: trip, vehicle_type_id: vt.id, rate: (base * mult).toString(), is_active: true,
+                    platform_id: pid,
+                    company_id: null,
+                    city_id: city.id,
+                    area: null,
+                    trip_type: trip,
+                    vehicle_type_id: vt.id,
+                    rate: (base * mult).toString(),
+                    is_active: true,
                 });
             }
         }
@@ -361,22 +554,96 @@ async function seedServiceTypes() {
     console.log("🛠️  Seeding service types...");
     const pid = S.platform.id;
     const services = [
-        { name: "Basic Assembly", category: "ASSEMBLY" as const, unit: "hour", default_rate: "75.00", description: "Standard furniture assembly" },
-        { name: "Complex Setup", category: "ASSEMBLY" as const, unit: "hour", default_rate: "120.00", description: "Complex installations and setups" },
-        { name: "Rigging Services", category: "ASSEMBLY" as const, unit: "hour", default_rate: "150.00", description: "Professional rigging and suspension" },
-        { name: "Forklift Operation", category: "EQUIPMENT" as const, unit: "hour", default_rate: "200.00", description: "Forklift and heavy equipment operation" },
-        { name: "Loading/Unloading", category: "HANDLING" as const, unit: "hour", default_rate: "60.00", description: "Manual loading and unloading" },
-        { name: "Fragile Item Handling", category: "HANDLING" as const, unit: "unit", default_rate: "25.00", description: "Special handling for fragile items" },
-        { name: "White Glove Service", category: "HANDLING" as const, unit: "trip", default_rate: "500.00", description: "Premium handling and setup service" },
-        { name: "Vinyl Wrap Application", category: "RESKIN" as const, unit: "unit", default_rate: "300.00", description: "Custom vinyl wrapping for furniture" },
-        { name: "Graphic Installation", category: "RESKIN" as const, unit: "unit", default_rate: "150.00", description: "Installation of custom graphics" },
-        { name: "Storage Fee", category: "OTHER" as const, unit: "day", default_rate: "50.00", description: "Daily storage charge" },
-        { name: "Rush Service", category: "OTHER" as const, unit: "trip", default_rate: "750.00", description: "Expedited delivery/pickup" },
-        { name: "Cleaning Service", category: "OTHER" as const, unit: "unit", default_rate: "35.00", description: "Deep cleaning of returned items" },
+        {
+            name: "Basic Assembly",
+            category: "ASSEMBLY" as const,
+            unit: "hour",
+            default_rate: "75.00",
+            description: "Standard furniture assembly",
+        },
+        {
+            name: "Complex Setup",
+            category: "ASSEMBLY" as const,
+            unit: "hour",
+            default_rate: "120.00",
+            description: "Complex installations and setups",
+        },
+        {
+            name: "Rigging Services",
+            category: "ASSEMBLY" as const,
+            unit: "hour",
+            default_rate: "150.00",
+            description: "Professional rigging and suspension",
+        },
+        {
+            name: "Forklift Operation",
+            category: "EQUIPMENT" as const,
+            unit: "hour",
+            default_rate: "200.00",
+            description: "Forklift and heavy equipment operation",
+        },
+        {
+            name: "Loading/Unloading",
+            category: "HANDLING" as const,
+            unit: "hour",
+            default_rate: "60.00",
+            description: "Manual loading and unloading",
+        },
+        {
+            name: "Fragile Item Handling",
+            category: "HANDLING" as const,
+            unit: "unit",
+            default_rate: "25.00",
+            description: "Special handling for fragile items",
+        },
+        {
+            name: "White Glove Service",
+            category: "HANDLING" as const,
+            unit: "trip",
+            default_rate: "500.00",
+            description: "Premium handling and setup service",
+        },
+        {
+            name: "Vinyl Wrap Application",
+            category: "RESKIN" as const,
+            unit: "unit",
+            default_rate: "300.00",
+            description: "Custom vinyl wrapping for furniture",
+        },
+        {
+            name: "Graphic Installation",
+            category: "RESKIN" as const,
+            unit: "unit",
+            default_rate: "150.00",
+            description: "Installation of custom graphics",
+        },
+        {
+            name: "Storage Fee",
+            category: "OTHER" as const,
+            unit: "day",
+            default_rate: "50.00",
+            description: "Daily storage charge",
+        },
+        {
+            name: "Rush Service",
+            category: "OTHER" as const,
+            unit: "trip",
+            default_rate: "750.00",
+            description: "Expedited delivery/pickup",
+        },
+        {
+            name: "Cleaning Service",
+            category: "OTHER" as const,
+            unit: "unit",
+            default_rate: "35.00",
+            description: "Deep cleaning of returned items",
+        },
     ];
     const inserted = await db
         .insert(schema.serviceTypes)
-        .values(services.map((s, i) => ({ platform_id: pid, ...s, display_order: i, is_active: true })))
+        .values(
+            services.map((s, i) => ({ platform_id: pid, ...s, display_order: i, is_active: true }))
+        )
         .returning();
     S.serviceTypes = inserted;
     console.log(`✓ ${inserted.length} service types`);
@@ -391,39 +658,200 @@ async function seedAssets() {
     const wh = S.warehouses[0];
 
     // Asset templates per category
-    const templates: Record<string, Array<{ name: string; desc: string; weight: number; dims: { length: number; width: number; height: number }; volume: number; tracking: TrackingMethod; qty: number }>> = {
+    const templates: Record<
+        string,
+        Array<{
+            name: string;
+            desc: string;
+            weight: number;
+            dims: { length: number; width: number; height: number };
+            volume: number;
+            tracking: TrackingMethod;
+            qty: number;
+        }>
+    > = {
         Furniture: [
-            { name: "Executive Round Table", desc: "Premium 6-seater round table", weight: 45, dims: { length: 150, width: 150, height: 75 }, volume: 1.688, tracking: "INDIVIDUAL", qty: 1 },
-            { name: "Chiavari Gold Chair", desc: "Classic gold chiavari chair", weight: 5.5, dims: { length: 40, width: 45, height: 90 }, volume: 0.162, tracking: "INDIVIDUAL", qty: 1 },
-            { name: "Velvet Lounge Sofa", desc: "3-seater luxury velvet sofa", weight: 65, dims: { length: 210, width: 90, height: 85 }, volume: 1.606, tracking: "INDIVIDUAL", qty: 1 },
-            { name: "Bar Stool High", desc: "Modern metal bar stool", weight: 8, dims: { length: 45, width: 45, height: 110 }, volume: 0.223, tracking: "INDIVIDUAL", qty: 1 },
-            { name: "Cocktail Table Round", desc: "High-top cocktail table", weight: 18, dims: { length: 80, width: 80, height: 110 }, volume: 0.704, tracking: "INDIVIDUAL", qty: 1 },
-            { name: "Banquet Rectangle Table", desc: "8-seater rectangular table", weight: 52, dims: { length: 240, width: 100, height: 75 }, volume: 1.8, tracking: "INDIVIDUAL", qty: 1 },
+            {
+                name: "Executive Round Table",
+                desc: "Premium 6-seater round table",
+                weight: 45,
+                dims: { length: 150, width: 150, height: 75 },
+                volume: 1.688,
+                tracking: "INDIVIDUAL",
+                qty: 1,
+            },
+            {
+                name: "Chiavari Gold Chair",
+                desc: "Classic gold chiavari chair",
+                weight: 5.5,
+                dims: { length: 40, width: 45, height: 90 },
+                volume: 0.162,
+                tracking: "INDIVIDUAL",
+                qty: 1,
+            },
+            {
+                name: "Velvet Lounge Sofa",
+                desc: "3-seater luxury velvet sofa",
+                weight: 65,
+                dims: { length: 210, width: 90, height: 85 },
+                volume: 1.606,
+                tracking: "INDIVIDUAL",
+                qty: 1,
+            },
+            {
+                name: "Bar Stool High",
+                desc: "Modern metal bar stool",
+                weight: 8,
+                dims: { length: 45, width: 45, height: 110 },
+                volume: 0.223,
+                tracking: "INDIVIDUAL",
+                qty: 1,
+            },
+            {
+                name: "Cocktail Table Round",
+                desc: "High-top cocktail table",
+                weight: 18,
+                dims: { length: 80, width: 80, height: 110 },
+                volume: 0.704,
+                tracking: "INDIVIDUAL",
+                qty: 1,
+            },
+            {
+                name: "Banquet Rectangle Table",
+                desc: "8-seater rectangular table",
+                weight: 52,
+                dims: { length: 240, width: 100, height: 75 },
+                volume: 1.8,
+                tracking: "INDIVIDUAL",
+                qty: 1,
+            },
         ],
         Glassware: [
-            { name: "Wine Glass Bordeaux", desc: "Premium crystal wine glass", weight: 0.25, dims: { length: 10, width: 10, height: 24 }, volume: 0.002, tracking: "BATCH", qty: 60 },
-            { name: "Champagne Flute", desc: "Elegant champagne flute", weight: 0.22, dims: { length: 8, width: 8, height: 26 }, volume: 0.002, tracking: "BATCH", qty: 80 },
-            { name: "Whisky Tumbler", desc: "Heavy base whisky glass", weight: 0.35, dims: { length: 9, width: 9, height: 10 }, volume: 0.001, tracking: "BATCH", qty: 50 },
+            {
+                name: "Wine Glass Bordeaux",
+                desc: "Premium crystal wine glass",
+                weight: 0.25,
+                dims: { length: 10, width: 10, height: 24 },
+                volume: 0.002,
+                tracking: "BATCH",
+                qty: 60,
+            },
+            {
+                name: "Champagne Flute",
+                desc: "Elegant champagne flute",
+                weight: 0.22,
+                dims: { length: 8, width: 8, height: 26 },
+                volume: 0.002,
+                tracking: "BATCH",
+                qty: 80,
+            },
+            {
+                name: "Whisky Tumbler",
+                desc: "Heavy base whisky glass",
+                weight: 0.35,
+                dims: { length: 9, width: 9, height: 10 },
+                volume: 0.001,
+                tracking: "BATCH",
+                qty: 50,
+            },
         ],
         Installation: [
-            { name: "Backdrop Frame 4x3m", desc: "Aluminum photo backdrop frame", weight: 28, dims: { length: 400, width: 10, height: 300 }, volume: 1.2, tracking: "INDIVIDUAL", qty: 1 },
-            { name: "Pipe and Drape System", desc: "3m high drape system per 3m", weight: 15, dims: { length: 300, width: 10, height: 300 }, volume: 0.9, tracking: "INDIVIDUAL", qty: 1 },
-            { name: "Red Carpet Runner 10m", desc: "VIP red carpet runner", weight: 18, dims: { length: 1000, width: 120, height: 2 }, volume: 0.24, tracking: "INDIVIDUAL", qty: 1 },
+            {
+                name: "Backdrop Frame 4x3m",
+                desc: "Aluminum photo backdrop frame",
+                weight: 28,
+                dims: { length: 400, width: 10, height: 300 },
+                volume: 1.2,
+                tracking: "INDIVIDUAL",
+                qty: 1,
+            },
+            {
+                name: "Pipe and Drape System",
+                desc: "3m high drape system per 3m",
+                weight: 15,
+                dims: { length: 300, width: 10, height: 300 },
+                volume: 0.9,
+                tracking: "INDIVIDUAL",
+                qty: 1,
+            },
+            {
+                name: "Red Carpet Runner 10m",
+                desc: "VIP red carpet runner",
+                weight: 18,
+                dims: { length: 1000, width: 120, height: 2 },
+                volume: 0.24,
+                tracking: "INDIVIDUAL",
+                qty: 1,
+            },
         ],
         Decor: [
-            { name: "Floral Centerpiece Luxury", desc: "Premium floral arrangement", weight: 3.5, dims: { length: 40, width: 40, height: 50 }, volume: 0.08, tracking: "BATCH", qty: 30 },
-            { name: "LED Uplighter RGB", desc: "Wireless RGB uplight", weight: 2.8, dims: { length: 15, width: 15, height: 30 }, volume: 0.007, tracking: "BATCH", qty: 40 },
-            { name: "Neon Sign Custom", desc: "Custom LED neon sign", weight: 5, dims: { length: 120, width: 10, height: 60 }, volume: 0.072, tracking: "INDIVIDUAL", qty: 1 },
+            {
+                name: "Floral Centerpiece Luxury",
+                desc: "Premium floral arrangement",
+                weight: 3.5,
+                dims: { length: 40, width: 40, height: 50 },
+                volume: 0.08,
+                tracking: "BATCH",
+                qty: 30,
+            },
+            {
+                name: "LED Uplighter RGB",
+                desc: "Wireless RGB uplight",
+                weight: 2.8,
+                dims: { length: 15, width: 15, height: 30 },
+                volume: 0.007,
+                tracking: "BATCH",
+                qty: 40,
+            },
+            {
+                name: "Neon Sign Custom",
+                desc: "Custom LED neon sign",
+                weight: 5,
+                dims: { length: 120, width: 10, height: 60 },
+                volume: 0.072,
+                tracking: "INDIVIDUAL",
+                qty: 1,
+            },
         ],
         Lighting: [
-            { name: "Par LED Moving Head", desc: "Professional moving head light", weight: 12, dims: { length: 30, width: 30, height: 45 }, volume: 0.041, tracking: "INDIVIDUAL", qty: 1 },
-            { name: "Wash Light Bar", desc: "4-head LED wash bar", weight: 8.5, dims: { length: 120, width: 15, height: 20 }, volume: 0.036, tracking: "INDIVIDUAL", qty: 1 },
-            { name: "Fairy Lights 20m", desc: "Warm white fairy light string", weight: 0.8, dims: { length: 2000, width: 5, height: 5 }, volume: 0.05, tracking: "BATCH", qty: 25 },
+            {
+                name: "Par LED Moving Head",
+                desc: "Professional moving head light",
+                weight: 12,
+                dims: { length: 30, width: 30, height: 45 },
+                volume: 0.041,
+                tracking: "INDIVIDUAL",
+                qty: 1,
+            },
+            {
+                name: "Wash Light Bar",
+                desc: "4-head LED wash bar",
+                weight: 8.5,
+                dims: { length: 120, width: 15, height: 20 },
+                volume: 0.036,
+                tracking: "INDIVIDUAL",
+                qty: 1,
+            },
+            {
+                name: "Fairy Lights 20m",
+                desc: "Warm white fairy light string",
+                weight: 0.8,
+                dims: { length: 2000, width: 5, height: 5 },
+                volume: 0.05,
+                tracking: "BATCH",
+                qty: 25,
+            },
         ],
     };
 
-    const companyAbbr: Record<string, string> = { "Pernod Ricard": "PR", "Diageo": "DG" };
-    const catAbbr: Record<string, string> = { Furniture: "FURN", Glassware: "GLASS", Installation: "INST", Decor: "DECOR", Lighting: "LIGHT" };
+    const companyAbbr: Record<string, string> = { "Pernod Ricard": "PR", Diageo: "DG" };
+    const catAbbr: Record<string, string> = {
+        Furniture: "FURN",
+        Glassware: "GLASS",
+        Installation: "INST",
+        Decor: "DECOR",
+        Lighting: "LIGHT",
+    };
 
     const allAssets: any[] = [];
     for (const company of S.companies) {
@@ -465,10 +893,13 @@ async function seedAssets() {
                 }
 
                 const handlingTags =
-                    category === "Glassware" ? ["Fragile", "HighValue"]
-                    : category === "Furniture" && t.weight > 50 ? ["HeavyLift"]
-                    : category === "Installation" ? ["AssemblyRequired"]
-                    : [];
+                    category === "Glassware"
+                        ? ["Fragile", "HighValue"]
+                        : category === "Furniture" && t.weight > 50
+                          ? ["HeavyLift"]
+                          : category === "Installation"
+                            ? ["AssemblyRequired"]
+                            : [];
 
                 allAssets.push({
                     platform_id: pid,
@@ -512,8 +943,16 @@ async function seedCollections() {
     const pid = S.platform.id;
 
     const collTemplates = [
-        { name: "Executive Dinner Setup", desc: "Complete setup for executive dinners", category: "Dining" },
-        { name: "Cocktail Reception Package", desc: "Full cocktail event setup", category: "Cocktail" },
+        {
+            name: "Executive Dinner Setup",
+            desc: "Complete setup for executive dinners",
+            category: "Dining",
+        },
+        {
+            name: "Cocktail Reception Package",
+            desc: "Full cocktail event setup",
+            category: "Cocktail",
+        },
         { name: "VIP Lounge Collection", desc: "Premium lounge furniture set", category: "Lounge" },
     ];
 
@@ -590,7 +1029,12 @@ async function createPricing(opts: {
             logistics_sub_total: logSub.toFixed(2),
             transport: { system_rate: opts.transportRate, final_rate: opts.transportRate },
             line_items: { catalog_total: catTotal, custom_total: custTotal },
-            margin: { percent: opts.marginPercent, amount: marginAmt, is_override: false, override_reason: null },
+            margin: {
+                percent: opts.marginPercent,
+                amount: marginAmt,
+                is_override: false,
+                override_reason: null,
+            },
             final_total: finalTotal.toFixed(2),
             calculated_at: new Date(),
             calculated_by: opts.userId,
@@ -606,19 +1050,23 @@ async function seedOrders() {
     const dg = companyByName("Diageo");
     const prClient = userByEmail("client@pernod-ricard.com");
     const dgClient = userByEmail("client@diageo.com");
-    const admin = userByEmail("admin@test.com");
-    const logistics = userByEmail("logistics@test.com");
     const dubai = cityByName("Dubai");
     const abuDhabi = cityByName("Abu Dhabi");
     const defaultVehicle = S.vehicleTypes.find((v: any) => v.is_default)!;
 
     // Get transport rate for Dubai round trip
     const dubaiRate = S.transportRates.find(
-        (r: any) => r.city_id === dubai.id && r.vehicle_type_id === defaultVehicle.id && r.trip_type === "ROUND_TRIP"
+        (r: any) =>
+            r.city_id === dubai.id &&
+            r.vehicle_type_id === defaultVehicle.id &&
+            r.trip_type === "ROUND_TRIP"
     );
     const transportRate = dubaiRate ? parseFloat(dubaiRate.rate) : 900;
     const abuDhabiRate = S.transportRates.find(
-        (r: any) => r.city_id === abuDhabi.id && r.vehicle_type_id === defaultVehicle.id && r.trip_type === "ROUND_TRIP"
+        (r: any) =>
+            r.city_id === abuDhabi.id &&
+            r.vehicle_type_id === defaultVehicle.id &&
+            r.trip_type === "ROUND_TRIP"
     );
     const adTransportRate = abuDhabiRate ? parseFloat(abuDhabiRate.rate) : 900;
 
@@ -626,75 +1074,148 @@ async function seedOrders() {
     const orderDefs = [
         // --- Pernod Ricard Orders ---
         {
-            orderId: "ORD-20260212-001", company: pr, user: prClient, brand: brandByName("Absolut"),
-            status: "PRICING_REVIEW" as OrderStatus, financial: "PENDING_QUOTE" as FinancialStatus,
-            venue: "Dubai World Trade Centre", cityId: dubai.id, transportRate,
-            eventStart: daysFromNow(14), eventEnd: daysFromNow(16),
-            jobNumber: null, volume: 12.5, marginPercent: 25,
-            instructions: "Setup must be complete by 6 PM the day before event. Service entrance at rear.",
+            orderId: "ORD-20260212-001",
+            company: pr,
+            user: prClient,
+            brand: brandByName("Absolut"),
+            status: "PRICING_REVIEW" as OrderStatus,
+            financial: "PENDING_QUOTE" as FinancialStatus,
+            venue: "Dubai World Trade Centre",
+            cityId: dubai.id,
+            transportRate,
+            eventStart: daysFromNow(14),
+            eventEnd: daysFromNow(16),
+            jobNumber: null,
+            volume: 12.5,
+            marginPercent: 25,
+            instructions:
+                "Setup must be complete by 6 PM the day before event. Service entrance at rear.",
             label: "Scenario 1: Pricing review",
         },
         {
-            orderId: "ORD-20260210-002", company: pr, user: prClient, brand: brandByName("Chivas Regal"),
-            status: "CONFIRMED" as OrderStatus, financial: "QUOTE_ACCEPTED" as FinancialStatus,
-            venue: "Atlantis The Palm", cityId: dubai.id, transportRate,
-            eventStart: daysFromNow(10), eventEnd: daysFromNow(12),
-            jobNumber: "JOB-2026-0002", volume: 8.2, marginPercent: 25,
+            orderId: "ORD-20260210-002",
+            company: pr,
+            user: prClient,
+            brand: brandByName("Chivas Regal"),
+            status: "CONFIRMED" as OrderStatus,
+            financial: "QUOTE_ACCEPTED" as FinancialStatus,
+            venue: "Atlantis The Palm",
+            cityId: dubai.id,
+            transportRate,
+            eventStart: daysFromNow(10),
+            eventEnd: daysFromNow(12),
+            jobNumber: "JOB-2026-0002",
+            volume: 8.2,
+            marginPercent: 25,
             instructions: "VIP event — premium handling required.",
             label: "Scenario 2a: Ready for fulfillment",
         },
         {
-            orderId: "ORD-20260208-003", company: pr, user: prClient, brand: brandByName("Jameson"),
-            status: "IN_PREPARATION" as OrderStatus, financial: "QUOTE_ACCEPTED" as FinancialStatus,
-            venue: "Burj Al Arab", cityId: dubai.id, transportRate,
-            eventStart: daysFromNow(7), eventEnd: daysFromNow(9),
-            jobNumber: "JOB-2026-0003", volume: 5.6, marginPercent: 25,
+            orderId: "ORD-20260208-003",
+            company: pr,
+            user: prClient,
+            brand: brandByName("Jameson"),
+            status: "IN_PREPARATION" as OrderStatus,
+            financial: "QUOTE_ACCEPTED" as FinancialStatus,
+            venue: "Burj Al Arab",
+            cityId: dubai.id,
+            transportRate,
+            eventStart: daysFromNow(7),
+            eventEnd: daysFromNow(9),
+            jobNumber: "JOB-2026-0003",
+            volume: 5.6,
+            marginPercent: 25,
             instructions: "Fragile items — double-wrap glassware.",
             label: "Scenario 2b: Live outbound scanning",
         },
         {
-            orderId: "ORD-20260201-004", company: pr, user: prClient, brand: brandByName("Absolut"),
-            status: "AWAITING_RETURN" as OrderStatus, financial: "PAID" as FinancialStatus,
-            venue: "Emirates Palace", cityId: abuDhabi.id, transportRate: adTransportRate,
-            eventStart: daysFromNow(-4), eventEnd: daysFromNow(-1),
-            jobNumber: "JOB-2026-0004", volume: 10.0, marginPercent: 25,
+            orderId: "ORD-20260201-004",
+            company: pr,
+            user: prClient,
+            brand: brandByName("Absolut"),
+            status: "AWAITING_RETURN" as OrderStatus,
+            financial: "PAID" as FinancialStatus,
+            venue: "Emirates Palace",
+            cityId: abuDhabi.id,
+            transportRate: adTransportRate,
+            eventStart: daysFromNow(-4),
+            eventEnd: daysFromNow(-1),
+            jobNumber: "JOB-2026-0004",
+            volume: 10.0,
+            marginPercent: 25,
             instructions: "Post-event cleanup included.",
             label: "Scenario 3: Live inbound scanning",
         },
         {
-            orderId: "ORD-20260115-005", company: pr, user: prClient, brand: brandByName("Chivas Regal"),
-            status: "CLOSED" as OrderStatus, financial: "PAID" as FinancialStatus,
-            venue: "Address Downtown", cityId: dubai.id, transportRate,
-            eventStart: daysFromNow(-15), eventEnd: daysFromNow(-10),
-            jobNumber: "JOB-2026-0005", volume: 7.3, marginPercent: 25,
+            orderId: "ORD-20260115-005",
+            company: pr,
+            user: prClient,
+            brand: brandByName("Chivas Regal"),
+            status: "CLOSED" as OrderStatus,
+            financial: "PAID" as FinancialStatus,
+            venue: "Address Downtown",
+            cityId: dubai.id,
+            transportRate,
+            eventStart: daysFromNow(-15),
+            eventEnd: daysFromNow(-10),
+            jobNumber: "JOB-2026-0005",
+            volume: 7.3,
+            marginPercent: 25,
             instructions: null,
             label: "Completed lifecycle example",
         },
         // --- Diageo Orders ---
         {
-            orderId: "ORD-20260211-006", company: dg, user: dgClient, brand: brandByName("Johnnie Walker"),
-            status: "QUOTED" as OrderStatus, financial: "QUOTE_SENT" as FinancialStatus,
-            venue: "JW Marriott Marquis", cityId: dubai.id, transportRate,
-            eventStart: daysFromNow(20), eventEnd: daysFromNow(22),
-            jobNumber: null, volume: 9.5, marginPercent: 22,
+            orderId: "ORD-20260211-006",
+            company: dg,
+            user: dgClient,
+            brand: brandByName("Johnnie Walker"),
+            status: "QUOTED" as OrderStatus,
+            financial: "QUOTE_SENT" as FinancialStatus,
+            venue: "JW Marriott Marquis",
+            cityId: dubai.id,
+            transportRate,
+            eventStart: daysFromNow(20),
+            eventEnd: daysFromNow(22),
+            jobNumber: null,
+            volume: 9.5,
+            marginPercent: 22,
             instructions: "Premium whisky tasting setup. Handle with care.",
             label: "Waiting for client approval",
         },
         {
-            orderId: "ORD-20260205-007", company: dg, user: dgClient, brand: brandByName("Guinness"),
-            status: "DELIVERED" as OrderStatus, financial: "INVOICED" as FinancialStatus,
-            venue: "Dubai World Trade Centre", cityId: dubai.id, transportRate,
-            eventStart: daysFromNow(-1), eventEnd: daysFromNow(2),
-            jobNumber: "JOB-2026-0007", volume: 11.0, marginPercent: 22,
+            orderId: "ORD-20260205-007",
+            company: dg,
+            user: dgClient,
+            brand: brandByName("Guinness"),
+            status: "DELIVERED" as OrderStatus,
+            financial: "INVOICED" as FinancialStatus,
+            venue: "Dubai World Trade Centre",
+            cityId: dubai.id,
+            transportRate,
+            eventStart: daysFromNow(-1),
+            eventEnd: daysFromNow(2),
+            jobNumber: "JOB-2026-0007",
+            volume: 11.0,
+            marginPercent: 22,
             instructions: "Festival setup — outdoor area.",
             label: "Currently at venue",
         },
         {
-            orderId: "ORD-20260209-008", company: dg, user: dgClient, brand: brandByName("Baileys"),
-            status: "AWAITING_FABRICATION" as OrderStatus, financial: "QUOTE_ACCEPTED" as FinancialStatus,
-            venue: "Atlantis The Palm", cityId: dubai.id, transportRate,
-            eventStart: daysFromNow(25), eventEnd: daysFromNow(27),
-            jobNumber: "JOB-2026-0008", volume: 6.0, marginPercent: 22,
+            orderId: "ORD-20260209-008",
+            company: dg,
+            user: dgClient,
+            brand: brandByName("Baileys"),
+            status: "AWAITING_FABRICATION" as OrderStatus,
+            financial: "QUOTE_ACCEPTED" as FinancialStatus,
+            venue: "Atlantis The Palm",
+            cityId: dubai.id,
+            transportRate,
+            eventStart: daysFromNow(25),
+            eventEnd: daysFromNow(27),
+            jobNumber: "JOB-2026-0008",
+            volume: 6.0,
+            marginPercent: 22,
             instructions: "Custom Baileys branding on all furniture pieces.",
             label: "Reskin in progress",
         },
@@ -734,12 +1255,26 @@ async function seedOrders() {
                 venue_location: {
                     country: "United Arab Emirates",
                     address: `${def.venue}, Main Hall`,
-                    access_notes: "Service entrance at rear of building. Contact security upon arrival.",
+                    access_notes:
+                        "Service entrance at rear of building. Contact security upon arrival.",
                 },
                 special_instructions: def.instructions,
-                delivery_window: def.jobNumber ? { start: new Date(def.eventStart.getTime() - 24 * 3600000), end: new Date(def.eventStart.getTime() - 12 * 3600000) } : null,
-                pickup_window: ["AWAITING_RETURN", "CLOSED"].includes(def.status) ? { start: new Date(def.eventEnd.getTime() + 12 * 3600000), end: new Date(def.eventEnd.getTime() + 36 * 3600000) } : null,
-                calculated_totals: { volume: def.volume.toFixed(3), weight: (def.volume * 120).toFixed(2) },
+                delivery_window: def.jobNumber
+                    ? {
+                          start: new Date(def.eventStart.getTime() - 24 * 3600000),
+                          end: new Date(def.eventStart.getTime() - 12 * 3600000),
+                      }
+                    : null,
+                pickup_window: ["AWAITING_RETURN", "CLOSED"].includes(def.status)
+                    ? {
+                          start: new Date(def.eventEnd.getTime() + 12 * 3600000),
+                          end: new Date(def.eventEnd.getTime() + 36 * 3600000),
+                      }
+                    : null,
+                calculated_totals: {
+                    volume: def.volume.toFixed(3),
+                    weight: (def.volume * 120).toFixed(2),
+                },
                 trip_type: "ROUND_TRIP",
                 vehicle_type_id: defaultVehicle.id,
                 order_pricing_id: pricing.id,
@@ -747,7 +1282,9 @@ async function seedOrders() {
                 financial_status: def.financial,
                 scanning_data: {},
                 delivery_photos: ["DELIVERED", "AWAITING_RETURN", "CLOSED"].includes(def.status)
-                    ? [`https://placehold.co/800x600/475569/FFFFFF?text=${encodeURIComponent("Delivery\\nLoading")}`]
+                    ? [
+                          `https://placehold.co/800x600/475569/FFFFFF?text=${encodeURIComponent("Delivery\\nLoading")}`,
+                      ]
                     : [],
             })
             .returning();
@@ -768,11 +1305,11 @@ async function seedOrderItems() {
 
     for (const order of S.orders) {
         const companyAssets = S.assets.filter((a: any) => a.company_id === order.company_id);
-        const furnitureAssets = companyAssets.filter((a: any) => a.category === "Furniture" && a.condition === "GREEN");
+        const furnitureAssets = companyAssets.filter(
+            (a: any) => a.category === "Furniture" && a.condition === "GREEN"
+        );
         const glasswareAssets = companyAssets.filter((a: any) => a.category === "Glassware");
         const installAssets = companyAssets.filter((a: any) => a.category === "Installation");
-        const decorAssets = companyAssets.filter((a: any) => a.category === "Decor");
-        const lightAssets = companyAssets.filter((a: any) => a.category === "Lighting");
 
         // Pick items based on order purpose
         let selectedItems: Array<{ asset: any; qty: number; isReskin?: boolean }> = [];
@@ -817,7 +1354,10 @@ async function seedOrderItems() {
 
             // Determine reskin brand (use a different brand from the same company)
             const companyBrands = S.brands.filter((b: any) => b.company_id === order.company_id);
-            const reskinBrand = item.isReskin && companyBrands.length > 1 ? companyBrands[companyBrands.length - 1] : null;
+            const reskinBrand =
+                item.isReskin && companyBrands.length > 1
+                    ? companyBrands[companyBrands.length - 1]
+                    : null;
 
             const [oi] = await db
                 .insert(schema.orderItems)
@@ -838,7 +1378,9 @@ async function seedOrderItems() {
                     is_reskin_request: !!item.isReskin,
                     reskin_target_brand_id: reskinBrand?.id || null,
                     reskin_target_brand_custom: null,
-                    reskin_notes: item.isReskin ? "Apply new branding as per attached mockup. Timeline critical." : null,
+                    reskin_notes: item.isReskin
+                        ? "Apply new branding as per attached mockup. Timeline critical."
+                        : null,
                 })
                 .returning();
             S.orderItems.push(oi);
@@ -853,13 +1395,11 @@ async function seedOrderItems() {
 
 async function seedReskinRequests() {
     console.log("🎨 Seeding reskin requests...");
-    const admin = userByEmail("admin@test.com");
 
     const reskinItems = S.orderItems.filter((i: any) => i.is_reskin_request);
     for (const item of reskinItems) {
         const order = S.orders.find((o: any) => o.id === item.order_id);
-        const asset = S.assets.find((a: any) => a.id === item.asset_id);
-        if (!order || !asset) continue;
+        if (!order) continue;
 
         const [rr] = await db
             .insert(schema.reskinRequests)
@@ -869,7 +1409,6 @@ async function seedReskinRequests() {
                 order_item_id: item.id,
                 original_asset_id: item.asset_id,
                 original_asset_name: item.asset_name,
-                original_brand_id: asset.brand_id,
                 target_brand_id: item.reskin_target_brand_id,
                 target_brand_custom: null,
                 client_notes: "Apply new branding as per mockup. Timeline is critical for event.",
@@ -976,7 +1515,15 @@ async function seedLineItems() {
 
 async function seedAssetBookings() {
     console.log("📅 Seeding asset bookings...");
-    const bookableStatuses = ["CONFIRMED", "IN_PREPARATION", "READY_FOR_DELIVERY", "IN_TRANSIT", "DELIVERED", "AWAITING_RETURN", "AWAITING_FABRICATION"];
+    const bookableStatuses = [
+        "CONFIRMED",
+        "IN_PREPARATION",
+        "READY_FOR_DELIVERY",
+        "IN_TRANSIT",
+        "DELIVERED",
+        "AWAITING_RETURN",
+        "AWAITING_FABRICATION",
+    ];
     let count = 0;
 
     for (const order of S.orders) {
@@ -1010,7 +1557,11 @@ async function seedScanEvents() {
         const items = S.orderItems.filter((i: any) => i.order_id === order.id);
 
         // Outbound scans: orders that have completed scanning (READY_FOR_DELIVERY and beyond, NOT IN_PREPARATION)
-        if (["READY_FOR_DELIVERY", "IN_TRANSIT", "DELIVERED", "AWAITING_RETURN", "CLOSED"].includes(order.order_status)) {
+        if (
+            ["READY_FOR_DELIVERY", "IN_TRANSIT", "DELIVERED", "AWAITING_RETURN", "CLOSED"].includes(
+                order.order_status
+            )
+        ) {
             for (const item of items) {
                 await db.insert(schema.scanEvents).values({
                     order_id: order.id,
@@ -1034,9 +1585,10 @@ async function seedScanEvents() {
                 const item = items[i];
                 // Vary conditions: first = GREEN, second = ORANGE, rest = GREEN
                 const condition: AssetCondition = i === 1 ? "ORANGE" : "GREEN";
-                const notes = condition === "ORANGE"
-                    ? "Minor scuff on surface, still usable"
-                    : "Returned in excellent condition";
+                const notes =
+                    condition === "ORANGE"
+                        ? "Minor scuff on surface, still usable"
+                        : "Returned in excellent condition";
 
                 await db.insert(schema.scanEvents).values({
                     order_id: order.id,
@@ -1070,13 +1622,77 @@ function getStatusProgression(finalStatus: string): string[] {
         PENDING_APPROVAL: ["DRAFT", "PRICING_REVIEW", "PENDING_APPROVAL"],
         QUOTED: ["DRAFT", "PRICING_REVIEW", "PENDING_APPROVAL", "QUOTED"],
         CONFIRMED: ["DRAFT", "PRICING_REVIEW", "PENDING_APPROVAL", "QUOTED", "CONFIRMED"],
-        AWAITING_FABRICATION: ["DRAFT", "PRICING_REVIEW", "PENDING_APPROVAL", "QUOTED", "CONFIRMED", "AWAITING_FABRICATION"],
-        IN_PREPARATION: ["DRAFT", "PRICING_REVIEW", "PENDING_APPROVAL", "QUOTED", "CONFIRMED", "IN_PREPARATION"],
-        READY_FOR_DELIVERY: ["DRAFT", "PRICING_REVIEW", "PENDING_APPROVAL", "QUOTED", "CONFIRMED", "IN_PREPARATION", "READY_FOR_DELIVERY"],
-        IN_TRANSIT: ["DRAFT", "PRICING_REVIEW", "PENDING_APPROVAL", "QUOTED", "CONFIRMED", "IN_PREPARATION", "READY_FOR_DELIVERY", "IN_TRANSIT"],
-        DELIVERED: ["DRAFT", "PRICING_REVIEW", "PENDING_APPROVAL", "QUOTED", "CONFIRMED", "IN_PREPARATION", "READY_FOR_DELIVERY", "IN_TRANSIT", "DELIVERED"],
-        AWAITING_RETURN: ["DRAFT", "PRICING_REVIEW", "PENDING_APPROVAL", "QUOTED", "CONFIRMED", "IN_PREPARATION", "READY_FOR_DELIVERY", "IN_TRANSIT", "DELIVERED", "AWAITING_RETURN"],
-        CLOSED: ["DRAFT", "PRICING_REVIEW", "PENDING_APPROVAL", "QUOTED", "CONFIRMED", "IN_PREPARATION", "READY_FOR_DELIVERY", "IN_TRANSIT", "DELIVERED", "AWAITING_RETURN", "CLOSED"],
+        AWAITING_FABRICATION: [
+            "DRAFT",
+            "PRICING_REVIEW",
+            "PENDING_APPROVAL",
+            "QUOTED",
+            "CONFIRMED",
+            "AWAITING_FABRICATION",
+        ],
+        IN_PREPARATION: [
+            "DRAFT",
+            "PRICING_REVIEW",
+            "PENDING_APPROVAL",
+            "QUOTED",
+            "CONFIRMED",
+            "IN_PREPARATION",
+        ],
+        READY_FOR_DELIVERY: [
+            "DRAFT",
+            "PRICING_REVIEW",
+            "PENDING_APPROVAL",
+            "QUOTED",
+            "CONFIRMED",
+            "IN_PREPARATION",
+            "READY_FOR_DELIVERY",
+        ],
+        IN_TRANSIT: [
+            "DRAFT",
+            "PRICING_REVIEW",
+            "PENDING_APPROVAL",
+            "QUOTED",
+            "CONFIRMED",
+            "IN_PREPARATION",
+            "READY_FOR_DELIVERY",
+            "IN_TRANSIT",
+        ],
+        DELIVERED: [
+            "DRAFT",
+            "PRICING_REVIEW",
+            "PENDING_APPROVAL",
+            "QUOTED",
+            "CONFIRMED",
+            "IN_PREPARATION",
+            "READY_FOR_DELIVERY",
+            "IN_TRANSIT",
+            "DELIVERED",
+        ],
+        AWAITING_RETURN: [
+            "DRAFT",
+            "PRICING_REVIEW",
+            "PENDING_APPROVAL",
+            "QUOTED",
+            "CONFIRMED",
+            "IN_PREPARATION",
+            "READY_FOR_DELIVERY",
+            "IN_TRANSIT",
+            "DELIVERED",
+            "AWAITING_RETURN",
+        ],
+        CLOSED: [
+            "DRAFT",
+            "PRICING_REVIEW",
+            "PENDING_APPROVAL",
+            "QUOTED",
+            "CONFIRMED",
+            "IN_PREPARATION",
+            "READY_FOR_DELIVERY",
+            "IN_TRANSIT",
+            "DELIVERED",
+            "AWAITING_RETURN",
+            "CLOSED",
+        ],
         CANCELLED: ["DRAFT", "CANCELLED"],
     };
     return p[finalStatus] || ["DRAFT"];
@@ -1089,7 +1705,14 @@ function getFinancialProgression(finalStatus: string): string[] {
         QUOTE_ACCEPTED: ["PENDING_QUOTE", "QUOTE_SENT", "QUOTE_ACCEPTED"],
         PENDING_INVOICE: ["PENDING_QUOTE", "QUOTE_SENT", "QUOTE_ACCEPTED", "PENDING_INVOICE"],
         INVOICED: ["PENDING_QUOTE", "QUOTE_SENT", "QUOTE_ACCEPTED", "PENDING_INVOICE", "INVOICED"],
-        PAID: ["PENDING_QUOTE", "QUOTE_SENT", "QUOTE_ACCEPTED", "PENDING_INVOICE", "INVOICED", "PAID"],
+        PAID: [
+            "PENDING_QUOTE",
+            "QUOTE_SENT",
+            "QUOTE_ACCEPTED",
+            "PENDING_INVOICE",
+            "INVOICED",
+            "PAID",
+        ],
         CANCELLED: ["PENDING_QUOTE", "CANCELLED"],
     };
     return p[finalStatus] || ["PENDING_QUOTE"];
@@ -1133,7 +1756,9 @@ async function seedOrderHistory() {
         const statuses = getStatusProgression(order.order_status);
         for (let i = 0; i < statuses.length; i++) {
             const s = statuses[i];
-            const updatedBy = ["PRICING_REVIEW", "IN_PREPARATION", "READY_FOR_DELIVERY"].includes(s) ? logistics : admin;
+            const updatedBy = ["PRICING_REVIEW", "IN_PREPARATION", "READY_FOR_DELIVERY"].includes(s)
+                ? logistics
+                : admin;
             await db.insert(schema.orderStatusHistory).values({
                 platform_id: S.platform.id,
                 order_id: order.id,
@@ -1173,7 +1798,11 @@ async function seedInvoices() {
     let count = 0;
 
     for (const order of S.orders) {
-        if (!["INVOICED", "PAID"].includes(order.financial_status) && order.order_status !== "CLOSED") continue;
+        if (
+            !["INVOICED", "PAID"].includes(order.financial_status) &&
+            order.order_status !== "CLOSED"
+        )
+            continue;
 
         const invoiceId = `INV-${order.order_id.replace("ORD-", "")}`;
         const pdfUrl = `https://kadence-storage.s3.us-east-1.amazonaws.com/${S.platform.id}/invoices/${order.id}/${invoiceId}.pdf`;
@@ -1187,7 +1816,10 @@ async function seedInvoices() {
             invoice_pdf_url: pdfUrl,
             invoice_paid_at: order.financial_status === "PAID" ? daysFromNow(-5) : null,
             payment_method: order.financial_status === "PAID" ? "Bank Transfer" : null,
-            payment_reference: order.financial_status === "PAID" ? `PAY-2026-${String(count + 1).padStart(4, "0")}` : null,
+            payment_reference:
+                order.financial_status === "PAID"
+                    ? `PAY-2026-${String(count + 1).padStart(4, "0")}`
+                    : null,
             generated_by: admin.id,
             updated_by: null,
         });
@@ -1212,9 +1844,12 @@ async function seedConditionHistory() {
             asset_id: asset.id,
             condition: asset.condition,
             notes: asset.condition_notes || "Condition noted during inspection",
-            photos: asset.condition === "RED"
-                ? [`https://placehold.co/800x600/dc2626/FFFFFF?text=${encodeURIComponent("Damage\\nReport")}`]
-                : [],
+            photos:
+                asset.condition === "RED"
+                    ? [
+                          `https://placehold.co/800x600/dc2626/FFFFFF?text=${encodeURIComponent("Damage\\nReport")}`,
+                      ]
+                    : [],
             updated_by: logistics.id,
             timestamp: daysFromNow(-3),
         });
@@ -1280,9 +1915,15 @@ async function seedNotificationLogs() {
         const user = S.users.find((u: any) => u.id === order.user_id);
         const types: string[] = [];
 
-        if (["PENDING_APPROVAL", "QUOTED", "CONFIRMED"].includes(order.order_status)) types.push("QUOTE_SENT");
+        if (["PENDING_APPROVAL", "QUOTED", "CONFIRMED"].includes(order.order_status))
+            types.push("QUOTE_SENT");
         if (order.order_status === "CONFIRMED") types.push("QUOTE_APPROVED");
-        if (["READY_FOR_DELIVERY", "IN_TRANSIT", "DELIVERED", "AWAITING_RETURN", "CLOSED"].includes(order.order_status)) types.push("READY_FOR_DELIVERY");
+        if (
+            ["READY_FOR_DELIVERY", "IN_TRANSIT", "DELIVERED", "AWAITING_RETURN", "CLOSED"].includes(
+                order.order_status
+            )
+        )
+            types.push("READY_FOR_DELIVERY");
         if (order.order_status === "CLOSED") types.push("ORDER_CLOSED");
         if (["INVOICED", "PAID"].includes(order.financial_status)) types.push("INVOICE_GENERATED");
 
@@ -1291,7 +1932,10 @@ async function seedNotificationLogs() {
                 platform_id: S.platform.id,
                 order_id: order.id,
                 notification_type: t,
-                recipients: JSON.stringify({ to: [user?.email || "client@test.com"], cc: ["admin@test.com"] }),
+                recipients: JSON.stringify({
+                    to: [user?.email || "client@test.com"],
+                    cc: ["admin@test.com"],
+                }),
                 status: "SENT" as const,
                 attempts: 1,
                 last_attempt_at: new Date(),
@@ -1321,39 +1965,87 @@ async function seedInboundRequests() {
     const irDefs = [
         {
             id: "IR-20260212-001",
-            company: pr, requester: prClient,
+            company: pr,
+            requester: prClient,
             status: "PRICING_REVIEW" as const,
             financial: "PENDING_QUOTE" as const,
             incomingAt: daysFromNow(5),
             note: "New batch of Absolut branded glassware arriving from supplier",
             items: [
-                { name: "Absolut Branded Martini Glass", category: "Glassware", tracking: "BATCH" as TrackingMethod, qty: 40, weight: 0.28, volume: 0.003, dims: { length: 12, width: 12, height: 18 }, brand: "Absolut" },
-                { name: "Absolut Ice Bucket", category: "Decor", tracking: "BATCH" as TrackingMethod, qty: 15, weight: 1.5, volume: 0.01, dims: { length: 25, width: 25, height: 30 }, brand: "Absolut" },
+                {
+                    name: "Absolut Branded Martini Glass",
+                    category: "Glassware",
+                    tracking: "BATCH" as TrackingMethod,
+                    qty: 40,
+                    weight: 0.28,
+                    volume: 0.003,
+                    dims: { length: 12, width: 12, height: 18 },
+                    brand: "Absolut",
+                },
+                {
+                    name: "Absolut Ice Bucket",
+                    category: "Decor",
+                    tracking: "BATCH" as TrackingMethod,
+                    qty: 15,
+                    weight: 1.5,
+                    volume: 0.01,
+                    dims: { length: 25, width: 25, height: 30 },
+                    brand: "Absolut",
+                },
             ],
             label: "New — needs pricing review",
         },
         {
             id: "IR-20260210-002",
-            company: pr, requester: prClient,
+            company: pr,
+            requester: prClient,
             status: "CONFIRMED" as const,
             financial: "QUOTE_ACCEPTED" as const,
             incomingAt: daysFromNow(3),
             note: "Chivas Regal lounge furniture from fabricator",
             items: [
-                { name: "Chivas Regal Branded Sofa", category: "Furniture", tracking: "INDIVIDUAL" as TrackingMethod, qty: 1, weight: 60, volume: 1.5, dims: { length: 200, width: 85, height: 80 }, brand: "Chivas Regal" },
-                { name: "Chivas Regal Coffee Table", category: "Furniture", tracking: "INDIVIDUAL" as TrackingMethod, qty: 1, weight: 25, volume: 0.6, dims: { length: 120, width: 60, height: 45 }, brand: "Chivas Regal" },
+                {
+                    name: "Chivas Regal Branded Sofa",
+                    category: "Furniture",
+                    tracking: "INDIVIDUAL" as TrackingMethod,
+                    qty: 1,
+                    weight: 60,
+                    volume: 1.5,
+                    dims: { length: 200, width: 85, height: 80 },
+                    brand: "Chivas Regal",
+                },
+                {
+                    name: "Chivas Regal Coffee Table",
+                    category: "Furniture",
+                    tracking: "INDIVIDUAL" as TrackingMethod,
+                    qty: 1,
+                    weight: 25,
+                    volume: 0.6,
+                    dims: { length: 120, width: 60, height: 45 },
+                    brand: "Chivas Regal",
+                },
             ],
             label: "Approved — awaiting receipt",
         },
         {
             id: "IR-20260205-003",
-            company: dg, requester: dgClient,
+            company: dg,
+            requester: dgClient,
             status: "COMPLETED" as const,
             financial: "INVOICED" as const,
             incomingAt: daysFromNow(-5),
             note: "Johnnie Walker branded bar stools from supplier",
             items: [
-                { name: "JW Black Label Bar Stool", category: "Furniture", tracking: "INDIVIDUAL" as TrackingMethod, qty: 1, weight: 9, volume: 0.25, dims: { length: 45, width: 45, height: 105 }, brand: "Johnnie Walker" },
+                {
+                    name: "JW Black Label Bar Stool",
+                    category: "Furniture",
+                    tracking: "INDIVIDUAL" as TrackingMethod,
+                    qty: 1,
+                    weight: 9,
+                    volume: 0.25,
+                    dims: { length: 45, width: 45, height: 105 },
+                    brand: "Johnnie Walker",
+                },
             ],
             label: "Completed — assets created",
         },
@@ -1377,7 +2069,12 @@ async function seedInboundRequests() {
                 logistics_sub_total: logSub.toFixed(2),
                 transport: { system_rate: 0, final_rate: 0 },
                 line_items: { catalog_total: 0, custom_total: 0 },
-                margin: { percent: marginPercent, amount: marginAmt, is_override: false, override_reason: null },
+                margin: {
+                    percent: marginPercent,
+                    amount: marginAmt,
+                    is_override: false,
+                    override_reason: null,
+                },
                 final_total: finalTotal.toFixed(2),
                 calculated_at: new Date(),
                 calculated_by: def.requester.id,
@@ -1401,7 +2098,9 @@ async function seedInboundRequests() {
 
         // Insert items
         for (const item of def.items) {
-            const brand = S.brands.find((b: any) => b.name === item.brand && b.company_id === def.company.id);
+            const brand = S.brands.find(
+                (b: any) => b.name === item.brand && b.company_id === def.company.id
+            );
             await db.insert(schema.inboundRequestItems).values({
                 inbound_request_id: ir.id,
                 brand_id: brand?.id || null,
@@ -1439,7 +2138,9 @@ async function seedInboundRequests() {
     }
 
     console.log(`✓ ${S.inboundRequests.length} inbound requests`);
-    S.inboundRequests.forEach((ir: any) => console.log(`  ${ir.inbound_request_id} [${ir.request_status}] — ${ir._label}`));
+    S.inboundRequests.forEach((ir: any) =>
+        console.log(`  ${ir.inbound_request_id} [${ir.request_status}] — ${ir._label}`)
+    );
 }
 
 // ============================================================
@@ -1450,8 +2151,12 @@ async function cleanup() {
     console.log("🧹 Cleaning up existing data...");
     try {
         try {
-            await db.execute(sql`UPDATE transport_rates SET trip_type = 'ONE_WAY' WHERE trip_type = 'ADDITIONAL'`);
-        } catch (_) { /* ignore */ }
+            await db.execute(
+                sql`UPDATE transport_rates SET trip_type = 'ONE_WAY' WHERE trip_type = 'ADDITIONAL'`
+            );
+        } catch (_) {
+            /* ignore */
+        }
 
         // Delete in reverse dependency order
         await db.delete(schema.notificationLogs);

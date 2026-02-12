@@ -11,7 +11,9 @@ export const lineItemIdGenerator = async (platformId: string): Promise<string> =
     const lastLineItem = await db
         .select({ line_item_id: lineItems.line_item_id })
         .from(lineItems)
-        .where(sql`${lineItems.line_item_id} LIKE ${prefix + "%"} AND ${lineItems.platform_id} = ${platformId}`)
+        .where(
+            sql`${lineItems.line_item_id} LIKE ${prefix + "%"} AND ${lineItems.platform_id} = ${platformId}`
+        )
         .orderBy(desc(lineItems.line_item_id))
         .limit(1);
 
@@ -30,4 +32,4 @@ export const lineItemIdGenerator = async (platformId: string): Promise<string> =
 
 export const lineItemQueryValidationConfig = {
     purpose_type: invoiceTypeEnum.enumValues,
-}
+};

@@ -199,7 +199,13 @@ const inboundScan = async (
 
     // Step 10: Version snapshot after inbound scan
     const { AssetServices } = await import("../asset/assets.services");
-    await AssetServices.createAssetVersionSnapshot(asset.id, platformId, "Inbound scan", user.id, orderId);
+    await AssetServices.createAssetVersionSnapshot(
+        asset.id,
+        platformId,
+        "Inbound scan",
+        user.id,
+        orderId
+    );
 
     // Step 10b: Get updated asset
     const updatedAsset = await db.query.assets.findFirst({

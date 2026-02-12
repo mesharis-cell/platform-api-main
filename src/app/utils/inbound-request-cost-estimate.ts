@@ -11,9 +11,8 @@ import { getRequestPricingToShowClient } from "./pricing-calculation";
 export const inboundRequestCostEstimateGenerator = async (
     requestId: string,
     platformId: string,
-    regenerate: boolean = false,
+    regenerate: boolean = false
 ): Promise<{ estimate_pdf_url: string; pdf_buffer: Buffer }> => {
-
     // Step 1: Fetch Inbound Request Data
     const inboundRequest = await db.query.inboundRequests.findFirst({
         where: and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)),
@@ -26,14 +25,20 @@ export const inboundRequestCostEstimateGenerator = async (
     });
 
     if (!inboundRequest) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found to generate cost estimate");
+        throw new CustomizedError(
+            httpStatus.NOT_FOUND,
+            "Inbound request not found to generate cost estimate"
+        );
     }
 
     const company = inboundRequest.company;
     const pricing = inboundRequest.request_pricing;
 
     if (!pricing) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "Pricing details are missing for this inbound request");
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Pricing details are missing for this inbound request"
+        );
     }
 
     const { logistics_sub_total, service_fee, final_total } = getRequestPricingToShowClient({
@@ -56,10 +61,10 @@ export const inboundRequestCostEstimateGenerator = async (
         contact_phone: company?.contact_phone || "N/A",
         incoming_at: inboundRequest.incoming_at,
         note: inboundRequest.note || "",
-        items: inboundRequest.items.map(item => ({
+        items: inboundRequest.items.map((item) => ({
             name: item.name,
             quantity: item.quantity,
-            category: item.category
+            category: item.category,
         })),
         pricing: {
             logistics_sub_total,
@@ -75,7 +80,10 @@ export const inboundRequestCostEstimateGenerator = async (
     if (!regenerate) {
         const exists = await checkFileExists(key);
         if (exists) {
-            throw new CustomizedError(httpStatus.BAD_REQUEST, "Cost estimate already exists. Use regenerate flag to create new one.");
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Cost estimate already exists. Use regenerate flag to create new one."
+            );
         }
     } else {
         await deleteFileFromS3(key);
