@@ -441,7 +441,6 @@ export const assets = pgTable(
         condition: assetConditionEnum("condition").notNull().default("GREEN"),
         condition_notes: text("condition_notes"),
         refurb_days_estimate: integer("refurb_days_estimate"), // Estimated days until available (for Red condition)
-        condition_history: jsonb("condition_history").default([]),
         handling_tags: text("handling_tags")
             .array()
             .notNull()
@@ -488,6 +487,8 @@ export const assetsRelations = relations(assets, ({ one, many }) => ({
     bookings: many(assetBookings),
     reskin_requests_as_original: many(reskinRequests, { relationName: "original_asset" }),
     reskin_requests_as_new: many(reskinRequests, { relationName: "new_asset" }),
+    condition_history: many(assetConditionHistory),
+    versions: many(assetVersions),
 }));
 
 // ---------------------------------- COLLECTION ------------------------------------------
@@ -1436,6 +1437,39 @@ export const vehicleTypesRelations = relations(vehicleTypes, ({ one }) => ({
         fields: [vehicleTypes.platform_id],
         references: [platforms.id],
     }),
+}));
+
+// ---------------------------------- ASSET VERSIONS -----------------------------------------
+export const assetVersions = pgTable(
+    "asset_versions",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        asset_id: uuid("asset_id")
+            .notNull()
+            .references(() => assets.id, { onDelete: "cascade" }),
+        version_number: integer("version_number").notNull(),
+        reason: varchar("reason", { length: 100 }).notNull(),
+        order_id: uuid("order_id").references(() => orders.id),
+        snapshot: jsonb("snapshot").notNull(),
+        created_by: uuid("created_by")
+            .notNull()
+            .references(() => users.id),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+    },
+    (table) => [
+        index("asset_versions_asset_idx").on(table.asset_id),
+        index("asset_versions_asset_version_idx").on(table.asset_id, table.version_number),
+    ]
+);
+
+export const assetVersionsRelations = relations(assetVersions, ({ one }) => ({
+    platform: one(platforms, { fields: [assetVersions.platform_id], references: [platforms.id] }),
+    asset: one(assets, { fields: [assetVersions.asset_id], references: [assets.id] }),
+    order: one(orders, { fields: [assetVersions.order_id], references: [orders.id] }),
+    created_by_user: one(users, { fields: [assetVersions.created_by], references: [users.id] }),
 }));
 
 export const inboundRequestItemsRelations = relations(inboundRequestItems, ({ one }) => ({

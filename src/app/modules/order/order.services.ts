@@ -1034,6 +1034,49 @@ const getOrderById = async (
             and(eq(invoices.order_id, orderData.order.id), eq(invoices.platform_id, platformId))
         );
 
+    const invoiceData = invoice.length > 0
+        ? invoice.map((i) => ({
+            id: i.id,
+            invoice_id: i.invoice_id,
+            invoice_pdf_url: i.invoice_pdf_url,
+            invoice_paid_at: i.invoice_paid_at,
+            payment_method: i.payment_method,
+            payment_reference: i.payment_reference,
+            created_at: i.created_at,
+            updated_at: i.updated_at,
+        }))[0]
+        : null;
+
+    // Filter for CLIENT role: strip financial history and internal status details
+    if (user.role === "CLIENT") {
+        const CLIENT_SAFE_LABELS: Record<string, string> = {
+            DRAFT: "Order Created", PRICING_REVIEW: "Order Received", PENDING_APPROVAL: "Order Under Review",
+            QUOTED: "Quote Ready", DECLINED: "Quote Declined", CONFIRMED: "Order Confirmed",
+            AWAITING_FABRICATION: "Custom Work In Progress", IN_PREPARATION: "Preparing Items",
+            READY_FOR_DELIVERY: "Ready for Delivery", IN_TRANSIT: "In Transit", DELIVERED: "Delivered",
+            AWAITING_RETURN: "Awaiting Pickup", RETURN_IN_TRANSIT: "Return In Transit",
+            CLOSED: "Complete", CANCELLED: "Cancelled",
+        };
+
+        return {
+            ...orderData.order,
+            company: orderData.company,
+            brand: orderData.brand,
+            user: orderData.user,
+            items: itemResults,
+            line_items: lineItems,
+            reskin_requests: reskinRequests,
+            order_status_history: orderHistory.map((h) => ({
+                ...h,
+                status_label: CLIENT_SAFE_LABELS[h.status] || h.status,
+                notes: null,
+            })),
+            venue_city: orderData.venue_city?.name || null,
+            order_pricing: orderData.order_pricing,
+            invoice: invoiceData,
+        };
+    }
+
     return {
         ...orderData.order,
         company: orderData.company,
@@ -1046,19 +1089,7 @@ const getOrderById = async (
         order_status_history: orderHistory,
         venue_city: orderData.venue_city?.name || null,
         order_pricing: orderData.order_pricing,
-        invoice:
-            invoice.length > 0
-                ? invoice.map((i) => ({
-                    id: i.id,
-                    invoice_id: i.invoice_id,
-                    invoice_pdf_url: i.invoice_pdf_url,
-                    invoice_paid_at: i.invoice_paid_at,
-                    payment_method: i.payment_method,
-                    payment_reference: i.payment_reference,
-                    created_at: i.created_at,
-                    updated_at: i.updated_at,
-                }))[0]
-                : null,
+        invoice: invoiceData,
     };
 };
 
@@ -1377,6 +1408,42 @@ const getOrderStatusHistory = async (orderId: string, user: AuthUser, platformId
         .leftJoin(users, eq(orderStatusHistory.updated_by, users.id))
         .where(eq(orderStatusHistory.order_id, order.id))
         .orderBy(desc(orderStatusHistory.timestamp));
+
+    // Step 4: Filter for CLIENT role — strip internal details
+    if (user.role === "CLIENT") {
+        const CLIENT_SAFE_LABELS: Record<string, string> = {
+            DRAFT: "Order Created",
+            PRICING_REVIEW: "Order Received",
+            PENDING_APPROVAL: "Order Under Review",
+            QUOTED: "Quote Ready",
+            DECLINED: "Quote Declined",
+            CONFIRMED: "Order Confirmed",
+            AWAITING_FABRICATION: "Custom Work In Progress",
+            IN_PREPARATION: "Preparing Items",
+            READY_FOR_DELIVERY: "Ready for Delivery",
+            IN_TRANSIT: "In Transit",
+            DELIVERED: "Delivered",
+            AWAITING_RETURN: "Awaiting Pickup",
+            RETURN_IN_TRANSIT: "Return In Transit",
+            CLOSED: "Complete",
+            CANCELLED: "Cancelled",
+        };
+
+        const filtered = history.map((entry) => ({
+            id: entry.id,
+            status: entry.status,
+            status_label: CLIENT_SAFE_LABELS[entry.status] || entry.status,
+            notes: null, // Strip internal notes
+            timestamp: entry.timestamp,
+            updated_by_user: { id: null, name: "System", email: null },
+        }));
+
+        return {
+            order_id: order.order_id,
+            current_status: order.order_status,
+            history: filtered,
+        };
+    }
 
     return {
         order_id: order.order_id,

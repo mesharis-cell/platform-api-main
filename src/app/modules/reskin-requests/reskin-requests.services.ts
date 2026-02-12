@@ -252,6 +252,10 @@ const completeReskinRequest = async (
         })
         .where(eq(reskinRequests.id, reskinId));
 
+    // Version snapshot for the new asset
+    const { AssetServices } = await import("../asset/assets.services");
+    await AssetServices.createAssetVersionSnapshot(newAsset.id, platformId, "Reskin completed", completed_by);
+
     // Check if all reskins complete for this order
     const stillPending = await getPendingReskins(reskinRequest.order_id, platformId);
 

@@ -219,7 +219,8 @@ const completeMaintenance = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const asset_id = req.params.id;
 
-    const result = await AssetServices.completeAssetMaintenance(asset_id, platformId);
+    const user = (req as any).user;
+    const result = await AssetServices.completeAssetMaintenance(asset_id, platformId, user);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -258,5 +259,21 @@ export const AssetControllers = {
     addConditionHistory,
     generateQRCode,
     completeMaintenance,
-    sentAssetToMaintenance
+    sentAssetToMaintenance,
+    getAssetVersions,
 };
+
+// ----------------------------------- GET ASSET VERSIONS ---------------------------------
+const getAssetVersions = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const assetId = req.params.id;
+
+    const versions = await AssetServices.getAssetVersions(assetId, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Asset versions retrieved",
+        data: versions,
+    });
+});

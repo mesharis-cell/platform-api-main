@@ -185,7 +185,7 @@ const inboundScan = async (
             .where(eq(assets.id, asset.id));
     }
 
-    // Step 9: Update asset quantities (move items back to AVAILABLE)
+    // Step 9: Update asset quantities, status, and images from scan photos
     const newStatus: "AVAILABLE" | "BOOKED" | "OUT" | "MAINTENANCE" = "AVAILABLE";
 
     await db
@@ -193,10 +193,15 @@ const inboundScan = async (
         .set({
             available_quantity: sql`${assets.available_quantity} + ${scanQuantity}`,
             status: newStatus,
+            images: photos, // Replace asset images with latest inbound scan photos
         })
         .where(eq(assets.id, asset.id));
 
-    // Step 10: Get updated asset
+    // Step 10: Version snapshot after inbound scan
+    const { AssetServices } = await import("../asset/assets.services");
+    await AssetServices.createAssetVersionSnapshot(asset.id, platformId, "Inbound scan", user.id, orderId);
+
+    // Step 10b: Get updated asset
     const updatedAsset = await db.query.assets.findFirst({
         where: eq(assets.id, asset.id),
     });

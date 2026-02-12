@@ -134,6 +134,14 @@ router.patch(
     AssetControllers.completeMaintenance
 );
 
+// Get asset versions
+router.get(
+    "/:id/versions",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    AssetControllers.getAssetVersions
+);
+
 // Update asset
 router.patch(
     "/:id",

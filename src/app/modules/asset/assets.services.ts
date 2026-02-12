@@ -4,6 +4,8 @@ import QRCode from "qrcode";
 import { db } from "../../../db";
 import {
     assetBookings,
+    assetConditionHistory,
+    assetVersions,
     assets,
     brands,
     companies,
@@ -101,17 +103,6 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
                 // Generate unique QR code for each unit
                 const qrCode = await qrCodeGenerator(data.company_id);
 
-                // Create initial condition history entry
-                const initialConditionHistory = [];
-                if (data.condition_notes || (data.condition && data.condition !== "GREEN")) {
-                    initialConditionHistory.push({
-                        condition: data.condition || "GREEN",
-                        notes: data.condition_notes || "Initial condition",
-                        updated_by: user.id,
-                        timestamp: new Date().toISOString(),
-                    });
-                }
-
                 // Create individual asset with quantity=1
                 const [asset] = await db
                     .insert(assets)
@@ -126,26 +117,41 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
                         category: data.category,
                         images: data.images || [],
                         tracking_method: "INDIVIDUAL",
-                        total_quantity: 1, // Each individual unit has quantity 1
+                        total_quantity: 1,
                         available_quantity: 1,
                         qr_code: qrCode,
-                        packaging: null, // Individual items don't have packaging
+                        packaging: null,
                         weight_per_unit: data.weight_per_unit.toString(),
                         dimensions: data.dimensions || {},
                         volume_per_unit: data.volume_per_unit.toString(),
                         condition: data.condition || "GREEN",
                         condition_notes: data.condition_notes || null,
                         refurb_days_estimate: data.refurb_days_estimate || null,
-                        condition_history: initialConditionHistory,
                         handling_tags: data.handling_tags || [],
                         status: data.status || "AVAILABLE",
                     })
                     .returning();
 
+                // Create initial condition history entry in table
+                if (data.condition_notes || (data.condition && data.condition !== "GREEN")) {
+                    await db.insert(assetConditionHistory).values({
+                        platform_id: data.platform_id,
+                        asset_id: asset.id,
+                        condition: data.condition || "GREEN",
+                        notes: data.condition_notes || "Initial condition",
+                        photos: [],
+                        updated_by: user.id,
+                    });
+                }
+
                 createdAssets.push(asset);
             }
 
-            // Return first asset as primary, with metadata about batch creation
+            // Create version 1 snapshots for all created assets
+            for (const ca of createdAssets) {
+                await createAssetVersionSnapshot(ca.id, ca.platform_id, "Created", user.id);
+            }
+
             return {
                 ...createdAssets[0],
                 meta: {
@@ -157,17 +163,6 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
 
         // Step 4: INDIVIDUAL tracking with quantity=1 OR BATCH tracking - Create single asset
         const qrCode = await qrCodeGenerator(data.company_id);
-
-        // Create initial condition history entry
-        const initialConditionHistory = [];
-        if (data.condition_notes || (data.condition && data.condition !== "GREEN")) {
-            initialConditionHistory.push({
-                condition: data.condition || "GREEN",
-                notes: data.condition_notes || "Initial condition",
-                updated_by: user.email,
-                timestamp: new Date().toISOString(),
-            });
-        }
 
         const dbData = {
             ...data,
@@ -182,12 +177,27 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
             condition: data.condition || "GREEN",
             condition_notes: data.condition_notes || null,
             refurb_days_estimate: data.refurb_days_estimate || null,
-            condition_history: initialConditionHistory,
             handling_tags: data.handling_tags || [],
             status: data.status || "AVAILABLE",
         };
 
         const [result] = await db.insert(assets).values(dbData).returning();
+
+        // Create initial condition history entry in table
+        if (data.condition_notes || (data.condition && data.condition !== "GREEN")) {
+            await db.insert(assetConditionHistory).values({
+                platform_id: data.platform_id,
+                asset_id: result.id,
+                condition: data.condition || "GREEN",
+                notes: data.condition_notes || "Initial condition",
+                photos: [],
+                updated_by: user.id,
+            });
+        }
+
+        // Create version 1 snapshot
+        await createAssetVersionSnapshot(result.id, data.platform_id, "Created", user.id);
+
         return result;
     } catch (error: any) {
         // Step 5: Handle database errors
@@ -454,29 +464,26 @@ const getAssetById = async (id: string, user: AuthUser, platformId: string) => {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found");
     }
 
-    // Step 5: Extract latest condition notes from condition_history JSONB
-    let latestConditionNotes: string | undefined = undefined;
-    if (
-        asset.condition_history &&
-        Array.isArray(asset.condition_history) &&
-        asset.condition_history.length > 0
-    ) {
-        // Sort condition_history by timestamp desc to get the most recent entry first
-        const sortedHistory = [...asset.condition_history].sort((a: any, b: any) => {
-            const timeA = new Date(a.timestamp).getTime();
-            const timeB = new Date(b.timestamp).getTime();
-            return timeB - timeA;
-        });
+    // Step 5: Fetch condition history from relational table
+    const conditionHistory = await db
+        .select({
+            id: assetConditionHistory.id,
+            condition: assetConditionHistory.condition,
+            notes: assetConditionHistory.notes,
+            photos: assetConditionHistory.photos,
+            updated_by: assetConditionHistory.updated_by,
+            timestamp: assetConditionHistory.timestamp,
+        })
+        .from(assetConditionHistory)
+        .where(eq(assetConditionHistory.asset_id, id))
+        .orderBy(desc(assetConditionHistory.timestamp));
 
-        const latestHistory = sortedHistory[0];
-        if (latestHistory && typeof latestHistory === "object" && "notes" in latestHistory) {
-            latestConditionNotes = (latestHistory as any).notes;
-        }
-    }
+    const latestConditionNotes = conditionHistory.length > 0 ? conditionHistory[0].notes : undefined;
 
     // Step 6: Return asset with enhanced details
     return {
         ...asset,
+        condition_history: conditionHistory,
         latest_condition_notes: latestConditionNotes,
         company_details: {
             id: asset.company.id,
@@ -628,29 +635,26 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
 
         // Step 8: Handle condition changes
         if (data.condition !== undefined && data.condition !== existingAsset.condition) {
-            // Clear refurb estimate if changing to GREEN
-            if (data.condition === "GREEN") {
-                dbData.refurb_days_estimate = null;
-            }
+            if (data.condition === "GREEN") dbData.refurb_days_estimate = null;
+        }
 
-            // Add condition change to history
-            const existingHistory = Array.isArray(existingAsset.condition_history)
-                ? existingAsset.condition_history
-                : [];
+        // Step 9: Snapshot current state before update
+        await createAssetVersionSnapshot(id, existingAsset.platform_id, "Manual update", user.id);
 
-            const newHistoryEntry = {
+        // Step 10: Update asset
+        const [result] = await db.update(assets).set(dbData).where(eq(assets.id, id)).returning();
+
+        // Step 10b: Insert condition history entry into table if condition changed
+        if (data.condition !== undefined && data.condition !== existingAsset.condition) {
+            await db.insert(assetConditionHistory).values({
+                platform_id: existingAsset.platform_id,
+                asset_id: id,
                 condition: data.condition,
                 notes: data.condition_notes || null,
                 photos: [],
-                updated_by: user.email,
-                timestamp: new Date().toISOString(),
-            };
-
-            dbData.condition_history = [newHistoryEntry, ...existingHistory];
+                updated_by: user.id,
+            });
         }
-
-        // Step 9: Update asset
-        const [result] = await db.update(assets).set(dbData).where(eq(assets.id, id)).returning();
 
         return result;
     } catch (error: any) {
@@ -1320,48 +1324,31 @@ const addConditionHistory = async (
         );
     }
 
-    // Step 2: Get existing history or initialize empty array
-    const existingHistory = Array.isArray(asset.condition_history) ? asset.condition_history : [];
+    // Step 2: Prepare asset update
+    const newCondition = data.condition || asset.condition;
+    const updatedData: any = { condition: newCondition };
 
-    // Step 3: Create new history entry
-    const newHistory = {
-        condition: data.condition || asset.condition,
+    if (data.condition === "GREEN") updatedData.refurb_days_estimate = null;
+    else if (data.refurb_days_estimate) updatedData.refurb_days_estimate = data.refurb_days_estimate;
+
+    // Step 3: Update asset condition
+    await db.update(assets).set(updatedData).where(eq(assets.id, data.asset_id));
+
+    // Step 4: Insert condition history entry into relational table
+    await db.insert(assetConditionHistory).values({
+        platform_id: platformId,
+        asset_id: data.asset_id,
+        condition: newCondition,
         notes: data.notes || "",
         photos: data.photos || [],
         updated_by: user.id,
-        timestamp: new Date().toISOString(),
-    };
+    });
 
-    // Step 4: Prepend new entry (newest first)
-    const condition_history = [newHistory, ...existingHistory];
-
-    // Step 5: Prepare update data with conditional refurb_days_estimate
-    const updatedData: {
-        condition_history: any[];
-        condition: string;
-        refurb_days_estimate?: number | null;
-    } = {
-        condition_history,
-        condition: data.condition || asset.condition,
-    };
-
-    if (data.condition && data.condition === "GREEN") {
-        updatedData.refurb_days_estimate = null;
-    } else if (data.refurb_days_estimate) {
-        updatedData.refurb_days_estimate = data.refurb_days_estimate;
-    }
-
-    // Step 6: Update asset with new history
+    // Step 5: Return updated asset
     const [result] = await db
-        .update(assets)
-        .set(updatedData as any)
-        .where(eq(assets.id, data.asset_id))
-        .returning({
-            id: assets.id,
-            name: assets.name,
-            condition: assets.condition,
-            condition_history: assets.condition_history,
-        });
+        .select({ id: assets.id, name: assets.name, condition: assets.condition })
+        .from(assets)
+        .where(eq(assets.id, data.asset_id));
 
     return result;
 };
@@ -1484,19 +1471,14 @@ const sentAssetToMaintenance = async (
 const completeAssetMaintenance = async (
     assetId: string,
     platformId: string,
+    user: AuthUser,
 ) => {
-    // Step 1: Fetch order and verify status
     const asset = await db.query.assets.findFirst({
         where: and(eq(assets.id, assetId), eq(assets.platform_id, platformId)),
     });
 
-    if (!asset) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found");
-    }
-
-    if (asset.status !== "MAINTENANCE") {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "Asset is not in maintenance status");
-    }
+    if (!asset) throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found");
+    if (asset.status !== "MAINTENANCE") throw new CustomizedError(httpStatus.BAD_REQUEST, "Asset is not in maintenance status");
 
     await db.transaction(async (tx) => {
         await tx
@@ -1504,16 +1486,112 @@ const completeAssetMaintenance = async (
             .set({
                 status: "BOOKED",
                 condition: "GREEN",
+                refurb_days_estimate: null,
+                condition_notes: null,
                 updated_at: new Date(),
             })
             .where(and(eq(assets.id, assetId), eq(assets.platform_id, platformId)));
+
+        // Audit trail: record the GREEN transition
+        await tx.insert(assetConditionHistory).values({
+            platform_id: platformId,
+            asset_id: assetId,
+            condition: "GREEN",
+            notes: "Maintenance completed — asset restored to service",
+            photos: [],
+            updated_by: user.id,
+        });
     });
 
-    return {
-        asset_id: assetId,
-        status: "BOOKED",
-    };
+    // Version snapshot after maintenance
+    await createAssetVersionSnapshot(assetId, platformId, "Maintenance completed", user.id);
+
+    return { asset_id: assetId, status: "BOOKED" };
 }
+
+// ----------------------------------- ASSET VERSION SNAPSHOT --------------------------------
+const createAssetVersionSnapshot = async (
+    assetId: string,
+    platformId: string,
+    reason: string,
+    userId: string,
+    orderId?: string,
+) => {
+    const asset = await db.query.assets.findFirst({
+        where: and(eq(assets.id, assetId), eq(assets.platform_id, platformId)),
+        with: {
+            brand: { columns: { id: true, name: true } },
+            warehouse: { columns: { id: true, name: true } },
+            zone: { columns: { id: true, name: true } },
+        },
+    });
+    if (!asset) return null;
+
+    // Count existing versions
+    const [countResult] = await db
+        .select({ count: count() })
+        .from(assetVersions)
+        .where(eq(assetVersions.asset_id, assetId));
+    const versionNumber = (countResult?.count || 0) + 1;
+
+    const snapshot = {
+        name: asset.name,
+        brand_id: asset.brand_id,
+        brand_name: asset.brand?.name || null,
+        category: asset.category,
+        images: asset.images,
+        condition: asset.condition,
+        condition_notes: asset.condition_notes,
+        weight_per_unit: asset.weight_per_unit,
+        dimensions: asset.dimensions,
+        volume_per_unit: asset.volume_per_unit,
+        warehouse_id: asset.warehouse_id,
+        warehouse_name: asset.warehouse?.name || null,
+        zone_id: asset.zone_id,
+        zone_name: asset.zone?.name || null,
+        total_quantity: asset.total_quantity,
+        available_quantity: asset.available_quantity,
+        handling_tags: asset.handling_tags,
+        status: asset.status,
+    };
+
+    const [version] = await db
+        .insert(assetVersions)
+        .values({
+            platform_id: platformId,
+            asset_id: assetId,
+            version_number: versionNumber,
+            reason,
+            order_id: orderId || null,
+            snapshot,
+            created_by: userId,
+        })
+        .returning();
+
+    return version;
+};
+
+// ----------------------------------- GET ASSET VERSIONS ------------------------------------
+const getAssetVersions = async (assetId: string, platformId: string) => {
+    const versions = await db
+        .select({
+            id: assetVersions.id,
+            version_number: assetVersions.version_number,
+            reason: assetVersions.reason,
+            order_id: assetVersions.order_id,
+            snapshot: assetVersions.snapshot,
+            created_by: assetVersions.created_by,
+            created_at: assetVersions.created_at,
+        })
+        .from(assetVersions)
+        .where(and(
+            eq(assetVersions.asset_id, assetId),
+            eq(assetVersions.platform_id, platformId),
+        ))
+        .orderBy(desc(assetVersions.version_number));
+
+    return versions;
+};
 
 export const AssetServices = {
     createAsset,
@@ -1529,7 +1607,8 @@ export const AssetServices = {
     bulkUploadAssets,
     addConditionHistory,
     generateQRCode,
-    // completeMaintenance,
     sentAssetToMaintenance,
-    completeAssetMaintenance
+    completeAssetMaintenance,
+    createAssetVersionSnapshot,
+    getAssetVersions,
 };
