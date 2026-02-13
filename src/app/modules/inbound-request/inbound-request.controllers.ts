@@ -40,7 +40,7 @@ const getInboundRequests = catchAsync(async (req, res) => {
 const getInboundRequestById = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
 
     const result = await InboundRequestServices.getInboundRequestById(id, user, platformId);
 

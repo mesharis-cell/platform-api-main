@@ -3,9 +3,10 @@ import httpStatus from "http-status";
 import { PriceServices } from "./price.services";
 import catchAsync from "../../shared/catch-async";
 import sendResponse from "../../shared/send-response";
+import { getRequiredString } from "../../utils/request";
 
 const updatePriceForTransport = catchAsync(async (req: Request, res: Response) => {
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
     const user = (req as any).user;
     const platformId = (req as any).platformId;
 
