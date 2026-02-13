@@ -20,6 +20,7 @@ import {
 import { lineItemIdGenerator, lineItemQueryValidationConfig } from "./order-line-items.utils";
 import queryValidator from "../../utils/query-validator";
 import { inboundRequestCostEstimateGenerator } from "../../utils/inbound-request-cost-estimate";
+import { calculatePricingSummary } from "../../utils/pricing-engine";
 
 // ----------------------------------- GET LINE ITEMS -----------------------------------------
 const getLineItems = async (platformId: string, query: Record<string, any>) => {
@@ -392,26 +393,30 @@ const updateOrderPricingAfterLineItemChange = async (
     const marginOverrideReason = marginOverride ? marginData.override_reason : null;
 
     // Calculate totals using the formula from order.services.ts
-    const logisticsSubtotal = baseOpsTotal + transportRate + lineItemsTotals.catalog_total;
-    const marginAmount = logisticsSubtotal * (marginPercent / 100);
-    const finalTotal = logisticsSubtotal + marginAmount + lineItemsTotals.custom_total;
+    const pricingSummary = calculatePricingSummary({
+        base_ops_total: baseOpsTotal,
+        transport_rate: transportRate,
+        catalog_total: lineItemsTotals.catalog_total,
+        custom_total: lineItemsTotals.custom_total,
+        margin_percent: marginPercent,
+    });
 
     // Step 4: Update order pricing
     await db
         .update(prices)
         .set({
-            logistics_sub_total: logisticsSubtotal.toFixed(2),
+            logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
             line_items: {
                 catalog_total: lineItemsTotals.catalog_total,
                 custom_total: lineItemsTotals.custom_total,
             },
             margin: {
                 percent: marginPercent,
-                amount: parseFloat(marginAmount.toFixed(2)),
+                amount: pricingSummary.margin_amount,
                 is_override: marginOverride,
                 override_reason: marginOverrideReason,
             },
-            final_total: finalTotal.toFixed(2),
+            final_total: pricingSummary.final_total.toFixed(2),
             calculated_at: new Date(),
         })
         .where(eq(prices.id, orderResult.order_pricing.id));
@@ -467,26 +472,30 @@ const updateInboundRequestPricingAfterLineItemChange = async (
     const marginOverrideReason = marginOverride ? marginData.override_reason : null;
 
     // Calculate totals using the formula from order.services.ts
-    const logisticsSubtotal = baseOpsTotal + lineItemsTotals.catalog_total;
-    const marginAmount = logisticsSubtotal * (marginPercent / 100);
-    const finalTotal = logisticsSubtotal + marginAmount + lineItemsTotals.custom_total;
+    const pricingSummary = calculatePricingSummary({
+        base_ops_total: baseOpsTotal,
+        transport_rate: 0,
+        catalog_total: lineItemsTotals.catalog_total,
+        custom_total: lineItemsTotals.custom_total,
+        margin_percent: marginPercent,
+    });
 
     // Step 4: Update inbound request pricing
     await db
         .update(prices)
         .set({
-            logistics_sub_total: logisticsSubtotal.toFixed(2),
+            logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
             line_items: {
                 catalog_total: lineItemsTotals.catalog_total,
                 custom_total: lineItemsTotals.custom_total,
             },
             margin: {
                 percent: marginPercent,
-                amount: parseFloat(marginAmount.toFixed(2)),
+                amount: pricingSummary.margin_amount,
                 is_override: marginOverride,
                 override_reason: marginOverrideReason,
             },
-            final_total: finalTotal.toFixed(2),
+            final_total: pricingSummary.final_total.toFixed(2),
             calculated_at: new Date(),
         })
         .where(eq(prices.id, inboundRequest.pricing.id));

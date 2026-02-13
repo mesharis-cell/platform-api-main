@@ -1754,6 +1754,11 @@ async function seedOrderHistory() {
     for (const order of S.orders) {
         // Order status history
         const statuses = getStatusProgression(order.order_status);
+        const statusStepMs = 2 * 24 * 3600000;
+        const statusLatestTs = new Date(order.updated_at || order.created_at);
+        const statusStartTs = new Date(
+            statusLatestTs.getTime() - (statuses.length - 1) * statusStepMs
+        );
         for (let i = 0; i < statuses.length; i++) {
             const s = statuses[i];
             const updatedBy = ["PRICING_REVIEW", "IN_PREPARATION", "READY_FOR_DELIVERY"].includes(s)
@@ -1765,13 +1770,18 @@ async function seedOrderHistory() {
                 status: s as OrderStatus,
                 notes: statusNotes[s] || "Status updated",
                 updated_by: updatedBy.id,
-                timestamp: new Date(order.created_at.getTime() + i * 2 * 24 * 3600000),
+                timestamp: new Date(statusStartTs.getTime() + i * statusStepMs),
             });
             statusCount++;
         }
 
         // Financial status history
         const financials = getFinancialProgression(order.financial_status);
+        const financialStepMs = 2 * 24 * 3600000;
+        const financialLatestTs = new Date(order.updated_at || order.created_at);
+        const financialStartTs = new Date(
+            financialLatestTs.getTime() - (financials.length - 1) * financialStepMs
+        );
         for (let i = 0; i < financials.length; i++) {
             const f = financials[i];
             await db.insert(schema.financialStatusHistory).values({
@@ -1780,7 +1790,7 @@ async function seedOrderHistory() {
                 status: f as FinancialStatus,
                 notes: financialNotes[f] || "Financial status updated",
                 updated_by: admin.id,
-                timestamp: new Date(order.created_at.getTime() + i * 2 * 24 * 3600000),
+                timestamp: new Date(financialStartTs.getTime() + i * financialStepMs),
             });
             financialCount++;
         }
@@ -1836,24 +1846,54 @@ async function seedConditionHistory() {
     console.log("🔧 Seeding asset condition history...");
     const logistics = userByEmail("logistics@test.com");
     let count = 0;
+    let fixedHistorySeeded = 0;
 
     for (const asset of S.assets) {
-        if (asset.condition === "GREEN") continue;
+        if (asset.condition !== "GREEN") {
+            await db.insert(schema.assetConditionHistory).values({
+                platform_id: S.platform.id,
+                asset_id: asset.id,
+                condition: asset.condition,
+                notes: asset.condition_notes || "Condition noted during inspection",
+                photos: [
+                    `https://placehold.co/800x600/dc2626/FFFFFF?text=${encodeURIComponent(`${asset.name}\\nDamage`)}`,
+                ],
+                updated_by: logistics.id,
+                timestamp: daysFromNow(-3),
+            });
+            count++;
+            continue;
+        }
+
+        // Seed a "damage then fixed" history path on a subset of GREEN assets for demo visibility.
+        if (fixedHistorySeeded >= 8) continue;
+
         await db.insert(schema.assetConditionHistory).values({
             platform_id: S.platform.id,
             asset_id: asset.id,
-            condition: asset.condition,
-            notes: asset.condition_notes || "Condition noted during inspection",
-            photos:
-                asset.condition === "RED"
-                    ? [
-                          `https://placehold.co/800x600/dc2626/FFFFFF?text=${encodeURIComponent("Damage\\nReport")}`,
-                      ]
-                    : [],
+            condition: "RED",
+            notes: "Inbound inspection found damage requiring refurbishment",
+            photos: [
+                `https://placehold.co/800x600/dc2626/FFFFFF?text=${encodeURIComponent(`${asset.name}\\nBefore Fix`)}`,
+            ],
             updated_by: logistics.id,
-            timestamp: daysFromNow(-3),
+            timestamp: daysFromNow(-7),
         });
         count++;
+
+        await db.insert(schema.assetConditionHistory).values({
+            platform_id: S.platform.id,
+            asset_id: asset.id,
+            condition: "GREEN",
+            notes: "Maintenance completed and item restored to service condition",
+            photos: [
+                `https://placehold.co/800x600/16a34a/FFFFFF?text=${encodeURIComponent(`${asset.name}\\nAfter Fix`)}`,
+            ],
+            updated_by: logistics.id,
+            timestamp: daysFromNow(-2),
+        });
+        count++;
+        fixedHistorySeeded++;
     }
     console.log(`✓ ${count} condition history entries`);
 }

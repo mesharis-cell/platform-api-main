@@ -1,3 +1,5 @@
+import { calculatePricingSummary } from "./pricing-engine";
+
 type GetRequestPricingToShowClientPayload = {
     base_ops_total: string;
     line_items: {
@@ -20,14 +22,17 @@ export const getRequestPricingToShowClient = (
     const catalogAmount = Number((pricing.line_items as any).catalog_total);
     const customTotal = Number((pricing.line_items as any).custom_total);
     const marginPercent = Number((pricing.margin as any).percent);
-    const logisticsSubTotal = baseOpsTotal + baseOpsTotal * (marginPercent / 100);
-    const catalogTotal = catalogAmount + catalogAmount * (marginPercent / 100);
-    const serviceFee = catalogTotal + customTotal;
-    const total = logisticsSubTotal + serviceFee;
+    const pricingSummary = calculatePricingSummary({
+        base_ops_total: baseOpsTotal,
+        transport_rate: 0,
+        catalog_total: catalogAmount,
+        custom_total: customTotal,
+        margin_percent: marginPercent,
+    });
 
     return {
-        logistics_sub_total: String(logisticsSubTotal) || "0",
-        service_fee: String(serviceFee) || "0",
-        final_total: String(total) || "0",
+        logistics_sub_total: pricingSummary.sell_lines.base_ops_total.toFixed(2),
+        service_fee: pricingSummary.service_fee.toFixed(2),
+        final_total: pricingSummary.final_total.toFixed(2),
     };
 };

@@ -7,6 +7,7 @@ import { AuthUser } from "../interface/common";
 import { invoiceNumberGenerator } from "./invoice";
 import { renderInboundRequestInvoicePDF } from "./inbound-request-invoice-pdf";
 import CustomizedError from "../error/customized-error";
+import { applyMarginPerLine, calculatePricingSummary, roundCurrency } from "./pricing-engine";
 
 // --------------------------------- INBOUND REQUEST INVOICE GENERATOR ------------------------
 export const inboundRequestInvoiceGenerator = async (
@@ -83,24 +84,25 @@ export const inboundRequestInvoiceGenerator = async (
     const catalogAmount = Number((pricing.line_items as any).catalog_total);
     const customTotal = Number((pricing.line_items as any).custom_total);
     const marginPercent = Number((pricing.margin as any).percent);
-    const logisticsSubTotal = baseOpsTotal + baseOpsTotal * (marginPercent / 100);
-    const catalogTotal = catalogAmount + catalogAmount * (marginPercent / 100);
-    const serviceFee = catalogTotal + customTotal;
-    const total = logisticsSubTotal + serviceFee;
+    const pricingSummary = calculatePricingSummary({
+        base_ops_total: baseOpsTotal,
+        transport_rate: 0,
+        catalog_total: catalogAmount,
+        custom_total: customTotal,
+        margin_percent: marginPercent,
+    });
 
     const calculatedLineItems = requestLineItems.map((item) => {
-        const unit_rate = item.unit_rate
-            ? item.line_item_type === "CATALOG"
-                ? Number(item.unit_rate) + Number(item.unit_rate) * (marginPercent / 100)
-                : Number(item.unit_rate)
-            : 0;
+        const quantity = item.quantity ? Number(item.quantity) : 0;
+        const sellTotal = applyMarginPerLine(Number(item.total || 0), marginPercent);
+        const unit_rate = quantity > 0 ? roundCurrency(sellTotal / quantity) : 0;
 
         return {
             line_item_id: item.line_item_id,
             description: item.description,
-            quantity: item.quantity ? Number(item.quantity) : 0,
+            quantity,
             unit_rate,
-            total: unit_rate * Number(item.quantity),
+            total: sellTotal,
         };
     });
 
@@ -125,11 +127,11 @@ export const inboundRequestInvoiceGenerator = async (
             category: item.category,
         })),
         pricing: {
-            logistics_sub_total: String(logisticsSubTotal) || "0",
-            catalog_total: String(catalogTotal) || "0",
-            custom_total: String(customTotal) || "0",
-            service_fee: String(serviceFee) || "0",
-            final_total: String(total) || "0",
+            logistics_sub_total: pricingSummary.sell_lines.base_ops_total.toFixed(2),
+            catalog_total: pricingSummary.sell_lines.catalog_total.toFixed(2),
+            custom_total: pricingSummary.sell_lines.custom_total.toFixed(2),
+            service_fee: pricingSummary.service_fee.toFixed(2),
+            final_total: pricingSummary.final_total.toFixed(2),
             show_breakdown: !!pricing,
         },
         line_items: calculatedLineItems,
@@ -209,10 +211,10 @@ export type InboundRequestInvoicePayload = {
         category: string;
     }>;
     pricing: {
-        logistics_sub_total: string; // Base + Catalog + Margin
+        logistics_sub_total: string;
         catalog_total: string;
         custom_total: string;
-        service_fee: string; // Custom items
+        service_fee: string;
         final_total: string;
         show_breakdown: boolean;
     };

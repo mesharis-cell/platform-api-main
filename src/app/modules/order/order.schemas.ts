@@ -279,6 +279,20 @@ const updateVehicleSchema = z.object({
         .strict(),
 });
 
+const updateTripTypeSchema = z.object({
+    body: z
+        .object({
+            trip_type: z.enum(
+                tripTypeEnum.enumValues,
+                enumMessageGenerator("Trip type", tripTypeEnum.enumValues)
+            ),
+            reason: z
+                .string("Reason should be a text")
+                .min(10, "Reason must be at least 10 characters"),
+        })
+        .strict(),
+});
+
 const cancelOrderSchema = z.object({
     body: z
         .object({
@@ -352,6 +366,7 @@ export const orderSchemas = {
     approveQuoteSchema,
     declineQuoteSchema,
     updateVehicleSchema,
+    updateTripTypeSchema,
     cancelOrderSchema,
     addOrderItemSchema,
     updateOrderItemQuantitySchema,

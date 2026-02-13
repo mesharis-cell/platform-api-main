@@ -32,6 +32,8 @@ export type AdminApproveQuotePayload = z.infer<typeof orderSchemas.adminApproveQ
 
 export type UpdateVehiclePayload = z.infer<typeof orderSchemas.updateVehicleSchema>["body"];
 
+export type UpdateTripTypePayload = z.infer<typeof orderSchemas.updateTripTypeSchema>["body"];
+
 export type TruckDetailsPayload = z.infer<typeof orderSchemas.truckDetailsSchema>["body"];
 
 export interface CancelOrderPayload {

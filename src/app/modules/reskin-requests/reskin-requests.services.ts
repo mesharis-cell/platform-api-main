@@ -25,6 +25,7 @@ import { NotificationLogServices } from "../notification-logs/notification-logs.
 import { AuthUser } from "../../interface/common";
 import { OrderServices } from "../order/order.services";
 import { costEstimateGenerator } from "../../utils/cost-estimate";
+import { calculatePricingSummary } from "../../utils/pricing-engine";
 
 // ----------------------------------- LIST RESKIN REQUESTS -----------------------------------
 const listReskinRequests = async (orderId: string, platformId: string) => {
@@ -453,24 +454,25 @@ const cancelReskinRequest = async (
 
     // Step 5: Calculate final pricing
     const baseOpsTotal = Number(orderPricing.base_ops_total);
-    const logisticsSubtotal =
-        baseOpsTotal +
-        Number((orderPricing.transport as any).final_rate) +
-        lineItemsTotals.catalog_total;
-    const marginAmount = logisticsSubtotal * (Number((orderPricing.margin as any).percent) / 100);
-    const finalTotal = logisticsSubtotal + marginAmount + lineItemsTotals.custom_total;
+    const pricingSummary = calculatePricingSummary({
+        base_ops_total: baseOpsTotal,
+        transport_rate: Number((orderPricing.transport as any).final_rate || 0),
+        catalog_total: lineItemsTotals.catalog_total,
+        custom_total: lineItemsTotals.custom_total,
+        margin_percent: Number((orderPricing.margin as any).percent),
+    });
 
     const newPricing = {
-        logistics_sub_total: logisticsSubtotal.toFixed(2),
+        logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
         line_items: {
             catalog_total: lineItemsTotals.catalog_total,
             custom_total: lineItemsTotals.custom_total,
         },
         margin: {
             ...(orderPricing.margin as any),
-            amount: marginAmount,
+            amount: pricingSummary.margin_amount,
         },
-        final_total: finalTotal.toFixed(2),
+        final_total: pricingSummary.final_total.toFixed(2),
         calculated_at: new Date(),
         calculated_by: user.id,
     };
@@ -532,7 +534,7 @@ const cancelReskinRequest = async (
             undefined,
             {
                 previous_total: previousTotal,
-                new_total: finalTotal,
+                new_total: pricingSummary.final_total,
                 revision_reason: cancellation_reason,
             }
         );

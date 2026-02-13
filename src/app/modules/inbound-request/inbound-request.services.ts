@@ -42,6 +42,7 @@ import { emailTemplates } from "../../utils/email-templates";
 import { getPlatformAdminEmails } from "../../utils/helper-query";
 import { multipleEmailSender } from "../../utils/email-sender";
 import config from "../../config";
+import { calculatePricingSummary } from "../../utils/pricing-engine";
 
 // ----------------------------------- CREATE INBOUND REQUEST --------------------------------
 const createInboundRequest = async (
@@ -92,16 +93,21 @@ const createInboundRequest = async (
         );
 
         // Step 2.2: Calculate logistics costs and margin
-        const logisticsSubTotal = Number(company.warehouse_ops_rate) * totalVolume;
-        const marginAmount = logisticsSubTotal * (Number(company.platform_margin_percent) / 100);
-        const finalTotal = logisticsSubTotal + marginAmount;
+        const baseOpsTotal = Number(company.warehouse_ops_rate) * totalVolume;
+        const pricingSummary = calculatePricingSummary({
+            base_ops_total: baseOpsTotal,
+            transport_rate: 0,
+            catalog_total: 0,
+            custom_total: 0,
+            margin_percent: Number(company.platform_margin_percent),
+        });
 
         // Step 2.3: Prepare pricing details payload
         const pricingDetails = {
             platform_id: platformId,
             warehouse_ops_rate: company.warehouse_ops_rate,
-            base_ops_total: logisticsSubTotal.toFixed(2),
-            logistics_sub_total: logisticsSubTotal.toFixed(2),
+            base_ops_total: baseOpsTotal.toFixed(2),
+            logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
             transport: {
                 system_rate: 0,
                 final_rate: 0,
@@ -112,11 +118,11 @@ const createInboundRequest = async (
             },
             margin: {
                 percent: company.platform_margin_percent,
-                amount: marginAmount,
+                amount: pricingSummary.margin_amount,
                 is_override: false,
                 override_reason: null,
             },
-            final_total: finalTotal.toFixed(2),
+            final_total: pricingSummary.final_total.toFixed(2),
             calculated_at: new Date(),
             calculated_by: user.id,
         };
@@ -535,24 +541,28 @@ const submitForApproval = async (requestId: string, user: AuthUser, platformId: 
         ? (requestPricing.margin as any).override_reason
         : null;
     const baseOpsTotal = Number(company.warehouse_ops_rate) * totalVolume;
-    const logisticsSubtotal = baseOpsTotal + lineItemsTotals.catalog_total;
-    const marginAmount = logisticsSubtotal * (marginPercent / 100);
-    const finalTotal = logisticsSubtotal + marginAmount + lineItemsTotals.custom_total;
+    const pricingSummary = calculatePricingSummary({
+        base_ops_total: baseOpsTotal,
+        transport_rate: 0,
+        catalog_total: lineItemsTotals.catalog_total,
+        custom_total: lineItemsTotals.custom_total,
+        margin_percent: marginPercent,
+    });
 
     const newPricing = {
         base_ops_total: baseOpsTotal.toFixed(2),
-        logistics_sub_total: logisticsSubtotal.toFixed(2),
+        logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
         line_items: {
             catalog_total: lineItemsTotals.catalog_total,
             custom_total: lineItemsTotals.custom_total,
         },
         margin: {
             percent: marginPercent,
-            amount: marginAmount,
+            amount: pricingSummary.margin_amount,
             is_override: marginOverride,
             override_reason: marginOverrideReason,
         },
-        final_total: finalTotal.toFixed(2),
+        final_total: pricingSummary.final_total.toFixed(2),
         calculated_at: new Date(),
         calculated_by: user.id,
     };
@@ -679,25 +689,30 @@ const approveInboundRequestByAdmin = async (
     await db.transaction(async (tx) => {
         // Step 3.1: Update pricing if margin override is provided
         if (margin_override_percent) {
-            const marginAmount =
-                Number(requestPricing.logistics_sub_total) * (margin_override_percent / 100);
-            const updatedFinalTotal =
-                Number(requestPricing.logistics_sub_total) +
-                marginAmount +
-                Number((requestPricing.line_items as any).custom_total);
+            const baseOpsTotal = Number(requestPricing.base_ops_total);
+            const catalogTotal = Number((requestPricing.line_items as any).catalog_total || 0);
+            const customTotal = Number((requestPricing.line_items as any).custom_total || 0);
+            const pricingSummary = calculatePricingSummary({
+                base_ops_total: baseOpsTotal,
+                transport_rate: 0,
+                catalog_total: catalogTotal,
+                custom_total: customTotal,
+                margin_percent: margin_override_percent,
+            });
 
-            finalTotal = updatedFinalTotal.toFixed(2);
+            finalTotal = pricingSummary.final_total.toFixed(2);
 
             await tx
                 .update(prices)
                 .set({
+                    logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
                     margin: {
                         percent: margin_override_percent,
-                        amount: marginAmount,
+                        amount: pricingSummary.margin_amount,
                         is_override: true,
                         override_reason: margin_override_reason,
                     },
-                    final_total: updatedFinalTotal.toFixed(2),
+                    final_total: pricingSummary.final_total.toFixed(2),
                     calculated_at: new Date(),
                     calculated_by: user.id,
                 })
@@ -722,7 +737,7 @@ const approveInboundRequestByAdmin = async (
         email: requester.email,
         inbound_request_id: inboundRequest.inbound_request_id,
         company_name: company?.name || "N/A",
-        final_total_price: String(requestPricing?.final_total),
+        final_total_price: String(finalTotal),
     });
 
     // TODO
@@ -932,25 +947,25 @@ const updateInboundRequestItem = async (
 
     // Step 7.2: Calculate logistics costs and margin
     const baseOpsTotal = Number(requestPricing.warehouse_ops_rate) * totalVolume;
-    const logisticsSubTotal =
-        baseOpsTotal + Number((requestPricing.line_items as any).catalog_total || 0);
-    const marginAmount = logisticsSubTotal * (Number((requestPricing.margin as any).percent) / 100);
-    const finalTotal =
-        logisticsSubTotal +
-        marginAmount +
-        Number((requestPricing.line_items as any).custom_total || 0);
+    const pricingSummary = calculatePricingSummary({
+        base_ops_total: baseOpsTotal,
+        transport_rate: 0,
+        catalog_total: Number((requestPricing.line_items as any).catalog_total || 0),
+        custom_total: Number((requestPricing.line_items as any).custom_total || 0),
+        margin_percent: Number((requestPricing.margin as any).percent),
+    });
 
     // Step 7.3: Prepare pricing details payload
     const pricingDetails = {
         base_ops_total: baseOpsTotal.toFixed(2),
-        logistics_sub_total: logisticsSubTotal.toFixed(2),
+        logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
         margin: {
             percent: Number((requestPricing.margin as any).percent),
-            amount: marginAmount,
+            amount: pricingSummary.margin_amount,
             is_override: false,
             override_reason: null,
         },
-        final_total: finalTotal.toFixed(2),
+        final_total: pricingSummary.final_total.toFixed(2),
         calculated_at: new Date(),
         calculated_by: user.id,
     };
@@ -1506,26 +1521,25 @@ const updateInboundRequest = async (
 
             // Calculate logistics costs and margin
             const baseOpsTotal = Number(requestPricing.warehouse_ops_rate) * totalVolume;
-            const logisticsSubTotal =
-                baseOpsTotal + Number((requestPricing.line_items as any).catalog_total || 0);
-            const marginAmount =
-                logisticsSubTotal * (Number((requestPricing.margin as any).percent) / 100);
-            const finalTotal =
-                logisticsSubTotal +
-                marginAmount +
-                Number((requestPricing.line_items as any).custom_total || 0);
+            const pricingSummary = calculatePricingSummary({
+                base_ops_total: baseOpsTotal,
+                transport_rate: 0,
+                catalog_total: Number((requestPricing.line_items as any).catalog_total || 0),
+                custom_total: Number((requestPricing.line_items as any).custom_total || 0),
+                margin_percent: Number((requestPricing.margin as any).percent),
+            });
 
             // Update pricing record
             await tx
                 .update(prices)
                 .set({
                     base_ops_total: baseOpsTotal.toFixed(2),
-                    logistics_sub_total: logisticsSubTotal.toFixed(2),
+                    logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
                     margin: {
                         ...(requestPricing.margin as any),
-                        amount: marginAmount,
+                        amount: pricingSummary.margin_amount,
                     },
-                    final_total: finalTotal.toFixed(2),
+                    final_total: pricingSummary.final_total.toFixed(2),
                     calculated_at: new Date(),
                     calculated_by: user.id,
                 })

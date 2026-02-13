@@ -37,6 +37,7 @@ import {
     CalculateEstimatePayload,
     AdminApproveQuotePayload,
     UpdateVehiclePayload,
+    UpdateTripTypePayload,
     TruckDetailsPayload,
 } from "./order.interfaces";
 import {
@@ -65,6 +66,8 @@ import config from "../../config";
 import { formatDateForEmail } from "../../utils/date-time";
 import { TransportRatesServices } from "../transport-rates/transport-rates.services";
 import { costEstimateGenerator } from "../../utils/cost-estimate";
+import { calculatePricingSummary } from "../../utils/pricing-engine";
+import { GoodsFormType, generateGoodsFormXlsx } from "../../utils/goods-form-xlsx";
 
 // ----------------------------------- CALCULATE ESTIMATE -------------------------------------
 const calculateEstimate = async (
@@ -2010,13 +2013,17 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
         ? (orderPricing.margin as any).override_reason
         : null;
     const baseOpsTotal = volume * Number(company.warehouse_ops_rate);
-    const logisticsSubtotal = baseOpsTotal + transportRate + lineItemsTotals.catalog_total;
-    const marginAmount = logisticsSubtotal * (marginPercent / 100);
-    const finalTotal = logisticsSubtotal + marginAmount + lineItemsTotals.custom_total;
+    const pricingSummary = calculatePricingSummary({
+        base_ops_total: baseOpsTotal,
+        transport_rate: transportRate,
+        catalog_total: lineItemsTotals.catalog_total,
+        custom_total: lineItemsTotals.custom_total,
+        margin_percent: marginPercent,
+    });
 
     const newPricing = {
         base_ops_total: baseOpsTotal.toFixed(2),
-        logistics_sub_total: logisticsSubtotal.toFixed(2),
+        logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
         transport: {
             system_rate: transportRate,
             final_rate: transportRate,
@@ -2027,11 +2034,11 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
         },
         margin: {
             percent: marginPercent,
-            amount: marginAmount,
+            amount: pricingSummary.margin_amount,
             is_override: marginOverride,
             override_reason: marginOverrideReason,
         },
-        final_total: finalTotal.toFixed(2),
+        final_total: pricingSummary.final_total.toFixed(2),
         calculated_at: new Date(),
         calculated_by: user.id,
     };
@@ -2170,25 +2177,31 @@ const adminApproveQuote = async (
     await db.transaction(async (tx) => {
         // Step 3.1: Update pricing if margin override is provided
         if (margin_override_percent) {
-            const marginAmount =
-                Number(orderPricing.logistics_sub_total) * (margin_override_percent / 100);
-            const updatedFinalTotal =
-                Number(orderPricing.logistics_sub_total) +
-                marginAmount +
-                Number((orderPricing.line_items as any).custom_total);
+            const baseOpsTotal = Number(orderPricing.base_ops_total);
+            const transportRate = Number((orderPricing.transport as any).final_rate || 0);
+            const catalogTotal = Number((orderPricing.line_items as any).catalog_total || 0);
+            const customTotal = Number((orderPricing.line_items as any).custom_total || 0);
+            const pricingSummary = calculatePricingSummary({
+                base_ops_total: baseOpsTotal,
+                transport_rate: transportRate,
+                catalog_total: catalogTotal,
+                custom_total: customTotal,
+                margin_percent: margin_override_percent,
+            });
 
-            finalTotal = updatedFinalTotal.toFixed(2);
+            finalTotal = pricingSummary.final_total.toFixed(2);
 
             await tx
                 .update(prices)
                 .set({
+                    logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
                     margin: {
                         percent: margin_override_percent,
-                        amount: marginAmount,
+                        amount: pricingSummary.margin_amount,
                         is_override: true,
                         override_reason: margin_override_reason,
                     },
-                    final_total: updatedFinalTotal.toFixed(2),
+                    final_total: pricingSummary.final_total.toFixed(2),
                     calculated_at: new Date(),
                     calculated_by: user.id,
                 })
@@ -2228,8 +2241,8 @@ const adminApproveQuote = async (
         });
     });
 
-    // Generate cost estimate PDF
-    await costEstimateGenerator(orderId, platformId, user);
+    // Generate/update cost estimate PDF after approval.
+    await costEstimateGenerator(orderId, platformId, user, true);
 
     // Step 4: Send notification
     await NotificationLogServices.sendNotification(platformId, "QUOTE_SENT", {
@@ -2560,24 +2573,29 @@ const updateOrderVehicle = async (
     // Step 7: Calculate updated pricing with new transport rate
     const transportRate = transportRateInfo?.rate ? Number(transportRateInfo.rate) : null;
     const baseOpsTotal = Number(orderPricing.base_ops_total);
-    const logisticsSubTotal = transportRate ? transportRate + baseOpsTotal : null;
-    const marginAmount = logisticsSubTotal
-        ? logisticsSubTotal * (Number((orderPricing.margin as any).percent) / 100)
-        : null;
-    const finalTotal = logisticsSubTotal && marginAmount ? logisticsSubTotal + marginAmount : null;
+    const catalogTotal = Number((orderPricing.line_items as any)?.catalog_total || 0);
+    const customTotal = Number((orderPricing.line_items as any)?.custom_total || 0);
+    const marginPercent = Number((orderPricing.margin as any).percent);
+    const pricingSummary = calculatePricingSummary({
+        base_ops_total: baseOpsTotal,
+        transport_rate: transportRate || 0,
+        catalog_total: catalogTotal,
+        custom_total: customTotal,
+        margin_percent: marginPercent,
+    });
 
     // Step 8: Prepare updated pricing object
     const updatedPricing = {
-        logistics_sub_total: logisticsSubTotal ? logisticsSubTotal.toFixed(2) : null,
+        logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
         transport: {
             system_rate: (orderPricing.transport as any).system_rate,
             final_rate: transportRate,
         },
         margin: {
             ...(orderPricing.margin as Record<string, any>),
-            amount: marginAmount,
+            amount: pricingSummary.margin_amount,
         },
-        final_total: finalTotal ? finalTotal.toFixed(2) : null,
+        final_total: pricingSummary.final_total.toFixed(2),
         calculated_at: new Date(),
         calculated_by: user.id,
     };
@@ -2604,6 +2622,95 @@ const updateOrderVehicle = async (
     // Step 10: Return updated vehicle information
     return {
         vehicle_type: vehicleType.name,
+        new_rate: transportRate,
+        reason: reason.trim(),
+    };
+};
+
+// ----------------------------------- UPDATE ORDER TRIP TYPE --------------------------------
+const updateOrderTripType = async (
+    orderId: string,
+    platformId: string,
+    user: AuthUser,
+    payload: UpdateTripTypePayload
+) => {
+    const { trip_type, reason } = payload;
+
+    const order = await db.query.orders.findFirst({
+        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
+    });
+
+    if (!order) throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    if (!["PRICING_REVIEW", "PENDING_APPROVAL"].includes(order.order_status))
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Trip type can only be changed during pricing review"
+        );
+    if (order.trip_type === trip_type)
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Trip type is already set to this value");
+
+    const orderPricing = await db.query.prices.findFirst({
+        where: and(eq(prices.id, order.order_pricing_id), eq(prices.platform_id, platformId)),
+    });
+
+    if (!orderPricing) throw new CustomizedError(httpStatus.NOT_FOUND, "Order pricing not found");
+
+    const transportRateInfo = await TransportRatesServices.lookupTransportRate(
+        platformId,
+        order.company_id,
+        order.venue_city_id,
+        trip_type,
+        order.vehicle_type_id
+    );
+
+    if (!transportRateInfo)
+        throw new CustomizedError(
+            httpStatus.NOT_FOUND,
+            "No transport rate found for selected trip type and vehicle"
+        );
+
+    const transportRate = Number(transportRateInfo.rate);
+    const pricingSummary = calculatePricingSummary({
+        base_ops_total: Number(orderPricing.base_ops_total),
+        transport_rate: transportRate,
+        catalog_total: Number((orderPricing.line_items as any)?.catalog_total || 0),
+        custom_total: Number((orderPricing.line_items as any)?.custom_total || 0),
+        margin_percent: Number((orderPricing.margin as any).percent),
+    });
+
+    await db.transaction(async (tx) => {
+        await tx
+            .update(prices)
+            .set({
+                logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
+                transport: {
+                    system_rate: transportRate,
+                    final_rate: transportRate,
+                },
+                margin: {
+                    ...(orderPricing.margin as Record<string, any>),
+                    amount: pricingSummary.margin_amount,
+                },
+                final_total: pricingSummary.final_total.toFixed(2),
+                calculated_at: new Date(),
+                calculated_by: user.id,
+            })
+            .where(eq(prices.id, order.order_pricing_id));
+
+        await tx
+            .update(orders)
+            .set({
+                trip_type,
+                updated_at: new Date(),
+            })
+            .where(eq(orders.id, orderId));
+    });
+
+    if (order.order_status !== "PRICING_REVIEW")
+        await costEstimateGenerator(orderId, platformId, user, true);
+
+    return {
+        trip_type,
         new_rate: transportRate,
         reason: reason.trim(),
     };
@@ -2645,6 +2752,71 @@ const addTruckDetails = async (
     };
 };
 
+// ----------------------------------- DOWNLOAD GOODS FORM ------------------------------------
+const downloadGoodsForm = async (
+    orderId: string,
+    platformId: string,
+    user: AuthUser,
+    formType: GoodsFormType | "AUTO" = "AUTO"
+) => {
+    const order = await db.query.orders.findFirst({
+        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
+        with: {
+            company: true,
+            brand: true,
+            venue_city: true,
+            vehicle_type: true,
+            items: true,
+        },
+    });
+
+    if (!order) throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+
+    const resolvedFormType: GoodsFormType =
+        formType === "AUTO"
+            ? ["AWAITING_RETURN", "RETURN_IN_TRANSIT", "CLOSED"].includes(order.order_status)
+                ? "GOODS_IN"
+                : "GOODS_OUT"
+            : formType;
+    const deliveryWindow = order.delivery_window as {
+        start?: Date | string | null;
+        end?: Date | string | null;
+    } | null;
+    const pickupWindow = order.pickup_window as {
+        start?: Date | string | null;
+        end?: Date | string | null;
+    } | null;
+
+    const buffer = await generateGoodsFormXlsx({
+        form_type: resolvedFormType,
+        order_id: order.order_id,
+        company_name: order.company?.name || "",
+        brand_name: order.brand?.name || "",
+        venue_name: order.venue_name || "",
+        venue_city: order.venue_city?.name || "",
+        event_start_date: order.event_start_date,
+        event_end_date: order.event_end_date,
+        trip_type: order.trip_type,
+        vehicle_type: order.vehicle_type?.name || "",
+        contact_name: order.contact_name || "",
+        contact_phone: order.contact_phone || "",
+        delivery_window: deliveryWindow,
+        pickup_window: pickupWindow,
+        generated_by: user.name,
+        items: order.items.map((item) => ({
+            name: item.asset_name,
+            quantity: item.quantity,
+            handling_tags: (item.handling_tags as string[]) || [],
+        })),
+    });
+
+    return {
+        buffer,
+        filename: `${order.order_id}-${resolvedFormType.toLowerCase()}.xlsx`,
+        form_type: resolvedFormType,
+    };
+};
+
 export const OrderServices = {
     submitOrderFromCart,
     getOrders,
@@ -2666,5 +2838,7 @@ export const OrderServices = {
     cancelOrder,
     calculateEstimate,
     updateOrderVehicle,
+    downloadGoodsForm,
+    updateOrderTripType,
     addTruckDetails,
 };

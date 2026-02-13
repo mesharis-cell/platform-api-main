@@ -305,6 +305,27 @@ const exportOrders = catchAsync(async (req, res) => {
     res.status(httpStatus.OK).send(csvContent);
 });
 
+// ----------------------------------- DOWNLOAD GOODS FORM -----------------------------------
+const downloadGoodsForm = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const orderId = getRequiredString(req.params.id, "id");
+    const requestedFormType = String(req.query.form_type || "AUTO").toUpperCase();
+    const formType =
+        requestedFormType === "GOODS_IN" || requestedFormType === "GOODS_OUT"
+            ? requestedFormType
+            : "AUTO";
+
+    const result = await OrderServices.downloadGoodsForm(orderId, platformId, user, formType);
+
+    res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader("Content-Disposition", `attachment; filename="${result.filename}"`);
+    res.status(httpStatus.OK).send(result.buffer);
+});
+
 // ----------------------------------- CHANGE FINANCIAL STATUS ----------------------------
 const sendInvoice = catchAsync(async (req, res) => {
     const user = (req as any).user;
@@ -406,6 +427,22 @@ const updateOrderVehicle = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- UPDATE TRIP TYPE (NEW) ---------------------------------
+const updateOrderTripType = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const id = getRequiredString(req.params.id, "id");
+
+    const result = await OrderServices.updateOrderTripType(id, platformId, user, req.body);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Trip type updated successfully.",
+        data: result,
+    });
+});
+
 const getPendingApprovalOrders = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
 
@@ -441,6 +478,7 @@ export const OrderControllers = {
     getOrders,
     getMyOrders,
     exportOrders,
+    downloadGoodsForm,
     getOrderById,
     updateJobNumber,
     getOrderScanEvents,
@@ -458,6 +496,7 @@ export const OrderControllers = {
     returnToLogistics,
     cancelOrder,
     updateOrderVehicle,
+    updateOrderTripType,
     // addOrderItem,
     // removeOrderItem,
     // updateOrderItemQuantity,

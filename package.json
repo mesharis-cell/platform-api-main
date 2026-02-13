@@ -29,6 +29,7 @@
         "dayjs": "^1.11.19",
         "dotenv": "^17.2.3",
         "drizzle-orm": "^0.45.1",
+        "exceljs": "^4.4.0",
         "express": "^5.2.1",
         "http-status": "^2.1.0",
         "jsonwebtoken": "^9.0.3",

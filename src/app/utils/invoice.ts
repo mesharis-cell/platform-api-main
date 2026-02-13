@@ -6,6 +6,7 @@ import { renderInvoicePDF } from "./invoice-pdf";
 import CustomizedError from "../error/customized-error";
 import httpStatus from "http-status";
 import { AuthUser } from "../interface/common";
+import { applyMarginPerLine, calculatePricingSummary, roundCurrency } from "./pricing-engine";
 
 // --------------------------------- INVOICE NUMBER GENERATOR ---------------------------------
 // FORMAT: INV-YYYYMMDD-###
@@ -108,25 +109,25 @@ export const invoiceGenerator = async (
     const catalogAmount = Number((pricing.line_items as any).catalog_total);
     const customTotal = Number((pricing.line_items as any).custom_total);
     const marginPercent = Number((pricing.margin as any).percent);
-    const logisticsBasePrice = baseOpsTotal + baseOpsTotal * (marginPercent / 100);
-    const catalogTotal = catalogAmount + catalogAmount * (marginPercent / 100);
-    const transportRateWithMargin = transportRate + transportRate * (marginPercent / 100);
-    const serviceFee = catalogTotal + customTotal;
-    const total = logisticsBasePrice + transportRateWithMargin + serviceFee;
+    const pricingSummary = calculatePricingSummary({
+        base_ops_total: baseOpsTotal,
+        transport_rate: transportRate,
+        catalog_total: catalogAmount,
+        custom_total: customTotal,
+        margin_percent: marginPercent,
+    });
 
     const calculatedOrderLineItems = orderLineItems.map((item) => {
-        const unit_rate = item.unit_rate
-            ? item.line_item_type === "CATALOG"
-                ? Number(item.unit_rate) + Number(item.unit_rate) * (marginPercent / 100)
-                : Number(item.unit_rate)
-            : 0;
+        const quantity = item.quantity ? Number(item.quantity) : 0;
+        const sellTotal = applyMarginPerLine(Number(item.total || 0), marginPercent);
+        const unit_rate = quantity > 0 ? roundCurrency(sellTotal / quantity) : 0;
 
         return {
             line_item_id: item.line_item_id,
             description: item.description,
-            quantity: item.quantity ? Number(item.quantity) : 0,
+            quantity,
             unit_rate,
-            total: unit_rate * Number(item.quantity),
+            total: sellTotal,
         };
     });
 
@@ -154,10 +155,10 @@ export const invoiceGenerator = async (
         order_status: order.order_status,
         financial_status: order.financial_status,
         pricing: {
-            logistics_base_price: String(logisticsBasePrice) || "0",
-            transport_rate: String(transportRateWithMargin) || "0",
-            service_fee: String(serviceFee) || "0",
-            final_total_price: String(total) || "0",
+            logistics_base_price: pricingSummary.sell_lines.base_ops_total.toFixed(2),
+            transport_rate: pricingSummary.sell_lines.transport_total.toFixed(2),
+            service_fee: pricingSummary.service_fee.toFixed(2),
+            final_total_price: pricingSummary.final_total.toFixed(2),
             show_breakdown: !!pricing,
         },
         items: order.items.map((item) => ({

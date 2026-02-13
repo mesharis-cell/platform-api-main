@@ -53,6 +53,15 @@ router.get(
     OrderControllers.exportOrders
 );
 
+// Download goods form (XLSX)
+router.get(
+    "/:id/goods-form",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.ORDERS_READ),
+    OrderControllers.downloadGoodsForm
+);
+
 // Get order statistics (CLIENT only)
 router.get(
     "/dashboard-summary",
@@ -179,6 +188,15 @@ router.patch(
     // requirePermission(PERMISSIONS.PRICING_REVIEW),
     payloadValidator(orderSchemas.updateVehicleSchema),
     OrderControllers.updateOrderVehicle
+);
+
+// Update trip type (Logistics)
+router.patch(
+    "/:id/trip-type",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    payloadValidator(orderSchemas.updateTripTypeSchema),
+    OrderControllers.updateOrderTripType
 );
 
 // Submit for approval (Logistics → Admin)

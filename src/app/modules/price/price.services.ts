@@ -6,6 +6,7 @@ import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { UpdatePriceForTransportPayload } from "./price.interfaces";
 import { costEstimateGenerator } from "../../utils/cost-estimate";
+import { calculatePricingSummary } from "../../utils/pricing-engine";
 
 const updatePriceForTransport = async (
     id: string,
@@ -37,27 +38,27 @@ const updatePriceForTransport = async (
 
     // Step 2: Recalculate new pricing details
     const baseOpsTotal = Number(priceRecord.base_ops_total);
-    const logisticsSubTotal =
-        baseOpsTotal + transport_rate + Number((priceRecord.line_items as any).catalog_total || 0);
-    const marginAmount = logisticsSubTotal * (Number((priceRecord.margin as any).percent) / 100);
-    const finalTotal =
-        logisticsSubTotal +
-        marginAmount +
-        Number((priceRecord.line_items as any).custom_total || 0);
+    const pricingSummary = calculatePricingSummary({
+        base_ops_total: baseOpsTotal,
+        transport_rate,
+        catalog_total: Number((priceRecord.line_items as any).catalog_total || 0),
+        custom_total: Number((priceRecord.line_items as any).custom_total || 0),
+        margin_percent: Number((priceRecord.margin as any).percent),
+    });
 
     const pricingDetails = {
-        logistics_sub_total: logisticsSubTotal.toFixed(2),
+        logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
         transport: {
             system_rate: transport_rate,
             final_rate: transport_rate,
         },
         margin: {
             percent: Number((priceRecord.margin as any).percent),
-            amount: marginAmount.toFixed(2),
+            amount: pricingSummary.margin_amount,
             is_override: (priceRecord.margin as any).is_override,
             override_reason: (priceRecord.margin as any).override_reason,
         },
-        final_total: finalTotal.toFixed(2),
+        final_total: pricingSummary.final_total.toFixed(2),
         calculated_at: new Date(),
         calculated_by: user.id,
     };
