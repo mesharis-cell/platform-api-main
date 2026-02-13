@@ -157,6 +157,7 @@ const progressStatusSchema = z.object({
                 enumMessageGenerator("New status", orderStatusEnum.enumValues)
             ),
             notes: z.string().optional(),
+            delivery_photos: z.array(z.string().url("Invalid delivery photo URL")).optional(),
         })
         .strict(),
 });

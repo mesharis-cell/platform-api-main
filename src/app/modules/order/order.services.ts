@@ -30,6 +30,7 @@ import queryValidator from "../../utils/query-validator";
 import {
     SubmitOrderPayload,
     UpdateOrderTimeWindowsPayload,
+    ProgressStatusPayload,
     ApproveQuotePayload,
     DeclineQuotePayload,
     OrderItem,
@@ -1205,11 +1206,11 @@ const getOrderScanEvents = async (orderId: string, platformId: string) => {
 // ----------------------------------- PROGRESS ORDER STATUS ----------------------------------
 const progressOrderStatus = async (
     orderId: string,
-    payload: { new_status: string; notes?: string },
+    payload: ProgressStatusPayload,
     user: AuthUser,
     platformId: string
 ) => {
-    const { new_status, notes } = payload;
+    const { new_status, notes, delivery_photos } = payload;
 
     if (new_status === "CONFIRMED") {
         throw new CustomizedError(
@@ -1361,12 +1362,28 @@ const progressOrderStatus = async (
     }
 
     // Step 5: Update order status
+    const updatePayload: {
+        order_status: typeof orders.$inferSelect.order_status;
+        updated_at: Date;
+        delivery_photos?: string[];
+    } = {
+        order_status: new_status as any,
+        updated_at: new Date(),
+    };
+    if (new_status === "DELIVERED" && delivery_photos?.length) {
+        const normalizedPhotos = delivery_photos.filter(Boolean);
+        if (normalizedPhotos.length > 0) {
+            const existingDeliveryPhotos = Array.isArray(order.delivery_photos)
+                ? order.delivery_photos
+                : [];
+            updatePayload.delivery_photos = Array.from(
+                new Set([...existingDeliveryPhotos, ...normalizedPhotos])
+            );
+        }
+    }
     await db
         .update(orders)
-        .set({
-            order_status: new_status as any,
-            updated_at: new Date(),
-        })
+        .set(updatePayload)
         .where(eq(orders.id, orderId));
 
     // Step 6: Create status history entry

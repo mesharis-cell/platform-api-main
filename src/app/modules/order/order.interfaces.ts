@@ -72,6 +72,7 @@ export type OrderItem = {
 export interface ProgressStatusPayload {
     new_status: string;
     notes?: string;
+    delivery_photos?: string[];
 }
 
 // Order pricing details interfaces
