@@ -15,21 +15,21 @@ router.get(
     ReskinRequestsControllers.listReskinRequests
 );
 
-// Process reskin request (Admin only - creates reskin_requests record and cost line item)
+// Process reskin request (Admin/Logistics - creates reskin record + pricing line)
 router.post(
     "/:orderItemId/process",
     platformValidator,
-    auth("ADMIN"),
+    auth("ADMIN", "LOGISTICS"),
     // requirePermission(PERMISSIONS.RESKIN_REQUESTS_PROCESS),
     payloadValidator(ReskinRequestsSchemas.processReskinRequestSchema),
     ReskinRequestsControllers.processReskinRequest
 );
 
-// Complete reskin request (Admin only - creates new asset, marks complete)
+// Complete reskin request (Admin/Logistics - marks fabrication complete)
 router.post(
     "/:reskinId/complete",
     platformValidator,
-    auth("ADMIN"),
+    auth("ADMIN", "LOGISTICS"),
     // requirePermission(PERMISSIONS.RESKIN_REQUESTS_COMPLETE),
     payloadValidator(ReskinRequestsSchemas.completeReskinRequestSchema),
     ReskinRequestsControllers.completeReskinRequest

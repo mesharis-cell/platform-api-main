@@ -112,6 +112,7 @@ export function validateRoleBasedTransition(
     if (user.role === "LOGISTICS") {
         const allowedLogisticsTransitions = [
             "CONFIRMED->IN_PREPARATION",
+            "AWAITING_FABRICATION->IN_PREPARATION",
             "IN_PREPARATION->READY_FOR_DELIVERY",
             "READY_FOR_DELIVERY->IN_TRANSIT",
             "IN_TRANSIT->DELIVERED",

@@ -116,6 +116,7 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
                         description: data.description || null,
                         category: data.category,
                         images: data.images || [],
+                        on_display_image: data.on_display_image || null,
                         tracking_method: "INDIVIDUAL",
                         total_quantity: 1,
                         available_quantity: 1,
@@ -172,6 +173,7 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
             brand_id: data.brand_id || null,
             description: data.description || null,
             images: data.images || [],
+            on_display_image: data.on_display_image || null,
             packaging: data.packaging || null,
             dimensions: data.dimensions || {},
             condition: data.condition || "GREEN",
@@ -471,6 +473,7 @@ const getAssetById = async (id: string, user: AuthUser, platformId: string) => {
             condition: assetConditionHistory.condition,
             notes: assetConditionHistory.notes,
             photos: assetConditionHistory.photos,
+            damage_report_entries: assetConditionHistory.damage_report_entries,
             updated_by: assetConditionHistory.updated_by,
             timestamp: assetConditionHistory.timestamp,
         })
@@ -478,13 +481,42 @@ const getAssetById = async (id: string, user: AuthUser, platformId: string) => {
         .where(eq(assetConditionHistory.asset_id, id))
         .orderBy(desc(assetConditionHistory.timestamp));
 
+    const normalizedConditionHistory = conditionHistory.map((entry) => {
+        const rawEntries = entry.damage_report_entries;
+        const damageEntries: Array<{ url: string; description?: string }> = [];
+        if (Array.isArray(rawEntries) && rawEntries.length > 0) {
+            rawEntries.forEach((item) => {
+                const url = (item as any)?.url;
+                const description = (item as any)?.description;
+                if (typeof url !== "string" || !url.trim()) return;
+                damageEntries.push({
+                    url: url.trim(),
+                    description:
+                        typeof description === "string" && description.trim().length > 0
+                            ? description.trim()
+                            : undefined,
+                });
+            });
+        } else {
+            (entry.photos || []).forEach((url) => {
+                if (!url) return;
+                damageEntries.push({ url });
+            });
+        }
+        return {
+            ...entry,
+            photos: damageEntries.map((item) => item.url),
+            damage_report_entries: damageEntries,
+        };
+    });
+
     const latestConditionNotes =
-        conditionHistory.length > 0 ? conditionHistory[0].notes : undefined;
+        normalizedConditionHistory.length > 0 ? normalizedConditionHistory[0].notes : undefined;
 
     // Step 6: Return asset with enhanced details
     return {
         ...asset,
-        condition_history: conditionHistory,
+        condition_history: normalizedConditionHistory,
         latest_condition_notes: latestConditionNotes,
         company_details: {
             id: asset.company.id,
@@ -1319,8 +1351,31 @@ const addConditionHistory = async (
         );
     }
 
+    const normalizedDamageEntries = new Map<string, string | undefined>();
+    (data.damage_report_entries || []).forEach((entry) => {
+        const url = entry.url?.trim();
+        if (!url) return;
+        const description = entry.description?.trim();
+        normalizedDamageEntries.set(
+            url,
+            description && description.length > 0 ? description : undefined
+        );
+    });
+    (data.photos || []).forEach((photoUrl) => {
+        const url = photoUrl?.trim();
+        if (!url || normalizedDamageEntries.has(url)) return;
+        normalizedDamageEntries.set(url, undefined);
+    });
+    const damageEntries = Array.from(normalizedDamageEntries.entries()).map(
+        ([url, description]) => ({
+            url,
+            description,
+        })
+    );
+    const damagePhotoUrls = damageEntries.map((entry) => entry.url);
+
     // Validate photos requirement
-    if (data.condition && data.condition === "RED" && (!data.photos || data.photos.length === 0)) {
+    if (data.condition && data.condition === "RED" && damagePhotoUrls.length === 0) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
             "At least one damage photo is required when marking items as Red"
@@ -1344,7 +1399,8 @@ const addConditionHistory = async (
         asset_id: data.asset_id,
         condition: newCondition,
         notes: data.notes || "",
-        photos: data.photos || [],
+        photos: damagePhotoUrls,
+        damage_report_entries: damageEntries,
         updated_by: user.id,
     });
 
@@ -1538,6 +1594,7 @@ const createAssetVersionSnapshot = async (
         brand_name: asset.brand?.name || null,
         category: asset.category,
         images: asset.images,
+        on_display_image: asset.on_display_image,
         condition: asset.condition,
         condition_notes: asset.condition_notes,
         weight_per_unit: asset.weight_per_unit,

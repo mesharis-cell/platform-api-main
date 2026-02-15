@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { orderStatusEnum, tripTypeEnum } from "../../../db/schema";
+import { maintenanceDecisionEnum, orderStatusEnum, tripTypeEnum } from "../../../db/schema";
 import { enumMessageGenerator } from "../../utils/helper";
 import { CANCEL_REASONS } from "./order.utils";
 
@@ -22,6 +22,33 @@ const calculateEstimateSchema = z.object({
         .strict(),
 });
 
+const checkMaintenanceFeasibilitySchema = z.object({
+    body: z
+        .object({
+            items: z
+                .array(
+                    z.object({
+                        asset_id: z.uuid("Invalid asset ID"),
+                        maintenance_decision: z
+                            .enum(
+                                maintenanceDecisionEnum.enumValues,
+                                enumMessageGenerator(
+                                    "Maintenance decision",
+                                    maintenanceDecisionEnum.enumValues
+                                )
+                            )
+                            .optional(),
+                    })
+                )
+                .min(1, "At least one item is required"),
+            event_start_date: z
+                .string("Event start date is required")
+                .refine((date) => !isNaN(Date.parse(date)), "Invalid event start date format")
+                .transform((date) => new Date(date)),
+        })
+        .strict(),
+});
+
 export const orderItemSchema = z
     .object({
         asset_id: z.uuid("Invalid asset ID"),
@@ -37,6 +64,12 @@ export const orderItemSchema = z
             .max(100, "Custom brand name must be under 100 characters")
             .optional(),
         reskin_notes: z.string().min(10, "Reskin notes must be at least 10 characters").optional(),
+        maintenance_decision: z
+            .enum(
+                maintenanceDecisionEnum.enumValues,
+                enumMessageGenerator("Maintenance decision", maintenanceDecisionEnum.enumValues)
+            )
+            .optional(),
     })
     .refine(
         (data) => {
@@ -66,6 +99,18 @@ const updateOrderItemQuantitySchema = z.object({
     body: z.object({
         quantity: z.number().int().positive("Quantity must be positive"),
     }),
+});
+
+const updateMaintenanceDecisionSchema = z.object({
+    body: z
+        .object({
+            order_item_id: z.uuid("Invalid order item ID"),
+            maintenance_decision: z.enum(
+                maintenanceDecisionEnum.enumValues,
+                enumMessageGenerator("Maintenance decision", maintenanceDecisionEnum.enumValues)
+            ),
+        })
+        .strict(),
 });
 
 const submitOrderSchema = z.object({
@@ -355,8 +400,59 @@ const truckDetailsSchema = z.object({
         }),
 });
 
+const transportUnitDetailSchema = z.object({
+    truck_plate: z.string().optional(),
+    driver_name: z.string().optional(),
+    driver_contact: z.string().optional(),
+    truck_size: z.string().optional(),
+    tailgate_required: z.boolean().default(false),
+    manpower: z.number().int().min(0).default(0),
+    pickup_notes: z.string().optional(),
+    delivery_notes: z.string().optional(),
+    notes: z.string().optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+const createTransportUnitSchema = z.object({
+    body: z
+        .object({
+            kind: z.enum(["DELIVERY_BILLABLE", "PICKUP_OPS", "OTHER_ACCESS"]),
+            vehicle_type_id: z.uuid("Invalid vehicle type ID").optional(),
+            label: z.string().max(120).optional(),
+            is_default: z.boolean().optional().default(false),
+            is_billable: z.boolean().optional(),
+            billable_rate: z.number().min(0).optional(),
+            detail: transportUnitDetailSchema.optional(),
+        })
+        .strict()
+        .superRefine((data, ctx) => {
+            if (data.kind === "DELIVERY_BILLABLE" && !data.vehicle_type_id) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    path: ["vehicle_type_id"],
+                    message: "vehicle_type_id is required for DELIVERY_BILLABLE units",
+                });
+            }
+        }),
+});
+
+const updateTransportUnitSchema = z.object({
+    body: z
+        .object({
+            kind: z.enum(["DELIVERY_BILLABLE", "PICKUP_OPS", "OTHER_ACCESS"]).optional(),
+            vehicle_type_id: z.uuid("Invalid vehicle type ID").optional().nullable(),
+            label: z.string().max(120).optional(),
+            is_default: z.boolean().optional(),
+            is_billable: z.boolean().optional(),
+            billable_rate: z.number().min(0).optional().nullable(),
+            detail: transportUnitDetailSchema.optional(),
+        })
+        .strict(),
+});
+
 export const orderSchemas = {
     calculateEstimateSchema,
+    checkMaintenanceFeasibilitySchema,
     submitOrderSchema,
     updateJobNumberSchema,
     progressStatusSchema,
@@ -371,6 +467,9 @@ export const orderSchemas = {
     cancelOrderSchema,
     addOrderItemSchema,
     updateOrderItemQuantitySchema,
+    updateMaintenanceDecisionSchema,
     adminApproveQuoteSchema,
     truckDetailsSchema,
+    createTransportUnitSchema,
+    updateTransportUnitSchema,
 };

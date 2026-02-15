@@ -23,6 +23,33 @@ import {
 import { NotificationLogServices } from "../notification-logs/notification-logs.services";
 import { invoiceGenerator } from "../../utils/invoice";
 
+type DamageReportEntry = {
+    url: string;
+    description?: string;
+};
+
+const normalizeDamageReportEntries = (
+    entries?: Array<{ url: string; description?: string }>,
+    legacyPhotos?: string[]
+): DamageReportEntry[] => {
+    const normalized = new Map<string, string | undefined>();
+
+    (entries || []).forEach((entry) => {
+        const url = entry.url?.trim();
+        if (!url) return;
+        const description = entry.description?.trim();
+        normalized.set(url, description && description.length > 0 ? description : undefined);
+    });
+
+    (legacyPhotos || []).forEach((photoUrl) => {
+        const url = photoUrl?.trim();
+        if (!url || normalized.has(url)) return;
+        normalized.set(url, undefined);
+    });
+
+    return Array.from(normalized.entries()).map(([url, description]) => ({ url, description }));
+};
+
 // ----------------------------------- INBOUND SCAN ---------------------------------------
 const inboundScan = async (
     orderId: string,
@@ -34,11 +61,19 @@ const inboundScan = async (
         qr_code,
         condition,
         notes,
-        photos,
+        latest_return_images,
+        damage_report_entries,
+        damage_report_photos,
         refurb_days_estimate,
         discrepancy_reason,
         quantity,
     } = data;
+
+    const normalizedDamageEntries = normalizeDamageReportEntries(
+        damage_report_entries,
+        damage_report_photos
+    );
+    const normalizedDamagePhotos = normalizedDamageEntries.map((entry) => entry.url);
 
     // Step 1: Get order with items
     const order = await db.query.orders.findFirst({
@@ -135,6 +170,20 @@ const inboundScan = async (
         );
     }
 
+    if (!latest_return_images || latest_return_images.length < 2) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "At least 2 wide return photos are required for inbound scans"
+        );
+    }
+
+    if (condition !== "GREEN" && normalizedDamageEntries.length === 0) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "At least one damage report photo is required for damaged inbound items"
+        );
+    }
+
     // Step 7: Create scan event
     await db.insert(scanEvents).values({
         order_id: orderId,
@@ -143,7 +192,10 @@ const inboundScan = async (
         quantity: scanQuantity,
         condition,
         notes: notes || null,
-        photos: photos || [],
+        photos: normalizedDamagePhotos,
+        latest_return_images: latest_return_images || [],
+        damage_report_photos: normalizedDamagePhotos,
+        damage_report_entries: normalizedDamageEntries,
         discrepancy_reason: discrepancy_reason || null,
         scanned_by: user.id,
         scanned_at: new Date(),
@@ -171,7 +223,8 @@ const inboundScan = async (
             asset_id: asset.id,
             condition,
             notes: notes || null,
-            photos: photos || [],
+            photos: normalizedDamagePhotos,
+            damage_report_entries: normalizedDamageEntries,
             updated_by: user.id,
         });
     } else {
@@ -185,7 +238,7 @@ const inboundScan = async (
             .where(eq(assets.id, asset.id));
     }
 
-    // Step 9: Update asset quantities, status, and images from scan photos
+    // Step 9: Update inventory counts and latest return imagery.
     const newStatus: "AVAILABLE" | "BOOKED" | "OUT" | "MAINTENANCE" = "AVAILABLE";
 
     await db
@@ -193,7 +246,7 @@ const inboundScan = async (
         .set({
             available_quantity: sql`${assets.available_quantity} + ${scanQuantity}`,
             status: newStatus,
-            images: photos, // Replace asset images with latest inbound scan photos
+            images: latest_return_images,
         })
         .where(eq(assets.id, asset.id));
 

@@ -16,9 +16,9 @@ A production-ready starter template for building RESTful APIs with **Express.js*
 
 ## 📋 Prerequisites
 
-- Node.js (v16 or higher)
+- Node.js (v20 or higher)
+- Bun (v1.2 or higher)
 - PostgreSQL database
-- npm or yarn
 
 ## 🚀 Getting Started
 
@@ -32,7 +32,7 @@ cd drizzle
 ### 2. Install dependencies
 
 ```bash
-npm install
+bun install --frozen-lockfile
 ```
 
 ### 3. Configure environment variables
@@ -48,14 +48,14 @@ DATABASE_URL=postgresql://username:password@localhost:5432/database_name
 ### 4. Run database migrations
 
 ```bash
-npx drizzle-kit generate
-npx drizzle-kit migrate
+bunx drizzle-kit generate
+bunx drizzle-kit migrate
 ```
 
 ### 5. Start the development server
 
 ```bash
-npm run dev
+bun run dev
 ```
 
 The server will start at `http://localhost:5000`
@@ -162,13 +162,13 @@ export const users = pgTable("users", {
 
 ```bash
 # Generate migration files
-npx drizzle-kit generate
+bunx drizzle-kit generate
 
 # Apply migrations to database
-npx drizzle-kit migrate
+bunx drizzle-kit migrate
 
 # Open Drizzle Studio (database GUI)
-npx drizzle-kit studio
+bunx drizzle-kit studio
 ```
 
 ## 🛡️ Error Handling
@@ -200,16 +200,16 @@ Example error response:
 
 ```bash
 # Development
-npm run dev          # Start development server with hot reload
+bun run dev          # Start development server with hot reload
 
 # Production
-npm run build        # Compile TypeScript to JavaScript
-npm start            # Run production server
+bun run build        # Compile TypeScript to JavaScript
+bun run start        # Run production server
 
 # Database
-npx drizzle-kit generate   # Generate migrations
-npx drizzle-kit migrate    # Run migrations
-npx drizzle-kit studio     # Open Drizzle Studio
+bunx drizzle-kit generate   # Generate migrations
+bunx drizzle-kit migrate    # Run migrations
+bunx drizzle-kit studio     # Open Drizzle Studio
 ```
 
 ## 🔧 Configuration

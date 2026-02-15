@@ -7,6 +7,7 @@ const createCatalogLineItemSchema = z.object({
         .object({
             order_id: z.uuid("Invalid order ID").optional(),
             inbound_request_id: z.uuid("Invalid inbound request ID").optional(),
+            service_request_id: z.uuid("Invalid service request ID").optional(),
             purpose_type: z.enum(
                 invoiceTypeEnum.enumValues,
                 enumMessageGenerator("Purpose type", invoiceTypeEnum.enumValues)
@@ -24,8 +25,11 @@ const createCatalogLineItemSchema = z.object({
             if (data.purpose_type === "INBOUND_REQUEST" && !data.inbound_request_id) {
                 return false;
             }
+            if (data.purpose_type === "SERVICE_REQUEST" && !data.service_request_id) {
+                return false;
+            }
             return true;
-        }, "Order ID is required for ORDER purpose type and Inbound Request ID is required for INBOUND_REQUEST purpose type")
+        }, "Order ID is required for ORDER, inbound request ID for INBOUND_REQUEST, and service request ID for SERVICE_REQUEST purpose type")
         .strict(),
 });
 
@@ -34,6 +38,7 @@ const createCustomLineItemSchema = z.object({
         .object({
             order_id: z.uuid("Invalid order ID").optional(),
             inbound_request_id: z.uuid("Invalid inbound request ID").optional(),
+            service_request_id: z.uuid("Invalid service request ID").optional(),
             purpose_type: z.enum(
                 invoiceTypeEnum.enumValues,
                 enumMessageGenerator("Purpose type", invoiceTypeEnum.enumValues)
@@ -45,12 +50,25 @@ const createCustomLineItemSchema = z.object({
             category: z.enum(["ASSEMBLY", "EQUIPMENT", "HANDLING", "RESKIN", "OTHER"], {
                 message: "Invalid category",
             }),
-            total: z
-                .number({ message: "Total must be a number" })
-                .positive("Total must be greater than 0"),
+            quantity: z
+                .number({ message: "Quantity must be a number" })
+                .positive("Quantity must be greater than 0"),
+            unit: z
+                .string({ message: "Unit is required" })
+                .min(1, "Unit is required")
+                .max(20, "Unit must be under 20 characters"),
+            unit_rate: z
+                .number({ message: "Unit rate must be a number" })
+                .min(0, "Unit rate must be 0 or greater"),
             notes: z.string().optional(),
             reskin_request_id: z.string().uuid("Invalid reskin request ID").optional(),
         })
+        .refine((data) => {
+            if (data.purpose_type === "ORDER" && !data.order_id) return false;
+            if (data.purpose_type === "INBOUND_REQUEST" && !data.inbound_request_id) return false;
+            if (data.purpose_type === "SERVICE_REQUEST" && !data.service_request_id) return false;
+            return true;
+        }, "Order ID is required for ORDER, inbound request ID for INBOUND_REQUEST, and service request ID for SERVICE_REQUEST purpose type")
         .strict(),
 });
 
@@ -58,8 +76,8 @@ const updateLineItemSchema = z.object({
     body: z
         .object({
             quantity: z.number().positive().optional(),
+            unit: z.string().min(1).max(20).optional(),
             unit_rate: z.number().min(0).optional(),
-            total: z.number().positive().optional(),
             notes: z.string().optional(),
         })
         .strict(),

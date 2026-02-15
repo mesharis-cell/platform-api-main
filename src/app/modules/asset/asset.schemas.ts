@@ -23,6 +23,7 @@ const createAssetSchema = z.object({
                 .min(1, "Category is required")
                 .max(100, "Category must be under 100 characters"),
             images: z.array(z.string().url("Invalid image URL")).optional().default([]),
+            on_display_image: z.string().url("Invalid on display image URL").optional(),
             tracking_method: z.enum(trackingMethodEnum.enumValues, {
                 message: enumMessageGenerator("Tracking method", trackingMethodEnum.enumValues),
             }),
@@ -105,6 +106,7 @@ const updateAssetSchema = z.object({
         description: z.string().optional().nullable(),
         category: z.string().optional(),
         images: z.array(z.string().url("Invalid image URL")).optional(),
+        on_display_image: z.string().url("Invalid on display image URL").optional().nullable(),
         tracking_method: z
             .enum(trackingMethodEnum.enumValues, {
                 message: enumMessageGenerator("Tracking method", trackingMethodEnum.enumValues),
@@ -188,21 +190,44 @@ const checkAvailabilitySchema = z.object({
 
 // ----------------------------------- ADD CONDITION HISTORY SCHEMA ---------------------------
 const addConditionHistorySchema = z.object({
-    body: z.object({
-        asset_id: z.string({ message: "Asset ID is required" }).uuid("Invalid asset ID format"),
-        condition: z
-            .enum(assetConditionEnum.enumValues, {
-                message: enumMessageGenerator("Condition", assetConditionEnum.enumValues),
-            })
-            .optional(),
-        notes: z.string().max(1000, "Notes must be under 1000 characters").optional(),
-        photos: z.array(z.string().url("Invalid photo URL")).optional().default([]),
-        refurb_days_estimate: z
-            .number({ message: "Refurbishment days must be a number" })
-            .int("Refurbishment days must be an integer")
-            .min(0, "Refurbishment days cannot be negative")
-            .optional(),
-    }),
+    body: z
+        .object({
+            asset_id: z.string({ message: "Asset ID is required" }).uuid("Invalid asset ID format"),
+            condition: z
+                .enum(assetConditionEnum.enumValues, {
+                    message: enumMessageGenerator("Condition", assetConditionEnum.enumValues),
+                })
+                .optional(),
+            notes: z.string().max(1000, "Notes must be under 1000 characters").optional(),
+            photos: z.array(z.string().url("Invalid photo URL")).optional().default([]),
+            damage_report_entries: z
+                .array(
+                    z.object({
+                        url: z.string().url("Invalid damage image URL"),
+                        description: z
+                            .string()
+                            .max(1000, "Damage description must be under 1000 characters")
+                            .optional(),
+                    })
+                )
+                .optional()
+                .default([]),
+            refurb_days_estimate: z
+                .number({ message: "Refurbishment days must be a number" })
+                .int("Refurbishment days must be an integer")
+                .min(0, "Refurbishment days cannot be negative")
+                .optional(),
+        })
+        .superRefine((data, ctx) => {
+            const imageCount = data.photos.length + data.damage_report_entries.length;
+            if (data.condition === "RED" && imageCount === 0) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: "At least one damage photo is required when marking items as Red",
+                    path: ["damage_report_entries"],
+                });
+            }
+        }),
 });
 
 // ----------------------------------- GENERATE QR CODE SCHEMA --------------------------------

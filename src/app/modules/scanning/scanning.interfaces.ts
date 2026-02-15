@@ -1,8 +1,15 @@
+export interface DamageReportEntryPayload {
+    url: string;
+    description?: string;
+}
+
 export interface InboundScanPayload {
     qr_code: string;
     condition: "GREEN" | "ORANGE" | "RED";
     notes?: string;
-    photos?: string[];
+    latest_return_images: string[];
+    damage_report_entries?: DamageReportEntryPayload[];
+    damage_report_photos?: string[];
     refurb_days_estimate?: number;
     discrepancy_reason?: "BROKEN" | "LOST" | "OTHER";
     quantity?: number; // For BATCH assets

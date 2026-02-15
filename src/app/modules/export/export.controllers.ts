@@ -3,21 +3,105 @@ import httpStatus from "http-status";
 import catchAsync from "../../shared/catch-async";
 import { ExportServices } from "./export.services";
 
-const exportOrders = catchAsync(async (req: Request, res: Response) => {
-    // Define filterable fields locally if not exported from order.constants
-    const filters = req.query as any;
-    // const user = (req as any).user;
-    const platformId = "17b317e3-1580-457f-b4f1-4e97d6215ee5"; // (req as any).platformId;
-
-    const csvData = await ExportServices.exportOrdersService(filters, platformId);
-
-    // Set headers for file download
+const sendCsv = (res: Response, filename: string, csvData: string) => {
     res.setHeader("Content-Type", "text/csv");
-    res.setHeader("Content-Disposition", 'attachment; filename="orders.csv"');
-
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.status(httpStatus.OK).send(csvData);
+};
+
+const exportOrders = catchAsync(async (req: Request, res: Response) => {
+    const filters = req.query as any;
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+
+    const csvData = await ExportServices.exportOrdersService(filters, user, platformId);
+    sendCsv(res, "orders.csv", csvData);
+});
+
+const exportOrderHistory = catchAsync(async (req: Request, res: Response) => {
+    const filters = req.query as any;
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+
+    const csvData = await ExportServices.exportOrderHistoryService(filters, user, platformId);
+    sendCsv(res, "order-history.csv", csvData);
+});
+
+const exportAccountsReconciliation = catchAsync(async (req: Request, res: Response) => {
+    const filters = req.query as any;
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+
+    const csvData = await ExportServices.exportAccountsReconciliationService(
+        filters,
+        user,
+        platformId
+    );
+    sendCsv(res, "accounts-reconciliation.csv", csvData);
+});
+
+const exportStockReport = catchAsync(async (req: Request, res: Response) => {
+    const filters = req.query as any;
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+
+    const csvData = await ExportServices.exportStockReportService(filters, user, platformId);
+    sendCsv(res, "stock-report.csv", csvData);
+});
+
+const exportAssetsOut = catchAsync(async (req: Request, res: Response) => {
+    const filters = req.query as any;
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+
+    const csvData = await ExportServices.exportAssetsOutService(filters, user, platformId);
+    sendCsv(res, "assets-out.csv", csvData);
+});
+
+const exportInboundLog = catchAsync(async (req: Request, res: Response) => {
+    const filters = req.query as any;
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+
+    const csvData = await ExportServices.exportInboundLogService(filters, user, platformId);
+    sendCsv(res, "inbound-log.csv", csvData);
+});
+
+const exportRevenueReport = catchAsync(async (req: Request, res: Response) => {
+    const filters = req.query as any;
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+
+    const csvData = await ExportServices.exportRevenueReportService(filters, user, platformId);
+    sendCsv(res, "revenue-report.csv", csvData);
+});
+
+const exportCostReport = catchAsync(async (req: Request, res: Response) => {
+    const filters = req.query as any;
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+
+    const csvData = await ExportServices.exportCostReportService(filters, user, platformId);
+    sendCsv(res, "cost-report.csv", csvData);
+});
+
+const exportAssetUtilization = catchAsync(async (req: Request, res: Response) => {
+    const filters = req.query as any;
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+
+    const csvData = await ExportServices.exportAssetUtilizationService(filters, user, platformId);
+    sendCsv(res, "asset-utilization.csv", csvData);
 });
 
 export const ExportControllers = {
     exportOrders,
+    exportOrderHistory,
+    exportAccountsReconciliation,
+    exportStockReport,
+    exportAssetsOut,
+    exportInboundLog,
+    exportRevenueReport,
+    exportCostReport,
+    exportAssetUtilization,
 };

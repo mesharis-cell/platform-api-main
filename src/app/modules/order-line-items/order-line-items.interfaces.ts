@@ -24,7 +24,9 @@ export type VoidLineItemPayload = z.infer<typeof LineItemsSchemas.voidLineItemSc
 export interface OrderLineItem {
     id: string;
     platform_id: string;
-    order_id: string;
+    order_id: string | null;
+    inbound_request_id: string | null;
+    service_request_id: string | null;
     service_type_id: string | null;
     reskin_request_id: string | null;
     line_item_type: "CATALOG" | "CUSTOM";

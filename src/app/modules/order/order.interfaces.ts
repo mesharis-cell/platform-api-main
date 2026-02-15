@@ -2,9 +2,15 @@ import z from "zod";
 import { orderItemSchema, orderSchemas } from "./order.schemas";
 
 export type CalculateEstimatePayload = z.infer<typeof orderSchemas.calculateEstimateSchema>["body"];
+export type CheckMaintenanceFeasibilityPayload = z.infer<
+    typeof orderSchemas.checkMaintenanceFeasibilitySchema
+>["body"];
 
 // Submit order payload interface
 export type SubmitOrderPayload = z.infer<typeof orderSchemas.submitOrderSchema>["body"];
+export type UpdateMaintenanceDecisionPayload = z.infer<
+    typeof orderSchemas.updateMaintenanceDecisionSchema
+>["body"];
 
 export type OrderItemPayload = z.infer<typeof orderItemSchema>;
 
@@ -35,6 +41,12 @@ export type UpdateVehiclePayload = z.infer<typeof orderSchemas.updateVehicleSche
 export type UpdateTripTypePayload = z.infer<typeof orderSchemas.updateTripTypeSchema>["body"];
 
 export type TruckDetailsPayload = z.infer<typeof orderSchemas.truckDetailsSchema>["body"];
+export type CreateTransportUnitPayload = z.infer<
+    typeof orderSchemas.createTransportUnitSchema
+>["body"];
+export type UpdateTransportUnitPayload = z.infer<
+    typeof orderSchemas.updateTransportUnitSchema
+>["body"];
 
 export interface CancelOrderPayload {
     reason:
@@ -66,6 +78,10 @@ export type OrderItem = {
     reskin_target_brand_id?: string | null;
     reskin_target_brand_custom?: string | null;
     reskin_notes?: string | null;
+    maintenance_decision?: "FIX_IN_ORDER" | "USE_AS_IS" | null;
+    requires_maintenance?: boolean;
+    maintenance_refurb_days_snapshot?: number | null;
+    maintenance_decision_locked_at?: Date | null;
 };
 
 // Progress status payload interface

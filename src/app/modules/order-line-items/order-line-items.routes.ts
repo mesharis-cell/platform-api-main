@@ -29,7 +29,7 @@ router.post(
 router.post(
     "/custom",
     platformValidator,
-    auth("ADMIN"),
+    auth("ADMIN", "LOGISTICS"),
     // requirePermission(PERMISSIONS.ORDER_LINE_ITEMS_MANAGE),
     payloadValidator(LineItemsSchemas.createCustomLineItemSchema),
     LineItemsControllers.createCustomLineItem

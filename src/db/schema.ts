@@ -99,6 +99,10 @@ export const scanTypeEnum = pgEnum("scan_type", ["OUTBOUND", "INBOUND"]);
 export const discrepancyReasonEnum = pgEnum("discrepancy_reason", ["BROKEN", "LOST", "OTHER"]);
 export const tripTypeEnum = pgEnum("trip_type", ["ONE_WAY", "ROUND_TRIP"]);
 export const lineItemTypeEnum = pgEnum("line_item_type", ["CATALOG", "CUSTOM"]);
+export const maintenanceDecisionEnum = pgEnum("maintenance_decision", [
+    "FIX_IN_ORDER",
+    "USE_AS_IS",
+]);
 export const serviceCategoryEnum = pgEnum("service_category", [
     "ASSEMBLY",
     "EQUIPMENT",
@@ -107,7 +111,44 @@ export const serviceCategoryEnum = pgEnum("service_category", [
     "OTHER",
 ]);
 
-export const invoiceTypeEnum = pgEnum("invoice_type", ["ORDER", "INBOUND_REQUEST"]);
+export const invoiceTypeEnum = pgEnum("invoice_type", [
+    "ORDER",
+    "INBOUND_REQUEST",
+    "SERVICE_REQUEST",
+]);
+export const serviceRequestTypeEnum = pgEnum("service_request_type", [
+    "MAINTENANCE",
+    "RESKIN",
+    "REFURBISHMENT",
+    "CUSTOM",
+]);
+export const serviceRequestStatusEnum = pgEnum("service_request_status", [
+    "DRAFT",
+    "SUBMITTED",
+    "IN_REVIEW",
+    "APPROVED",
+    "IN_PROGRESS",
+    "COMPLETED",
+    "CANCELLED",
+]);
+export const serviceRequestCommercialStatusEnum = pgEnum("service_request_commercial_status", [
+    "INTERNAL",
+    "PENDING_QUOTE",
+    "QUOTED",
+    "QUOTE_APPROVED",
+    "INVOICED",
+    "PAID",
+    "CANCELLED",
+]);
+export const serviceRequestBillingModeEnum = pgEnum("service_request_billing_mode", [
+    "INTERNAL_ONLY",
+    "CLIENT_BILLABLE",
+]);
+export const orderTransportUnitKindEnum = pgEnum("order_transport_unit_kind", [
+    "DELIVERY_BILLABLE",
+    "PICKUP_OPS",
+    "OTHER_ACCESS",
+]);
 
 // ---------------------------------- PLATFORM -------------------------------------------
 // Config structure:
@@ -117,7 +158,13 @@ export const invoiceTypeEnum = pgEnum("invoice_type", ["ORDER", "INBOUND_REQUEST
 //   "secondary_color": "#ffffff",
 //   "logistics_partner_name": "A2 Logistics",
 //   "support_email": "support@platform.com",
-//   "currency": "AED"
+//   "currency": "AED",
+//   "feasibility": {
+//     "minimum_lead_hours": 24,
+//     "exclude_weekends": true,
+//     "weekend_days": [0, 6],
+//     "timezone": "Asia/Dubai"
+//   }
 // }
 
 // Features structure:
@@ -432,6 +479,7 @@ export const assets = pgTable(
             .array()
             .notNull()
             .default(sql`ARRAY[]::text[]`),
+        on_display_image: text("on_display_image"),
         tracking_method: trackingMethodEnum("tracking_method").notNull(),
         total_quantity: integer("total_quantity").notNull().default(1),
         available_quantity: integer("available_quantity").notNull().default(1),
@@ -752,6 +800,7 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
     }),
     items: many(orderItems),
     line_items: many(lineItems),
+    transport_units: many(orderTransportUnits),
     reskin_requests: many(reskinRequests),
     scan_events: many(scanEvents),
     asset_bookings: many(assetBookings),
@@ -794,6 +843,12 @@ export const orderItems = pgTable(
         reskin_target_brand_id: uuid("reskin_target_brand").references(() => brands.id),
         reskin_target_brand_custom: varchar("reskin_target_brand_custom", { length: 100 }),
         reskin_notes: text("reskin_notes"),
+
+        // Maintenance decision fields
+        maintenance_decision: maintenanceDecisionEnum("maintenance_decision"),
+        requires_maintenance: boolean("requires_maintenance").notNull().default(false),
+        maintenance_refurb_days_snapshot: integer("maintenance_refurb_days_snapshot"),
+        maintenance_decision_locked_at: timestamp("maintenance_decision_locked_at"),
 
         created_at: timestamp("created_at").notNull().defaultNow(),
     },
@@ -931,6 +986,9 @@ export const lineItems = pgTable(
         inbound_request_id: uuid("inbound_request_id").references(() => inboundRequests.id, {
             onDelete: "cascade",
         }),
+        service_request_id: uuid("service_request_id").references(() => serviceRequests.id, {
+            onDelete: "cascade",
+        }),
         purpose_type: invoiceTypeEnum("purpose_type").notNull(),
         // Type linkage (one or neither, not both)
         service_type_id: uuid("service_type_id").references(() => serviceTypes.id), // NULL for custom items
@@ -970,6 +1028,7 @@ export const lineItems = pgTable(
     (table) => [
         index("line_items_order_idx").on(table.order_id),
         index("line_items_inbound_request_idx").on(table.inbound_request_id),
+        index("line_items_service_request_idx").on(table.service_request_id),
         index("line_items_reskin_request_idx").on(table.reskin_request_id),
         index("line_items_active_idx").on(table.order_id, table.is_voided),
     ]
@@ -978,6 +1037,14 @@ export const lineItems = pgTable(
 export const lineItemsRelations = relations(lineItems, ({ one }) => ({
     platform: one(platforms, { fields: [lineItems.platform_id], references: [platforms.id] }),
     order: one(orders, { fields: [lineItems.order_id], references: [orders.id] }),
+    inbound_request: one(inboundRequests, {
+        fields: [lineItems.inbound_request_id],
+        references: [inboundRequests.id],
+    }),
+    service_request: one(serviceRequests, {
+        fields: [lineItems.service_request_id],
+        references: [serviceRequests.id],
+    }),
     service_type: one(serviceTypes, {
         fields: [lineItems.service_type_id],
         references: [serviceTypes.id],
@@ -1068,6 +1135,9 @@ export const invoices = pgTable(
         inbound_request_id: uuid("inbound_request_id").references(() => inboundRequests.id, {
             onDelete: "cascade",
         }),
+        service_request_id: uuid("service_request_id").references(() => serviceRequests.id, {
+            onDelete: "cascade",
+        }),
         type: invoiceTypeEnum("type").notNull(),
         invoice_id: varchar("invoice_id", { length: 50 }).notNull(),
         invoice_pdf_url: varchar("invoice_pdf_url", { length: 255 }).notNull(),
@@ -1085,12 +1155,22 @@ export const invoices = pgTable(
     },
     (table) => [
         index("invoices_order_idx").on(table.order_id),
+        index("invoices_inbound_request_idx").on(table.inbound_request_id),
+        index("invoices_service_request_idx").on(table.service_request_id),
         unique("platform_invoice_id_unique").on(table.platform_id, table.invoice_id),
     ]
 );
 
 export const invoicesRelations = relations(invoices, ({ one }) => ({
     order: one(orders, { fields: [invoices.order_id], references: [orders.id] }),
+    inbound_request: one(inboundRequests, {
+        fields: [invoices.inbound_request_id],
+        references: [inboundRequests.id],
+    }),
+    service_request: one(serviceRequests, {
+        fields: [invoices.service_request_id],
+        references: [serviceRequests.id],
+    }),
     platform: one(platforms, { fields: [invoices.platform_id], references: [platforms.id] }),
     generated_by_user: one(users, { fields: [invoices.generated_by], references: [users.id] }),
     updated_by_user: one(users, { fields: [invoices.updated_by], references: [users.id] }),
@@ -1142,6 +1222,9 @@ export const assetConditionHistory = pgTable(
             .array()
             .notNull()
             .default(sql`ARRAY[]::text[]`),
+        damage_report_entries: jsonb("damage_report_entries")
+            .notNull()
+            .default(sql`'[]'::jsonb`),
 
         updated_by: uuid("updated_by")
             .notNull()
@@ -1182,6 +1265,15 @@ export const scanEvents = pgTable("scan_events", {
     photos: text("photos")
         .array()
         .default(sql`ARRAY[]::text[]`),
+    latest_return_images: text("latest_return_images")
+        .array()
+        .default(sql`ARRAY[]::text[]`),
+    damage_report_photos: text("damage_report_photos")
+        .array()
+        .default(sql`ARRAY[]::text[]`),
+    damage_report_entries: jsonb("damage_report_entries")
+        .notNull()
+        .default(sql`'[]'::jsonb`),
     discrepancy_reason: discrepancyReasonEnum("discrepancy_reason"),
     scanned_by: uuid("scanned_by")
         .notNull()
@@ -1442,11 +1534,14 @@ export const vehicleTypes = pgTable("vehicle_types", {
         .notNull(),
 });
 
-export const vehicleTypesRelations = relations(vehicleTypes, ({ one }) => ({
+export const vehicleTypesRelations = relations(vehicleTypes, ({ one, many }) => ({
     platform: one(platforms, {
         fields: [vehicleTypes.platform_id],
         references: [platforms.id],
     }),
+    orders: many(orders),
+    transport_rates: many(transportRates),
+    transport_units: many(orderTransportUnits),
 }));
 
 // ---------------------------------- ASSET VERSIONS -----------------------------------------
@@ -1496,3 +1591,256 @@ export const inboundRequestItemsRelations = relations(inboundRequestItems, ({ on
         references: [assets.id],
     }),
 }));
+
+export const serviceRequests = pgTable(
+    "service_requests",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        service_request_id: varchar("service_request_id", { length: 24 }).notNull(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id),
+        company_id: uuid("company_id")
+            .notNull()
+            .references(() => companies.id),
+        request_type: serviceRequestTypeEnum("request_type").notNull(),
+        billing_mode: serviceRequestBillingModeEnum("billing_mode")
+            .notNull()
+            .default("INTERNAL_ONLY"),
+        request_status: serviceRequestStatusEnum("request_status").notNull().default("DRAFT"),
+        commercial_status: serviceRequestCommercialStatusEnum("commercial_status")
+            .notNull()
+            .default("INTERNAL"),
+        title: varchar("title", { length: 200 }).notNull(),
+        description: text("description"),
+        related_asset_id: uuid("related_asset_id").references(() => assets.id),
+        related_order_id: uuid("related_order_id").references(() => orders.id),
+        related_order_item_id: uuid("related_order_item_id").references(() => orderItems.id),
+        request_pricing_id: uuid("request_pricing_id").references(() => prices.id),
+        requested_start_at: timestamp("requested_start_at"),
+        requested_due_at: timestamp("requested_due_at"),
+        created_by: uuid("created_by")
+            .notNull()
+            .references(() => users.id),
+        completed_at: timestamp("completed_at"),
+        completed_by: uuid("completed_by").references(() => users.id),
+        completion_notes: text("completion_notes"),
+        cancelled_at: timestamp("cancelled_at"),
+        cancelled_by: uuid("cancelled_by").references(() => users.id),
+        cancellation_reason: text("cancellation_reason"),
+        created_at: timestamp("created_at").defaultNow().notNull(),
+        updated_at: timestamp("updated_at").defaultNow().notNull(),
+    },
+    (table) => [
+        unique("service_requests_request_id_unique").on(
+            table.platform_id,
+            table.service_request_id
+        ),
+        index("service_requests_platform_idx").on(table.platform_id),
+        index("service_requests_company_idx").on(table.company_id),
+        index("service_requests_status_idx").on(table.request_status),
+        index("service_requests_commercial_status_idx").on(table.commercial_status),
+    ]
+);
+
+export const serviceRequestItems = pgTable(
+    "service_request_items",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        service_request_id: uuid("service_request_id")
+            .notNull()
+            .references(() => serviceRequests.id, { onDelete: "cascade" }),
+        asset_id: uuid("asset_id").references(() => assets.id),
+        asset_name: varchar("asset_name", { length: 200 }).notNull(),
+        quantity: integer("quantity").notNull().default(1),
+        notes: text("notes"),
+        refurb_days_estimate: integer("refurb_days_estimate"),
+        created_at: timestamp("created_at").defaultNow().notNull(),
+        updated_at: timestamp("updated_at").defaultNow().notNull(),
+    },
+    (table) => [
+        index("service_request_items_request_idx").on(table.service_request_id),
+        index("service_request_items_asset_idx").on(table.asset_id),
+    ]
+);
+
+export const serviceRequestStatusHistory = pgTable(
+    "service_request_status_history",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        service_request_id: uuid("service_request_id")
+            .notNull()
+            .references(() => serviceRequests.id, { onDelete: "cascade" }),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id),
+        from_status: serviceRequestStatusEnum("from_status"),
+        to_status: serviceRequestStatusEnum("to_status").notNull(),
+        note: text("note"),
+        changed_by: uuid("changed_by")
+            .notNull()
+            .references(() => users.id),
+        changed_at: timestamp("changed_at").defaultNow().notNull(),
+    },
+    (table) => [
+        index("service_request_history_request_idx").on(table.service_request_id),
+        index("service_request_history_platform_idx").on(table.platform_id),
+    ]
+);
+
+export const serviceRequestsRelations = relations(serviceRequests, ({ one, many }) => ({
+    platform: one(platforms, { fields: [serviceRequests.platform_id], references: [platforms.id] }),
+    company: one(companies, { fields: [serviceRequests.company_id], references: [companies.id] }),
+    related_asset: one(assets, {
+        fields: [serviceRequests.related_asset_id],
+        references: [assets.id],
+    }),
+    related_order: one(orders, {
+        fields: [serviceRequests.related_order_id],
+        references: [orders.id],
+    }),
+    related_order_item: one(orderItems, {
+        fields: [serviceRequests.related_order_item_id],
+        references: [orderItems.id],
+    }),
+    request_pricing: one(prices, {
+        fields: [serviceRequests.request_pricing_id],
+        references: [prices.id],
+    }),
+    created_by_user: one(users, {
+        fields: [serviceRequests.created_by],
+        references: [users.id],
+        relationName: "service_request_created_by_user",
+    }),
+    completed_by_user: one(users, {
+        fields: [serviceRequests.completed_by],
+        references: [users.id],
+        relationName: "service_request_completed_by_user",
+    }),
+    cancelled_by_user: one(users, {
+        fields: [serviceRequests.cancelled_by],
+        references: [users.id],
+        relationName: "service_request_cancelled_by_user",
+    }),
+    line_items: many(lineItems),
+    invoices: many(invoices),
+    items: many(serviceRequestItems),
+    status_history: many(serviceRequestStatusHistory),
+}));
+
+export const serviceRequestItemsRelations = relations(serviceRequestItems, ({ one }) => ({
+    service_request: one(serviceRequests, {
+        fields: [serviceRequestItems.service_request_id],
+        references: [serviceRequests.id],
+    }),
+    asset: one(assets, {
+        fields: [serviceRequestItems.asset_id],
+        references: [assets.id],
+    }),
+}));
+
+export const serviceRequestStatusHistoryRelations = relations(
+    serviceRequestStatusHistory,
+    ({ one }) => ({
+        service_request: one(serviceRequests, {
+            fields: [serviceRequestStatusHistory.service_request_id],
+            references: [serviceRequests.id],
+        }),
+        platform: one(platforms, {
+            fields: [serviceRequestStatusHistory.platform_id],
+            references: [platforms.id],
+        }),
+        changed_by_user: one(users, {
+            fields: [serviceRequestStatusHistory.changed_by],
+            references: [users.id],
+        }),
+    })
+);
+
+export const orderTransportUnits = pgTable(
+    "order_transport_units",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        order_id: uuid("order_id")
+            .notNull()
+            .references(() => orders.id, { onDelete: "cascade" }),
+        kind: orderTransportUnitKindEnum("kind").notNull(),
+        vehicle_type_id: uuid("vehicle_type_id").references(() => vehicleTypes.id),
+        label: varchar("label", { length: 120 }),
+        is_default: boolean("is_default").notNull().default(false),
+        is_billable: boolean("is_billable").notNull().default(false),
+        billable_rate: decimal("billable_rate", { precision: 10, scale: 2 }),
+        created_by: uuid("created_by")
+            .notNull()
+            .references(() => users.id),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+        updated_at: timestamp("updated_at")
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [
+        index("order_transport_units_order_idx").on(table.order_id),
+        index("order_transport_units_platform_idx").on(table.platform_id),
+        index("order_transport_units_kind_idx").on(table.kind),
+    ]
+);
+
+export const orderTransportUnitDetails = pgTable(
+    "order_transport_unit_details",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        transport_unit_id: uuid("transport_unit_id")
+            .notNull()
+            .references(() => orderTransportUnits.id, { onDelete: "cascade" }),
+        truck_plate: varchar("truck_plate", { length: 80 }),
+        driver_name: varchar("driver_name", { length: 120 }),
+        driver_contact: varchar("driver_contact", { length: 80 }),
+        truck_size: varchar("truck_size", { length: 80 }),
+        tailgate_required: boolean("tailgate_required").notNull().default(false),
+        manpower: integer("manpower").notNull().default(0),
+        pickup_notes: text("pickup_notes"),
+        delivery_notes: text("delivery_notes"),
+        notes: text("notes"),
+        metadata: jsonb("metadata")
+            .notNull()
+            .default(sql`'{}'::jsonb`),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+        updated_at: timestamp("updated_at")
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [index("order_transport_unit_details_unit_idx").on(table.transport_unit_id)]
+);
+
+export const orderTransportUnitsRelations = relations(orderTransportUnits, ({ one, many }) => ({
+    platform: one(platforms, {
+        fields: [orderTransportUnits.platform_id],
+        references: [platforms.id],
+    }),
+    order: one(orders, {
+        fields: [orderTransportUnits.order_id],
+        references: [orders.id],
+    }),
+    vehicle_type: one(vehicleTypes, {
+        fields: [orderTransportUnits.vehicle_type_id],
+        references: [vehicleTypes.id],
+    }),
+    created_by_user: one(users, {
+        fields: [orderTransportUnits.created_by],
+        references: [users.id],
+    }),
+    details: many(orderTransportUnitDetails),
+}));
+
+export const orderTransportUnitDetailsRelations = relations(
+    orderTransportUnitDetails,
+    ({ one }) => ({
+        transport_unit: one(orderTransportUnits, {
+            fields: [orderTransportUnitDetails.transport_unit_id],
+            references: [orderTransportUnits.id],
+        }),
+    })
+);

@@ -15,6 +15,8 @@ import {
     prices,
     orders,
     orderStatusHistory,
+    orderTransportUnitDetails,
+    orderTransportUnits,
     reskinRequests,
     scanEvents,
     users,
@@ -40,6 +42,10 @@ import {
     UpdateVehiclePayload,
     UpdateTripTypePayload,
     TruckDetailsPayload,
+    CreateTransportUnitPayload,
+    UpdateTransportUnitPayload,
+    CheckMaintenanceFeasibilityPayload,
+    UpdateMaintenanceDecisionPayload,
 } from "./order.interfaces";
 import {
     checkAssetsForOrder,
@@ -69,6 +75,7 @@ import { TransportRatesServices } from "../transport-rates/transport-rates.servi
 import { costEstimateGenerator } from "../../utils/cost-estimate";
 import { calculatePricingSummary } from "../../utils/pricing-engine";
 import { GoodsFormType, generateGoodsFormXlsx } from "../../utils/goods-form-xlsx";
+import { validateMaintenanceFeasibilityForAssets } from "./order-feasibility.utils";
 
 // ----------------------------------- CALCULATE ESTIMATE -------------------------------------
 const calculateEstimate = async (
@@ -213,6 +220,41 @@ const calculateEstimate = async (
     };
 };
 
+// -------------------------------- CHECK MAINTENANCE FEASIBILITY -----------------------------
+const checkMaintenanceFeasibility = async (
+    platformId: string,
+    payload: CheckMaintenanceFeasibilityPayload
+): Promise<{
+    feasible: boolean;
+    issues: {
+        asset_id: string;
+        asset_name: string;
+        refurb_days_estimate: number;
+        earliest_feasible_date: string;
+        condition: "RED" | "ORANGE";
+        maintenance_mode: "MANDATORY_RED" | "OPTIONAL_ORANGE_FIX";
+        message: string;
+    }[];
+    config: {
+        minimum_lead_hours: number;
+        exclude_weekends: boolean;
+        weekend_days: number[];
+        timezone: string;
+    };
+}> => {
+    const feasibility = await validateMaintenanceFeasibilityForAssets(
+        platformId,
+        payload.items,
+        payload.event_start_date
+    );
+
+    return {
+        feasible: feasibility.feasible,
+        issues: feasibility.issues,
+        config: feasibility.config,
+    };
+};
+
 // ----------------------------------- SUBMIT ORDER FROM CART ---------------------------------
 const submitOrderFromCart = async (
     user: AuthUser,
@@ -292,10 +334,30 @@ const submitOrderFromCart = async (
         eventEndDate
     );
 
+    const maintenanceFeasibility = await validateMaintenanceFeasibilityForAssets(
+        platformId,
+        items.map((item) => ({
+            asset_id: item.asset_id,
+            maintenance_decision: item.maintenance_decision,
+        })),
+        eventStartDate
+    );
+
+    if (!maintenanceFeasibility.feasible) {
+        const details = maintenanceFeasibility.issues
+            .map((issue) => `${issue.asset_name}: earliest ${issue.earliest_feasible_date}`)
+            .join("; ");
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Maintenance timeline is not feasible for selected event date. ${details}`
+        );
+    }
+
     // Step 4: Calculate order totals (volume and weight)
     const orderItemsData: OrderItem[] = [];
     let totalVolume = 0;
     let totalWeight = 0;
+    const decisionLockedAt = new Date();
 
     for (const item of items) {
         const asset = foundAssets.find((a) => a.id === item.asset_id)!;
@@ -319,6 +381,38 @@ const submitOrderFromCart = async (
             collectionName = collection?.name || null;
         }
 
+        const requestedDecision = item.maintenance_decision ?? null;
+        let maintenanceDecision: "FIX_IN_ORDER" | "USE_AS_IS" | null = null;
+
+        if (asset.condition === "ORANGE") {
+            if (!requestedDecision) {
+                throw new CustomizedError(
+                    httpStatus.BAD_REQUEST,
+                    `Maintenance decision is required for ORANGE asset: ${asset.name}`
+                );
+            }
+            maintenanceDecision = requestedDecision;
+        } else if (asset.condition === "RED") {
+            if (requestedDecision === "USE_AS_IS") {
+                throw new CustomizedError(
+                    httpStatus.BAD_REQUEST,
+                    `RED asset cannot be submitted as-is: ${asset.name}`
+                );
+            }
+            maintenanceDecision = "FIX_IN_ORDER";
+        } else if (requestedDecision) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                `Maintenance decision is only allowed for ORANGE or RED assets: ${asset.name}`
+            );
+        }
+
+        const requiresMaintenance =
+            asset.condition === "RED" || maintenanceDecision === "FIX_IN_ORDER";
+        const maintenanceRefurbDaysSnapshot = requiresMaintenance
+            ? Number(asset.refurb_days_estimate || 0)
+            : null;
+
         orderItemsData.push({
             platform_id: platformId,
             asset_id: asset.id,
@@ -336,6 +430,10 @@ const submitOrderFromCart = async (
             reskin_target_brand_id: item.reskin_target_brand_id || null,
             reskin_target_brand_custom: item.reskin_target_brand_custom || null,
             reskin_notes: item.reskin_notes || null,
+            maintenance_decision: maintenanceDecision,
+            requires_maintenance: requiresMaintenance,
+            maintenance_refurb_days_snapshot: maintenanceRefurbDaysSnapshot,
+            maintenance_decision_locked_at: maintenanceDecision ? decisionLockedAt : null,
         });
     }
 
@@ -1011,6 +1109,10 @@ const getOrderById = async (
                 reskin_target_brand_name: brands.name,
                 reskin_target_brand_custom: orderItems.reskin_target_brand_custom,
                 reskin_notes: orderItems.reskin_notes,
+                maintenance_decision: orderItems.maintenance_decision,
+                requires_maintenance: orderItems.requires_maintenance,
+                maintenance_refurb_days_snapshot: orderItems.maintenance_refurb_days_snapshot,
+                maintenance_decision_locked_at: orderItems.maintenance_decision_locked_at,
             },
             asset: {
                 id: assets.id,
@@ -1188,16 +1290,54 @@ const getOrderScanEvents = async (orderId: string, platformId: string) => {
         .where(eq(scanEvents.order_id, order.id))
         .orderBy(desc(scanEvents.scanned_at));
 
+    const normalizeDamageEntries = (
+        rawEntries: unknown,
+        legacyPhotos: unknown
+    ): Array<{ url: string; description?: string }> => {
+        if (Array.isArray(rawEntries) && rawEntries.length > 0) {
+            const normalized: Array<{ url: string; description?: string }> = [];
+            rawEntries.forEach((entry) => {
+                const url = (entry as any)?.url;
+                const description = (entry as any)?.description;
+                if (typeof url !== "string" || !url.trim()) return;
+                normalized.push({
+                    url: url.trim(),
+                    description:
+                        typeof description === "string" && description.trim().length > 0
+                            ? description.trim()
+                            : undefined,
+                });
+            });
+            return normalized;
+        }
+
+        if (!Array.isArray(legacyPhotos)) return [];
+        return legacyPhotos
+            .filter((url): url is string => typeof url === "string" && url.trim().length > 0)
+            .map((url) => ({ url: url.trim() }));
+    };
+
     // Step 4: Format results
-    const formattedResult = events.map((event) => ({
-        ...event.scanEvent,
-        asset: event.asset,
-        scanned_by_user: event.scannedByUser,
-        order: {
-            id: order.id,
-            order_id: order.order_id,
-        },
-    }));
+    const formattedResult = events.map((event) => {
+        const damageEntries = normalizeDamageEntries(
+            (event.scanEvent as any).damage_report_entries,
+            (event.scanEvent as any).damage_report_photos || (event.scanEvent as any).photos
+        );
+        const damagePhotoUrls = damageEntries.map((entry) => entry.url);
+
+        return {
+            ...event.scanEvent,
+            photos: damagePhotoUrls,
+            damage_report_photos: damagePhotoUrls,
+            damage_report_entries: damageEntries,
+            asset: event.asset,
+            scanned_by_user: event.scannedByUser,
+            order: {
+                id: order.id,
+                order_id: order.order_id,
+            },
+        };
+    });
 
     // Step 5: Return results
     return formattedResult;
@@ -1311,7 +1451,7 @@ const progressOrderStatus = async (
 
         // Check if all reskin requests are completed
         const allReskinRequestsCompleted = requests.every(
-            (request) => request.completed_at !== null
+            (request) => request.completed_at !== null || request.cancelled_at !== null
         );
 
         if (!allReskinRequestsCompleted) {
@@ -1381,10 +1521,7 @@ const progressOrderStatus = async (
             );
         }
     }
-    await db
-        .update(orders)
-        .set(updatePayload)
-        .where(eq(orders.id, orderId));
+    await db.update(orders).set(updatePayload).where(eq(orders.id, orderId));
 
     // Step 6: Create status history entry
     await db.insert(orderStatusHistory).values({
@@ -2540,10 +2677,8 @@ const updateOrderVehicle = async (
     user: AuthUser,
     payload: UpdateVehiclePayload
 ) => {
-    // Step 1: Extract payload data
     const { vehicle_type_id, reason } = payload;
 
-    // Step 2: Fetch order from database
     const order = await db.query.orders.findFirst({
         where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
     });
@@ -2552,7 +2687,6 @@ const updateOrderVehicle = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
     }
 
-    // Step 3: Verify order is in valid status for vehicle update
     if (!["PRICING_REVIEW", "PENDING_APPROVAL"].includes(order.order_status)) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
@@ -2560,16 +2694,6 @@ const updateOrderVehicle = async (
         );
     }
 
-    // Step 4: Fetch order pricing details
-    const orderPricing = await db.query.prices.findFirst({
-        where: and(eq(prices.id, order.order_pricing_id), eq(orders.platform_id, platformId)),
-    });
-
-    if (!orderPricing) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Order pricing not found");
-    }
-
-    // Step 5: Fetch vehicle type details
     const vehicleType = await db.query.vehicleTypes.findFirst({
         where: eq(vehicleTypes.id, vehicle_type_id),
     });
@@ -2578,68 +2702,55 @@ const updateOrderVehicle = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Vehicle type not found");
     }
 
-    // Step 6: Lookup new transport rate for the updated vehicle type
-    const transportRateInfo = await TransportRatesServices.lookupTransportRate(
-        platformId,
-        order.company_id,
-        order.venue_city_id,
-        order.trip_type,
-        vehicle_type_id
-    );
+    await ensureDefaultTransportUnits(orderId, platformId, user.id);
+    const units = await getTransportUnitsRaw(orderId, platformId);
+    const defaultDeliveryUnit =
+        units.find((unit) => unit.kind === "DELIVERY_BILLABLE" && unit.is_default) ||
+        units.find((unit) => unit.kind === "DELIVERY_BILLABLE");
 
-    // Step 7: Calculate updated pricing with new transport rate
-    const transportRate = transportRateInfo?.rate ? Number(transportRateInfo.rate) : null;
-    const baseOpsTotal = Number(orderPricing.base_ops_total);
-    const catalogTotal = Number((orderPricing.line_items as any)?.catalog_total || 0);
-    const customTotal = Number((orderPricing.line_items as any)?.custom_total || 0);
-    const marginPercent = Number((orderPricing.margin as any).percent);
-    const pricingSummary = calculatePricingSummary({
-        base_ops_total: baseOpsTotal,
-        transport_rate: transportRate || 0,
-        catalog_total: catalogTotal,
-        custom_total: customTotal,
-        margin_percent: marginPercent,
-    });
-
-    // Step 8: Prepare updated pricing object
-    const updatedPricing = {
-        logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
-        transport: {
-            system_rate: (orderPricing.transport as any).system_rate,
-            final_rate: transportRate,
-        },
-        margin: {
-            ...(orderPricing.margin as Record<string, any>),
-            amount: pricingSummary.margin_amount,
-        },
-        final_total: pricingSummary.final_total.toFixed(2),
-        calculated_at: new Date(),
-        calculated_by: user.id,
-    };
-
-    // Step 9: Update order pricing and vehicle type in transaction
-    await db.transaction(async (tx) => {
-        // Step 9.1: Update order pricing with new transport rate
-        await tx.update(prices).set(updatedPricing).where(eq(prices.id, order.order_pricing_id));
-
-        // Step 9.2: Update order vehicle type
-        await tx
-            .update(orders)
+    if (!defaultDeliveryUnit) {
+        await db.insert(orderTransportUnits).values({
+            platform_id: platformId,
+            order_id: orderId,
+            kind: "DELIVERY_BILLABLE",
+            vehicle_type_id,
+            label: "Default delivery",
+            is_default: true,
+            is_billable: true,
+            created_by: user.id,
+        });
+    } else {
+        await db
+            .update(orderTransportUnits)
             .set({
                 vehicle_type_id,
+                billable_rate: null,
                 updated_at: new Date(),
             })
-            .where(eq(orders.id, orderId));
-    });
+            .where(eq(orderTransportUnits.id, defaultDeliveryUnit.id));
+    }
+
+    await db
+        .update(orders)
+        .set({
+            vehicle_type_id,
+            updated_at: new Date(),
+        })
+        .where(eq(orders.id, orderId));
+
+    await recalculateOrderTransportFromUnits(orderId, platformId);
 
     if (order.order_status !== "PRICING_REVIEW") {
         await costEstimateGenerator(orderId, platformId, user, true);
     }
 
-    // Step 10: Return updated vehicle information
+    const refreshedPricing = await db.query.prices.findFirst({
+        where: and(eq(prices.id, order.order_pricing_id), eq(prices.platform_id, platformId)),
+    });
+
     return {
         vehicle_type: vehicleType.name,
-        new_rate: transportRate,
+        new_rate: Number((refreshedPricing?.transport as any)?.final_rate || 0),
         reason: reason.trim(),
     };
 };
@@ -2666,34 +2777,371 @@ const updateOrderTripType = async (
     if (order.trip_type === trip_type)
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Trip type is already set to this value");
 
-    const orderPricing = await db.query.prices.findFirst({
+    await ensureDefaultTransportUnits(orderId, platformId, user.id);
+
+    await db
+        .update(orders)
+        .set({
+            trip_type,
+            updated_at: new Date(),
+        })
+        .where(eq(orders.id, orderId));
+
+    await recalculateOrderTransportFromUnits(orderId, platformId);
+
+    if (order.order_status !== "PRICING_REVIEW")
+        await costEstimateGenerator(orderId, platformId, user, true);
+
+    const refreshedPricing = await db.query.prices.findFirst({
         where: and(eq(prices.id, order.order_pricing_id), eq(prices.platform_id, platformId)),
     });
 
-    if (!orderPricing) throw new CustomizedError(httpStatus.NOT_FOUND, "Order pricing not found");
-
-    const transportRateInfo = await TransportRatesServices.lookupTransportRate(
-        platformId,
-        order.company_id,
-        order.venue_city_id,
+    return {
         trip_type,
-        order.vehicle_type_id
-    );
+        new_rate: Number((refreshedPricing?.transport as any)?.final_rate || 0),
+        reason: reason.trim(),
+    };
+};
 
-    if (!transportRateInfo)
+// ------------------------------- UPDATE MAINTENANCE DECISION -------------------------------
+const updateMaintenanceDecision = async (
+    orderId: string,
+    platformId: string,
+    payload: UpdateMaintenanceDecisionPayload
+) => {
+    const { order_item_id, maintenance_decision } = payload;
+
+    const order = await db.query.orders.findFirst({
+        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
+        columns: {
+            id: true,
+            order_status: true,
+            financial_status: true,
+        },
+    });
+
+    if (!order) throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    if (
+        ["QUOTE_ACCEPTED", "PENDING_INVOICE", "INVOICED", "PAID"].includes(order.financial_status)
+    ) {
         throw new CustomizedError(
-            httpStatus.NOT_FOUND,
-            "No transport rate found for selected trip type and vehicle"
+            httpStatus.BAD_REQUEST,
+            "Maintenance decisions are locked after client quote approval"
+        );
+    }
+    if (order.order_status === "CANCELLED") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Maintenance decisions cannot be changed for cancelled orders"
+        );
+    }
+
+    const [orderItemRecord] = await db
+        .select({
+            id: orderItems.id,
+            asset_id: orderItems.asset_id,
+            asset_name: orderItems.asset_name,
+            condition: assets.condition,
+            refurb_days_estimate: assets.refurb_days_estimate,
+        })
+        .from(orderItems)
+        .innerJoin(assets, eq(orderItems.asset_id, assets.id))
+        .where(
+            and(
+                eq(orderItems.id, order_item_id),
+                eq(orderItems.order_id, orderId),
+                eq(orderItems.platform_id, platformId)
+            )
+        )
+        .limit(1);
+
+    if (!orderItemRecord) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order item not found");
+    }
+
+    if (orderItemRecord.condition === "GREEN") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Maintenance decision can only be set for ORANGE or RED assets"
+        );
+    }
+    if (orderItemRecord.condition === "RED" && maintenance_decision !== "FIX_IN_ORDER") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "RED assets must use FIX_IN_ORDER maintenance decision"
+        );
+    }
+
+    const requiresMaintenance =
+        orderItemRecord.condition === "RED" || maintenance_decision === "FIX_IN_ORDER";
+    const maintenanceRefurbDaysSnapshot = requiresMaintenance
+        ? Number(orderItemRecord.refurb_days_estimate || 0)
+        : null;
+
+    const [updatedItem] = await db
+        .update(orderItems)
+        .set({
+            maintenance_decision:
+                orderItemRecord.condition === "RED" ? "FIX_IN_ORDER" : maintenance_decision,
+            requires_maintenance: requiresMaintenance,
+            maintenance_refurb_days_snapshot: maintenanceRefurbDaysSnapshot,
+            maintenance_decision_locked_at: new Date(),
+        })
+        .where(eq(orderItems.id, order_item_id))
+        .returning({
+            id: orderItems.id,
+            asset_id: orderItems.asset_id,
+            asset_name: orderItems.asset_name,
+            maintenance_decision: orderItems.maintenance_decision,
+            requires_maintenance: orderItems.requires_maintenance,
+            maintenance_refurb_days_snapshot: orderItems.maintenance_refurb_days_snapshot,
+            maintenance_decision_locked_at: orderItems.maintenance_decision_locked_at,
+        });
+
+    return updatedItem;
+};
+
+const normalizeLegacyTruckDetails = (details: any) => {
+    if (!details || typeof details !== "object") return null;
+    return {
+        truck_plate: details.truck_plate || null,
+        driver_name: details.driver_name || null,
+        driver_contact: details.driver_contact || null,
+        truck_size: details.truck_size || null,
+        tailgate_required: !!details.tailgate_required,
+        manpower: Number(details.manpower || 0),
+        notes: details.notes || null,
+        pickup_notes: details.pickup_notes || null,
+        delivery_notes: details.delivery_notes || null,
+        metadata: details.metadata || {},
+    };
+};
+
+const getTransportUnitsRaw = async (orderId: string, platformId: string) => {
+    const rows = await db
+        .select({
+            unit: orderTransportUnits,
+            vehicle_type: {
+                id: vehicleTypes.id,
+                name: vehicleTypes.name,
+            },
+            detail: orderTransportUnitDetails,
+        })
+        .from(orderTransportUnits)
+        .leftJoin(vehicleTypes, eq(orderTransportUnits.vehicle_type_id, vehicleTypes.id))
+        .leftJoin(
+            orderTransportUnitDetails,
+            eq(orderTransportUnits.id, orderTransportUnitDetails.transport_unit_id)
+        )
+        .where(
+            and(
+                eq(orderTransportUnits.order_id, orderId),
+                eq(orderTransportUnits.platform_id, platformId)
+            )
+        )
+        .orderBy(asc(orderTransportUnits.created_at));
+
+    const grouped = new Map<string, any>();
+    rows.forEach((row) => {
+        const unitId = row.unit.id;
+        if (!grouped.has(unitId)) {
+            grouped.set(unitId, {
+                ...row.unit,
+                vehicle_type: row.vehicle_type?.id ? row.vehicle_type : null,
+                details: [],
+            });
+        }
+        if (row.detail?.id) {
+            grouped.get(unitId).details.push(row.detail);
+        }
+    });
+
+    return Array.from(grouped.values());
+};
+
+const ensureDefaultTransportUnits = async (
+    orderId: string,
+    platformId: string,
+    actorId?: string
+) => {
+    const existing = await getTransportUnitsRaw(orderId, platformId);
+    if (existing.length > 0) return;
+
+    const order = await db.query.orders.findFirst({
+        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
+    });
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    }
+
+    const creatorId = actorId || order.user_id;
+
+    const [deliveryUnit] = await db
+        .insert(orderTransportUnits)
+        .values({
+            platform_id: platformId,
+            order_id: orderId,
+            kind: "DELIVERY_BILLABLE",
+            vehicle_type_id: order.vehicle_type_id || null,
+            label: "Default delivery",
+            is_default: true,
+            is_billable: true,
+            created_by: creatorId,
+        })
+        .returning();
+
+    const deliveryDetails = normalizeLegacyTruckDetails(order.delivery_truck_details as any);
+    if (deliveryDetails) {
+        await db.insert(orderTransportUnitDetails).values({
+            transport_unit_id: deliveryUnit.id,
+            ...deliveryDetails,
+        });
+    }
+
+    const pickupDetails = normalizeLegacyTruckDetails(order.pickup_truck_details as any);
+    if (pickupDetails) {
+        const [pickupUnit] = await db
+            .insert(orderTransportUnits)
+            .values({
+                platform_id: platformId,
+                order_id: orderId,
+                kind: "PICKUP_OPS",
+                vehicle_type_id: null,
+                label: "Default pickup",
+                is_default: true,
+                is_billable: false,
+                created_by: creatorId,
+            })
+            .returning();
+
+        await db.insert(orderTransportUnitDetails).values({
+            transport_unit_id: pickupUnit.id,
+            ...pickupDetails,
+        });
+    }
+};
+
+const calculateTransportRateFromUnits = async (
+    order: {
+        id: string;
+        company_id: string;
+        venue_city_id: string;
+        trip_type: "ONE_WAY" | "ROUND_TRIP";
+        vehicle_type_id: string;
+    },
+    platformId: string
+) => {
+    const units = await db
+        .select()
+        .from(orderTransportUnits)
+        .where(
+            and(
+                eq(orderTransportUnits.order_id, order.id),
+                eq(orderTransportUnits.platform_id, platformId),
+                eq(orderTransportUnits.kind, "DELIVERY_BILLABLE"),
+                eq(orderTransportUnits.is_billable, true)
+            )
         );
 
-    const transportRate = Number(transportRateInfo.rate);
+    if (units.length === 0) {
+        const fallback = await TransportRatesServices.lookupTransportRate(
+            platformId,
+            order.company_id,
+            order.venue_city_id,
+            order.trip_type,
+            order.vehicle_type_id
+        );
+        return Number(fallback?.rate || 0);
+    }
+
+    let totalRate = 0;
+    for (const unit of units) {
+        if (unit.billable_rate) {
+            totalRate += Number(unit.billable_rate);
+            continue;
+        }
+        if (!unit.vehicle_type_id) continue;
+        const rate = await TransportRatesServices.lookupTransportRate(
+            platformId,
+            order.company_id,
+            order.venue_city_id,
+            order.trip_type,
+            unit.vehicle_type_id
+        );
+        totalRate += Number(rate?.rate || 0);
+    }
+    return totalRate;
+};
+
+const recalculateOrderTransportFromUnits = async (orderId: string, platformId: string) => {
+    const [result] = await db
+        .select({
+            order: orders,
+            company: {
+                platform_margin_percent: companies.platform_margin_percent,
+            },
+            order_pricing: {
+                id: prices.id,
+                base_ops_total: prices.base_ops_total,
+                transport: prices.transport,
+                line_items: prices.line_items,
+                margin: prices.margin,
+            },
+        })
+        .from(orders)
+        .leftJoin(companies, eq(orders.company_id, companies.id))
+        .leftJoin(prices, eq(orders.order_pricing_id, prices.id))
+        .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)))
+        .limit(1);
+
+    if (!result || !result.company || !result.order_pricing) return;
+    const orderPricingId = result.order_pricing.id;
+
+    const transportRate = await calculateTransportRateFromUnits(
+        {
+            id: result.order.id,
+            company_id: result.order.company_id,
+            venue_city_id: result.order.venue_city_id,
+            trip_type: result.order.trip_type as "ONE_WAY" | "ROUND_TRIP",
+            vehicle_type_id: result.order.vehicle_type_id,
+        },
+        platformId
+    );
+
+    const lineItemsTotals = await LineItemsServices.calculateOrderLineItemsTotals(
+        orderId,
+        platformId
+    );
+    const marginData = result.order_pricing.margin as any;
+    const marginOverride = !!marginData?.is_override;
+    const marginPercent = marginOverride
+        ? parseFloat(marginData.percent)
+        : parseFloat(result.company.platform_margin_percent);
+    const marginOverrideReason = marginOverride ? marginData.override_reason : null;
+
     const pricingSummary = calculatePricingSummary({
-        base_ops_total: Number(orderPricing.base_ops_total),
+        base_ops_total: Number(result.order_pricing.base_ops_total),
         transport_rate: transportRate,
-        catalog_total: Number((orderPricing.line_items as any)?.catalog_total || 0),
-        custom_total: Number((orderPricing.line_items as any)?.custom_total || 0),
-        margin_percent: Number((orderPricing.margin as any).percent),
+        catalog_total: lineItemsTotals.catalog_total,
+        custom_total: lineItemsTotals.custom_total,
+        margin_percent: marginPercent,
     });
+
+    const deliveryUnit = (
+        await db
+            .select({
+                vehicle_type_id: orderTransportUnits.vehicle_type_id,
+            })
+            .from(orderTransportUnits)
+            .where(
+                and(
+                    eq(orderTransportUnits.order_id, orderId),
+                    eq(orderTransportUnits.platform_id, platformId),
+                    eq(orderTransportUnits.kind, "DELIVERY_BILLABLE")
+                )
+            )
+            .limit(1)
+    )[0];
 
     await db.transaction(async (tx) => {
         await tx
@@ -2704,68 +3152,313 @@ const updateOrderTripType = async (
                     system_rate: transportRate,
                     final_rate: transportRate,
                 },
+                line_items: {
+                    catalog_total: lineItemsTotals.catalog_total,
+                    custom_total: lineItemsTotals.custom_total,
+                },
                 margin: {
-                    ...(orderPricing.margin as Record<string, any>),
+                    percent: marginPercent,
                     amount: pricingSummary.margin_amount,
+                    is_override: marginOverride,
+                    override_reason: marginOverrideReason,
                 },
                 final_total: pricingSummary.final_total.toFixed(2),
                 calculated_at: new Date(),
-                calculated_by: user.id,
             })
-            .where(eq(prices.id, order.order_pricing_id));
+            .where(eq(prices.id, orderPricingId));
 
-        await tx
-            .update(orders)
-            .set({
-                trip_type,
-                updated_at: new Date(),
-            })
-            .where(eq(orders.id, orderId));
+        if (deliveryUnit?.vehicle_type_id) {
+            await tx
+                .update(orders)
+                .set({ vehicle_type_id: deliveryUnit.vehicle_type_id, updated_at: new Date() })
+                .where(eq(orders.id, orderId));
+        }
     });
-
-    if (order.order_status !== "PRICING_REVIEW")
-        await costEstimateGenerator(orderId, platformId, user, true);
-
-    return {
-        trip_type,
-        new_rate: transportRate,
-        reason: reason.trim(),
-    };
 };
 
-// ----------------------------------- ADD TRUCK DETAILS -------------------------------------
-const addTruckDetails = async (
+const listTransportUnits = async (orderId: string, platformId: string, actorId?: string) => {
+    await ensureDefaultTransportUnits(orderId, platformId, actorId);
+    const units = await getTransportUnitsRaw(orderId, platformId);
+    return units.map((unit) => ({
+        ...unit,
+        details: unit.details[0] || null,
+    }));
+};
+
+const createTransportUnit = async (
     orderId: string,
     platformId: string,
-    payload: TruckDetailsPayload
+    payload: CreateTransportUnitPayload,
+    userId: string
 ) => {
-    // Step 1: Validate payload
-    const { delivery_truck_details, pickup_truck_details } = payload;
-
-    // Step 2: Fetch order and verify status
     const order = await db.query.orders.findFirst({
         where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
     });
+    if (!order) throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
 
-    if (!order) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    const isBillable =
+        payload.is_billable !== undefined
+            ? payload.is_billable
+            : payload.kind === "DELIVERY_BILLABLE";
+
+    const [unit] = await db
+        .insert(orderTransportUnits)
+        .values({
+            platform_id: platformId,
+            order_id: orderId,
+            kind: payload.kind as any,
+            vehicle_type_id: payload.vehicle_type_id || null,
+            label: payload.label || null,
+            is_default: payload.is_default || false,
+            is_billable: isBillable,
+            billable_rate:
+                payload.billable_rate !== undefined ? payload.billable_rate.toString() : null,
+            created_by: userId,
+        })
+        .returning();
+
+    if (payload.is_default) {
+        await db
+            .update(orderTransportUnits)
+            .set({ is_default: false })
+            .where(
+                and(
+                    eq(orderTransportUnits.order_id, orderId),
+                    eq(orderTransportUnits.platform_id, platformId),
+                    eq(orderTransportUnits.kind, payload.kind as any),
+                    sql`${orderTransportUnits.id} <> ${unit.id}`
+                )
+            );
     }
 
-    // Step 3: Update order truck details in transaction
-    await db.transaction(async (tx) => {
-        await tx
-            .update(orders)
-            .set({
-                ...(delivery_truck_details && { delivery_truck_details }),
-                ...(pickup_truck_details && { pickup_truck_details }),
-            })
-            .where(eq(orders.id, orderId));
-    });
+    if (payload.detail) {
+        await db.insert(orderTransportUnitDetails).values({
+            transport_unit_id: unit.id,
+            truck_plate: payload.detail.truck_plate || null,
+            driver_name: payload.detail.driver_name || null,
+            driver_contact: payload.detail.driver_contact || null,
+            truck_size: payload.detail.truck_size || null,
+            tailgate_required: !!payload.detail.tailgate_required,
+            manpower: Number(payload.detail.manpower || 0),
+            pickup_notes: payload.detail.pickup_notes || null,
+            delivery_notes: payload.detail.delivery_notes || null,
+            notes: payload.detail.notes || null,
+            metadata: payload.detail.metadata || {},
+        });
+    }
 
-    // Step 4: Return updated truck details
+    await recalculateOrderTransportFromUnits(orderId, platformId);
+    return listTransportUnits(orderId, platformId, userId);
+};
+
+const updateTransportUnit = async (
+    orderId: string,
+    unitId: string,
+    platformId: string,
+    payload: UpdateTransportUnitPayload,
+    userId: string
+) => {
+    const [existing] = await db
+        .select()
+        .from(orderTransportUnits)
+        .where(
+            and(
+                eq(orderTransportUnits.id, unitId),
+                eq(orderTransportUnits.order_id, orderId),
+                eq(orderTransportUnits.platform_id, platformId)
+            )
+        )
+        .limit(1);
+
+    if (!existing) throw new CustomizedError(httpStatus.NOT_FOUND, "Transport unit not found");
+
+    const nextKind = (payload.kind || existing.kind) as any;
+    const nextVehicleType =
+        payload.vehicle_type_id !== undefined ? payload.vehicle_type_id : existing.vehicle_type_id;
+    if (nextKind === "DELIVERY_BILLABLE" && !nextVehicleType) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "vehicle_type_id is required for DELIVERY_BILLABLE units"
+        );
+    }
+
+    const updatePayload: any = {
+        updated_at: new Date(),
+    };
+    if (payload.kind !== undefined) updatePayload.kind = payload.kind;
+    if (payload.vehicle_type_id !== undefined)
+        updatePayload.vehicle_type_id = payload.vehicle_type_id;
+    if (payload.label !== undefined) updatePayload.label = payload.label;
+    if (payload.is_default !== undefined) updatePayload.is_default = payload.is_default;
+    if (payload.is_billable !== undefined) updatePayload.is_billable = payload.is_billable;
+    if (payload.billable_rate !== undefined) {
+        updatePayload.billable_rate =
+            payload.billable_rate !== null ? payload.billable_rate.toString() : null;
+    }
+
+    await db
+        .update(orderTransportUnits)
+        .set(updatePayload)
+        .where(eq(orderTransportUnits.id, unitId));
+
+    if (payload.is_default) {
+        await db
+            .update(orderTransportUnits)
+            .set({ is_default: false })
+            .where(
+                and(
+                    eq(orderTransportUnits.order_id, orderId),
+                    eq(orderTransportUnits.platform_id, platformId),
+                    eq(orderTransportUnits.kind, nextKind),
+                    sql`${orderTransportUnits.id} <> ${unitId}`
+                )
+            );
+    }
+
+    if (payload.detail) {
+        const [existingDetail] = await db
+            .select()
+            .from(orderTransportUnitDetails)
+            .where(eq(orderTransportUnitDetails.transport_unit_id, unitId))
+            .limit(1);
+
+        const detailData = {
+            truck_plate: payload.detail.truck_plate || null,
+            driver_name: payload.detail.driver_name || null,
+            driver_contact: payload.detail.driver_contact || null,
+            truck_size: payload.detail.truck_size || null,
+            tailgate_required: !!payload.detail.tailgate_required,
+            manpower: Number(payload.detail.manpower || 0),
+            pickup_notes: payload.detail.pickup_notes || null,
+            delivery_notes: payload.detail.delivery_notes || null,
+            notes: payload.detail.notes || null,
+            metadata: payload.detail.metadata || {},
+            updated_at: new Date(),
+        };
+
+        if (existingDetail) {
+            await db
+                .update(orderTransportUnitDetails)
+                .set(detailData)
+                .where(eq(orderTransportUnitDetails.id, existingDetail.id));
+        } else {
+            await db.insert(orderTransportUnitDetails).values({
+                transport_unit_id: unitId,
+                ...detailData,
+            });
+        }
+    }
+
+    await recalculateOrderTransportFromUnits(orderId, platformId);
+    return listTransportUnits(orderId, platformId, userId);
+};
+
+const deleteTransportUnit = async (
+    orderId: string,
+    unitId: string,
+    platformId: string,
+    userId: string
+) => {
+    const [existing] = await db
+        .select()
+        .from(orderTransportUnits)
+        .where(
+            and(
+                eq(orderTransportUnits.id, unitId),
+                eq(orderTransportUnits.order_id, orderId),
+                eq(orderTransportUnits.platform_id, platformId)
+            )
+        )
+        .limit(1);
+
+    if (!existing) throw new CustomizedError(httpStatus.NOT_FOUND, "Transport unit not found");
+
+    if (existing.kind === "DELIVERY_BILLABLE") {
+        const [countResult] = await db
+            .select({ count: count() })
+            .from(orderTransportUnits)
+            .where(
+                and(
+                    eq(orderTransportUnits.order_id, orderId),
+                    eq(orderTransportUnits.platform_id, platformId),
+                    eq(orderTransportUnits.kind, "DELIVERY_BILLABLE")
+                )
+            );
+        if (Number(countResult.count || 0) <= 1) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "At least one delivery billable transport unit is required"
+            );
+        }
+    }
+
+    await db.delete(orderTransportUnits).where(eq(orderTransportUnits.id, unitId));
+    await recalculateOrderTransportFromUnits(orderId, platformId);
+    return listTransportUnits(orderId, platformId, userId);
+};
+
+// ----------------------------------- ADD TRUCK DETAILS (LEGACY COMPATIBILITY) --------------
+const addTruckDetails = async (
+    orderId: string,
+    platformId: string,
+    payload: TruckDetailsPayload,
+    userId: string
+) => {
+    await ensureDefaultTransportUnits(orderId, platformId, userId);
+    const units = await getTransportUnitsRaw(orderId, platformId);
+
+    if (payload.delivery_truck_details) {
+        const delivery =
+            units.find((u) => u.kind === "DELIVERY_BILLABLE" && u.is_default) ||
+            units.find((u) => u.kind === "DELIVERY_BILLABLE");
+        if (delivery) {
+            await updateTransportUnit(
+                orderId,
+                delivery.id,
+                platformId,
+                { detail: payload.delivery_truck_details },
+                userId
+            );
+        }
+    }
+    if (payload.pickup_truck_details) {
+        let pickup =
+            units.find((u) => u.kind === "PICKUP_OPS" && u.is_default) ||
+            units.find((u) => u.kind === "PICKUP_OPS");
+        if (!pickup) {
+            const created = await createTransportUnit(
+                orderId,
+                platformId,
+                {
+                    kind: "PICKUP_OPS",
+                    is_default: true,
+                    detail: payload.pickup_truck_details as any,
+                },
+                userId
+            );
+            pickup = created.find((u) => u.kind === "PICKUP_OPS" && u.is_default) || null;
+        }
+        if (pickup) {
+            await updateTransportUnit(
+                orderId,
+                pickup.id,
+                platformId,
+                { detail: payload.pickup_truck_details },
+                userId
+            );
+        }
+    }
+
+    const refreshed = await listTransportUnits(orderId, platformId, userId);
+    const deliveryDetails =
+        refreshed.find((unit) => unit.kind === "DELIVERY_BILLABLE" && unit.is_default)?.details ||
+        null;
+    const pickupDetails =
+        refreshed.find((unit) => unit.kind === "PICKUP_OPS" && unit.is_default)?.details || null;
+
     return {
-        delivery_truck_details: delivery_truck_details || null,
-        pickup_truck_details: pickup_truck_details || null,
+        delivery_truck_details: deliveryDetails,
+        pickup_truck_details: pickupDetails,
     };
 };
 
@@ -2854,8 +3547,14 @@ export const OrderServices = {
     returnToLogistics,
     cancelOrder,
     calculateEstimate,
+    checkMaintenanceFeasibility,
     updateOrderVehicle,
     downloadGoodsForm,
     updateOrderTripType,
+    updateMaintenanceDecision,
     addTruckDetails,
+    listTransportUnits,
+    createTransportUnit,
+    updateTransportUnit,
+    deleteTransportUnit,
 };

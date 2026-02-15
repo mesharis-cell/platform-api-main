@@ -19,6 +19,7 @@ import { VehicleTypeRoutes } from "../modules/vehicle-type/vehicle-type.routes";
 import { LineItemsRoutes } from "../modules/order-line-items/order-line-items.routes";
 import { PriceRoutes } from "../modules/price/price.routes";
 import { ExportRoutes } from "../modules/export/export.routes";
+import { ServiceRequestRoutes } from "../modules/service-request/service-request.routes";
 
 const router = Router();
 
@@ -102,6 +103,10 @@ const routes = [
     {
         path: "/export",
         route: ExportRoutes,
+    },
+    {
+        path: "/service-request",
+        route: ServiceRequestRoutes,
     },
 ];
 

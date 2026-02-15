@@ -5,6 +5,7 @@ import { InvoiceRoutes } from "../modules/invoice/invoice.routes";
 import { OrderRoutes } from "../modules/order/order.routes";
 import { InboundRequestRoutes } from "../modules/inbound-request/inbound-request.routes";
 import { ExportRoutes } from "../modules/export/export.routes";
+import { ServiceRequestRoutes } from "../modules/service-request/service-request.routes";
 
 const router = Router();
 
@@ -32,6 +33,10 @@ const routes = [
     {
         path: "/export",
         route: ExportRoutes,
+    },
+    {
+        path: "/service-request",
+        route: ServiceRequestRoutes,
     },
 ];
 

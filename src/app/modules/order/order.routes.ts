@@ -22,6 +22,26 @@ router.post(
     OrderControllers.calculateEstimate
 );
 
+// Validate maintenance feasibility at event-date/review steps
+router.post(
+    "/check-maintenance-feasibility",
+    platformValidator,
+    auth("CLIENT"),
+    requirePermission(PERMISSIONS.ORDERS_CREATE),
+    payloadValidator(orderSchemas.checkMaintenanceFeasibilitySchema),
+    OrderControllers.checkMaintenanceFeasibility
+);
+
+// Backward-compatible alias
+router.post(
+    "/check-red-feasibility",
+    platformValidator,
+    auth("CLIENT"),
+    requirePermission(PERMISSIONS.ORDERS_CREATE),
+    payloadValidator(orderSchemas.checkMaintenanceFeasibilitySchema),
+    OrderControllers.checkMaintenanceFeasibility
+);
+
 // Submit order
 router.post(
     "/submit-from-cart",
@@ -199,6 +219,16 @@ router.patch(
     OrderControllers.updateOrderTripType
 );
 
+// Update maintenance decision (Admin + Logistics)
+router.patch(
+    "/:id/maintenance-decision",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.ORDERS_UPDATE),
+    payloadValidator(orderSchemas.updateMaintenanceDecisionSchema),
+    OrderControllers.updateMaintenanceDecision
+);
+
 // Submit for approval (Logistics → Admin)
 router.post(
     "/:id/submit-for-approval",
@@ -277,6 +307,40 @@ router.use("/:orderId/reskin-requests", ReskinRequestsRoutes);
 // );
 
 // ---------------------------------- TRUCK DETAILS ROUTES ----------------------------------
+
+router.get(
+    "/:id/transport-units",
+    platformValidator,
+    auth("LOGISTICS", "ADMIN"),
+    requirePermission(PERMISSIONS.ORDERS_READ),
+    OrderControllers.listTransportUnits
+);
+
+router.post(
+    "/:id/transport-units",
+    platformValidator,
+    auth("LOGISTICS", "ADMIN"),
+    requirePermission(PERMISSIONS.ORDERS_UPDATE),
+    payloadValidator(orderSchemas.createTransportUnitSchema),
+    OrderControllers.createTransportUnit
+);
+
+router.patch(
+    "/:id/transport-units/:unitId",
+    platformValidator,
+    auth("LOGISTICS", "ADMIN"),
+    requirePermission(PERMISSIONS.ORDERS_UPDATE),
+    payloadValidator(orderSchemas.updateTransportUnitSchema),
+    OrderControllers.updateTransportUnit
+);
+
+router.delete(
+    "/:id/transport-units/:unitId",
+    platformValidator,
+    auth("LOGISTICS", "ADMIN"),
+    requirePermission(PERMISSIONS.ORDERS_UPDATE),
+    OrderControllers.deleteTransportUnit
+);
 
 router.patch(
     "/:id/truck-details",

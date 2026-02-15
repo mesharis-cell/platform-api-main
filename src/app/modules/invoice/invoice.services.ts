@@ -8,6 +8,7 @@ import {
     prices,
     orders,
     inboundRequests,
+    serviceRequests,
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
@@ -17,7 +18,7 @@ import paginationMaker from "../../utils/pagination-maker";
 import { invoiceQueryValidationConfig, invoiceSortableFields } from "./invoice.utils";
 import { uuidRegex } from "../../constants/common";
 import { ConfirmPaymentPayload, GenerateInvoicePayload } from "./invoice.interfaces";
-import { invoiceGenerator } from "../../utils/invoice";
+import { invoiceGenerator, serviceRequestInvoiceGenerator } from "../../utils/invoice";
 import { sendEmail } from "../../services/email.service";
 import { emailTemplates } from "../../utils/email-templates";
 import config from "../../config";
@@ -29,7 +30,7 @@ const getInvoiceById = async (invoiceId: string, user: AuthUser, platformId: str
     // Step 1: Determine if invoiceId is UUID or invoice_id
     const isUUID = invoiceId.match(uuidRegex);
 
-    // Step 2: Fetch invoice with order and company information
+    // Step 2: Fetch invoice with order/inbound/service-request context
     const [result] = await db
         .select({
             invoice: invoices,
@@ -43,11 +44,25 @@ const getInvoiceById = async (invoiceId: string, user: AuthUser, platformId: str
                 order_status: orders.order_status,
                 financial_status: orders.financial_status,
             },
+            inbound_request: {
+                id: inboundRequests.id,
+                inbound_request_id: inboundRequests.inbound_request_id,
+                request_status: inboundRequests.request_status,
+                financial_status: inboundRequests.financial_status,
+                incoming_at: inboundRequests.incoming_at,
+            },
+            service_request: {
+                id: serviceRequests.id,
+                service_request_id: serviceRequests.service_request_id,
+                request_status: serviceRequests.request_status,
+                commercial_status: serviceRequests.commercial_status,
+                title: serviceRequests.title,
+            },
             company: {
                 id: companies.id,
                 name: companies.name,
             },
-            order_pricing: {
+            pricing: {
                 warehouse_ops_rate: prices.warehouse_ops_rate,
                 base_ops_total: prices.base_ops_total,
                 logistics_sub_total: prices.logistics_sub_total,
@@ -59,9 +74,17 @@ const getInvoiceById = async (invoiceId: string, user: AuthUser, platformId: str
             },
         })
         .from(invoices)
-        .innerJoin(orders, eq(invoices.order_id, orders.id))
-        .leftJoin(companies, eq(orders.company_id, companies.id))
-        .leftJoin(prices, eq(orders.order_pricing_id, prices.id))
+        .leftJoin(orders, eq(invoices.order_id, orders.id))
+        .leftJoin(inboundRequests, eq(invoices.inbound_request_id, inboundRequests.id))
+        .leftJoin(serviceRequests, eq(invoices.service_request_id, serviceRequests.id))
+        .leftJoin(
+            companies,
+            sql`${companies.id} = COALESCE(${orders.company_id}, ${inboundRequests.company_id}, ${serviceRequests.company_id})`
+        )
+        .leftJoin(
+            prices,
+            sql`${prices.id} = COALESCE(${orders.order_pricing_id}, ${inboundRequests.request_pricing_id}, ${serviceRequests.request_pricing_id})`
+        )
         .where(
             and(
                 isUUID ? eq(invoices.id, invoiceId) : eq(invoices.invoice_id, invoiceId),
@@ -88,14 +111,29 @@ const getInvoiceById = async (invoiceId: string, user: AuthUser, platformId: str
     return {
         id: result.invoice.id,
         invoice_id: result.invoice.invoice_id,
+        type: result.invoice.type,
         invoice_pdf_url: result.invoice.invoice_pdf_url,
         invoice_paid_at: result.invoice.invoice_paid_at,
         payment_method: result.invoice.payment_method,
         payment_reference: result.invoice.payment_reference,
-        order: {
-            ...result.order,
-            order_pricing: result.order_pricing,
-        },
+        order: result.order
+            ? {
+                  ...result.order,
+                  order_pricing: result.pricing,
+              }
+            : null,
+        inbound_request: result.inbound_request
+            ? {
+                  ...result.inbound_request,
+                  pricing: result.pricing,
+              }
+            : null,
+        service_request: result.service_request
+            ? {
+                  ...result.service_request,
+                  pricing: result.pricing,
+              }
+            : null,
         company: result.company,
         created_at: result.invoice.created_at,
         updated_at: result.invoice.updated_at,
@@ -126,6 +164,8 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
         sort_by,
         sort_order,
         order_id,
+        inbound_request_id,
+        service_request_id,
         invoice_id,
         paid_status,
         company_id,
@@ -177,19 +217,31 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
         conditions.push(eq(invoices.type, type));
     }
 
-    // Step 3: Build order conditions for join
-    const orderConditions: any[] = [];
+    // Step 3: Build context conditions for joins
+    const contextConditions: any[] = [];
 
     if (user.role === "CLIENT" && user.company_id) {
-        orderConditions.push(eq(orders.company_id, user.company_id));
+        contextConditions.push(
+            sql`COALESCE(${orders.company_id}, ${inboundRequests.company_id}, ${serviceRequests.company_id}) = ${user.company_id}`
+        );
     }
 
     if (order_id) {
-        orderConditions.push(eq(orders.order_id, order_id));
+        contextConditions.push(eq(orders.order_id, order_id));
+    }
+
+    if (inbound_request_id) {
+        contextConditions.push(eq(inboundRequests.inbound_request_id, inbound_request_id));
+    }
+
+    if (service_request_id) {
+        contextConditions.push(eq(serviceRequests.service_request_id, service_request_id));
     }
 
     if (company_id && user.role !== "CLIENT") {
-        orderConditions.push(eq(orders.company_id, company_id));
+        contextConditions.push(
+            sql`COALESCE(${orders.company_id}, ${inboundRequests.company_id}, ${serviceRequests.company_id}) = ${company_id}`
+        );
     }
 
     // Step 4: Determine sort order
@@ -217,6 +269,13 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
                 financial_status: inboundRequests.financial_status,
                 incoming_at: inboundRequests.incoming_at,
             },
+            service_request: {
+                id: serviceRequests.id,
+                service_request_id: serviceRequests.service_request_id,
+                request_status: serviceRequests.request_status,
+                commercial_status: serviceRequests.commercial_status,
+                title: serviceRequests.title,
+            },
             company: {
                 id: companies.id,
                 name: companies.name,
@@ -235,15 +294,18 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
         .from(invoices)
         .leftJoin(orders, eq(invoices.order_id, orders.id))
         .leftJoin(inboundRequests, eq(invoices.inbound_request_id, inboundRequests.id))
+        .leftJoin(serviceRequests, eq(invoices.service_request_id, serviceRequests.id))
         .leftJoin(
             companies,
-            sql`${companies.id} = COALESCE(${orders.company_id}, ${inboundRequests.company_id})`
+            sql`${companies.id} = COALESCE(${orders.company_id}, ${inboundRequests.company_id}, ${serviceRequests.company_id})`
         )
         .leftJoin(
             prices,
-            sql`${prices.id} = COALESCE(${orders.order_pricing_id}, ${inboundRequests.request_pricing_id})`
+            sql`${prices.id} = COALESCE(${orders.order_pricing_id}, ${inboundRequests.request_pricing_id}, ${serviceRequests.request_pricing_id})`
         )
-        .where(and(...conditions, ...(orderConditions.length > 0 ? [and(...orderConditions)] : [])))
+        .where(
+            and(...conditions, ...(contextConditions.length > 0 ? [and(...contextConditions)] : []))
+        )
         .orderBy(orderDirection)
         .limit(limitNumber)
         .offset(skip);
@@ -254,8 +316,9 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
         .from(invoices)
         .leftJoin(orders, eq(invoices.order_id, orders.id))
         .leftJoin(inboundRequests, eq(invoices.inbound_request_id, inboundRequests.id))
+        .leftJoin(serviceRequests, eq(invoices.service_request_id, serviceRequests.id))
         .where(
-            and(...conditions, ...(orderConditions.length > 0 ? [and(...orderConditions)] : []))
+            and(...conditions, ...(contextConditions.length > 0 ? [and(...contextConditions)] : []))
         );
 
     // Step 7: Format results
@@ -287,6 +350,16 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
                       request_status: inbound_request.request_status,
                       financial_status: inbound_request.financial_status,
                       incoming_at: inbound_request.incoming_at,
+                      pricing: pricing,
+                  }
+                : null,
+            service_request: item.service_request
+                ? {
+                      id: item.service_request.id,
+                      service_request_id: item.service_request.service_request_id,
+                      request_status: item.service_request.request_status,
+                      commercial_status: item.service_request.commercial_status,
+                      title: item.service_request.title,
                       pricing: pricing,
                   }
                 : null,
@@ -405,7 +478,100 @@ const generateInvoice = async (
     user: AuthUser,
     payload: GenerateInvoicePayload
 ) => {
-    const { order_id, regenerate } = payload;
+    const { order_id, service_request_id, regenerate } = payload;
+
+    if (service_request_id) {
+        const serviceRequest = await db.query.serviceRequests.findFirst({
+            where: and(
+                eq(serviceRequests.id, service_request_id),
+                eq(serviceRequests.platform_id, platformId)
+            ),
+            with: {
+                company: true,
+                request_pricing: true,
+            },
+        });
+
+        if (!serviceRequest) {
+            throw new CustomizedError(httpStatus.NOT_FOUND, "Service request not found");
+        }
+        if (serviceRequest.billing_mode !== "CLIENT_BILLABLE") {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Internal-only service requests cannot be invoiced"
+            );
+        }
+        if (serviceRequest.commercial_status === "INVOICED" && !regenerate) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Service request is already invoiced"
+            );
+        }
+
+        const company = serviceRequest.company as typeof companies.$inferSelect | null;
+        const pricing = serviceRequest.request_pricing;
+        const { invoice_id, invoice_pdf_url, pdf_buffer } = await serviceRequestInvoiceGenerator(
+            service_request_id,
+            platformId,
+            regenerate || false,
+            user
+        );
+
+        await db
+            .update(serviceRequests)
+            .set({
+                commercial_status: "INVOICED",
+                updated_at: new Date(),
+            })
+            .where(eq(serviceRequests.id, service_request_id));
+
+        if (invoice_id && invoice_pdf_url && company?.contact_email) {
+            await sendEmail({
+                to: company.contact_email,
+                subject: `Invoice ${invoice_id} for Service Request ${serviceRequest.service_request_id}`,
+                html: emailTemplates.send_invoice_to_client({
+                    invoice_number: invoice_id,
+                    order_id: serviceRequest.service_request_id,
+                    company_name: company.name || "N/A",
+                    final_total_price: String(pricing?.final_total || "0"),
+                    download_invoice_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
+                }),
+                attachments: pdf_buffer
+                    ? [
+                          {
+                              filename: `${invoice_id}.pdf`,
+                              content: pdf_buffer,
+                          },
+                      ]
+                    : undefined,
+            });
+        }
+
+        const platformAdminEmails = await getPlatformAdminEmails(platformId);
+        await multipleEmailSender(
+            platformAdminEmails,
+            `Invoice Sent: ${invoice_id} for Service Request ${serviceRequest.service_request_id}`,
+            emailTemplates.send_invoice_to_admin({
+                invoice_number: invoice_id,
+                order_id: serviceRequest.service_request_id,
+                company_name: company?.name || "N/A",
+                final_total_price: String(pricing?.final_total || "0"),
+                download_invoice_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
+            })
+        );
+
+        return {
+            invoice_id,
+            invoice_pdf_url,
+        };
+    }
+
+    if (!order_id) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "order_id is required for order invoices"
+        );
+    }
 
     // Step 1: Fetch order with company details
     const order = await db.query.orders.findFirst({

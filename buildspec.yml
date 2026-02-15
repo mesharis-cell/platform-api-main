@@ -11,6 +11,7 @@ phases:
             - REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME
             - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
             - IMAGE_TAG=${COMMIT_HASH:=latest}
+            - test ! -f pnpm-lock.yaml && test ! -f package-lock.json || (echo "Lockfile policy violation: use bun.lock only in api/" && exit 1)
             - docker pull $REPOSITORY_URI:latest || true
     build:
         commands:
