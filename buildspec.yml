@@ -7,22 +7,22 @@ env:
 phases:
     pre_build:
         commands:
-            - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
-            - REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME
-            - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
-            - IMAGE_TAG=${COMMIT_HASH:=latest}
-            - test ! -f pnpm-lock.yaml && test ! -f package-lock.json || (echo "Lockfile policy violation: use bun.lock only in api/" && exit 1)
-            - docker pull $REPOSITORY_URI:latest || true
+            - 'aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com'
+            - 'REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME'
+            - 'COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)'
+            - 'IMAGE_TAG=${COMMIT_HASH:=latest}'
+            - 'test ! -f pnpm-lock.yaml && test ! -f package-lock.json || (echo "Lockfile policy violation: use bun.lock only in api/" && exit 1)'
+            - 'docker pull $REPOSITORY_URI:latest || true'
     build:
         commands:
-            - docker build --cache-from $REPOSITORY_URI:latest -t $REPOSITORY_URI:latest .
-            - docker tag $REPOSITORY_URI:latest $REPOSITORY_URI:$IMAGE_TAG
+            - 'docker build --cache-from $REPOSITORY_URI:latest -t $REPOSITORY_URI:latest .'
+            - 'docker tag $REPOSITORY_URI:latest $REPOSITORY_URI:$IMAGE_TAG'
     post_build:
         commands:
-            - docker push $REPOSITORY_URI:latest
-            - docker push $REPOSITORY_URI:$IMAGE_TAG
-            - printf '{"AWSEBDockerrunVersion":"1","Image":{"Name":"%s:latest","Update":"true"},"Ports":[{"ContainerPort":9000,"HostPort":80}],"Logging":"/var/log/nginx"}' $REPOSITORY_URI > Dockerrun.aws.json
-            - cat Dockerrun.aws.json
+            - 'docker push $REPOSITORY_URI:latest'
+            - 'docker push $REPOSITORY_URI:$IMAGE_TAG'
+            - 'printf ''{"AWSEBDockerrunVersion":"1","Image":{"Name":"%s:latest","Update":"true"},"Ports":[{"ContainerPort":9000,"HostPort":80}],"Logging":"/var/log/nginx"}'' $REPOSITORY_URI > Dockerrun.aws.json'
+            - 'cat Dockerrun.aws.json'
 
 cache:
     paths:
