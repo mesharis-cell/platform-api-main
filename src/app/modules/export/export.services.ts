@@ -14,6 +14,7 @@ import {
     orders,
     prices,
     scanEvents,
+    serviceRequests,
     users,
     warehouses,
     zones,
@@ -252,95 +253,190 @@ const exportAccountsReconciliationService = async (
     platformId: string
 ): Promise<string> => {
     const { company_id, date_from, date_to } = query;
-    const conditions: any[] = [eq(orders.platform_id, platformId)];
     const scopedCompanyId = getScopedCompanyId(company_id, user);
     const { fromDate, toDate } = parseDateRange({ date_from, date_to });
 
-    if (scopedCompanyId) conditions.push(eq(orders.company_id, scopedCompanyId));
-    if (fromDate) conditions.push(gte(orders.created_at, fromDate));
-    if (toDate) conditions.push(lte(orders.created_at, toDate));
+    const orderConditions: any[] = [eq(orders.platform_id, platformId)];
+    if (scopedCompanyId) orderConditions.push(eq(orders.company_id, scopedCompanyId));
+    if (fromDate) orderConditions.push(gte(orders.created_at, fromDate));
+    if (toDate) orderConditions.push(lte(orders.created_at, toDate));
 
-    const rows = await db
-        .select({
-            order: {
-                id: orders.id,
-                order_id: orders.order_id,
-                created_at: orders.created_at,
-                venue_name: orders.venue_name,
-            },
-            company: { name: companies.name },
-            pricing: {
-                base_ops_total: prices.base_ops_total,
-                transport: prices.transport,
-                margin: prices.margin,
-            },
-            line_item: {
-                id: lineItems.id,
-                line_item_id: lineItems.line_item_id,
-                description: lineItems.description,
-                total: lineItems.total,
-                is_voided: lineItems.is_voided,
-            },
-        })
-        .from(orders)
-        .leftJoin(companies, eq(orders.company_id, companies.id))
-        .leftJoin(prices, eq(orders.order_pricing_id, prices.id))
-        .leftJoin(lineItems, eq(lineItems.order_id, orders.id))
-        .where(and(...conditions))
-        .orderBy(asc(orders.created_at), asc(lineItems.line_item_id));
+    const serviceRequestConditions: any[] = [eq(serviceRequests.platform_id, platformId)];
+    if (scopedCompanyId) serviceRequestConditions.push(eq(serviceRequests.company_id, scopedCompanyId));
+    if (fromDate) serviceRequestConditions.push(gte(serviceRequests.created_at, fromDate));
+    if (toDate) serviceRequestConditions.push(lte(serviceRequests.created_at, toDate));
+
+    const [orderRows, serviceRequestRows] = await Promise.all([
+        db
+            .select({
+                order: {
+                    id: orders.id,
+                    reference_id: orders.order_id,
+                    created_at: orders.created_at,
+                    context_name: orders.venue_name,
+                },
+                company: { name: companies.name },
+                pricing: {
+                    base_ops_total: prices.base_ops_total,
+                    transport: prices.transport,
+                    margin: prices.margin,
+                },
+                line_item: {
+                    id: lineItems.id,
+                    line_item_id: lineItems.line_item_id,
+                    description: lineItems.description,
+                    total: lineItems.total,
+                    is_voided: lineItems.is_voided,
+                },
+            })
+            .from(orders)
+            .leftJoin(companies, eq(orders.company_id, companies.id))
+            .leftJoin(prices, eq(orders.order_pricing_id, prices.id))
+            .leftJoin(lineItems, eq(lineItems.order_id, orders.id))
+            .where(and(...orderConditions))
+            .orderBy(asc(orders.created_at), asc(lineItems.line_item_id)),
+        db
+            .select({
+                service_request: {
+                    id: serviceRequests.id,
+                    reference_id: serviceRequests.service_request_id,
+                    created_at: serviceRequests.created_at,
+                    context_name: serviceRequests.title,
+                },
+                company: { name: companies.name },
+                pricing: {
+                    base_ops_total: prices.base_ops_total,
+                    transport: prices.transport,
+                    margin: prices.margin,
+                },
+                line_item: {
+                    id: lineItems.id,
+                    line_item_id: lineItems.line_item_id,
+                    description: lineItems.description,
+                    total: lineItems.total,
+                    is_voided: lineItems.is_voided,
+                },
+            })
+            .from(serviceRequests)
+            .leftJoin(companies, eq(serviceRequests.company_id, companies.id))
+            .leftJoin(prices, eq(serviceRequests.request_pricing_id, prices.id))
+            .leftJoin(lineItems, eq(lineItems.service_request_id, serviceRequests.id))
+            .where(and(...serviceRequestConditions))
+            .orderBy(asc(serviceRequests.created_at), asc(lineItems.line_item_id)),
+    ]);
 
     const grouped = new Map<string, Array<Record<string, string>>>();
 
-    for (const row of rows) {
-        const orderKey = row.order.id;
-        if (!grouped.has(orderKey)) {
-            grouped.set(orderKey, []);
-            const marginPercent = parseNumber((row.pricing?.margin as any)?.percent);
-            const baseBuy = parseNumber(row.pricing?.base_ops_total);
-            const transportBuy = parseNumber((row.pricing?.transport as any)?.final_rate);
-            const baseSell = applyMarginPerLine(baseBuy, marginPercent);
-            const transportSell = applyMarginPerLine(transportBuy, marginPercent);
+    const appendBaseRows = (
+        groupKey: string,
+        documentType: "ORDER" | "SERVICE_REQUEST",
+        referenceId: string,
+        createdAt: Date,
+        companyName: string,
+        contextName: string,
+        baseBuy: number,
+        transportBuy: number,
+        marginPercent: number
+    ) => {
+        grouped.set(groupKey, [
+            {
+                "Document Type": documentType,
+                "Order ID": referenceId,
+                "Order Date": formatDate(createdAt),
+                Company: companyName,
+                "Event Name": contextName,
+                "K-Number": "",
+                Description: "Base Operations",
+                "Buy Price": formatMoney(baseBuy),
+                "Sell Price": formatMoney(applyMarginPerLine(baseBuy, marginPercent)),
+                Margin: formatMoney(applyMarginPerLine(baseBuy, marginPercent) - baseBuy),
+            },
+        ]);
 
-            grouped.get(orderKey)!.push(
-                {
-                    "Order ID": row.order.order_id,
-                    "Order Date": formatDate(row.order.created_at),
-                    Company: row.company?.name || "",
-                    "Event Name": row.order.venue_name || "",
-                    "K-Number": "",
-                    Description: "Base Operations",
-                    "Buy Price": formatMoney(baseBuy),
-                    "Sell Price": formatMoney(baseSell),
-                    Margin: formatMoney(baseSell - baseBuy),
-                },
-                {
-                    "Order ID": row.order.order_id,
-                    "Order Date": formatDate(row.order.created_at),
-                    Company: row.company?.name || "",
-                    "Event Name": row.order.venue_name || "",
-                    "K-Number": "",
-                    Description: "Transport",
-                    "Buy Price": formatMoney(transportBuy),
-                    "Sell Price": formatMoney(transportSell),
-                    Margin: formatMoney(transportSell - transportBuy),
-                }
+        if (transportBuy > 0) {
+            grouped.get(groupKey)!.push({
+                "Document Type": documentType,
+                "Order ID": referenceId,
+                "Order Date": formatDate(createdAt),
+                Company: companyName,
+                "Event Name": contextName,
+                "K-Number": "",
+                Description: "Transport",
+                "Buy Price": formatMoney(transportBuy),
+                "Sell Price": formatMoney(applyMarginPerLine(transportBuy, marginPercent)),
+                Margin: formatMoney(applyMarginPerLine(transportBuy, marginPercent) - transportBuy),
+            });
+        }
+    };
+
+    for (const row of orderRows) {
+        const groupKey = `ORDER:${row.order.id}`;
+        const marginPercent = parseNumber((row.pricing?.margin as any)?.percent);
+
+        if (!grouped.has(groupKey)) {
+            appendBaseRows(
+                groupKey,
+                "ORDER",
+                row.order.reference_id,
+                row.order.created_at,
+                row.company?.name || "",
+                row.order.context_name || "",
+                parseNumber(row.pricing?.base_ops_total),
+                parseNumber((row.pricing?.transport as any)?.final_rate),
+                marginPercent
             );
         }
 
         const line = row.line_item;
         if (!line?.id || line.is_voided) continue;
-
-        const marginPercent = parseNumber((row.pricing?.margin as any)?.percent);
         const buy = parseNumber(line.total);
         const sell = applyMarginPerLine(buy, marginPercent);
 
-        grouped.get(orderKey)!.push({
-            "Order ID": row.order.order_id,
+        grouped.get(groupKey)!.push({
+            "Document Type": "ORDER",
+            "Order ID": row.order.reference_id,
             "Order Date": formatDate(row.order.created_at),
             Company: row.company?.name || "",
-            "Event Name": row.order.venue_name || "",
+            "Event Name": row.order.context_name || "",
             "K-Number": line.line_item_id || "",
-            Description: line.description,
+            Description: line.description || "",
+            "Buy Price": formatMoney(buy),
+            "Sell Price": formatMoney(sell),
+            Margin: formatMoney(sell - buy),
+        });
+    }
+
+    for (const row of serviceRequestRows) {
+        const groupKey = `SERVICE_REQUEST:${row.service_request.id}`;
+        const marginPercent = parseNumber((row.pricing?.margin as any)?.percent);
+
+        if (!grouped.has(groupKey)) {
+            appendBaseRows(
+                groupKey,
+                "SERVICE_REQUEST",
+                row.service_request.reference_id,
+                row.service_request.created_at,
+                row.company?.name || "",
+                row.service_request.context_name || "Service Request",
+                parseNumber(row.pricing?.base_ops_total),
+                parseNumber((row.pricing?.transport as any)?.final_rate),
+                marginPercent
+            );
+        }
+
+        const line = row.line_item;
+        if (!line?.id || line.is_voided) continue;
+        const buy = parseNumber(line.total);
+        const sell = applyMarginPerLine(buy, marginPercent);
+
+        grouped.get(groupKey)!.push({
+            "Document Type": "SERVICE_REQUEST",
+            "Order ID": row.service_request.reference_id,
+            "Order Date": formatDate(row.service_request.created_at),
+            Company: row.company?.name || "",
+            "Event Name": row.service_request.context_name || "Service Request",
+            "K-Number": line.line_item_id || "",
+            Description: line.description || "",
             "Buy Price": formatMoney(buy),
             "Sell Price": formatMoney(sell),
             Margin: formatMoney(sell - buy),
@@ -348,8 +444,8 @@ const exportAccountsReconciliationService = async (
     }
 
     const csvRows: Array<Record<string, string>> = [];
-    for (const rowsPerOrder of grouped.values()) {
-        const subtotal = rowsPerOrder.reduce(
+    for (const rowsPerDocument of grouped.values()) {
+        const subtotal = rowsPerDocument.reduce(
             (acc, row) => ({
                 buy: acc.buy + parseNumber(row["Buy Price"]),
                 sell: acc.sell + parseNumber(row["Sell Price"]),
@@ -358,14 +454,15 @@ const exportAccountsReconciliationService = async (
             { buy: 0, sell: 0, margin: 0 }
         );
 
-        csvRows.push(...rowsPerOrder);
+        csvRows.push(...rowsPerDocument);
         csvRows.push({
-            "Order ID": rowsPerOrder[0]["Order ID"],
+            "Document Type": rowsPerDocument[0]["Document Type"],
+            "Order ID": rowsPerDocument[0]["Order ID"],
             "Order Date": "",
-            Company: rowsPerOrder[0].Company,
+            Company: rowsPerDocument[0].Company,
             "Event Name": "",
             "K-Number": "",
-            Description: "ORDER SUBTOTAL",
+            Description: "DOCUMENT SUBTOTAL",
             "Buy Price": formatMoney(subtotal.buy),
             "Sell Price": formatMoney(subtotal.sell),
             Margin: formatMoney(subtotal.margin),

@@ -18,6 +18,11 @@ import {
     UpdateServiceRequestCommercialStatusPayload,
     UpdateServiceRequestStatusPayload,
 } from "./service-request.interfaces";
+import {
+    assertClientCanApproveServiceRequestQuote,
+    assertServiceRequestCommercialTransition,
+    assertServiceRequestStatusTransition,
+} from "../../utils/commercial-policy";
 
 const buildServiceRequestCode = async (platformId: string) => {
     const now = new Date();
@@ -151,23 +156,33 @@ const createServiceRequest = async (
     platformId: string,
     user: AuthUser
 ) => {
-    if (user.role === "CLIENT") {
-        throw new CustomizedError(httpStatus.FORBIDDEN, "Clients cannot create service requests");
+    const companyId =
+        user.role === "CLIENT" ? user.company_id : (payload.company_id as string | undefined);
+    if (!companyId) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Company ID is required");
+    }
+
+    if (user.role === "CLIENT" && payload.company_id && payload.company_id !== user.company_id) {
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            "You can only create service requests for your own company"
+        );
     }
 
     const code = await buildServiceRequestCode(platformId);
     const initialStatus = "SUBMITTED";
+    const billingMode = user.role === "CLIENT" ? "CLIENT_BILLABLE" : payload.billing_mode;
     const initialCommercialStatus =
-        payload.billing_mode === "CLIENT_BILLABLE" ? "PENDING_QUOTE" : "INTERNAL";
+        billingMode === "CLIENT_BILLABLE" ? "PENDING_QUOTE" : "INTERNAL";
 
     const [created] = await db
         .insert(serviceRequests)
         .values({
             service_request_id: code,
             platform_id: platformId,
-            company_id: payload.company_id,
+            company_id: companyId,
             request_type: payload.request_type,
-            billing_mode: payload.billing_mode,
+            billing_mode: billingMode,
             request_status: initialStatus,
             commercial_status: initialCommercialStatus,
             title: payload.title,
@@ -297,6 +312,7 @@ const updateServiceRequestStatus = async (
     if (existing.request_status === payload.to_status) {
         return existing;
     }
+    assertServiceRequestStatusTransition(existing.request_status as any, payload.to_status as any);
 
     const updatePayload: Record<string, any> = {
         request_status: payload.to_status,
@@ -379,16 +395,11 @@ const updateServiceRequestCommercialStatus = async (
     }
 
     const existing = await getServiceRequestInternal(id, platformId);
-    const internalOnlyAllowedStatuses = ["INTERNAL", "INVOICED", "PAID", "CANCELLED"];
-    if (
-        existing.billing_mode !== "CLIENT_BILLABLE" &&
-        !internalOnlyAllowedStatuses.includes(payload.commercial_status)
-    ) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            `Internal-only service requests can only use ${internalOnlyAllowedStatuses.join(", ")} commercial statuses`
-        );
-    }
+    assertServiceRequestCommercialTransition(
+        existing.commercial_status as any,
+        payload.commercial_status as any,
+        existing.billing_mode as any
+    );
 
     await db
         .update(serviceRequests)
@@ -428,18 +439,15 @@ const approveServiceRequestQuote = async (
     const existing = await getServiceRequestInternal(id, platformId);
     assertServiceRequestAccess(existing, user);
 
-    if (existing.billing_mode !== "CLIENT_BILLABLE") {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            "Only billable service requests have client quotes"
-        );
-    }
-    if (!["QUOTED", "PENDING_QUOTE"].includes(existing.commercial_status)) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            `Quote cannot be approved from commercial status ${existing.commercial_status}`
-        );
-    }
+    assertClientCanApproveServiceRequestQuote(
+        existing.billing_mode as any,
+        existing.commercial_status as any
+    );
+    assertServiceRequestCommercialTransition(
+        existing.commercial_status as any,
+        "QUOTE_APPROVED",
+        existing.billing_mode as any
+    );
 
     await db
         .update(serviceRequests)

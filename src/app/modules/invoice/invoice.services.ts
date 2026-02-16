@@ -24,9 +24,17 @@ import { emailTemplates } from "../../utils/email-templates";
 import config from "../../config";
 import { multipleEmailSender } from "../../utils/email-sender";
 import { getPlatformAdminEmails } from "../../utils/helper-query";
+import {
+    assertOrderCanGenerateInvoice,
+    assertRoleCanReadCommercialInvoice,
+    assertServiceRequestCanGenerateInvoice,
+    projectPricingByRole,
+} from "../../utils/commercial-policy";
 
 // ----------------------------------- GET INVOICE BY ID --------------------------------------
 const getInvoiceById = async (invoiceId: string, user: AuthUser, platformId: string) => {
+    assertRoleCanReadCommercialInvoice(user.role);
+
     // Step 1: Determine if invoiceId is UUID or invoice_id
     const isUUID = invoiceId.match(uuidRegex);
 
@@ -108,6 +116,7 @@ const getInvoiceById = async (invoiceId: string, user: AuthUser, platformId: str
     }
 
     // Step 5: Format and return result
+    const visiblePricing = projectPricingByRole(result.pricing, user.role);
     return {
         id: result.invoice.id,
         invoice_id: result.invoice.invoice_id,
@@ -119,19 +128,19 @@ const getInvoiceById = async (invoiceId: string, user: AuthUser, platformId: str
         order: result.order
             ? {
                   ...result.order,
-                  order_pricing: result.pricing,
+                  order_pricing: visiblePricing,
               }
             : null,
         inbound_request: result.inbound_request
             ? {
                   ...result.inbound_request,
-                  pricing: result.pricing,
+                  pricing: visiblePricing,
               }
             : null,
         service_request: result.service_request
             ? {
                   ...result.service_request,
-                  pricing: result.pricing,
+                  pricing: visiblePricing,
               }
             : null,
         company: result.company,
@@ -157,6 +166,8 @@ export const downloadInvoice = async (invoiceId: string, user: AuthUser, platfor
 
 // ----------------------------------- GET INVOICES -------------------------------------------
 const getInvoices = async (query: Record<string, any>, user: AuthUser, platformId: string) => {
+    assertRoleCanReadCommercialInvoice(user.role);
+
     const {
         search_term,
         page,
@@ -324,6 +335,7 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
     // Step 7: Format results
     const formattedResults = results.map((item) => {
         const { invoice, order, inbound_request, company, pricing } = item;
+        const visiblePricing = projectPricingByRole(pricing, user.role);
         return {
             id: invoice.id,
             invoice_id: invoice.invoice_id,
@@ -338,7 +350,7 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
                       contact_name: order.contact_name,
                       event_start_date: order.event_start_date,
                       venue_name: order.venue_name,
-                      pricing: pricing,
+                      pricing: visiblePricing,
                       order_status: order.order_status,
                       financial_status: order.financial_status,
                   }
@@ -350,7 +362,7 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
                       request_status: inbound_request.request_status,
                       financial_status: inbound_request.financial_status,
                       incoming_at: inbound_request.incoming_at,
-                      pricing: pricing,
+                      pricing: visiblePricing,
                   }
                 : null,
             service_request: item.service_request
@@ -360,7 +372,7 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
                       request_status: item.service_request.request_status,
                       commercial_status: item.service_request.commercial_status,
                       title: item.service_request.title,
-                      pricing: pricing,
+                      pricing: visiblePricing,
                   }
                 : null,
             company: {
@@ -495,12 +507,12 @@ const generateInvoice = async (
         if (!serviceRequest) {
             throw new CustomizedError(httpStatus.NOT_FOUND, "Service request not found");
         }
-        if (serviceRequest.commercial_status === "INVOICED" && !regenerate) {
-            throw new CustomizedError(
-                httpStatus.BAD_REQUEST,
-                "Service request is already invoiced"
-            );
-        }
+        assertServiceRequestCanGenerateInvoice(
+            serviceRequest.billing_mode,
+            serviceRequest.commercial_status,
+            serviceRequest.request_status,
+            regenerate || false
+        );
 
         const company = serviceRequest.company as typeof companies.$inferSelect | null;
         const pricing = serviceRequest.request_pricing;
@@ -511,13 +523,15 @@ const generateInvoice = async (
             user
         );
 
-        await db
-            .update(serviceRequests)
-            .set({
-                commercial_status: "INVOICED",
-                updated_at: new Date(),
-            })
-            .where(eq(serviceRequests.id, service_request_id));
+        if (serviceRequest.commercial_status !== "INVOICED") {
+            await db
+                .update(serviceRequests)
+                .set({
+                    commercial_status: "INVOICED",
+                    updated_at: new Date(),
+                })
+                .where(eq(serviceRequests.id, service_request_id));
+        }
 
         if (invoice_id && invoice_pdf_url && company?.contact_email) {
             await sendEmail({
@@ -593,24 +607,7 @@ const generateInvoice = async (
     }
 
     // Step 2: Validate order can be invoiced
-    const allowedStatuses = [
-        "CONFIRMED",
-        "AWAITING_FABRICATION",
-        "IN_PREPARATION",
-        "READY_FOR_DELIVERY",
-        "IN_TRANSIT",
-        "DELIVERED",
-        "IN_USE",
-        "AWAITING_RETURN",
-        "RETURN_IN_TRANSIT",
-        "CLOSED",
-    ];
-    if (!allowedStatuses.includes(order.order_status)) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            `Cannot generate invoice for order in ${order.order_status} status`
-        );
-    }
+    assertOrderCanGenerateInvoice(order.order_status);
 
     if (order.financial_status === "INVOICED" && !regenerate) {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Order is already invoiced");

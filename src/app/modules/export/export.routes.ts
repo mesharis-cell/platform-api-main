@@ -26,7 +26,7 @@ router.get(
 router.get(
     "/accounts-reconciliation",
     platformValidator,
-    auth("ADMIN", "LOGISTICS"),
+    auth("ADMIN"),
     requirePermission(PERMISSIONS.ORDERS_EXPORT),
     ExportControllers.exportAccountsReconciliation
 );

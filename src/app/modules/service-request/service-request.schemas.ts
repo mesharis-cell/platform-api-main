@@ -20,7 +20,7 @@ const serviceRequestItemSchema = z.object({
 const createServiceRequestSchema = z.object({
     body: z
         .object({
-            company_id: z.string().uuid("Invalid company ID"),
+            company_id: z.string().uuid("Invalid company ID").optional(),
             request_type: z.enum(serviceRequestTypeEnum.enumValues),
             billing_mode: z.enum(serviceRequestBillingModeEnum.enumValues).default("INTERNAL_ONLY"),
             title: z

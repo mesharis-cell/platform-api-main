@@ -13,7 +13,7 @@ const router = Router();
 router.get(
     "/",
     platformValidator,
-    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    auth("ADMIN", "CLIENT"),
     requirePermission(PERMISSIONS.INVOICES_READ),
     InvoiceControllers.getInvoices
 );
@@ -32,7 +32,7 @@ router.post(
 router.get(
     "/:invoiceId",
     platformValidator,
-    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    auth("ADMIN", "CLIENT"),
     requirePermission(PERMISSIONS.INVOICES_READ),
     InvoiceControllers.getInvoiceById
 );
@@ -40,7 +40,7 @@ router.get(
 router.get(
     "/download/:invoiceId",
     platformValidator,
-    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    auth("ADMIN", "CLIENT"),
     requirePermission(PERMISSIONS.INVOICES_DOWNLOAD),
     InvoiceControllers.downloadInvoice
 );

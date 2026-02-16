@@ -24,7 +24,7 @@ router.get(
 router.post(
     "/",
     platformValidator,
-    auth("ADMIN", "LOGISTICS"),
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
     payloadValidator(ServiceRequestSchemas.createServiceRequestSchema),
     ServiceRequestControllers.createServiceRequest
 );
