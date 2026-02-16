@@ -379,10 +379,14 @@ const updateServiceRequestCommercialStatus = async (
     }
 
     const existing = await getServiceRequestInternal(id, platformId);
-    if (existing.billing_mode !== "CLIENT_BILLABLE" && payload.commercial_status !== "INTERNAL") {
+    const internalOnlyAllowedStatuses = ["INTERNAL", "INVOICED", "PAID", "CANCELLED"];
+    if (
+        existing.billing_mode !== "CLIENT_BILLABLE" &&
+        !internalOnlyAllowedStatuses.includes(payload.commercial_status)
+    ) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            "Internal-only service requests cannot move to billable commercial statuses"
+            `Internal-only service requests can only use ${internalOnlyAllowedStatuses.join(", ")} commercial statuses`
         );
     }
 

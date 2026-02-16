@@ -495,12 +495,6 @@ const generateInvoice = async (
         if (!serviceRequest) {
             throw new CustomizedError(httpStatus.NOT_FOUND, "Service request not found");
         }
-        if (serviceRequest.billing_mode !== "CLIENT_BILLABLE") {
-            throw new CustomizedError(
-                httpStatus.BAD_REQUEST,
-                "Internal-only service requests cannot be invoiced"
-            );
-        }
         if (serviceRequest.commercial_status === "INVOICED" && !regenerate) {
             throw new CustomizedError(
                 httpStatus.BAD_REQUEST,

@@ -67,4 +67,10 @@ router.get(
     InvoiceControllers.downloadIRCostEstimatePDF
 );
 
+// Download service request cost estimate PDF (direct download)
+router.get(
+    "/download-sr-cost-estimate-pdf/:requestId",
+    InvoiceControllers.downloadServiceRequestCostEstimatePDF
+);
+
 export const InvoiceRoutes = router;

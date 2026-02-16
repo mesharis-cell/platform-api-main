@@ -4,10 +4,11 @@ import sendResponse from "../../shared/send-response";
 import { InvoiceServices } from "./invoice.services";
 import { getPDFBufferFromS3 } from "../../services/s3.service";
 import { db } from "../../../db";
-import { companies, inboundRequests, invoices, orders } from "../../../db/schema";
+import { companies, inboundRequests, invoices, orders, serviceRequests } from "../../../db/schema";
 import { and, eq } from "drizzle-orm";
 import CustomizedError from "../../error/customized-error";
 import { getRequiredString } from "../../utils/request";
+import { serviceRequestCostEstimateGenerator } from "../../utils/service-request-cost-estimate";
 
 // ----------------------------------- GET INVOICE BY ID --------------------------------------
 const getInvoiceById = catchAsync(async (req, res) => {
@@ -181,6 +182,45 @@ const downloadIRCostEstimatePDF = catchAsync(async (req, res) => {
     res.status(httpStatus.OK).send(buffer);
 });
 
+// ----------------------------------- DOWNLOAD SERVICE REQUEST COST ESTIMATE PDF (DIRECT) ----
+const downloadServiceRequestCostEstimatePDF = catchAsync(async (req, res) => {
+    const platformId = getRequiredString(req.query.pid as string | string[] | undefined, "pid");
+    const requestId = getRequiredString(req.params.requestId, "requestId");
+
+    const serviceRequest = await db.query.serviceRequests.findFirst({
+        where: and(
+            eq(serviceRequests.service_request_id, requestId),
+            eq(serviceRequests.platform_id, platformId)
+        ),
+        with: {
+            company: true,
+        },
+    });
+
+    if (!serviceRequest) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Service request not found");
+    }
+
+    const company = serviceRequest.company as typeof companies.$inferSelect | null;
+    const companySlug = (company?.name || "unknown-company").replace(/\s/g, "-").toLowerCase();
+    const s3Key = `cost-estimates/service-request/${companySlug}/${serviceRequest.service_request_id}.pdf`;
+
+    let buffer: Buffer;
+    try {
+        buffer = await getPDFBufferFromS3(s3Key);
+    } catch (_) {
+        await serviceRequestCostEstimateGenerator(serviceRequest.id, platformId, true);
+        buffer = await getPDFBufferFromS3(s3Key);
+    }
+
+    const fileName = `cost-estimate-${serviceRequest.service_request_id}.pdf`;
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    res.setHeader("Content-Length", buffer.length);
+    res.status(httpStatus.OK).send(buffer);
+});
+
 export const InvoiceControllers = {
     getInvoiceById,
     downloadInvoice,
@@ -190,4 +230,5 @@ export const InvoiceControllers = {
     generateInvoice,
     downloadCostEstimatePDF,
     downloadIRCostEstimatePDF,
+    downloadServiceRequestCostEstimatePDF,
 };

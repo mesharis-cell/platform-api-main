@@ -21,6 +21,7 @@ import {
 import { lineItemIdGenerator, lineItemQueryValidationConfig } from "./order-line-items.utils";
 import queryValidator from "../../utils/query-validator";
 import { inboundRequestCostEstimateGenerator } from "../../utils/inbound-request-cost-estimate";
+import { serviceRequestCostEstimateGenerator } from "../../utils/service-request-cost-estimate";
 import { calculatePricingSummary } from "../../utils/pricing-engine";
 
 // ----------------------------------- GET LINE ITEMS -----------------------------------------
@@ -692,6 +693,8 @@ const updateServiceRequestPricingAfterLineItemChange = async (
             calculated_at: new Date(),
         })
         .where(eq(prices.id, pricingId));
+
+    await serviceRequestCostEstimateGenerator(serviceRequestId, platformId, true);
 };
 
 export const LineItemsServices = {
