@@ -43,6 +43,9 @@ Create a `.env` file in the root directory:
 NODE_ENV=development
 PORT=5000
 DATABASE_URL=postgresql://username:password@localhost:5432/database_name
+DB_DESTRUCTIVE_ALLOWED_SUPABASE_REFS=your_staging_project_ref
+DB_DESTRUCTIVE_ALLOWED_HOSTS=localhost,127.0.0.1
+DB_DESTRUCTIVE_BLOCKED_ENVS=production,prod
 ```
 
 ### 4. Run database migrations
@@ -210,6 +213,27 @@ bun run start        # Run production server
 bunx drizzle-kit generate   # Generate migrations
 bunx drizzle-kit migrate    # Run migrations
 bunx drizzle-kit studio     # Open Drizzle Studio
+bun run db:rebuild          # Drop+recreate schema, then apply current schema (NO seed data)
+bun run db:seed             # Wipe data tables then seed demo data (guarded)
+bun run db:reset            # db:rebuild + db:seed
+```
+
+### Destructive DB guardrails
+
+- `db:rebuild` and `db:seed` are blocked unless target DB is explicitly allow-listed.
+- Supabase targets are checked by project ref extracted from `DATABASE_URL` username (`postgres.<project_ref>`).
+- Non-Supabase targets are checked against `DB_DESTRUCTIVE_ALLOWED_HOSTS`.
+- Both commands are blocked when `NODE_ENV`/`APP_ENV` is in `DB_DESTRUCTIVE_BLOCKED_ENVS`.
+- Both commands require explicit confirmation phrase:
+    - `db:rebuild` -> `REBUILD <project_ref_or_host:port/db>`
+    - `db:seed` -> `SEED <project_ref_or_host:port/db>`
+    - `db:reset` (one env var for both steps) -> `ALL <project_ref_or_host:port/db>`
+- In non-interactive shells, pass confirmation via:
+
+```bash
+DB_DESTRUCTIVE_CONFIRM="REBUILD your_project_ref" bun run db:rebuild
+DB_DESTRUCTIVE_CONFIRM="SEED your_project_ref" bun run db:seed
+DB_DESTRUCTIVE_CONFIRM="ALL your_project_ref" bun run db:reset
 ```
 
 ## 🔧 Configuration

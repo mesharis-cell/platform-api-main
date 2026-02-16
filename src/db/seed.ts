@@ -25,6 +25,7 @@ type AssetCondition = "GREEN" | "ORANGE" | "RED";
 type ScanType = "OUTBOUND" | "INBOUND";
 type OrderStatus =
     | "DRAFT"
+    | "SUBMITTED"
     | "PRICING_REVIEW"
     | "PENDING_APPROVAL"
     | "QUOTED"
@@ -35,12 +36,15 @@ type OrderStatus =
     | "READY_FOR_DELIVERY"
     | "IN_TRANSIT"
     | "DELIVERED"
+    | "IN_USE"
     | "AWAITING_RETURN"
+    | "RETURN_IN_TRANSIT"
     | "CLOSED"
     | "CANCELLED";
 type FinancialStatus =
     | "PENDING_QUOTE"
     | "QUOTE_SENT"
+    | "QUOTE_REVISED"
     | "QUOTE_ACCEPTED"
     | "PENDING_INVOICE"
     | "INVOICED"
@@ -92,9 +96,11 @@ const S = {
     collections: [] as any[],
     orders: [] as any[],
     orderItems: [] as any[],
+    orderTransportUnits: [] as any[],
     reskinRequests: [] as any[],
     lineItems: [] as any[],
     inboundRequests: [] as any[],
+    serviceRequests: [] as any[],
 };
 
 // Helper to find records
@@ -122,6 +128,12 @@ async function seedPlatform() {
                 logistics_partner_name: "A2 Logistics",
                 support_email: "support@gameondevelopment.live",
                 currency: "AED",
+                feasibility: {
+                    minimum_lead_hours: 24,
+                    exclude_weekends: true,
+                    weekend_days: [0, 6],
+                    timezone: "Asia/Dubai",
+                },
             },
             features: {
                 collections: true,
@@ -889,7 +901,7 @@ async function seedAssets() {
                     condition = "RED";
                     conditionNotes = "Leg damaged during transport, needs repair";
                     refurbDays = 5;
-                    status = "MAINTENANCE";
+                    status = "AVAILABLE";
                 }
 
                 const handlingTags =
@@ -911,6 +923,7 @@ async function seedAssets() {
                     description: t.desc,
                     category,
                     images: generateAssetImages(category, t.name, 3),
+                    on_display_image: generateAssetImages(category, `${t.name} On Display`, 1)[0],
                     tracking_method: t.tracking,
                     total_quantity: t.qty,
                     available_quantity: t.qty,
@@ -1043,6 +1056,41 @@ async function createPricing(opts: {
     return price;
 }
 
+async function createServiceRequestPricing(opts: {
+    company: any;
+    catalogTotal: number;
+    customTotal: number;
+    userId: string;
+}) {
+    const marginPercent = parseFloat(opts.company.platform_margin_percent || "0");
+    const logisticsSubTotal = opts.catalogTotal + opts.customTotal;
+    const marginAmount = logisticsSubTotal * (marginPercent / 100);
+    const finalTotal = logisticsSubTotal + marginAmount;
+
+    const [price] = await db
+        .insert(schema.prices)
+        .values({
+            platform_id: S.platform.id,
+            warehouse_ops_rate: "0.00",
+            base_ops_total: "0.00",
+            logistics_sub_total: logisticsSubTotal.toFixed(2),
+            transport: { system_rate: 0, final_rate: 0 },
+            line_items: { catalog_total: opts.catalogTotal, custom_total: opts.customTotal },
+            margin: {
+                percent: marginPercent,
+                amount: marginAmount,
+                is_override: false,
+                override_reason: null,
+            },
+            final_total: finalTotal.toFixed(2),
+            calculated_at: new Date(),
+            calculated_by: opts.userId,
+        })
+        .returning();
+
+    return price;
+}
+
 async function seedOrders() {
     console.log("🛒 Seeding demo orders...");
     const pid = S.platform.id;
@@ -1171,7 +1219,7 @@ async function seedOrders() {
             user: dgClient,
             brand: brandByName("Johnnie Walker"),
             status: "QUOTED" as OrderStatus,
-            financial: "QUOTE_SENT" as FinancialStatus,
+            financial: "QUOTE_REVISED" as FinancialStatus,
             venue: "JW Marriott Marquis",
             cityId: dubai.id,
             transportRate,
@@ -1219,6 +1267,24 @@ async function seedOrders() {
             instructions: "Custom Baileys branding on all furniture pieces.",
             label: "Reskin in progress",
         },
+        {
+            orderId: "ORD-20260203-009",
+            company: dg,
+            user: dgClient,
+            brand: brandByName("Guinness"),
+            status: "RETURN_IN_TRANSIT" as OrderStatus,
+            financial: "PAID" as FinancialStatus,
+            venue: "Expo City Dubai",
+            cityId: dubai.id,
+            transportRate,
+            eventStart: daysFromNow(-3),
+            eventEnd: daysFromNow(-1),
+            jobNumber: "JOB-2026-0009",
+            volume: 9.1,
+            marginPercent: 22,
+            instructions: "Return convoy includes 1 extra site-access vehicle.",
+            label: "Return in transit",
+        },
     ];
 
     for (const def of orderDefs) {
@@ -1265,7 +1331,9 @@ async function seedOrders() {
                           end: new Date(def.eventStart.getTime() - 12 * 3600000),
                       }
                     : null,
-                pickup_window: ["AWAITING_RETURN", "CLOSED"].includes(def.status)
+                pickup_window: ["AWAITING_RETURN", "RETURN_IN_TRANSIT", "CLOSED"].includes(
+                    def.status
+                )
                     ? {
                           start: new Date(def.eventEnd.getTime() + 12 * 3600000),
                           end: new Date(def.eventEnd.getTime() + 36 * 3600000),
@@ -1281,7 +1349,12 @@ async function seedOrders() {
                 order_status: def.status,
                 financial_status: def.financial,
                 scanning_data: {},
-                delivery_photos: ["DELIVERED", "AWAITING_RETURN", "CLOSED"].includes(def.status)
+                delivery_photos: [
+                    "DELIVERED",
+                    "AWAITING_RETURN",
+                    "RETURN_IN_TRANSIT",
+                    "CLOSED",
+                ].includes(def.status)
                     ? [
                           `https://placehold.co/800x600/475569/FFFFFF?text=${encodeURIComponent("Delivery\\nLoading")}`,
                       ]
@@ -1289,7 +1362,12 @@ async function seedOrders() {
             })
             .returning();
 
-        S.orders.push({ ...order, _label: def.label, _companyName: def.company.name });
+        S.orders.push({
+            ...order,
+            _label: def.label,
+            _companyName: def.company.name,
+            _transportRate: def.transportRate,
+        });
     }
 
     console.log(`✓ ${S.orders.length} demo orders`);
@@ -1308,17 +1386,50 @@ async function seedOrderItems() {
         const furnitureAssets = companyAssets.filter(
             (a: any) => a.category === "Furniture" && a.condition === "GREEN"
         );
+        const orangeFurnitureAsset = companyAssets.find(
+            (a: any) => a.category === "Furniture" && a.condition === "ORANGE"
+        );
+        const redFurnitureAsset = companyAssets.find(
+            (a: any) => a.category === "Furniture" && a.condition === "RED"
+        );
         const glasswareAssets = companyAssets.filter((a: any) => a.category === "Glassware");
         const installAssets = companyAssets.filter((a: any) => a.category === "Installation");
 
         // Pick items based on order purpose
-        let selectedItems: Array<{ asset: any; qty: number; isReskin?: boolean }> = [];
+        let selectedItems: Array<{
+            asset: any;
+            qty: number;
+            isReskin?: boolean;
+            maintenanceDecision?: "FIX_IN_ORDER" | "USE_AS_IS" | null;
+        }> = [];
 
         if (order.order_id === "ORD-20260208-003") {
             // IN_PREPARATION — for live outbound scanning: 2 individual + 1 batch
             selectedItems = [
                 { asset: furnitureAssets[0], qty: 1 },
                 { asset: furnitureAssets[1], qty: 1 },
+                { asset: glasswareAssets[0], qty: 10 },
+            ];
+        } else if (order.order_id === "ORD-20260212-001") {
+            // PRICING_REVIEW — maintenance-decision scenarios:
+            // ORANGE still pending decision + RED mandatory fix
+            selectedItems = [
+                { asset: orangeFurnitureAsset, qty: 1, maintenanceDecision: null },
+                { asset: redFurnitureAsset, qty: 1 },
+                { asset: glasswareAssets[0], qty: 8 },
+            ];
+        } else if (order.order_id === "ORD-20260210-002") {
+            // CONFIRMED — ORANGE chosen as USE_AS_IS
+            selectedItems = [
+                { asset: furnitureAssets[0], qty: 1 },
+                { asset: orangeFurnitureAsset, qty: 1, maintenanceDecision: "USE_AS_IS" },
+                { asset: glasswareAssets[0], qty: 12 },
+            ];
+        } else if (order.order_id === "ORD-20260211-006") {
+            // QUOTED (revised) — ORANGE chosen as FIX_IN_ORDER
+            selectedItems = [
+                { asset: furnitureAssets[0], qty: 1 },
+                { asset: orangeFurnitureAsset, qty: 1, maintenanceDecision: "FIX_IN_ORDER" },
                 { asset: glasswareAssets[0], qty: 10 },
             ];
         } else if (order.order_id === "ORD-20260201-004") {
@@ -1351,6 +1462,17 @@ async function seedOrderItems() {
             const a = item.asset;
             const vol = parseFloat(a.volume_per_unit);
             const wt = parseFloat(a.weight_per_unit);
+            const assetCondition = a.condition as AssetCondition;
+            const maintenanceDecision =
+                assetCondition === "RED" ? "FIX_IN_ORDER" : (item.maintenanceDecision ?? null);
+            const requiresMaintenance =
+                assetCondition === "RED" || maintenanceDecision === "FIX_IN_ORDER";
+            const maintenanceRefurbDaysSnapshot = requiresMaintenance
+                ? Number(a.refurb_days_estimate || 0)
+                : null;
+            const maintenanceDecisionLockedAt = maintenanceDecision
+                ? new Date(order.created_at.getTime() + 18 * 3600000)
+                : null;
 
             // Determine reskin brand (use a different brand from the same company)
             const companyBrands = S.brands.filter((b: any) => b.company_id === order.company_id);
@@ -1371,7 +1493,8 @@ async function seedOrderItems() {
                     weight_per_unit: a.weight_per_unit,
                     total_volume: (vol * item.qty).toFixed(3),
                     total_weight: (wt * item.qty).toFixed(2),
-                    condition_notes: null,
+                    condition_notes:
+                        assetCondition === "GREEN" ? null : (a.condition_notes ?? null),
                     handling_tags: a.handling_tags,
                     from_collection: null,
                     from_collection_name: null,
@@ -1381,12 +1504,182 @@ async function seedOrderItems() {
                     reskin_notes: item.isReskin
                         ? "Apply new branding as per attached mockup. Timeline critical."
                         : null,
+                    maintenance_decision: maintenanceDecision,
+                    requires_maintenance: requiresMaintenance,
+                    maintenance_refurb_days_snapshot: maintenanceRefurbDaysSnapshot,
+                    maintenance_decision_locked_at: maintenanceDecisionLockedAt,
                 })
                 .returning();
             S.orderItems.push(oi);
         }
     }
     console.log(`✓ ${S.orderItems.length} order items`);
+}
+
+// ============================================================
+// ORDER TRANSPORT UNITS — Multi-unit delivery/pickup/access model
+// ============================================================
+async function seedOrderTransportUnits() {
+    console.log("🛻 Seeding order transport units...");
+    const logistics = userByEmail("logistics@test.com");
+    let unitCount = 0;
+    let detailCount = 0;
+
+    for (const order of S.orders) {
+        const orderRate = Number(order._transportRate || 0);
+        const isMultiDeliveryScenario = order.order_id === "ORD-20260208-003";
+
+        const deliveryConfigs = isMultiDeliveryScenario
+            ? [
+                  {
+                      label: "Delivery core #1",
+                      is_default: true,
+                      billable_rate: Number((orderRate * 0.6).toFixed(2)),
+                      detail: {
+                          truck_plate: "DXB-41321",
+                          driver_name: "Khaled Mansoor",
+                          driver_contact: "+971501234321",
+                          truck_size: "3_TON",
+                          tailgate_required: true,
+                          manpower: 3,
+                          delivery_notes: "Primary truck for furniture and fixtures",
+                          notes: "Arrive 90 minutes before venue access slot",
+                          metadata: { lane: "A", gate_pass: "PRIMARY" },
+                      },
+                  },
+                  {
+                      label: "Delivery core #2",
+                      is_default: false,
+                      billable_rate: Number(
+                          (orderRate - Number((orderRate * 0.6).toFixed(2))).toFixed(2)
+                      ),
+                      detail: {
+                          truck_plate: "DXB-41777",
+                          driver_name: "Omar Faisal",
+                          driver_contact: "+971503219876",
+                          truck_size: "3_TON",
+                          tailgate_required: false,
+                          manpower: 2,
+                          delivery_notes: "Secondary truck for batch and fragile crates",
+                          notes: "Coordinate unloading with core #1",
+                          metadata: { lane: "B", gate_pass: "SECONDARY" },
+                      },
+                  },
+              ]
+            : [
+                  {
+                      label: "Default delivery",
+                      is_default: true,
+                      billable_rate: Number(orderRate.toFixed(2)),
+                      detail: {
+                          truck_plate: "DXB-40210",
+                          driver_name: "Ahmed Khalifa",
+                          driver_contact: "+971509998877",
+                          truck_size: "3_TON",
+                          tailgate_required: true,
+                          manpower: 2,
+                          delivery_notes: "Standard delivery lane",
+                          notes: "Confirm site access 30 minutes before arrival",
+                          metadata: { lane: "STANDARD", gate_pass: "DELIVERY" },
+                      },
+                  },
+              ];
+
+        for (const cfg of deliveryConfigs) {
+            const [unit] = await db
+                .insert(schema.orderTransportUnits)
+                .values({
+                    platform_id: S.platform.id,
+                    order_id: order.id,
+                    kind: "DELIVERY_BILLABLE",
+                    vehicle_type_id: order.vehicle_type_id,
+                    label: cfg.label,
+                    is_default: cfg.is_default,
+                    is_billable: true,
+                    billable_rate: cfg.billable_rate.toFixed(2),
+                    created_by: logistics.id,
+                })
+                .returning();
+            S.orderTransportUnits.push(unit);
+            unitCount++;
+
+            await db.insert(schema.orderTransportUnitDetails).values({
+                transport_unit_id: unit.id,
+                ...cfg.detail,
+            });
+            detailCount++;
+        }
+
+        if (
+            order.pickup_window ||
+            ["AWAITING_RETURN", "RETURN_IN_TRANSIT", "CLOSED"].includes(order.order_status)
+        ) {
+            const [pickupUnit] = await db
+                .insert(schema.orderTransportUnits)
+                .values({
+                    platform_id: S.platform.id,
+                    order_id: order.id,
+                    kind: "PICKUP_OPS",
+                    vehicle_type_id: null,
+                    label: "Default pickup",
+                    is_default: true,
+                    is_billable: false,
+                    billable_rate: null,
+                    created_by: logistics.id,
+                })
+                .returning();
+            S.orderTransportUnits.push(pickupUnit);
+            unitCount++;
+
+            await db.insert(schema.orderTransportUnitDetails).values({
+                transport_unit_id: pickupUnit.id,
+                truck_plate: "DXB-49901",
+                driver_name: "Rashid Ali",
+                driver_contact: "+971504445566",
+                truck_size: "3_TON",
+                tailgate_required: true,
+                manpower: 2,
+                pickup_notes: "Collect after event teardown confirmation",
+                notes: "Coordinate with site operations desk",
+                metadata: { pass_type: "PICKUP", checkpoint: "Gate C" },
+            });
+            detailCount++;
+        }
+
+        if (["ORD-20260208-003", "ORD-20260203-009"].includes(order.order_id)) {
+            const [otherAccessUnit] = await db
+                .insert(schema.orderTransportUnits)
+                .values({
+                    platform_id: S.platform.id,
+                    order_id: order.id,
+                    kind: "OTHER_ACCESS",
+                    vehicle_type_id: null,
+                    label: "Access vehicle",
+                    is_default: true,
+                    is_billable: false,
+                    billable_rate: null,
+                    created_by: logistics.id,
+                })
+                .returning();
+            S.orderTransportUnits.push(otherAccessUnit);
+            unitCount++;
+
+            await db.insert(schema.orderTransportUnitDetails).values({
+                transport_unit_id: otherAccessUnit.id,
+                truck_plate: "AUX-7788",
+                driver_name: "Site Access Team",
+                driver_contact: "+971500001234",
+                truck_size: "SUV",
+                tailgate_required: false,
+                manpower: 1,
+                notes: "Non-billable access vehicle for venue permits",
+                metadata: { pass_type: "PERSONAL_CAR", passengers: 2 },
+            });
+            detailCount++;
+        }
+    }
+
+    console.log(`✓ ${unitCount} transport units, ${detailCount} detail records`);
 }
 
 // ============================================================
@@ -1510,6 +1803,439 @@ async function seedLineItems() {
 }
 
 // ============================================================
+// SERVICE REQUESTS — Standalone maintenance/reskin/refurb flows
+// ============================================================
+async function seedServiceRequests() {
+    console.log("🧰 Seeding service requests...");
+    const pid = S.platform.id;
+    const admin = userByEmail("admin@test.com");
+    const logistics = userByEmail("logistics@test.com");
+    const pr = companyByName("Pernod Ricard");
+    const dg = companyByName("Diageo");
+
+    const prOrange = S.assets.find(
+        (asset: any) =>
+            asset.company_id === pr.id &&
+            asset.category === "Furniture" &&
+            asset.condition === "ORANGE"
+    );
+    const prRed = S.assets.find(
+        (asset: any) =>
+            asset.company_id === pr.id &&
+            asset.category === "Furniture" &&
+            asset.condition === "RED"
+    );
+    const dgOrange = S.assets.find(
+        (asset: any) =>
+            asset.company_id === dg.id &&
+            asset.category === "Furniture" &&
+            asset.condition === "ORANGE"
+    );
+    const dgRed = S.assets.find(
+        (asset: any) =>
+            asset.company_id === dg.id &&
+            asset.category === "Furniture" &&
+            asset.condition === "RED"
+    );
+
+    const reskinOrder = S.orders.find((order: any) => order.order_id === "ORD-20260209-008");
+    const reskinOrderItem = S.orderItems.find(
+        (item: any) => item.order_id === reskinOrder?.id && item.is_reskin_request
+    );
+
+    const getServiceTypeByName = (name: string) => {
+        const svc = S.serviceTypes.find((service: any) => service.name === name);
+        if (!svc) throw new Error(`Missing service type in seed data: ${name}`);
+        return svc;
+    };
+
+    const defs = [
+        {
+            service_request_id: "SR-20260214-001",
+            company: pr,
+            request_type: "MAINTENANCE" as const,
+            billing_mode: "INTERNAL_ONLY" as const,
+            request_status: "IN_PROGRESS" as const,
+            commercial_status: "INTERNAL" as const,
+            title: "Standalone maintenance for orange + red lounge furniture",
+            description:
+                "Operational fix request not tied directly to an order. Keep items in visible pool while execution is tracked.",
+            related_asset_id: prOrange?.id || null,
+            related_order_id: null,
+            related_order_item_id: null,
+            requested_start_at: daysFromNow(1),
+            requested_due_at: daysFromNow(4),
+            created_by: logistics.id,
+            created_at: daysFromNow(-2),
+            updated_at: daysFromNow(-1),
+            completed_at: null,
+            completed_by: null,
+            completion_notes: null,
+            cancelled_at: null,
+            cancelled_by: null,
+            cancellation_reason: null,
+            status_path: ["SUBMITTED", "IN_REVIEW", "APPROVED", "IN_PROGRESS"] as const,
+            status_actor_id: logistics.id,
+            commercial_notes: ["Internal-only request, no client quote required."],
+            commercial_actor_id: admin.id,
+            items: [
+                {
+                    asset_id: prOrange?.id || null,
+                    asset_name: prOrange?.name || "PR Orange Furniture",
+                    quantity: 1,
+                    notes: "Minor scratches and edge polish",
+                    refurb_days_estimate: 2,
+                },
+                {
+                    asset_id: prRed?.id || null,
+                    asset_name: prRed?.name || "PR Red Furniture",
+                    quantity: 1,
+                    notes: "Structural leg repair and repaint",
+                    refurb_days_estimate: 5,
+                },
+            ],
+            catalog_items: [
+                {
+                    service_name: "Cleaning Service",
+                    quantity: 2,
+                    notes: "Post-repair deep clean",
+                    added_by: logistics.id,
+                },
+            ],
+            custom_items: [
+                {
+                    category: "HANDLING" as const,
+                    description: "Sanding and touch-up material pack",
+                    total: 180,
+                    notes: "Internal consumables",
+                    added_by: logistics.id,
+                },
+            ],
+        },
+        {
+            service_request_id: "SR-20260213-002",
+            company: dg,
+            request_type: "RESKIN" as const,
+            billing_mode: "CLIENT_BILLABLE" as const,
+            request_status: "APPROVED" as const,
+            commercial_status: "QUOTED" as const,
+            title: "Standalone reskin package for launch assets",
+            description:
+                "Standalone reskin request with commercial quote sent to client before execution starts.",
+            related_asset_id: dgOrange?.id || null,
+            related_order_id: reskinOrder?.id || null,
+            related_order_item_id: reskinOrderItem?.id || null,
+            requested_start_at: daysFromNow(2),
+            requested_due_at: daysFromNow(8),
+            created_by: admin.id,
+            created_at: daysFromNow(-3),
+            updated_at: daysFromNow(-1),
+            completed_at: null,
+            completed_by: null,
+            completion_notes: null,
+            cancelled_at: null,
+            cancelled_by: null,
+            cancellation_reason: null,
+            status_path: ["SUBMITTED", "IN_REVIEW", "APPROVED"] as const,
+            status_actor_id: admin.id,
+            commercial_notes: [
+                "Commercial status changed to PENDING_QUOTE",
+                "Commercial status changed to QUOTED",
+            ],
+            commercial_actor_id: admin.id,
+            items: [
+                {
+                    asset_id: dgOrange?.id || null,
+                    asset_name: dgOrange?.name || "DG Orange Furniture",
+                    quantity: 1,
+                    notes: "Client requested refreshed vinyl wrap",
+                    refurb_days_estimate: 3,
+                },
+            ],
+            catalog_items: [
+                {
+                    service_name: "Vinyl Wrap Application",
+                    quantity: 2,
+                    notes: "Apply to outer shell and front fascia",
+                    added_by: admin.id,
+                },
+            ],
+            custom_items: [
+                {
+                    category: "RESKIN" as const,
+                    description: "Artwork prepress and proofing setup",
+                    total: 420,
+                    notes: "One-time setup charge",
+                    added_by: admin.id,
+                },
+            ],
+        },
+        {
+            service_request_id: "SR-20260207-003",
+            company: pr,
+            request_type: "REFURBISHMENT" as const,
+            billing_mode: "CLIENT_BILLABLE" as const,
+            request_status: "COMPLETED" as const,
+            commercial_status: "PAID" as const,
+            title: "Completed refurbishment pack for premium lounge set",
+            description:
+                "Historical completed standalone refurbishment with approved quote, invoice, and payment.",
+            related_asset_id: prRed?.id || null,
+            related_order_id: null,
+            related_order_item_id: null,
+            requested_start_at: daysFromNow(-9),
+            requested_due_at: daysFromNow(-5),
+            created_by: logistics.id,
+            created_at: daysFromNow(-10),
+            updated_at: daysFromNow(-2),
+            completed_at: daysFromNow(-2),
+            completed_by: logistics.id,
+            completion_notes: "Refurbishment completed and quality checks passed.",
+            cancelled_at: null,
+            cancelled_by: null,
+            cancellation_reason: null,
+            status_path: [
+                "SUBMITTED",
+                "IN_REVIEW",
+                "APPROVED",
+                "IN_PROGRESS",
+                "COMPLETED",
+            ] as const,
+            status_actor_id: logistics.id,
+            commercial_notes: [
+                "Commercial status changed to PENDING_QUOTE",
+                "Commercial status changed to QUOTED",
+                "Commercial status changed to QUOTE_APPROVED",
+                "Commercial status changed to INVOICED",
+                "Commercial status changed to PAID",
+            ],
+            commercial_actor_id: admin.id,
+            items: [
+                {
+                    asset_id: prRed?.id || null,
+                    asset_name: prRed?.name || "PR Red Furniture",
+                    quantity: 1,
+                    notes: "Full structural and finish refurbishment",
+                    refurb_days_estimate: 5,
+                },
+            ],
+            catalog_items: [
+                {
+                    service_name: "Basic Assembly",
+                    quantity: 4,
+                    notes: "Refit after repair",
+                    added_by: logistics.id,
+                },
+            ],
+            custom_items: [
+                {
+                    category: "OTHER" as const,
+                    description: "Refurbishment labor and replacement parts",
+                    total: 960,
+                    notes: "Includes hardware replacement",
+                    added_by: admin.id,
+                },
+            ],
+        },
+        {
+            service_request_id: "SR-20260205-004",
+            company: dg,
+            request_type: "CUSTOM" as const,
+            billing_mode: "INTERNAL_ONLY" as const,
+            request_status: "CANCELLED" as const,
+            commercial_status: "CANCELLED" as const,
+            title: "Cancelled custom maintenance bundle",
+            description: "Request cancelled after scope moved to a separate operational plan.",
+            related_asset_id: dgRed?.id || null,
+            related_order_id: null,
+            related_order_item_id: null,
+            requested_start_at: daysFromNow(-4),
+            requested_due_at: daysFromNow(1),
+            created_by: admin.id,
+            created_at: daysFromNow(-6),
+            updated_at: daysFromNow(-1),
+            completed_at: null,
+            completed_by: null,
+            completion_notes: null,
+            cancelled_at: daysFromNow(-1),
+            cancelled_by: admin.id,
+            cancellation_reason: "Merged into direct order-based execution plan before kickoff.",
+            status_path: ["SUBMITTED", "IN_REVIEW", "CANCELLED"] as const,
+            status_actor_id: admin.id,
+            commercial_notes: ["Request cancelled before commercial processing."],
+            commercial_actor_id: admin.id,
+            items: [
+                {
+                    asset_id: dgRed?.id || null,
+                    asset_name: dgRed?.name || "DG Red Furniture",
+                    quantity: 1,
+                    notes: "Initial request was wheel replacement + repaint",
+                    refurb_days_estimate: 4,
+                },
+            ],
+            catalog_items: [],
+            custom_items: [],
+        },
+    ];
+
+    for (const def of defs) {
+        const catalogTotal = def.catalog_items.reduce((sum, item) => {
+            const svc = getServiceTypeByName(item.service_name);
+            return sum + Number(svc.default_rate || 0) * item.quantity;
+        }, 0);
+        const customTotal = def.custom_items.reduce((sum, item) => sum + item.total, 0);
+        const pricing =
+            def.billing_mode === "CLIENT_BILLABLE"
+                ? await createServiceRequestPricing({
+                      company: def.company,
+                      catalogTotal,
+                      customTotal,
+                      userId: def.created_by,
+                  })
+                : null;
+
+        const [serviceRequest] = await db
+            .insert(schema.serviceRequests)
+            .values({
+                service_request_id: def.service_request_id,
+                platform_id: pid,
+                company_id: def.company.id,
+                request_type: def.request_type,
+                billing_mode: def.billing_mode,
+                request_status: def.request_status,
+                commercial_status: def.commercial_status,
+                title: def.title,
+                description: def.description,
+                related_asset_id: def.related_asset_id,
+                related_order_id: def.related_order_id,
+                related_order_item_id: def.related_order_item_id,
+                request_pricing_id: pricing?.id || null,
+                requested_start_at: def.requested_start_at,
+                requested_due_at: def.requested_due_at,
+                created_by: def.created_by,
+                completed_at: def.completed_at,
+                completed_by: def.completed_by,
+                completion_notes: def.completion_notes,
+                cancelled_at: def.cancelled_at,
+                cancelled_by: def.cancelled_by,
+                cancellation_reason: def.cancellation_reason,
+                created_at: def.created_at,
+                updated_at: def.updated_at,
+            })
+            .returning();
+
+        S.serviceRequests.push(serviceRequest);
+
+        if (def.items.length > 0) {
+            await db.insert(schema.serviceRequestItems).values(
+                def.items.map((item) => ({
+                    service_request_id: serviceRequest.id,
+                    asset_id: item.asset_id,
+                    asset_name: item.asset_name,
+                    quantity: item.quantity,
+                    notes: item.notes,
+                    refurb_days_estimate: item.refurb_days_estimate,
+                    created_at: def.created_at,
+                    updated_at: def.updated_at,
+                }))
+            );
+        }
+
+        for (let i = 0; i < def.status_path.length; i++) {
+            const toStatus = def.status_path[i];
+            const fromStatus = i === 0 ? null : def.status_path[i - 1];
+            await db.insert(schema.serviceRequestStatusHistory).values({
+                service_request_id: serviceRequest.id,
+                platform_id: pid,
+                from_status: fromStatus as any,
+                to_status: toStatus as any,
+                note:
+                    i === 0
+                        ? "Service request created"
+                        : `Operational status moved to ${String(toStatus).replace(/_/g, " ")}`,
+                changed_by: def.status_actor_id,
+                changed_at: new Date(def.created_at.getTime() + i * 6 * 3600000),
+            });
+        }
+
+        for (let i = 0; i < def.commercial_notes.length; i++) {
+            await db.insert(schema.serviceRequestStatusHistory).values({
+                service_request_id: serviceRequest.id,
+                platform_id: pid,
+                from_status: def.request_status as any,
+                to_status: def.request_status as any,
+                note: def.commercial_notes[i],
+                changed_by: def.commercial_actor_id,
+                changed_at: new Date(def.updated_at.getTime() + i * 3600000),
+            });
+        }
+
+        for (const catalogItem of def.catalog_items) {
+            const serviceType = getServiceTypeByName(catalogItem.service_name);
+            const lineItemId = await lineItemIdGenerator(S.platform.id);
+            const total = (Number(serviceType.default_rate || 0) * catalogItem.quantity).toFixed(2);
+
+            const [lineItem] = await db
+                .insert(schema.lineItems)
+                .values({
+                    platform_id: pid,
+                    order_id: null,
+                    inbound_request_id: null,
+                    service_request_id: serviceRequest.id,
+                    line_item_id: lineItemId,
+                    purpose_type: "SERVICE_REQUEST" as const,
+                    service_type_id: serviceType.id,
+                    reskin_request_id: null,
+                    line_item_type: "CATALOG" as const,
+                    category: serviceType.category,
+                    description: serviceType.name,
+                    quantity: catalogItem.quantity.toString(),
+                    unit: serviceType.unit,
+                    unit_rate: serviceType.default_rate,
+                    total,
+                    added_by: catalogItem.added_by,
+                    added_at: new Date(def.created_at.getTime() + 2 * 3600000),
+                    notes: catalogItem.notes,
+                    is_voided: false,
+                })
+                .returning();
+            S.lineItems.push(lineItem);
+        }
+
+        for (const customItem of def.custom_items) {
+            const lineItemId = await lineItemIdGenerator(S.platform.id);
+            const [lineItem] = await db
+                .insert(schema.lineItems)
+                .values({
+                    platform_id: pid,
+                    order_id: null,
+                    inbound_request_id: null,
+                    service_request_id: serviceRequest.id,
+                    line_item_id: lineItemId,
+                    purpose_type: "SERVICE_REQUEST" as const,
+                    service_type_id: null,
+                    reskin_request_id: null,
+                    line_item_type: "CUSTOM" as const,
+                    category: customItem.category,
+                    description: customItem.description,
+                    quantity: null,
+                    unit: null,
+                    unit_rate: null,
+                    total: customItem.total.toFixed(2),
+                    added_by: customItem.added_by,
+                    added_at: new Date(def.created_at.getTime() + 3 * 3600000),
+                    notes: customItem.notes,
+                    is_voided: false,
+                })
+                .returning();
+            S.lineItems.push(lineItem);
+        }
+    }
+
+    console.log(`✓ ${S.serviceRequests.length} service requests`);
+}
+
+// ============================================================
 // ASSET BOOKINGS
 // ============================================================
 
@@ -1520,8 +2246,10 @@ async function seedAssetBookings() {
         "IN_PREPARATION",
         "READY_FOR_DELIVERY",
         "IN_TRANSIT",
+        "IN_USE",
         "DELIVERED",
         "AWAITING_RETURN",
+        "RETURN_IN_TRANSIT",
         "AWAITING_FABRICATION",
     ];
     let count = 0;
@@ -1558,9 +2286,15 @@ async function seedScanEvents() {
 
         // Outbound scans: orders that have completed scanning (READY_FOR_DELIVERY and beyond, NOT IN_PREPARATION)
         if (
-            ["READY_FOR_DELIVERY", "IN_TRANSIT", "DELIVERED", "AWAITING_RETURN", "CLOSED"].includes(
-                order.order_status
-            )
+            [
+                "READY_FOR_DELIVERY",
+                "IN_TRANSIT",
+                "DELIVERED",
+                "IN_USE",
+                "AWAITING_RETURN",
+                "RETURN_IN_TRANSIT",
+                "CLOSED",
+            ].includes(order.order_status)
         ) {
             for (const item of items) {
                 await db.insert(schema.scanEvents).values({
@@ -1571,6 +2305,9 @@ async function seedScanEvents() {
                     condition: "GREEN" as AssetCondition,
                     notes: "All items verified before loading",
                     photos: [],
+                    latest_return_images: [],
+                    damage_report_photos: [],
+                    damage_report_entries: [],
                     discrepancy_reason: null,
                     scanned_by: logistics.id,
                     scanned_at: new Date(order.event_start_date.getTime() - 24 * 3600000),
@@ -1589,6 +2326,21 @@ async function seedScanEvents() {
                     condition === "ORANGE"
                         ? "Minor scuff on surface, still usable"
                         : "Returned in excellent condition";
+                const latestReturnImages = [
+                    `https://placehold.co/1200x800/334155/FFFFFF?text=${encodeURIComponent(`${item.asset_name}\\nReturn Wide 1`)}`,
+                    `https://placehold.co/1200x800/1e293b/FFFFFF?text=${encodeURIComponent(`${item.asset_name}\\nReturn Wide 2`)}`,
+                ];
+                const damageReportEntries =
+                    condition === "ORANGE"
+                        ? [
+                              {
+                                  url: `https://placehold.co/900x700/f97316/FFFFFF?text=${encodeURIComponent(`${item.asset_name}\\nDamage Close-up`)}`,
+                                  description:
+                                      "Surface scuff on visible panel; customer accepted use with disclosure.",
+                              },
+                          ]
+                        : [];
+                const damagePhotos = damageReportEntries.map((entry) => entry.url);
 
                 await db.insert(schema.scanEvents).values({
                     order_id: order.id,
@@ -1597,8 +2349,11 @@ async function seedScanEvents() {
                     quantity: item.quantity,
                     condition,
                     notes,
-                    photos: [],
-                    discrepancy_reason: null,
+                    photos: damagePhotos,
+                    latest_return_images: latestReturnImages,
+                    damage_report_photos: damagePhotos,
+                    damage_report_entries: damageReportEntries,
+                    discrepancy_reason: condition === "ORANGE" ? "BROKEN" : null,
                     scanned_by: logistics.id,
                     scanned_at: new Date(order.event_end_date.getTime() + 36 * 3600000),
                 });
@@ -1618,6 +2373,7 @@ async function seedScanEvents() {
 function getStatusProgression(finalStatus: string): string[] {
     const p: Record<string, string[]> = {
         DRAFT: ["DRAFT"],
+        SUBMITTED: ["DRAFT", "SUBMITTED"],
         PRICING_REVIEW: ["DRAFT", "PRICING_REVIEW"],
         PENDING_APPROVAL: ["DRAFT", "PRICING_REVIEW", "PENDING_APPROVAL"],
         QUOTED: ["DRAFT", "PRICING_REVIEW", "PENDING_APPROVAL", "QUOTED"],
@@ -1668,6 +2424,18 @@ function getStatusProgression(finalStatus: string): string[] {
             "IN_TRANSIT",
             "DELIVERED",
         ],
+        IN_USE: [
+            "DRAFT",
+            "PRICING_REVIEW",
+            "PENDING_APPROVAL",
+            "QUOTED",
+            "CONFIRMED",
+            "IN_PREPARATION",
+            "READY_FOR_DELIVERY",
+            "IN_TRANSIT",
+            "DELIVERED",
+            "IN_USE",
+        ],
         AWAITING_RETURN: [
             "DRAFT",
             "PRICING_REVIEW",
@@ -1679,6 +2447,19 @@ function getStatusProgression(finalStatus: string): string[] {
             "IN_TRANSIT",
             "DELIVERED",
             "AWAITING_RETURN",
+        ],
+        RETURN_IN_TRANSIT: [
+            "DRAFT",
+            "PRICING_REVIEW",
+            "PENDING_APPROVAL",
+            "QUOTED",
+            "CONFIRMED",
+            "IN_PREPARATION",
+            "READY_FOR_DELIVERY",
+            "IN_TRANSIT",
+            "DELIVERED",
+            "AWAITING_RETURN",
+            "RETURN_IN_TRANSIT",
         ],
         CLOSED: [
             "DRAFT",
@@ -1702,6 +2483,7 @@ function getFinancialProgression(finalStatus: string): string[] {
     const p: Record<string, string[]> = {
         PENDING_QUOTE: ["PENDING_QUOTE"],
         QUOTE_SENT: ["PENDING_QUOTE", "QUOTE_SENT"],
+        QUOTE_REVISED: ["PENDING_QUOTE", "QUOTE_SENT", "QUOTE_REVISED"],
         QUOTE_ACCEPTED: ["PENDING_QUOTE", "QUOTE_SENT", "QUOTE_ACCEPTED"],
         PENDING_INVOICE: ["PENDING_QUOTE", "QUOTE_SENT", "QUOTE_ACCEPTED", "PENDING_INVOICE"],
         INVOICED: ["PENDING_QUOTE", "QUOTE_SENT", "QUOTE_ACCEPTED", "PENDING_INVOICE", "INVOICED"],
@@ -1720,6 +2502,7 @@ function getFinancialProgression(finalStatus: string): string[] {
 
 const statusNotes: Record<string, string> = {
     DRAFT: "Order created",
+    SUBMITTED: "Order submitted by client",
     PRICING_REVIEW: "Under logistics review",
     PENDING_APPROVAL: "Awaiting admin approval",
     QUOTED: "Quote sent to client",
@@ -1729,7 +2512,9 @@ const statusNotes: Record<string, string> = {
     READY_FOR_DELIVERY: "Ready for pickup",
     IN_TRANSIT: "En route to venue",
     DELIVERED: "Delivered to venue",
+    IN_USE: "Event currently in progress",
     AWAITING_RETURN: "Event complete, awaiting pickup",
+    RETURN_IN_TRANSIT: "Items picked up and returning to warehouse",
     CLOSED: "Order complete",
     CANCELLED: "Order cancelled",
 };
@@ -1737,6 +2522,7 @@ const statusNotes: Record<string, string> = {
 const financialNotes: Record<string, string> = {
     PENDING_QUOTE: "Awaiting pricing",
     QUOTE_SENT: "Quote delivered to client",
+    QUOTE_REVISED: "Quote revised after client/logistics feedback",
     QUOTE_ACCEPTED: "Client accepted quote",
     PENDING_INVOICE: "Preparing invoice",
     INVOICED: "Invoice generated and sent",
@@ -1761,7 +2547,16 @@ async function seedOrderHistory() {
         );
         for (let i = 0; i < statuses.length; i++) {
             const s = statuses[i];
-            const updatedBy = ["PRICING_REVIEW", "IN_PREPARATION", "READY_FOR_DELIVERY"].includes(s)
+            const updatedBy = [
+                "PRICING_REVIEW",
+                "IN_PREPARATION",
+                "READY_FOR_DELIVERY",
+                "IN_TRANSIT",
+                "DELIVERED",
+                "AWAITING_RETURN",
+                "RETURN_IN_TRANSIT",
+                "CLOSED",
+            ].includes(s)
                 ? logistics
                 : admin;
             await db.insert(schema.orderStatusHistory).values({
@@ -1835,6 +2630,37 @@ async function seedInvoices() {
         });
         count++;
     }
+
+    for (const serviceRequest of S.serviceRequests) {
+        if (
+            serviceRequest.billing_mode !== "CLIENT_BILLABLE" ||
+            !["INVOICED", "PAID"].includes(serviceRequest.commercial_status)
+        ) {
+            continue;
+        }
+
+        const invoiceId = `INV-${serviceRequest.service_request_id.replace("SR-", "SR")}`;
+        const pdfUrl = `https://kadence-storage.s3.us-east-1.amazonaws.com/${S.platform.id}/invoices/${serviceRequest.id}/${invoiceId}.pdf`;
+
+        await db.insert(schema.invoices).values({
+            platform_id: S.platform.id,
+            order_id: null,
+            inbound_request_id: null,
+            service_request_id: serviceRequest.id,
+            type: "SERVICE_REQUEST" as const,
+            invoice_id: invoiceId,
+            invoice_pdf_url: pdfUrl,
+            invoice_paid_at: serviceRequest.commercial_status === "PAID" ? daysFromNow(-1) : null,
+            payment_method: serviceRequest.commercial_status === "PAID" ? "Bank Transfer" : null,
+            payment_reference:
+                serviceRequest.commercial_status === "PAID"
+                    ? `PAY-SR-2026-${String(count + 1).padStart(4, "0")}`
+                    : null,
+            generated_by: admin.id,
+            updated_by: null,
+        });
+        count++;
+    }
     console.log(`✓ ${count} invoices`);
 }
 
@@ -1850,13 +2676,21 @@ async function seedConditionHistory() {
 
     for (const asset of S.assets) {
         if (asset.condition !== "GREEN") {
+            const damagePhoto = `https://placehold.co/800x600/dc2626/FFFFFF?text=${encodeURIComponent(`${asset.name}\\nDamage`)}`;
             await db.insert(schema.assetConditionHistory).values({
                 platform_id: S.platform.id,
                 asset_id: asset.id,
                 condition: asset.condition,
                 notes: asset.condition_notes || "Condition noted during inspection",
-                photos: [
-                    `https://placehold.co/800x600/dc2626/FFFFFF?text=${encodeURIComponent(`${asset.name}\\nDamage`)}`,
+                photos: [damagePhoto],
+                damage_report_entries: [
+                    {
+                        url: damagePhoto,
+                        description:
+                            asset.condition === "RED"
+                                ? "Critical damage logged for mandatory refurbishment."
+                                : "Visible wear logged for optional maintenance decision.",
+                    },
                 ],
                 updated_by: logistics.id,
                 timestamp: daysFromNow(-3),
@@ -1868,13 +2702,18 @@ async function seedConditionHistory() {
         // Seed a "damage then fixed" history path on a subset of GREEN assets for demo visibility.
         if (fixedHistorySeeded >= 8) continue;
 
+        const beforeFixPhoto = `https://placehold.co/800x600/dc2626/FFFFFF?text=${encodeURIComponent(`${asset.name}\\nBefore Fix`)}`;
         await db.insert(schema.assetConditionHistory).values({
             platform_id: S.platform.id,
             asset_id: asset.id,
             condition: "RED",
             notes: "Inbound inspection found damage requiring refurbishment",
-            photos: [
-                `https://placehold.co/800x600/dc2626/FFFFFF?text=${encodeURIComponent(`${asset.name}\\nBefore Fix`)}`,
+            photos: [beforeFixPhoto],
+            damage_report_entries: [
+                {
+                    url: beforeFixPhoto,
+                    description: "Structural issue found during inbound inspection.",
+                },
             ],
             updated_by: logistics.id,
             timestamp: daysFromNow(-7),
@@ -1889,6 +2728,7 @@ async function seedConditionHistory() {
             photos: [
                 `https://placehold.co/800x600/16a34a/FFFFFF?text=${encodeURIComponent(`${asset.name}\\nAfter Fix`)}`,
             ],
+            damage_report_entries: [],
             updated_by: logistics.id,
             timestamp: daysFromNow(-2),
         });
@@ -1914,8 +2754,10 @@ async function seedAssetVersions() {
             brand_name: S.brands.find((b: any) => b.id === asset.brand_id)?.name || null,
             category: asset.category,
             images: asset.images,
+            on_display_image: asset.on_display_image,
             condition: asset.condition,
             condition_notes: asset.condition_notes,
+            refurb_days_estimate: asset.refurb_days_estimate,
             weight_per_unit: asset.weight_per_unit,
             dimensions: asset.dimensions,
             volume_per_unit: asset.volume_per_unit,
@@ -2198,37 +3040,56 @@ async function cleanup() {
             /* ignore */
         }
 
+        const safeDelete = async (label: string, fn: () => Promise<unknown>) => {
+            try {
+                await fn();
+            } catch (error) {
+                console.log(`  ↳ Skipping ${label}: ${(error as Error).message}`);
+            }
+        };
+
         // Delete in reverse dependency order
-        await db.delete(schema.notificationLogs);
-        await db.delete(schema.assetVersions);
-        await db.delete(schema.assetConditionHistory);
-        await db.delete(schema.scanEvents);
-        await db.delete(schema.financialStatusHistory);
-        await db.delete(schema.orderStatusHistory);
-        await db.delete(schema.invoices);
-        await db.delete(schema.assetBookings);
-        await db.delete(schema.lineItems);
-        await db.delete(schema.reskinRequests);
-        await db.delete(schema.orderItems);
-        await db.delete(schema.orders);
-        await db.delete(schema.inboundRequestItems);
-        await db.delete(schema.inboundRequests);
-        await db.delete(schema.prices);
-        await db.delete(schema.collectionItems);
-        await db.delete(schema.collections);
-        await db.delete(schema.assets);
-        await db.delete(schema.serviceTypes);
-        await db.delete(schema.transportRates);
-        await db.delete(schema.cities);
-        await db.delete(schema.countries);
-        await db.delete(schema.zones);
-        await db.delete(schema.brands);
-        await db.delete(schema.companyDomains);
-        await db.delete(schema.users);
-        await db.delete(schema.companies);
-        await db.delete(schema.warehouses);
-        await db.delete(schema.vehicleTypes);
-        await db.delete(schema.platforms);
+        await safeDelete("notification_logs", () => db.delete(schema.notificationLogs));
+        await safeDelete("asset_versions", () => db.delete(schema.assetVersions));
+        await safeDelete("asset_condition_history", () => db.delete(schema.assetConditionHistory));
+        await safeDelete("scan_events", () => db.delete(schema.scanEvents));
+        await safeDelete("financial_status_history", () =>
+            db.delete(schema.financialStatusHistory)
+        );
+        await safeDelete("order_status_history", () => db.delete(schema.orderStatusHistory));
+        await safeDelete("invoices", () => db.delete(schema.invoices));
+        await safeDelete("asset_bookings", () => db.delete(schema.assetBookings));
+        await safeDelete("order_transport_unit_details", () =>
+            db.delete(schema.orderTransportUnitDetails)
+        );
+        await safeDelete("order_transport_units", () => db.delete(schema.orderTransportUnits));
+        await safeDelete("line_items", () => db.delete(schema.lineItems));
+        await safeDelete("service_request_status_history", () =>
+            db.delete(schema.serviceRequestStatusHistory)
+        );
+        await safeDelete("service_request_items", () => db.delete(schema.serviceRequestItems));
+        await safeDelete("service_requests", () => db.delete(schema.serviceRequests));
+        await safeDelete("reskin_requests", () => db.delete(schema.reskinRequests));
+        await safeDelete("order_items", () => db.delete(schema.orderItems));
+        await safeDelete("orders", () => db.delete(schema.orders));
+        await safeDelete("inbound_request_items", () => db.delete(schema.inboundRequestItems));
+        await safeDelete("inbound_requests", () => db.delete(schema.inboundRequests));
+        await safeDelete("prices", () => db.delete(schema.prices));
+        await safeDelete("collection_items", () => db.delete(schema.collectionItems));
+        await safeDelete("collections", () => db.delete(schema.collections));
+        await safeDelete("assets", () => db.delete(schema.assets));
+        await safeDelete("service_types", () => db.delete(schema.serviceTypes));
+        await safeDelete("transport_rates", () => db.delete(schema.transportRates));
+        await safeDelete("cities", () => db.delete(schema.cities));
+        await safeDelete("countries", () => db.delete(schema.countries));
+        await safeDelete("zones", () => db.delete(schema.zones));
+        await safeDelete("brands", () => db.delete(schema.brands));
+        await safeDelete("company_domains", () => db.delete(schema.companyDomains));
+        await safeDelete("users", () => db.delete(schema.users));
+        await safeDelete("companies", () => db.delete(schema.companies));
+        await safeDelete("warehouses", () => db.delete(schema.warehouses));
+        await safeDelete("vehicle_types", () => db.delete(schema.vehicleTypes));
+        await safeDelete("platforms", () => db.delete(schema.platforms));
         console.log("✓ Cleanup complete\n");
     } catch (error) {
         console.log("⚠️  Cleanup warning:", (error as Error).message);
@@ -2272,8 +3133,10 @@ async function main() {
         // Phase 4: Orders & workflow
         await seedOrders();
         await seedOrderItems();
+        await seedOrderTransportUnits();
         await seedReskinRequests();
         await seedLineItems();
+        await seedServiceRequests();
         await seedAssetBookings();
 
         // Phase 5: Scanning & conditions
@@ -2298,6 +3161,8 @@ async function main() {
         console.log(`  Brands: ${S.brands.length}`);
         console.log(`  Assets: ${S.assets.length} (deterministic QR codes)`);
         console.log(`  Orders: ${S.orders.length}`);
+        console.log(`  Transport Units: ${S.orderTransportUnits.length}`);
+        console.log(`  Service Requests: ${S.serviceRequests.length}`);
         console.log(`  Inbound Requests: ${S.inboundRequests.length}`);
 
         console.log("\n📋 QR Codes for Scanning Demo:");
