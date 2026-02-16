@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, gte, lte } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../db";
 import { orders, serviceRequests } from "../../db/schema";
@@ -353,6 +353,158 @@ const getServiceRequestCommercialContext = async (
     };
 };
 
+export type CommercialContextListFilters = {
+    company_id?: string;
+    date_from?: Date | null;
+    date_to?: Date | null;
+};
+
+export const listOrderCommercialContexts = async (
+    platformId: string,
+    filters: CommercialContextListFilters = {}
+): Promise<NormalizedCommercialDocumentContext[]> => {
+    const conditions = [eq(orders.platform_id, platformId)];
+    if (filters.company_id) conditions.push(eq(orders.company_id, filters.company_id));
+    if (filters.date_from) conditions.push(gte(orders.created_at, filters.date_from));
+    if (filters.date_to) conditions.push(lte(orders.created_at, filters.date_to));
+
+    const rows = await db.query.orders.findMany({
+        where: and(...conditions),
+        with: {
+            company: true,
+            order_pricing: true,
+            venue_city: true,
+            items: true,
+            line_items: true,
+        },
+        orderBy: [asc(orders.created_at)],
+    });
+
+    return rows
+        .filter((o) => o.company && o.order_pricing)
+        .map((order) => {
+            const venueLocation = (order.venue_location as any) || {};
+            const pricing = mapPricing(order.order_pricing!, 0);
+            const lineItems = mapLineItems(order.line_items as any, pricing.margin_percent);
+            return {
+                context_type: "ORDER" as const,
+                context_id: order.id,
+                reference_id: order.order_id,
+                platform_id: order.platform_id,
+                created_by: order.user_id,
+                company: {
+                    id: order.company!.id,
+                    name: order.company!.name || "Unknown Company",
+                    contact_email: order.company!.contact_email || order.contact_email || "N/A",
+                    contact_phone: order.company!.contact_phone || order.contact_phone || "N/A",
+                },
+                contact: {
+                    name: order.contact_name || order.company!.name || "N/A",
+                    email: order.contact_email || order.company!.contact_email || "N/A",
+                    phone: order.contact_phone || order.company!.contact_phone || "N/A",
+                },
+                timeline: {
+                    start: toDateOrNow(order.event_start_date),
+                    end: toDateOrNow(order.event_end_date),
+                },
+                venue: {
+                    name: order.venue_name || "N/A",
+                    country: venueLocation.country || "N/A",
+                    city: order.venue_city?.name || "N/A",
+                    address: venueLocation.address || "N/A",
+                },
+                operational_status: order.order_status,
+                commercial_status: order.financial_status,
+                billing_mode: null as "INTERNAL_ONLY" | "CLIENT_BILLABLE" | null,
+                pricing,
+                items: order.items.map((item) => ({
+                    asset_name: item.asset_name,
+                    quantity: toNumber(item.quantity),
+                    handling_tags: Array.isArray(item.handling_tags)
+                        ? (item.handling_tags as any)
+                        : [],
+                    from_collection_name: item.from_collection_name || undefined,
+                })),
+                line_items: lineItems,
+            };
+        });
+};
+
+export const listServiceRequestCommercialContexts = async (
+    platformId: string,
+    filters: CommercialContextListFilters = {}
+): Promise<NormalizedCommercialDocumentContext[]> => {
+    const conditions = [eq(serviceRequests.platform_id, platformId)];
+    if (filters.company_id) conditions.push(eq(serviceRequests.company_id, filters.company_id));
+    if (filters.date_from) conditions.push(gte(serviceRequests.created_at, filters.date_from));
+    if (filters.date_to) conditions.push(lte(serviceRequests.created_at, filters.date_to));
+
+    const rows = await db.query.serviceRequests.findMany({
+        where: and(...conditions),
+        with: { company: true, request_pricing: true, items: true, line_items: true },
+        orderBy: [asc(serviceRequests.created_at)],
+    });
+
+    return rows
+        .filter((sr) => sr.company && sr.request_pricing)
+        .map((sr) => {
+            const pricing = mapPricing(sr.request_pricing!, 0);
+            const lineItems = mapLineItems(sr.line_items as any, pricing.margin_percent);
+            return {
+                context_type: "SERVICE_REQUEST" as const,
+                context_id: sr.id,
+                reference_id: sr.service_request_id,
+                platform_id: sr.platform_id,
+                created_by: sr.created_by,
+                company: {
+                    id: sr.company!.id,
+                    name: sr.company!.name || "Unknown Company",
+                    contact_email: sr.company!.contact_email || "N/A",
+                    contact_phone: sr.company!.contact_phone || "N/A",
+                },
+                contact: {
+                    name: sr.company!.name || "Service Request",
+                    email: sr.company!.contact_email || "N/A",
+                    phone: sr.company!.contact_phone || "N/A",
+                },
+                timeline: {
+                    start: toDateOrNow(sr.requested_start_at || sr.created_at),
+                    end: toDateOrNow(sr.requested_due_at || sr.requested_start_at || sr.created_at),
+                },
+                venue: {
+                    name: "Service Request",
+                    country: "N/A",
+                    city: "N/A",
+                    address: "N/A",
+                },
+                operational_status: sr.request_status,
+                commercial_status: sr.commercial_status,
+                billing_mode: sr.billing_mode,
+                pricing,
+                items: sr.items.map((item) => ({
+                    asset_name: item.asset_name,
+                    quantity: toNumber(item.quantity),
+                    handling_tags: [] as string[],
+                    from_collection_name: "SERVICE_REQUEST",
+                })),
+                line_items: lineItems,
+            };
+        });
+};
+
+export const listAllCommercialContexts = async (
+    platformId: string,
+    filters: CommercialContextListFilters = {}
+): Promise<NormalizedCommercialDocumentContext[]> => {
+    const [orderContexts, srContexts] = await Promise.all([
+        listOrderCommercialContexts(platformId, filters),
+        listServiceRequestCommercialContexts(platformId, filters),
+    ]);
+    return [...orderContexts, ...srContexts].sort(
+        (a, b) => a.timeline.start.getTime() - b.timeline.start.getTime()
+    );
+};
+
 export const getCommercialDocumentContext = async (
     contextType: CommercialDocumentContextType,
     contextId: string,
@@ -375,8 +527,13 @@ export const buildCommercialDocumentPdfPayload = (
         unit_rate: sellSide ? lineItem.sell_unit_rate : lineItem.buy_unit_rate,
         total: sellSide ? lineItem.sell_total : lineItem.buy_total,
     }));
-    const lineItemsSubTotal = lineItems.reduce((sum, lineItem) => sum + toNumber(lineItem.total), 0);
-    const serviceFee = sellSide ? context.pricing.sell.service_fee : context.pricing.buy.service_fee;
+    const lineItemsSubTotal = lineItems.reduce(
+        (sum, lineItem) => sum + toNumber(lineItem.total),
+        0
+    );
+    const serviceFee = sellSide
+        ? context.pricing.sell.service_fee
+        : context.pricing.buy.service_fee;
 
     return {
         id: context.context_id,
@@ -402,15 +559,18 @@ export const buildCommercialDocumentPdfPayload = (
             from_collection_name: item.from_collection_name,
         })),
         pricing: {
-            logistics_base_price: (
-                sellSide ? context.pricing.sell.base_ops_total : context.pricing.buy.base_ops_total
+            logistics_base_price: (sellSide
+                ? context.pricing.sell.base_ops_total
+                : context.pricing.buy.base_ops_total
             ).toFixed(2),
-            transport_rate: (
-                sellSide ? context.pricing.sell.transport_total : context.pricing.buy.transport_total
+            transport_rate: (sellSide
+                ? context.pricing.sell.transport_total
+                : context.pricing.buy.transport_total
             ).toFixed(2),
             service_fee: serviceFee.toFixed(2),
-            final_total_price: (
-                sellSide ? context.pricing.sell.final_total : context.pricing.buy.final_total
+            final_total_price: (sellSide
+                ? context.pricing.sell.final_total
+                : context.pricing.buy.final_total
             ).toFixed(2),
             show_breakdown: true,
         },
@@ -430,6 +590,7 @@ export const buildInvoiceS3Key = (
 
 export const buildCostEstimateS3Key = (context: NormalizedCommercialDocumentContext) => {
     const slug = companySlug(context.company.name);
-    if (context.context_type === "ORDER") return `cost-estimates/${slug}/${context.reference_id}.pdf`;
+    if (context.context_type === "ORDER")
+        return `cost-estimates/${slug}/${context.reference_id}.pdf`;
     return `cost-estimates/service-request/${slug}/${context.reference_id}.pdf`;
 };
