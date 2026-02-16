@@ -7,7 +7,9 @@ export async function runCommand(command: string, args: string[]): Promise<void>
         child.on("error", reject);
         child.on("close", (code) => {
             if (code === 0) return resolve();
-            reject(new Error(`Command failed (${code ?? "unknown"}): ${command} ${args.join(" ")}`));
+            reject(
+                new Error(`Command failed (${code ?? "unknown"}): ${command} ${args.join(" ")}`)
+            );
         });
     });
 }

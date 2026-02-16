@@ -84,7 +84,9 @@ function assertSafeTarget(target: DbTarget): void {
     }
 
     if (allowedHosts.includes(target.host)) return;
-    throw new Error(protectionBlockMessage(`Blocked target: host "${target.host}" is not allow-listed.`));
+    throw new Error(
+        protectionBlockMessage(`Blocked target: host "${target.host}" is not allow-listed.`)
+    );
 }
 
 function assertEnvNotBlocked(): void {
@@ -94,7 +96,9 @@ function assertEnvNotBlocked(): void {
     if (!currentEnv) return;
     if (!effectiveBlocked.includes(currentEnv)) return;
     throw new Error(
-        protectionBlockMessage(`Blocked runtime env: "${currentEnv}" is in DB_DESTRUCTIVE_BLOCKED_ENVS.`)
+        protectionBlockMessage(
+            `Blocked runtime env: "${currentEnv}" is in DB_DESTRUCTIVE_BLOCKED_ENVS.`
+        )
     );
 }
 
@@ -131,10 +135,12 @@ export async function enforceDestructiveDbGuard(action: DestructiveAction): Prom
     console.log("\n⚠️  Destructive database command");
     console.log(`Action: ${ACTION_LABEL[action]}`);
     console.log(`Target host: ${target.host}`);
-    if (target.supabaseProjectRef) console.log(`Supabase project ref: ${target.supabaseProjectRef}`);
+    if (target.supabaseProjectRef)
+        console.log(`Supabase project ref: ${target.supabaseProjectRef}`);
     console.log(`Database: ${target.database}`);
     console.log(`\nType "${requiredPhrase}" to continue.`);
 
     const answer = await ask("> ");
-    if (answer !== requiredPhrase) throw new Error("Confirmation phrase mismatch. Command cancelled.");
+    if (answer !== requiredPhrase)
+        throw new Error("Confirmation phrase mismatch. Command cancelled.");
 }
