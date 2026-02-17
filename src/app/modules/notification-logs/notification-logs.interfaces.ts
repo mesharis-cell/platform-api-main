@@ -1,6 +1,5 @@
 export type NotificationType =
     | "ORDER_SUBMITTED"
-    | "A2_APPROVED_STANDARD"
     | "A2_ADJUSTED_PRICING"
     | "QUOTE_SENT"
     | "QUOTE_APPROVED"
@@ -34,8 +33,6 @@ export type NotificationData = {
     eventEndDate?: string;
     venueName?: string;
     venueCity?: string;
-    tripType: string;
-    vehicleType: string;
     finalTotalPrice?: string;
     invoiceNumber?: string;
     deliveryWindow?: string;
@@ -48,10 +45,6 @@ export type NotificationData = {
         warehouse_ops_rate: string;
         base_ops_total: string;
         logistics_sub_total: string;
-        transport: {
-            final_rate: string;
-            system_rate: string;
-        };
         line_items: {
             catalog_total: string;
             custom_total: string;
@@ -64,7 +57,13 @@ export type NotificationData = {
         };
         final_total: string;
     };
-    line_items?: Array<{ description: string; total: number; category: string }>;
+    line_items?: Array<{
+        description: string;
+        category: string;
+        billing_mode: string;
+        total: number;
+        amount: number;
+    }>;
     cancellation_reason?: string;
     cancellation_notes?: string;
     previous_total?: number | string | null;

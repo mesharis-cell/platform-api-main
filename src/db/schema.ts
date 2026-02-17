@@ -150,11 +150,6 @@ export const serviceRequestBillingModeEnum = pgEnum("service_request_billing_mod
     "INTERNAL_ONLY",
     "CLIENT_BILLABLE",
 ]);
-export const orderTransportUnitKindEnum = pgEnum("order_transport_unit_kind", [
-    "DELIVERY_BILLABLE",
-    "PICKUP_OPS",
-    "OTHER_ACCESS",
-]);
 
 // ---------------------------------- PLATFORM -------------------------------------------
 // Config structure:
@@ -804,7 +799,6 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
     venue_city: one(cities, { fields: [orders.venue_city_id], references: [cities.id] }),
     items: many(orderItems),
     line_items: many(lineItems),
-    transport_units: many(orderTransportUnits),
     reskin_requests: many(reskinRequests),
     scan_events: many(scanEvents),
     asset_bookings: many(assetBookings),
@@ -1549,7 +1543,6 @@ export const vehicleTypesRelations = relations(vehicleTypes, ({ one, many }) => 
     }),
     orders: many(orders),
     transport_rates: many(transportRates),
-    transport_units: many(orderTransportUnits),
 }));
 
 // ---------------------------------- ASSET VERSIONS -----------------------------------------
@@ -1765,90 +1758,3 @@ export const serviceRequestStatusHistoryRelations = relations(
     })
 );
 
-export const orderTransportUnits = pgTable(
-    "order_transport_units",
-    {
-        id: uuid("id").primaryKey().defaultRandom(),
-        platform_id: uuid("platform_id")
-            .notNull()
-            .references(() => platforms.id, { onDelete: "cascade" }),
-        order_id: uuid("order_id")
-            .notNull()
-            .references(() => orders.id, { onDelete: "cascade" }),
-        kind: orderTransportUnitKindEnum("kind").notNull(),
-        vehicle_type_id: uuid("vehicle_type_id").references(() => vehicleTypes.id),
-        label: varchar("label", { length: 120 }),
-        is_default: boolean("is_default").notNull().default(false),
-        is_billable: boolean("is_billable").notNull().default(false),
-        billable_rate: decimal("billable_rate", { precision: 10, scale: 2 }),
-        created_by: uuid("created_by")
-            .notNull()
-            .references(() => users.id),
-        created_at: timestamp("created_at").notNull().defaultNow(),
-        updated_at: timestamp("updated_at")
-            .$onUpdate(() => new Date())
-            .notNull(),
-    },
-    (table) => [
-        index("order_transport_units_order_idx").on(table.order_id),
-        index("order_transport_units_platform_idx").on(table.platform_id),
-        index("order_transport_units_kind_idx").on(table.kind),
-    ]
-);
-
-export const orderTransportUnitDetails = pgTable(
-    "order_transport_unit_details",
-    {
-        id: uuid("id").primaryKey().defaultRandom(),
-        transport_unit_id: uuid("transport_unit_id")
-            .notNull()
-            .references(() => orderTransportUnits.id, { onDelete: "cascade" }),
-        truck_plate: varchar("truck_plate", { length: 80 }),
-        driver_name: varchar("driver_name", { length: 120 }),
-        driver_contact: varchar("driver_contact", { length: 80 }),
-        truck_size: varchar("truck_size", { length: 80 }),
-        tailgate_required: boolean("tailgate_required").notNull().default(false),
-        manpower: integer("manpower").notNull().default(0),
-        pickup_notes: text("pickup_notes"),
-        delivery_notes: text("delivery_notes"),
-        notes: text("notes"),
-        metadata: jsonb("metadata")
-            .notNull()
-            .default(sql`'{}'::jsonb`),
-        created_at: timestamp("created_at").notNull().defaultNow(),
-        updated_at: timestamp("updated_at")
-            .$onUpdate(() => new Date())
-            .notNull(),
-    },
-    (table) => [index("order_transport_unit_details_unit_idx").on(table.transport_unit_id)]
-);
-
-export const orderTransportUnitsRelations = relations(orderTransportUnits, ({ one, many }) => ({
-    platform: one(platforms, {
-        fields: [orderTransportUnits.platform_id],
-        references: [platforms.id],
-    }),
-    order: one(orders, {
-        fields: [orderTransportUnits.order_id],
-        references: [orders.id],
-    }),
-    vehicle_type: one(vehicleTypes, {
-        fields: [orderTransportUnits.vehicle_type_id],
-        references: [vehicleTypes.id],
-    }),
-    created_by_user: one(users, {
-        fields: [orderTransportUnits.created_by],
-        references: [users.id],
-    }),
-    details: many(orderTransportUnitDetails),
-}));
-
-export const orderTransportUnitDetailsRelations = relations(
-    orderTransportUnitDetails,
-    ({ one }) => ({
-        transport_unit: one(orderTransportUnits, {
-            fields: [orderTransportUnitDetails.transport_unit_id],
-            references: [orderTransportUnits.id],
-        }),
-    })
-);

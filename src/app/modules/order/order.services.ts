@@ -77,7 +77,8 @@ const calculateEstimate = async (
     payload: CalculateEstimatePayload
 ) => {
     // Step 1: Extract payload data
-    const { items, venue_city } = payload;
+    const { items, venue_city, trip_type } = payload;
+    const requestedTripType = trip_type || "ROUND_TRIP";
 
     // Step 2: Fetch company information
     const [company] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1);
@@ -159,23 +160,24 @@ const calculateEstimate = async (
     }
 
     // Step 6: Lookup a suggested transport rate (indicative only)
-    const oneWayRate = await TransportRatesServices.lookupTransportRate(
+    const preferredRate = await TransportRatesServices.lookupTransportRate(
         platformId,
         companyId,
         venue_city,
-        "ONE_WAY",
+        requestedTripType,
         selectedVehicleType.id
     );
-    const roundTripRate = oneWayRate
+    const fallbackTripType = requestedTripType === "ROUND_TRIP" ? "ONE_WAY" : "ROUND_TRIP";
+    const fallbackRate = preferredRate
         ? null
         : await TransportRatesServices.lookupTransportRate(
               platformId,
               companyId,
               venue_city,
-              "ROUND_TRIP",
+              fallbackTripType,
               selectedVehicleType.id
           );
-    const suggestedRate = Number(oneWayRate?.rate || roundTripRate?.rate || 0);
+    const suggestedRate = Number(preferredRate?.rate || fallbackRate?.rate || 0);
 
     // Step 7: Calculate indicative estimate total
     const warehouseOpsRate = company.warehouse_ops_rate;
@@ -2657,6 +2659,7 @@ const downloadGoodsForm = async (
             brand: true,
             venue_city: true,
             items: true,
+            line_items: true,
         },
     });
 
@@ -2676,6 +2679,22 @@ const downloadGoodsForm = async (
         start?: Date | string | null;
         end?: Date | string | null;
     } | null;
+    const primaryTransport = (order.line_items || []).find(
+        (lineItem) =>
+            !lineItem.is_voided &&
+            lineItem.category === "TRANSPORT" &&
+            lineItem.billing_mode === "BILLABLE"
+    );
+    const transportMetadata =
+        ((primaryTransport?.metadata as Record<string, unknown>) || {}) as Record<string, unknown>;
+    const tripType =
+        typeof transportMetadata.trip_direction === "string" ? transportMetadata.trip_direction : "";
+    const vehicleType =
+        typeof transportMetadata.vehicle_type_name === "string"
+            ? transportMetadata.vehicle_type_name
+            : typeof transportMetadata.truck_size === "string"
+              ? transportMetadata.truck_size
+              : "";
 
     const buffer = await generateGoodsFormXlsx({
         form_type: resolvedFormType,
@@ -2686,8 +2705,8 @@ const downloadGoodsForm = async (
         venue_city: order.venue_city?.name || "",
         event_start_date: order.event_start_date,
         event_end_date: order.event_end_date,
-        trip_type: "",
-        vehicle_type: "",
+        trip_type: tripType,
+        vehicle_type: vehicleType,
         contact_name: order.contact_name || "",
         contact_phone: order.contact_phone || "",
         delivery_window: deliveryWindow,

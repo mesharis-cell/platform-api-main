@@ -17,12 +17,21 @@ export async function getEmailTemplate(
     const lineItemsHtml =
         data.line_items && data.line_items.length > 0
             ? data.line_items
-                  .map(
+                  .filter(
                       (item) =>
-                          `<p style="margin: 6px 0;"><strong>${item.description}:</strong> ${formatAmount(item.total)} AED</p>`
+                          item.billing_mode === "BILLABLE" || item.billing_mode === "COMPLIMENTARY"
+                  )
+                  .map(
+                      (item) => {
+                          const amount = item.amount ?? item.total;
+                          if (item.billing_mode === "COMPLIMENTARY") {
+                              return `<p style="margin: 6px 0;"><strong>${item.description}:</strong> Complimentary (valued at ${formatAmount(amount)} AED)</p>`;
+                          }
+                          return `<p style="margin: 6px 0;"><strong>${item.description}:</strong> ${formatAmount(amount)} AED</p>`;
+                      }
                   )
                   .join("")
-            : `<p style="margin: 6px 0; color: #6b7280;">No additional line items</p>`;
+            : `<p style="margin: 6px 0; color: #6b7280;">No additional service items</p>`;
     const pricingBreakdownHtml = data.pricing
         ? `
             <p style="margin: 6px 0;"><strong>Logistics & Handling:</strong> ${formatAmount(
@@ -251,29 +260,6 @@ export async function getEmailTemplate(
         },
 
         // Enhanced templates for all remaining types
-        A2_APPROVED_STANDARD: {
-            subject: `FYI: Standard Pricing Approved for ${data.orderIdReadable}`,
-            html: `
-<!DOCTYPE html>
-<html><head><meta charset="UTF-8"></head>
-<body style="${baseStyle}">
-	<table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding: 40px 20px;">
-		<table width="600" cellpadding="0" cellspacing="0" style="background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
-			<tr><td style="padding: 40px;">
-				<h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Standard Pricing Approved</h1>
-				<p style="margin: 0 0 16px; font-size: 16px; color: #374151;">A2 Logistics has approved standard pricing for this order. Quote is being sent to client.</p>
-				<div style="background: #f9fafb; border-radius: 8px; padding: 24px; margin: 24px 0;">
-					<p style="margin: 8px 0;"><strong>Order ID:</strong> ${data.orderIdReadable}</p>
-					<p style="margin: 8px 0;"><strong>Company:</strong> ${data.companyName}</p>
-				</div>
-				<p style="margin: 16px 0;">No further action required. The client has been notified and can now approve or decline the quote.</p>
-				<a href="${data.orderUrl}" style="display: inline-block; margin: 24px 0; padding: 12px 24px; background: #2563eb; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600;">View Order</a>
-			</td></tr>
-		</table>
-	</td></tr></table>
-</body></html>
-			`,
-        },
         A2_ADJUSTED_PRICING: {
             subject: `Action Required: Pricing Adjustment for ${data.orderIdReadable}`,
             html: `

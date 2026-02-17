@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../../../db";
 import { cities, lineItems, prices, users } from "../../../db/schema";
 import config from "../../config";
@@ -83,7 +83,6 @@ export const getRecipientsForNotification = async (
     // Notification Matrix (based on req.md Email Notification Matrix)
     const matrix: Record<NotificationType, NotificationRecipients> = {
         ORDER_SUBMITTED: { to: [clientEmail], cc: [...adminEmails, ...logisticsEmails] },
-        A2_APPROVED_STANDARD: { to: adminEmails }, // PMG only (FYI) - no CC to A2
         A2_ADJUSTED_PRICING: { to: adminEmails }, // PMG only (Action Required) - no CC to A2
         QUOTE_SENT: { to: [clientEmail], cc: adminEmails },
         QUOTE_REVISED: { to: [clientEmail], cc: adminEmails },
@@ -128,9 +127,16 @@ export const buildNotificationData = async (order: any): Promise<NotificationDat
             description: lineItems.description,
             total: lineItems.total,
             category: lineItems.category,
+            billing_mode: lineItems.billing_mode,
         })
         .from(lineItems)
-        .where(and(eq(lineItems.order_id, order.id), eq(lineItems.is_voided, false)));
+        .where(
+            and(
+                eq(lineItems.order_id, order.id),
+                eq(lineItems.is_voided, false),
+                inArray(lineItems.billing_mode, ["BILLABLE", "COMPLIMENTARY"])
+            )
+        );
 
     return {
         platformId: order.platform_id,
@@ -146,8 +152,6 @@ export const buildNotificationData = async (order: any): Promise<NotificationDat
             : "",
         venueName: order.venue_name || "",
         venueCity: venueCity?.name || "",
-        tripType: order.transport_trip_type || "",
-        vehicleType: order.transport_vehicle_type || "",
         finalTotalPrice: orderPricing?.final_total
             ? Number(orderPricing.final_total).toFixed(2)
             : "",
@@ -163,11 +167,6 @@ export const buildNotificationData = async (order: any): Promise<NotificationDat
                   warehouse_ops_rate: orderPricing.warehouse_ops_rate?.toString() || "N/A",
                   base_ops_total: orderPricing.base_ops_total?.toString() || "N/A",
                   logistics_sub_total: orderPricing.logistics_sub_total?.toString() || "N/A",
-                  transport: {
-                      final_rate: (orderPricing.transport as any)?.final_rate?.toString() || "N/A",
-                      system_rate:
-                          (orderPricing.transport as any)?.system_rate?.toString() || "N/A",
-                  },
                   line_items: {
                       catalog_total:
                           (orderPricing.line_items as any)?.catalog_total?.toString() || "N/A",
@@ -183,11 +182,17 @@ export const buildNotificationData = async (order: any): Promise<NotificationDat
                   final_total: orderPricing.final_total?.toString() || "N/A",
               }
             : undefined,
-        line_items: lineItemsData.map((item) => ({
-            description: item.description,
-            total: Number(item.total),
-            category: item.category,
-        })),
+        line_items: lineItemsData.map((item) => {
+            const rawItem = item as Record<string, unknown>;
+            const amount = Number(rawItem.sell_total ?? rawItem.total_sell_price ?? item.total ?? 0);
+            return {
+                description: item.description,
+                category: item.category,
+                billing_mode: item.billing_mode || "BILLABLE",
+                total: Number(item.total),
+                amount: Number.isFinite(amount) ? amount : 0,
+            };
+        }),
     };
 };
 

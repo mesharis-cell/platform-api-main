@@ -14,6 +14,7 @@ const calculateEstimateSchema = z.object({
                 })
             ),
             venue_city: z.string("Venue city is required"),
+            trip_type: z.enum(["ONE_WAY", "ROUND_TRIP"]).optional().default("ROUND_TRIP"),
         })
         .strict(),
 });
