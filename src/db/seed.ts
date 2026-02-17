@@ -96,7 +96,6 @@ const S = {
     collections: [] as any[],
     orders: [] as any[],
     orderItems: [] as any[],
-    orderTransportUnits: [] as any[],
     reskinRequests: [] as any[],
     lineItems: [] as any[],
     inboundRequests: [] as any[],
@@ -651,14 +650,54 @@ async function seedServiceTypes() {
             description: "Deep cleaning of returned items",
         },
     ];
-    const inserted = await db
+    const baseServices = await db
         .insert(schema.serviceTypes)
         .values(
-            services.map((s, i) => ({ platform_id: pid, ...s, display_order: i, is_active: true }))
+            services.map((s, i) => ({
+                platform_id: pid,
+                ...s,
+                display_order: i,
+                is_active: true,
+            }))
         )
         .returning();
-    S.serviceTypes = inserted;
-    console.log(`✓ ${inserted.length} service types`);
+
+    const defaultVehicle = S.vehicleTypes.find((v: any) => v.is_default) || S.vehicleTypes[0];
+    const cityNameById = new Map(S.cities.map((city: any) => [city.id, city.name]));
+    const transportServiceRows = S.transportRates
+        .filter((rate: any) => rate.company_id === null && rate.vehicle_type_id === defaultVehicle?.id)
+        .map((rate: any, idx: number) => {
+            const cityName = cityNameById.get(rate.city_id) || "Unknown City";
+            const tripLabel = rate.trip_type === "ROUND_TRIP" ? "Round Trip" : "One Way";
+            return {
+                platform_id: pid,
+                name: `Transport - ${cityName} (${tripLabel})`,
+                category: "TRANSPORT" as const,
+                unit: "trip",
+                default_rate: rate.rate,
+                default_metadata: {
+                    city_id: rate.city_id,
+                    city_name: cityName,
+                    trip_direction: rate.trip_type,
+                    vehicle_type_id: rate.vehicle_type_id,
+                    vehicle_type_name: defaultVehicle?.name || null,
+                },
+                transport_rate_id: rate.id,
+                description: `Transport service synced from ${cityName} ${tripLabel} rate card`,
+                display_order: services.length + idx,
+                is_active: true,
+            };
+        });
+
+    const transportServices =
+        transportServiceRows.length > 0
+            ? await db.insert(schema.serviceTypes).values(transportServiceRows).returning()
+            : [];
+
+    S.serviceTypes = [...baseServices, ...transportServices];
+    console.log(
+        `✓ ${S.serviceTypes.length} service types (${baseServices.length} base + ${transportServices.length} transport)`
+    );
 }
 
 // ============================================================
@@ -1021,7 +1060,6 @@ async function createPricing(opts: {
     volume: number;
     warehouseOpsRate: number;
     marginPercent: number;
-    transportRate: number;
     catalogTotal?: number;
     customTotal?: number;
     userId: string;
@@ -1029,9 +1067,9 @@ async function createPricing(opts: {
     const baseOps = opts.volume * opts.warehouseOpsRate;
     const catTotal = opts.catalogTotal || 0;
     const custTotal = opts.customTotal || 0;
-    const logSub = baseOps + opts.transportRate + catTotal;
+    const logSub = baseOps + catTotal + custTotal;
     const marginAmt = logSub * (opts.marginPercent / 100);
-    const finalTotal = logSub + marginAmt + custTotal;
+    const finalTotal = logSub + marginAmt;
 
     const [price] = await db
         .insert(schema.prices)
@@ -1040,7 +1078,7 @@ async function createPricing(opts: {
             warehouse_ops_rate: opts.warehouseOpsRate.toFixed(2),
             base_ops_total: baseOps.toFixed(2),
             logistics_sub_total: logSub.toFixed(2),
-            transport: { system_rate: opts.transportRate, final_rate: opts.transportRate },
+            transport: { system_rate: 0, final_rate: 0 },
             line_items: { catalog_total: catTotal, custom_total: custTotal },
             margin: {
                 percent: opts.marginPercent,
@@ -1100,23 +1138,17 @@ async function seedOrders() {
     const dgClient = userByEmail("client@diageo.com");
     const dubai = cityByName("Dubai");
     const abuDhabi = cityByName("Abu Dhabi");
-    const defaultVehicle = S.vehicleTypes.find((v: any) => v.is_default)!;
-
-    // Get transport rate for Dubai round trip
-    const dubaiRate = S.transportRates.find(
-        (r: any) =>
-            r.city_id === dubai.id &&
-            r.vehicle_type_id === defaultVehicle.id &&
-            r.trip_type === "ROUND_TRIP"
+    const defaultVehicle = S.vehicleTypes.find((v: any) => v.is_default) || S.vehicleTypes[0];
+    const transportRateByCity = new Map(
+        S.transportRates
+            .filter(
+                (rate: any) =>
+                    rate.company_id === null &&
+                    rate.vehicle_type_id === defaultVehicle?.id &&
+                    rate.trip_type === "ROUND_TRIP"
+            )
+            .map((rate: any) => [rate.city_id, parseFloat(rate.rate)])
     );
-    const transportRate = dubaiRate ? parseFloat(dubaiRate.rate) : 900;
-    const abuDhabiRate = S.transportRates.find(
-        (r: any) =>
-            r.city_id === abuDhabi.id &&
-            r.vehicle_type_id === defaultVehicle.id &&
-            r.trip_type === "ROUND_TRIP"
-    );
-    const adTransportRate = abuDhabiRate ? parseFloat(abuDhabiRate.rate) : 900;
 
     // -------- ORDER DEFINITIONS --------
     const orderDefs = [
@@ -1130,7 +1162,6 @@ async function seedOrders() {
             financial: "PENDING_QUOTE" as FinancialStatus,
             venue: "Dubai World Trade Centre",
             cityId: dubai.id,
-            transportRate,
             eventStart: daysFromNow(14),
             eventEnd: daysFromNow(16),
             jobNumber: null,
@@ -1149,7 +1180,6 @@ async function seedOrders() {
             financial: "QUOTE_ACCEPTED" as FinancialStatus,
             venue: "Atlantis The Palm",
             cityId: dubai.id,
-            transportRate,
             eventStart: daysFromNow(10),
             eventEnd: daysFromNow(12),
             jobNumber: "JOB-2026-0002",
@@ -1167,7 +1197,6 @@ async function seedOrders() {
             financial: "QUOTE_ACCEPTED" as FinancialStatus,
             venue: "Burj Al Arab",
             cityId: dubai.id,
-            transportRate,
             eventStart: daysFromNow(7),
             eventEnd: daysFromNow(9),
             jobNumber: "JOB-2026-0003",
@@ -1185,7 +1214,6 @@ async function seedOrders() {
             financial: "PAID" as FinancialStatus,
             venue: "Emirates Palace",
             cityId: abuDhabi.id,
-            transportRate: adTransportRate,
             eventStart: daysFromNow(-4),
             eventEnd: daysFromNow(-1),
             jobNumber: "JOB-2026-0004",
@@ -1203,7 +1231,6 @@ async function seedOrders() {
             financial: "PAID" as FinancialStatus,
             venue: "Address Downtown",
             cityId: dubai.id,
-            transportRate,
             eventStart: daysFromNow(-15),
             eventEnd: daysFromNow(-10),
             jobNumber: "JOB-2026-0005",
@@ -1222,7 +1249,6 @@ async function seedOrders() {
             financial: "QUOTE_REVISED" as FinancialStatus,
             venue: "JW Marriott Marquis",
             cityId: dubai.id,
-            transportRate,
             eventStart: daysFromNow(20),
             eventEnd: daysFromNow(22),
             jobNumber: null,
@@ -1240,7 +1266,6 @@ async function seedOrders() {
             financial: "INVOICED" as FinancialStatus,
             venue: "Dubai World Trade Centre",
             cityId: dubai.id,
-            transportRate,
             eventStart: daysFromNow(-1),
             eventEnd: daysFromNow(2),
             jobNumber: "JOB-2026-0007",
@@ -1258,7 +1283,6 @@ async function seedOrders() {
             financial: "QUOTE_ACCEPTED" as FinancialStatus,
             venue: "Atlantis The Palm",
             cityId: dubai.id,
-            transportRate,
             eventStart: daysFromNow(25),
             eventEnd: daysFromNow(27),
             jobNumber: "JOB-2026-0008",
@@ -1276,7 +1300,6 @@ async function seedOrders() {
             financial: "PAID" as FinancialStatus,
             venue: "Expo City Dubai",
             cityId: dubai.id,
-            transportRate,
             eventStart: daysFromNow(-3),
             eventEnd: daysFromNow(-1),
             jobNumber: "JOB-2026-0009",
@@ -1289,14 +1312,16 @@ async function seedOrders() {
 
     for (const def of orderDefs) {
         const warehouseOpsRate = parseFloat(def.company.warehouse_ops_rate);
-        const catalogTotal = ["PRICING_REVIEW", "DRAFT"].includes(def.status) ? 0 : 200;
+        const transportRate = transportRateByCity.get(def.cityId) || 500;
+        const catalogTotal = ["PRICING_REVIEW", "DRAFT"].includes(def.status)
+            ? 0
+            : Number((150 + transportRate).toFixed(2));
         const customTotal = def.status === "AWAITING_FABRICATION" ? 1500 : 0;
 
         const pricing = await createPricing({
             volume: def.volume,
             warehouseOpsRate,
             marginPercent: def.marginPercent,
-            transportRate: def.transportRate,
             catalogTotal,
             customTotal,
             userId: def.user.id,
@@ -1343,8 +1368,6 @@ async function seedOrders() {
                     volume: def.volume.toFixed(3),
                     weight: (def.volume * 120).toFixed(2),
                 },
-                trip_type: "ROUND_TRIP",
-                vehicle_type_id: defaultVehicle.id,
                 order_pricing_id: pricing.id,
                 order_status: def.status,
                 financial_status: def.financial,
@@ -1366,7 +1389,6 @@ async function seedOrders() {
             ...order,
             _label: def.label,
             _companyName: def.company.name,
-            _transportRate: def.transportRate,
         });
     }
 
@@ -1517,172 +1539,6 @@ async function seedOrderItems() {
 }
 
 // ============================================================
-// ORDER TRANSPORT UNITS — Multi-unit delivery/pickup/access model
-// ============================================================
-async function seedOrderTransportUnits() {
-    console.log("🛻 Seeding order transport units...");
-    const logistics = userByEmail("logistics@test.com");
-    let unitCount = 0;
-    let detailCount = 0;
-
-    for (const order of S.orders) {
-        const orderRate = Number(order._transportRate || 0);
-        const isMultiDeliveryScenario = order.order_id === "ORD-20260208-003";
-
-        const deliveryConfigs = isMultiDeliveryScenario
-            ? [
-                  {
-                      label: "Delivery core #1",
-                      is_default: true,
-                      billable_rate: Number((orderRate * 0.6).toFixed(2)),
-                      detail: {
-                          truck_plate: "DXB-41321",
-                          driver_name: "Khaled Mansoor",
-                          driver_contact: "+971501234321",
-                          truck_size: "3_TON",
-                          tailgate_required: true,
-                          manpower: 3,
-                          delivery_notes: "Primary truck for furniture and fixtures",
-                          notes: "Arrive 90 minutes before venue access slot",
-                          metadata: { lane: "A", gate_pass: "PRIMARY" },
-                      },
-                  },
-                  {
-                      label: "Delivery core #2",
-                      is_default: false,
-                      billable_rate: Number(
-                          (orderRate - Number((orderRate * 0.6).toFixed(2))).toFixed(2)
-                      ),
-                      detail: {
-                          truck_plate: "DXB-41777",
-                          driver_name: "Omar Faisal",
-                          driver_contact: "+971503219876",
-                          truck_size: "3_TON",
-                          tailgate_required: false,
-                          manpower: 2,
-                          delivery_notes: "Secondary truck for batch and fragile crates",
-                          notes: "Coordinate unloading with core #1",
-                          metadata: { lane: "B", gate_pass: "SECONDARY" },
-                      },
-                  },
-              ]
-            : [
-                  {
-                      label: "Default delivery",
-                      is_default: true,
-                      billable_rate: Number(orderRate.toFixed(2)),
-                      detail: {
-                          truck_plate: "DXB-40210",
-                          driver_name: "Ahmed Khalifa",
-                          driver_contact: "+971509998877",
-                          truck_size: "3_TON",
-                          tailgate_required: true,
-                          manpower: 2,
-                          delivery_notes: "Standard delivery lane",
-                          notes: "Confirm site access 30 minutes before arrival",
-                          metadata: { lane: "STANDARD", gate_pass: "DELIVERY" },
-                      },
-                  },
-              ];
-
-        for (const cfg of deliveryConfigs) {
-            const [unit] = await db
-                .insert(schema.orderTransportUnits)
-                .values({
-                    platform_id: S.platform.id,
-                    order_id: order.id,
-                    kind: "DELIVERY_BILLABLE",
-                    vehicle_type_id: order.vehicle_type_id,
-                    label: cfg.label,
-                    is_default: cfg.is_default,
-                    is_billable: true,
-                    billable_rate: cfg.billable_rate.toFixed(2),
-                    created_by: logistics.id,
-                })
-                .returning();
-            S.orderTransportUnits.push(unit);
-            unitCount++;
-
-            await db.insert(schema.orderTransportUnitDetails).values({
-                transport_unit_id: unit.id,
-                ...cfg.detail,
-            });
-            detailCount++;
-        }
-
-        if (
-            order.pickup_window ||
-            ["AWAITING_RETURN", "RETURN_IN_TRANSIT", "CLOSED"].includes(order.order_status)
-        ) {
-            const [pickupUnit] = await db
-                .insert(schema.orderTransportUnits)
-                .values({
-                    platform_id: S.platform.id,
-                    order_id: order.id,
-                    kind: "PICKUP_OPS",
-                    vehicle_type_id: null,
-                    label: "Default pickup",
-                    is_default: true,
-                    is_billable: false,
-                    billable_rate: null,
-                    created_by: logistics.id,
-                })
-                .returning();
-            S.orderTransportUnits.push(pickupUnit);
-            unitCount++;
-
-            await db.insert(schema.orderTransportUnitDetails).values({
-                transport_unit_id: pickupUnit.id,
-                truck_plate: "DXB-49901",
-                driver_name: "Rashid Ali",
-                driver_contact: "+971504445566",
-                truck_size: "3_TON",
-                tailgate_required: true,
-                manpower: 2,
-                pickup_notes: "Collect after event teardown confirmation",
-                notes: "Coordinate with site operations desk",
-                metadata: { pass_type: "PICKUP", checkpoint: "Gate C" },
-            });
-            detailCount++;
-        }
-
-        if (["ORD-20260208-003", "ORD-20260203-009"].includes(order.order_id)) {
-            const [otherAccessUnit] = await db
-                .insert(schema.orderTransportUnits)
-                .values({
-                    platform_id: S.platform.id,
-                    order_id: order.id,
-                    kind: "OTHER_ACCESS",
-                    vehicle_type_id: null,
-                    label: "Access vehicle",
-                    is_default: true,
-                    is_billable: false,
-                    billable_rate: null,
-                    created_by: logistics.id,
-                })
-                .returning();
-            S.orderTransportUnits.push(otherAccessUnit);
-            unitCount++;
-
-            await db.insert(schema.orderTransportUnitDetails).values({
-                transport_unit_id: otherAccessUnit.id,
-                truck_plate: "AUX-7788",
-                driver_name: "Site Access Team",
-                driver_contact: "+971500001234",
-                truck_size: "SUV",
-                tailgate_required: false,
-                manpower: 1,
-                notes: "Non-billable access vehicle for venue permits",
-                metadata: { pass_type: "PERSONAL_CAR", passengers: 2 },
-            });
-            detailCount++;
-        }
-    }
-
-    console.log(`✓ ${unitCount} transport units, ${detailCount} detail records`);
-}
-
-// ============================================================
 // RESKIN REQUESTS — for AWAITING_FABRICATION order
 // ============================================================
 
@@ -1730,6 +1586,9 @@ async function seedLineItems() {
     console.log("💰 Seeding order line items...");
     const admin = userByEmail("admin@test.com");
     const logistics = userByEmail("logistics@test.com");
+    const transportServices = S.serviceTypes.filter(
+        (service: any) => service.category === "TRANSPORT" && service.default_rate
+    );
 
     for (const order of S.orders) {
         // Skip early-stage orders
@@ -1760,13 +1619,129 @@ async function seedLineItems() {
                     unit: svc.unit,
                     unit_rate: svc.default_rate,
                     total,
+                    billing_mode: "BILLABLE" as const,
                     added_by: logistics.id,
                     added_at: new Date(order.created_at.getTime() + 24 * 3600000),
                     notes: null,
+                    metadata: {},
                     is_voided: false,
                 })
                 .returning();
             S.lineItems.push(li);
+        }
+
+        const transportService =
+            transportServices.find((service: any) => {
+                const metadata = (service.default_metadata || {}) as Record<string, unknown>;
+                return (
+                    metadata.city_id === order.venue_city_id &&
+                    metadata.trip_direction === "ROUND_TRIP"
+                );
+            }) ||
+            transportServices.find((service: any) => {
+                const metadata = (service.default_metadata || {}) as Record<string, unknown>;
+                return metadata.city_id === order.venue_city_id;
+            }) ||
+            transportServices[0];
+
+        if (transportService) {
+            const lineItemId = await lineItemIdGenerator(S.platform.id);
+            const total = parseFloat(transportService.default_rate).toFixed(2);
+            const [transportLine] = await db
+                .insert(schema.lineItems)
+                .values({
+                    platform_id: S.platform.id,
+                    order_id: order.id,
+                    inbound_request_id: null,
+                    line_item_id: lineItemId,
+                    purpose_type: "ORDER" as const,
+                    service_type_id: transportService.id,
+                    reskin_request_id: null,
+                    line_item_type: "CATALOG" as const,
+                    category: "TRANSPORT" as const,
+                    description: transportService.name,
+                    quantity: "1",
+                    unit: transportService.unit,
+                    unit_rate: transportService.default_rate,
+                    total,
+                    billing_mode: "BILLABLE" as const,
+                    added_by: logistics.id,
+                    added_at: new Date(order.created_at.getTime() + 26 * 3600000),
+                    notes: "Transport prepared during pricing review",
+                    metadata: {
+                        ...(transportService.default_metadata || {}),
+                        truck_plate: `DXB-${String(order.order_id).slice(-4)}`,
+                        driver_name: "Assigned Driver",
+                        driver_contact: "+971500001111",
+                    },
+                    is_voided: false,
+                })
+                .returning();
+            S.lineItems.push(transportLine);
+        }
+
+        if (order.order_id === "ORD-20260208-003") {
+            const lineItemId = await lineItemIdGenerator(S.platform.id);
+            const [nonBillableTransport] = await db
+                .insert(schema.lineItems)
+                .values({
+                    platform_id: S.platform.id,
+                    order_id: order.id,
+                    inbound_request_id: null,
+                    line_item_id: lineItemId,
+                    purpose_type: "ORDER" as const,
+                    service_type_id: null,
+                    reskin_request_id: null,
+                    line_item_type: "CUSTOM" as const,
+                    category: "TRANSPORT" as const,
+                    description: "Site access escort vehicle",
+                    quantity: "1",
+                    unit: "trip",
+                    unit_rate: "120.00",
+                    total: "120.00",
+                    billing_mode: "NON_BILLABLE" as const,
+                    added_by: logistics.id,
+                    added_at: new Date(order.created_at.getTime() + 28 * 3600000),
+                    notes: "Operational support only",
+                    metadata: {
+                        truck_plate: "AUX-7788",
+                        driver_name: "Site Access Team",
+                        trip_direction: "ONE_WAY",
+                    },
+                    is_voided: false,
+                })
+                .returning();
+            S.lineItems.push(nonBillableTransport);
+        }
+
+        if (order.order_id === "ORD-20260211-006") {
+            const lineItemId = await lineItemIdGenerator(S.platform.id);
+            const [complimentaryLine] = await db
+                .insert(schema.lineItems)
+                .values({
+                    platform_id: S.platform.id,
+                    order_id: order.id,
+                    inbound_request_id: null,
+                    line_item_id: lineItemId,
+                    purpose_type: "ORDER" as const,
+                    service_type_id: null,
+                    reskin_request_id: null,
+                    line_item_type: "CUSTOM" as const,
+                    category: "OTHER" as const,
+                    description: "Complimentary loading buffer",
+                    quantity: "1",
+                    unit: "trip",
+                    unit_rate: "80.00",
+                    total: "80.00",
+                    billing_mode: "COMPLIMENTARY" as const,
+                    added_by: admin.id,
+                    added_at: new Date(order.created_at.getTime() + 30 * 3600000),
+                    notes: "Commercial goodwill adjustment",
+                    metadata: { reason: "client_retention" },
+                    is_voided: false,
+                })
+                .returning();
+            S.lineItems.push(complimentaryLine);
         }
 
         // Add reskin custom line items for AWAITING_FABRICATION order
@@ -1790,9 +1765,11 @@ async function seedLineItems() {
                     unit: null,
                     unit_rate: null,
                     total: "750.00",
+                    billing_mode: "BILLABLE" as const,
                     added_by: admin.id,
                     added_at: new Date(order.created_at.getTime() + 36 * 3600000),
                     notes: "Custom fabrication and branding application",
+                    metadata: {},
                     is_voided: false,
                 })
                 .returning();
@@ -3059,10 +3036,6 @@ async function cleanup() {
         await safeDelete("order_status_history", () => db.delete(schema.orderStatusHistory));
         await safeDelete("invoices", () => db.delete(schema.invoices));
         await safeDelete("asset_bookings", () => db.delete(schema.assetBookings));
-        await safeDelete("order_transport_unit_details", () =>
-            db.delete(schema.orderTransportUnitDetails)
-        );
-        await safeDelete("order_transport_units", () => db.delete(schema.orderTransportUnits));
         await safeDelete("line_items", () => db.delete(schema.lineItems));
         await safeDelete("service_request_status_history", () =>
             db.delete(schema.serviceRequestStatusHistory)
@@ -3133,7 +3106,6 @@ async function main() {
         // Phase 4: Orders & workflow
         await seedOrders();
         await seedOrderItems();
-        await seedOrderTransportUnits();
         await seedReskinRequests();
         await seedLineItems();
         await seedServiceRequests();
@@ -3161,7 +3133,6 @@ async function main() {
         console.log(`  Brands: ${S.brands.length}`);
         console.log(`  Assets: ${S.assets.length} (deterministic QR codes)`);
         console.log(`  Orders: ${S.orders.length}`);
-        console.log(`  Transport Units: ${S.orderTransportUnits.length}`);
         console.log(`  Service Requests: ${S.serviceRequests.length}`);
         console.log(`  Inbound Requests: ${S.inboundRequests.length}`);
 

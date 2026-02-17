@@ -99,6 +99,11 @@ export const scanTypeEnum = pgEnum("scan_type", ["OUTBOUND", "INBOUND"]);
 export const discrepancyReasonEnum = pgEnum("discrepancy_reason", ["BROKEN", "LOST", "OTHER"]);
 export const tripTypeEnum = pgEnum("trip_type", ["ONE_WAY", "ROUND_TRIP"]);
 export const lineItemTypeEnum = pgEnum("line_item_type", ["CATALOG", "CUSTOM"]);
+export const billingModeEnum = pgEnum("billing_mode", [
+    "BILLABLE",
+    "NON_BILLABLE",
+    "COMPLIMENTARY",
+]);
 export const maintenanceDecisionEnum = pgEnum("maintenance_decision", [
     "FIX_IN_ORDER",
     "USE_AS_IS",
@@ -108,6 +113,7 @@ export const serviceCategoryEnum = pgEnum("service_category", [
     "EQUIPMENT",
     "HANDLING",
     "RESKIN",
+    "TRANSPORT",
     "OTHER",
 ]);
 
@@ -673,6 +679,10 @@ export const serviceTypes = pgTable(
         category: serviceCategoryEnum("category").notNull(),
         unit: varchar("unit", { length: 20 }).notNull(), // hour, day, trip, unit
         default_rate: decimal("default_rate", { precision: 10, scale: 2 }), // Nullable
+        default_metadata: jsonb("default_metadata")
+            .notNull()
+            .default(sql`'{}'::jsonb`),
+        transport_rate_id: uuid("transport_rate_id").references(() => transportRates.id),
         description: text("description"),
 
         display_order: integer("display_order").notNull().default(0),
@@ -694,6 +704,10 @@ export const serviceTypes = pgTable(
 
 export const serviceTypesRelations = relations(serviceTypes, ({ one, many }) => ({
     platform: one(platforms, { fields: [serviceTypes.platform_id], references: [platforms.id] }),
+    transport_rate: one(transportRates, {
+        fields: [serviceTypes.transport_rate_id],
+        references: [transportRates.id],
+    }),
     order_line_items: many(lineItems),
 }));
 
@@ -737,12 +751,6 @@ export const orders = pgTable(
 
         // Calculations
         calculated_totals: jsonb("calculated_totals").notNull(), // {volume, weight} totals
-
-        // Transport (NEW)
-        trip_type: tripTypeEnum("trip_type").notNull().default("ROUND_TRIP"),
-        vehicle_type_id: uuid("vehicle_type_id")
-            .notNull()
-            .references(() => vehicleTypes.id),
 
         // Pricing (NEW structure)
         order_pricing_id: uuid("order_pricing_id")
@@ -794,10 +802,6 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
     user: one(users, { fields: [orders.user_id], references: [users.id] }),
     order_pricing: one(prices, { fields: [orders.order_pricing_id], references: [prices.id] }),
     venue_city: one(cities, { fields: [orders.venue_city_id], references: [cities.id] }),
-    vehicle_type: one(vehicleTypes, {
-        fields: [orders.vehicle_type_id],
-        references: [vehicleTypes.id],
-    }),
     items: many(orderItems),
     line_items: many(lineItems),
     transport_units: many(orderTransportUnits),
@@ -996,6 +1000,7 @@ export const lineItems = pgTable(
 
         // Item details
         line_item_type: lineItemTypeEnum("line_item_type").notNull(),
+        billing_mode: billingModeEnum("billing_mode").notNull().default("BILLABLE"),
         category: serviceCategoryEnum("category").notNull(),
         description: varchar("description", { length: 200 }).notNull(),
 
@@ -1013,6 +1018,9 @@ export const lineItems = pgTable(
             .references(() => users.id),
         added_at: timestamp("added_at").notNull().defaultNow(),
         notes: text("notes"),
+        metadata: jsonb("metadata")
+            .notNull()
+            .default(sql`'{}'::jsonb`),
 
         // Voiding (for cancellations, reskin cancellations)
         is_voided: boolean("is_voided").notNull().default(false),

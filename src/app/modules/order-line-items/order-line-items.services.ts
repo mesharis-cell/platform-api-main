@@ -24,6 +24,28 @@ import { inboundRequestCostEstimateGenerator } from "../../utils/inbound-request
 import { serviceRequestCostEstimateGenerator } from "../../utils/service-request-cost-estimate";
 import { calculatePricingSummary } from "../../utils/pricing-engine";
 
+const validateTransportMetadata = (metadata: Record<string, unknown> | undefined) => {
+    if (!metadata) return;
+    if (metadata.truck_plate !== undefined && String(metadata.truck_plate).length > 80) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "truck_plate must be under 80 characters");
+    }
+    if (metadata.driver_name !== undefined && String(metadata.driver_name).length > 120) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "driver_name must be under 120 characters");
+    }
+    if (metadata.driver_contact !== undefined && String(metadata.driver_contact).length > 80) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "driver_contact must be under 80 characters");
+    }
+    if (metadata.truck_size !== undefined && String(metadata.truck_size).length > 80) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "truck_size must be under 80 characters");
+    }
+    if (metadata.manpower !== undefined) {
+        const manpower = Number(metadata.manpower);
+        if (!Number.isInteger(manpower) || manpower < 0) {
+            throw new CustomizedError(httpStatus.BAD_REQUEST, "manpower must be a non-negative integer");
+        }
+    }
+};
+
 // ----------------------------------- GET LINE ITEMS -----------------------------------------
 const getLineItems = async (platformId: string, query: Record<string, any>) => {
     const { order_id, inbound_request_id, service_request_id, purpose_type } = query;
@@ -72,6 +94,8 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
         service_type_id,
         quantity,
         notes,
+        billing_mode,
+        metadata,
         added_by,
     } = data;
 
@@ -85,6 +109,12 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
     if (!serviceType) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Service type not found");
     }
+
+    const effectiveMetadata = {
+        ...(((serviceType as any).default_metadata || {}) as Record<string, unknown>),
+        ...((metadata || {}) as Record<string, unknown>),
+    };
+    if (serviceType.category === "TRANSPORT") validateTransportMetadata(effectiveMetadata);
 
     // Calculate total
     const total = quantity * Number(serviceType.default_rate);
@@ -103,6 +133,7 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
             service_type_id,
             reskin_request_id: null,
             line_item_type: "CATALOG",
+            billing_mode: billing_mode || "BILLABLE",
             category: serviceType.category,
             description: serviceType.name,
             quantity: quantity.toString(),
@@ -111,6 +142,7 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
             total: total.toString(),
             added_by,
             notes: notes || null,
+            metadata: effectiveMetadata,
         })
         .returning();
 
@@ -148,9 +180,13 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
         unit_rate,
         notes,
         reskin_request_id,
+        billing_mode,
+        metadata,
         added_by,
     } = data;
     const total = quantity * unit_rate;
+    const parsedMetadata = (metadata || {}) as Record<string, unknown>;
+    if (category === "TRANSPORT") validateTransportMetadata(parsedMetadata);
 
     const lineItemId = await lineItemIdGenerator(platform_id);
 
@@ -166,6 +202,7 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
             service_type_id: null,
             reskin_request_id: reskin_request_id || null,
             line_item_type: "CUSTOM",
+            billing_mode: billing_mode || "BILLABLE",
             category: category as any,
             description,
             quantity: quantity.toString(),
@@ -174,6 +211,7 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
             total: total.toString(),
             added_by,
             notes: notes || null,
+            metadata: parsedMetadata,
         })
         .returning();
 
@@ -214,7 +252,13 @@ const updateLineItem = async (id: string, platformId: string, data: UpdateLineIt
 
     const dbData: any = {
         ...(data.notes !== undefined && { notes: data.notes }),
+        ...(data.billing_mode !== undefined && { billing_mode: data.billing_mode }),
+        ...(data.metadata !== undefined && { metadata: data.metadata }),
     };
+
+    if (data.metadata !== undefined && existing.category === "TRANSPORT") {
+        validateTransportMetadata((data.metadata || {}) as Record<string, unknown>);
+    }
 
     // For catalog items, recalculate total if quantity or unit_rate changed
     if (existing.line_item_type === "CATALOG") {
@@ -330,7 +374,8 @@ const calculateOrderLineItemsTotals = async (
             and(
                 eq(lineItems.order_id, orderId),
                 eq(lineItems.platform_id, platformId),
-                eq(lineItems.is_voided, false) // Exclude voided items
+                eq(lineItems.is_voided, false), // Exclude voided items
+                eq(lineItems.billing_mode, "BILLABLE")
             )
         );
 
@@ -364,7 +409,8 @@ const calculateInboundRequestLineItemsTotals = async (
             and(
                 eq(lineItems.inbound_request_id, inboundRequestId),
                 eq(lineItems.platform_id, platformId),
-                eq(lineItems.is_voided, false) // Exclude voided items
+                eq(lineItems.is_voided, false), // Exclude voided items
+                eq(lineItems.billing_mode, "BILLABLE")
             )
         );
 
@@ -398,7 +444,8 @@ const calculateServiceRequestLineItemsTotals = async (
             and(
                 eq(lineItems.service_request_id, serviceRequestId),
                 eq(lineItems.platform_id, platformId),
-                eq(lineItems.is_voided, false)
+                eq(lineItems.is_voided, false),
+                eq(lineItems.billing_mode, "BILLABLE")
             )
         );
 
@@ -434,7 +481,6 @@ const updateOrderPricingAfterLineItemChange = async (
             },
             order_pricing: {
                 id: prices.id,
-                transport: prices.transport,
                 margin: prices.margin,
                 base_ops_total: prices.base_ops_total,
             },
@@ -453,7 +499,6 @@ const updateOrderPricingAfterLineItemChange = async (
     const lineItemsTotals = await calculateOrderLineItemsTotals(orderId, platformId);
 
     // Step 3: Calculate new final pricing
-    const transportRate = Number((orderResult.order_pricing.transport as any)?.final_rate || 0);
     const baseOpsTotal = Number(orderResult.order_pricing.base_ops_total);
     const marginData = orderResult.order_pricing.margin as any;
     const marginOverride = !!marginData?.is_override;
@@ -465,7 +510,6 @@ const updateOrderPricingAfterLineItemChange = async (
     // Calculate totals using the formula from order.services.ts
     const pricingSummary = calculatePricingSummary({
         base_ops_total: baseOpsTotal,
-        transport_rate: transportRate,
         catalog_total: lineItemsTotals.catalog_total,
         custom_total: lineItemsTotals.custom_total,
         margin_percent: marginPercent,
@@ -476,6 +520,10 @@ const updateOrderPricingAfterLineItemChange = async (
         .update(prices)
         .set({
             logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
+            transport: {
+                system_rate: 0,
+                final_rate: 0,
+            },
             line_items: {
                 catalog_total: lineItemsTotals.catalog_total,
                 custom_total: lineItemsTotals.custom_total,
@@ -544,7 +592,6 @@ const updateInboundRequestPricingAfterLineItemChange = async (
     // Calculate totals using the formula from order.services.ts
     const pricingSummary = calculatePricingSummary({
         base_ops_total: baseOpsTotal,
-        transport_rate: 0,
         catalog_total: lineItemsTotals.catalog_total,
         custom_total: lineItemsTotals.custom_total,
         margin_percent: marginPercent,
@@ -555,6 +602,10 @@ const updateInboundRequestPricingAfterLineItemChange = async (
         .update(prices)
         .set({
             logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
+            transport: {
+                system_rate: 0,
+                final_rate: 0,
+            },
             line_items: {
                 catalog_total: lineItemsTotals.catalog_total,
                 custom_total: lineItemsTotals.custom_total,
@@ -668,7 +719,6 @@ const updateServiceRequestPricingAfterLineItemChange = async (
 
     const pricingSummary = calculatePricingSummary({
         base_ops_total: baseOpsTotal,
-        transport_rate: 0,
         catalog_total: lineItemsTotals.catalog_total,
         custom_total: lineItemsTotals.custom_total,
         margin_percent: marginPercent,
@@ -679,6 +729,10 @@ const updateServiceRequestPricingAfterLineItemChange = async (
         .set({
             warehouse_ops_rate: (serviceRequest.company.warehouse_ops_rate || "0").toString(),
             logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
+            transport: {
+                system_rate: 0,
+                final_rate: 0,
+            },
             line_items: {
                 catalog_total: lineItemsTotals.catalog_total,
                 custom_total: lineItemsTotals.custom_total,

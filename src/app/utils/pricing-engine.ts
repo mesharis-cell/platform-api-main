@@ -1,6 +1,5 @@
 type PricingSummaryInput = {
     base_ops_total: number;
-    transport_rate?: number;
     catalog_total?: number;
     custom_total?: number;
     margin_percent: number;
@@ -9,7 +8,6 @@ type PricingSummaryInput = {
 type PricingSummary = {
     sell_lines: {
         base_ops_total: number;
-        transport_total: number;
         catalog_total: number;
         custom_total: number;
     };
@@ -33,26 +31,23 @@ export const applyMarginPerLine = (baseValue: number, marginPercent: number) =>
 
 export const calculatePricingSummary = (input: PricingSummaryInput): PricingSummary => {
     const baseOpsTotal = toNumber(input.base_ops_total);
-    const transportRate = toNumber(input.transport_rate);
     const catalogTotal = toNumber(input.catalog_total);
     const customTotal = toNumber(input.custom_total);
     const marginPercent = toNumber(input.margin_percent);
 
     const sellBaseOps = applyMarginPerLine(baseOpsTotal, marginPercent);
-    const sellTransport = applyMarginPerLine(transportRate, marginPercent);
     const sellCatalog = applyMarginPerLine(catalogTotal, marginPercent);
     const sellCustom = applyMarginPerLine(customTotal, marginPercent);
 
     const serviceFee = roundCurrency(sellCatalog + sellCustom);
-    const logisticsSubTotal = roundCurrency(baseOpsTotal + transportRate + catalogTotal);
-    const baseSubTotal = roundCurrency(baseOpsTotal + transportRate + catalogTotal + customTotal);
-    const finalTotal = roundCurrency(sellBaseOps + sellTransport + sellCatalog + sellCustom);
+    const logisticsSubTotal = roundCurrency(baseOpsTotal);
+    const baseSubTotal = roundCurrency(baseOpsTotal + catalogTotal + customTotal);
+    const finalTotal = roundCurrency(sellBaseOps + sellCatalog + sellCustom);
     const marginAmount = roundCurrency(finalTotal - baseSubTotal);
 
     return {
         sell_lines: {
             base_ops_total: sellBaseOps,
-            transport_total: sellTransport,
             catalog_total: sellCatalog,
             custom_total: sellCustom,
         },

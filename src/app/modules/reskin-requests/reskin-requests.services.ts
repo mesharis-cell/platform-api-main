@@ -143,6 +143,8 @@ const processReskinRequest = async (
         quantity: 1,
         unit: "service",
         unit_rate: cost,
+        billing_mode: "BILLABLE",
+        metadata: {},
         notes: admin_notes ?? undefined,
         reskin_request_id: reskinRequest.id,
         added_by,
@@ -448,7 +450,6 @@ const cancelReskinRequest = async (
     const baseOpsTotal = Number(orderPricing.base_ops_total);
     const pricingSummary = calculatePricingSummary({
         base_ops_total: baseOpsTotal,
-        transport_rate: Number((orderPricing.transport as any).final_rate || 0),
         catalog_total: lineItemsTotals.catalog_total,
         custom_total: lineItemsTotals.custom_total,
         margin_percent: Number((orderPricing.margin as any).percent),
@@ -456,6 +457,10 @@ const cancelReskinRequest = async (
 
     const newPricing = {
         logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
+        transport: {
+            system_rate: 0,
+            final_rate: 0,
+        },
         line_items: {
             catalog_total: lineItemsTotals.catalog_total,
             custom_total: lineItemsTotals.custom_total,

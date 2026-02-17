@@ -200,25 +200,6 @@ router.get(
 
 // ---------------------------------- NEW PRICING WORKFLOW ROUTES ----------------------------------
 
-// Update vehicle type (Logistics)
-router.patch(
-    "/:id/vehicle",
-    platformValidator,
-    auth("ADMIN", "LOGISTICS"),
-    // requirePermission(PERMISSIONS.PRICING_REVIEW),
-    payloadValidator(orderSchemas.updateVehicleSchema),
-    OrderControllers.updateOrderVehicle
-);
-
-// Update trip type (Logistics)
-router.patch(
-    "/:id/trip-type",
-    platformValidator,
-    auth("ADMIN", "LOGISTICS"),
-    payloadValidator(orderSchemas.updateTripTypeSchema),
-    OrderControllers.updateOrderTripType
-);
-
 // Update maintenance decision (Admin + Logistics)
 router.patch(
     "/:id/maintenance-decision",
@@ -305,50 +286,5 @@ router.use("/:orderId/reskin-requests", ReskinRequestsRoutes);
 //     payloadValidator(orderSchemas.updateOrderItemQuantitySchema),
 //     OrderControllers.updateOrderItemQuantity
 // );
-
-// ---------------------------------- TRUCK DETAILS ROUTES ----------------------------------
-
-router.get(
-    "/:id/transport-units",
-    platformValidator,
-    auth("LOGISTICS", "ADMIN"),
-    requirePermission(PERMISSIONS.ORDERS_READ),
-    OrderControllers.listTransportUnits
-);
-
-router.post(
-    "/:id/transport-units",
-    platformValidator,
-    auth("LOGISTICS", "ADMIN"),
-    requirePermission(PERMISSIONS.ORDERS_UPDATE),
-    payloadValidator(orderSchemas.createTransportUnitSchema),
-    OrderControllers.createTransportUnit
-);
-
-router.patch(
-    "/:id/transport-units/:unitId",
-    platformValidator,
-    auth("LOGISTICS", "ADMIN"),
-    requirePermission(PERMISSIONS.ORDERS_UPDATE),
-    payloadValidator(orderSchemas.updateTransportUnitSchema),
-    OrderControllers.updateTransportUnit
-);
-
-router.delete(
-    "/:id/transport-units/:unitId",
-    platformValidator,
-    auth("LOGISTICS", "ADMIN"),
-    requirePermission(PERMISSIONS.ORDERS_UPDATE),
-    OrderControllers.deleteTransportUnit
-);
-
-router.patch(
-    "/:id/truck-details",
-    platformValidator,
-    auth("LOGISTICS", "ADMIN"),
-    // requirePermission(PERMISSIONS.PRICING_REVIEW),
-    payloadValidator(orderSchemas.truckDetailsSchema),
-    OrderControllers.addTruckDetails
-);
 
 export const OrderRoutes = router;

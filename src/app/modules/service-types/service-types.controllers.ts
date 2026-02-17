@@ -74,10 +74,24 @@ const deleteServiceType = async (req: Request, res: Response) => {
     });
 };
 
+// ----------------------------------- SYNC TRANSPORT RATE CARDS ----------------------------
+const syncTransportRateCards = async (req: Request, res: Response) => {
+    const platformId = (req as any).platformId;
+    const payload = req.body;
+    const result = await ServiceTypesServices.syncTransportRateCards(platformId, payload);
+
+    return res.status(httpStatus.OK).json({
+        success: true,
+        message: "Transport rate cards synced to service catalog",
+        data: result,
+    });
+};
+
 export const ServiceTypesControllers = {
     listServiceTypes,
     getServiceTypeById,
     createServiceType,
     updateServiceType,
     deleteServiceType,
+    syncTransportRateCards,
 };

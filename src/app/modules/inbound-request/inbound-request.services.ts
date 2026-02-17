@@ -96,7 +96,6 @@ const createInboundRequest = async (
         const baseOpsTotal = Number(company.warehouse_ops_rate) * totalVolume;
         const pricingSummary = calculatePricingSummary({
             base_ops_total: baseOpsTotal,
-            transport_rate: 0,
             catalog_total: 0,
             custom_total: 0,
             margin_percent: Number(company.platform_margin_percent),
@@ -543,7 +542,6 @@ const submitForApproval = async (requestId: string, user: AuthUser, platformId: 
     const baseOpsTotal = Number(company.warehouse_ops_rate) * totalVolume;
     const pricingSummary = calculatePricingSummary({
         base_ops_total: baseOpsTotal,
-        transport_rate: 0,
         catalog_total: lineItemsTotals.catalog_total,
         custom_total: lineItemsTotals.custom_total,
         margin_percent: marginPercent,
@@ -552,6 +550,10 @@ const submitForApproval = async (requestId: string, user: AuthUser, platformId: 
     const newPricing = {
         base_ops_total: baseOpsTotal.toFixed(2),
         logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
+        transport: {
+            system_rate: 0,
+            final_rate: 0,
+        },
         line_items: {
             catalog_total: lineItemsTotals.catalog_total,
             custom_total: lineItemsTotals.custom_total,
@@ -694,7 +696,6 @@ const approveInboundRequestByAdmin = async (
             const customTotal = Number((requestPricing.line_items as any).custom_total || 0);
             const pricingSummary = calculatePricingSummary({
                 base_ops_total: baseOpsTotal,
-                transport_rate: 0,
                 catalog_total: catalogTotal,
                 custom_total: customTotal,
                 margin_percent: margin_override_percent,
@@ -949,7 +950,6 @@ const updateInboundRequestItem = async (
     const baseOpsTotal = Number(requestPricing.warehouse_ops_rate) * totalVolume;
     const pricingSummary = calculatePricingSummary({
         base_ops_total: baseOpsTotal,
-        transport_rate: 0,
         catalog_total: Number((requestPricing.line_items as any).catalog_total || 0),
         custom_total: Number((requestPricing.line_items as any).custom_total || 0),
         margin_percent: Number((requestPricing.margin as any).percent),
@@ -959,6 +959,10 @@ const updateInboundRequestItem = async (
     const pricingDetails = {
         base_ops_total: baseOpsTotal.toFixed(2),
         logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
+        transport: {
+            system_rate: 0,
+            final_rate: 0,
+        },
         margin: {
             percent: Number((requestPricing.margin as any).percent),
             amount: pricingSummary.margin_amount,
@@ -1523,7 +1527,6 @@ const updateInboundRequest = async (
             const baseOpsTotal = Number(requestPricing.warehouse_ops_rate) * totalVolume;
             const pricingSummary = calculatePricingSummary({
                 base_ops_total: baseOpsTotal,
-                transport_rate: 0,
                 catalog_total: Number((requestPricing.line_items as any).catalog_total || 0),
                 custom_total: Number((requestPricing.line_items as any).custom_total || 0),
                 margin_percent: Number((requestPricing.margin as any).percent),
@@ -1535,6 +1538,10 @@ const updateInboundRequest = async (
                 .set({
                     base_ops_total: baseOpsTotal.toFixed(2),
                     logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
+                    transport: {
+                        system_rate: 0,
+                        final_rate: 0,
+                    },
                     margin: {
                         ...(requestPricing.margin as any),
                         amount: pricingSummary.margin_amount,

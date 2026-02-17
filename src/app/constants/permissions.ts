@@ -90,7 +90,6 @@ export const PERMISSIONS = {
 
     // ==================== PRICING REVIEW ====================
     PRICING_REVIEW: "pricing:review", // ✅
-    PRICING_APPROVE_STANDARD: "pricing:approve_standard", // ✅ DEPRECATED (all go through admin now)
     PRICING_ADJUST: "pricing:adjust", // ✅
     PRICING_ADMIN_REVIEW_ADJUSTMENT: "pricing:admin_review_adjustment", // ✅
     PRICING_ADMIN_APPROVE: "pricing:admin_approve", // ✅
@@ -201,7 +200,6 @@ export const PERMISSION_TEMPLATES = {
         PERMISSIONS.ORDERS_VIEW_STATUS_HISTORY,
         PERMISSIONS.ORDERS_EXPORT,
         PERMISSIONS.PRICING_REVIEW,
-        PERMISSIONS.PRICING_APPROVE_STANDARD,
         PERMISSIONS.PRICING_ADJUST,
         PERMISSIONS.SCANNING_ALL,
         PERMISSIONS.INVENTORY_ALL,

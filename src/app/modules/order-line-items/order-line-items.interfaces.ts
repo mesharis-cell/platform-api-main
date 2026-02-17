@@ -30,6 +30,7 @@ export interface OrderLineItem {
     service_type_id: string | null;
     reskin_request_id: string | null;
     line_item_type: "CATALOG" | "CUSTOM";
+    billing_mode: "BILLABLE" | "NON_BILLABLE" | "COMPLIMENTARY";
     category: string;
     description: string;
     quantity: string | null;
@@ -39,6 +40,7 @@ export interface OrderLineItem {
     added_by: string;
     added_at: Date;
     notes: string | null;
+    metadata: Record<string, unknown>;
     is_voided: boolean;
     voided_at: Date | null;
     voided_by: string | null;

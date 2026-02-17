@@ -267,17 +267,6 @@ const contextToReconciliationRows = (ctx: NormalizedCommercialDocumentContext) =
         Margin: formatMoney(ctx.pricing.sell.base_ops_total - ctx.pricing.buy.base_ops_total),
     });
 
-    if (ctx.pricing.buy.transport_total > 0) {
-        rows.push({
-            ...shared,
-            "K-Number": "",
-            Description: "Transport",
-            "Buy Price": formatMoney(ctx.pricing.buy.transport_total),
-            "Sell Price": formatMoney(ctx.pricing.sell.transport_total),
-            Margin: formatMoney(ctx.pricing.sell.transport_total - ctx.pricing.buy.transport_total),
-        });
-    }
-
     for (const li of ctx.line_items) {
         rows.push({
             ...shared,

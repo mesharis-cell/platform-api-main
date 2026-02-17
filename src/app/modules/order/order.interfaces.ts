@@ -22,10 +22,6 @@ export type AdjustLogisticsPricingPayload = z.infer<
     typeof orderSchemas.adjustLogisticsPricingSchema
 >["body"];
 
-export type ApproveStandardPricingPayload = z.infer<
-    typeof orderSchemas.approveStandardPricingSchema
->["body"];
-
 export type ApprovePlatformPricingPayload = z.infer<
     typeof orderSchemas.approvePlatformPricingSchema
 >["body"];
@@ -35,18 +31,6 @@ export type ApproveQuotePayload = z.infer<typeof orderSchemas.approveQuoteSchema
 export type DeclineQuotePayload = z.infer<typeof orderSchemas.declineQuoteSchema>["body"];
 
 export type AdminApproveQuotePayload = z.infer<typeof orderSchemas.adminApproveQuoteSchema>["body"];
-
-export type UpdateVehiclePayload = z.infer<typeof orderSchemas.updateVehicleSchema>["body"];
-
-export type UpdateTripTypePayload = z.infer<typeof orderSchemas.updateTripTypeSchema>["body"];
-
-export type TruckDetailsPayload = z.infer<typeof orderSchemas.truckDetailsSchema>["body"];
-export type CreateTransportUnitPayload = z.infer<
-    typeof orderSchemas.createTransportUnitSchema
->["body"];
-export type UpdateTransportUnitPayload = z.infer<
-    typeof orderSchemas.updateTransportUnitSchema
->["body"];
 
 export interface CancelOrderPayload {
     reason:
@@ -98,8 +82,6 @@ export interface OrderPricingDetails {
         order_id: string;
         calculated_volume: string | null;
         venue_location: any;
-        transport_trip_type: string;
-        transport_vehicle_type: string;
         company: {
             id: string;
             name: string;

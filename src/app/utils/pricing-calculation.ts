@@ -24,7 +24,6 @@ export const getRequestPricingToShowClient = (
     const marginPercent = Number((pricing.margin as any).percent);
     const pricingSummary = calculatePricingSummary({
         base_ops_total: baseOpsTotal,
-        transport_rate: 0,
         catalog_total: catalogAmount,
         custom_total: customTotal,
         margin_percent: marginPercent,

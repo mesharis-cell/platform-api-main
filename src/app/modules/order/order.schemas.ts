@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { maintenanceDecisionEnum, orderStatusEnum, tripTypeEnum } from "../../../db/schema";
+import { maintenanceDecisionEnum, orderStatusEnum } from "../../../db/schema";
 import { enumMessageGenerator } from "../../utils/helper";
 import { CANCEL_REASONS } from "./order.utils";
 
@@ -14,10 +14,6 @@ const calculateEstimateSchema = z.object({
                 })
             ),
             venue_city: z.string("Venue city is required"),
-            trip_type: z.enum(
-                tripTypeEnum.enumValues,
-                enumMessageGenerator("Trip type", tripTypeEnum.enumValues)
-            ),
         })
         .strict(),
 });
@@ -121,12 +117,6 @@ const submitOrderSchema = z.object({
                 .min(1, "At least one item is required"),
 
             brand_id: z.uuid("Invalid brand ID").optional(),
-            trip_type: z
-                .enum(["ONE_WAY", "ROUND_TRIP"], {
-                    message: "Trip type must be ONE_WAY or ROUND_TRIP",
-                })
-                .optional()
-                .default("ROUND_TRIP"),
             event_start_date: z
                 .string("Event start date is required")
                 .refine((date) => !isNaN(Date.parse(date)), "Invalid event start date format")
@@ -273,14 +263,6 @@ const adjustLogisticsPricingSchema = z.object({
         .strict(),
 });
 
-const approveStandardPricingSchema = z.object({
-    body: z
-        .object({
-            notes: z.string("Notes should be a text").optional(),
-        })
-        .strict(),
-});
-
 const approvePlatformPricingSchema = z.object({
     body: z
         .object({
@@ -314,31 +296,6 @@ const declineQuoteSchema = z.object({
         .strict(),
 });
 
-const updateVehicleSchema = z.object({
-    body: z
-        .object({
-            vehicle_type_id: z.uuid("Invalid vehicle type ID"),
-            reason: z
-                .string("Reason should be a text")
-                .min(10, "Reason must be at least 10 characters"),
-        })
-        .strict(),
-});
-
-const updateTripTypeSchema = z.object({
-    body: z
-        .object({
-            trip_type: z.enum(
-                tripTypeEnum.enumValues,
-                enumMessageGenerator("Trip type", tripTypeEnum.enumValues)
-            ),
-            reason: z
-                .string("Reason should be a text")
-                .min(10, "Reason must be at least 10 characters"),
-        })
-        .strict(),
-});
-
 const cancelOrderSchema = z.object({
     body: z
         .object({
@@ -367,89 +324,6 @@ const adminApproveQuoteSchema = z.object({
         .strict(),
 });
 
-const truckDetailsSchema = z.object({
-    body: z
-        .object({
-            delivery_truck_details: z
-                .object({
-                    truck_plate: z.string().min(1, "Truck plate is required"),
-                    driver_name: z.string().min(1, "Driver name is required"),
-                    driver_contact: z.string().min(1, "Driver contact is required"),
-                    truck_size: z.string().optional(),
-                    tailgate_required: z.boolean().default(false),
-                    manpower: z.number().default(0),
-                    notes: z.string().optional(),
-                })
-                .optional(),
-            pickup_truck_details: z
-                .object({
-                    truck_plate: z.string().min(1, "Truck plate is required"),
-                    driver_name: z.string().min(1, "Driver name is required"),
-                    driver_contact: z.string().min(1, "Driver contact is required"),
-                    truck_size: z.string().optional(),
-                    tailgate_required: z.boolean().default(false),
-                    manpower: z.number().default(0),
-                    notes: z.string().optional(),
-                })
-                .optional(),
-        })
-        .strict()
-        .refine((data) => data.delivery_truck_details || data.pickup_truck_details, {
-            message: "At least one truck details must be provided",
-            path: ["delivery_truck_details", "pickup_truck_details"],
-        }),
-});
-
-const transportUnitDetailSchema = z.object({
-    truck_plate: z.string().optional(),
-    driver_name: z.string().optional(),
-    driver_contact: z.string().optional(),
-    truck_size: z.string().optional(),
-    tailgate_required: z.boolean().default(false),
-    manpower: z.number().int().min(0).default(0),
-    pickup_notes: z.string().optional(),
-    delivery_notes: z.string().optional(),
-    notes: z.string().optional(),
-    metadata: z.record(z.string(), z.unknown()).optional(),
-});
-
-const createTransportUnitSchema = z.object({
-    body: z
-        .object({
-            kind: z.enum(["DELIVERY_BILLABLE", "PICKUP_OPS", "OTHER_ACCESS"]),
-            vehicle_type_id: z.uuid("Invalid vehicle type ID").optional(),
-            label: z.string().max(120).optional(),
-            is_default: z.boolean().optional().default(false),
-            is_billable: z.boolean().optional(),
-            billable_rate: z.number().min(0).optional(),
-            detail: transportUnitDetailSchema.optional(),
-        })
-        .strict()
-        .superRefine((data, ctx) => {
-            if (data.kind === "DELIVERY_BILLABLE" && !data.vehicle_type_id) {
-                ctx.addIssue({
-                    code: z.ZodIssueCode.custom,
-                    path: ["vehicle_type_id"],
-                    message: "vehicle_type_id is required for DELIVERY_BILLABLE units",
-                });
-            }
-        }),
-});
-
-const updateTransportUnitSchema = z.object({
-    body: z
-        .object({
-            kind: z.enum(["DELIVERY_BILLABLE", "PICKUP_OPS", "OTHER_ACCESS"]).optional(),
-            vehicle_type_id: z.uuid("Invalid vehicle type ID").optional().nullable(),
-            label: z.string().max(120).optional(),
-            is_default: z.boolean().optional(),
-            is_billable: z.boolean().optional(),
-            billable_rate: z.number().min(0).optional().nullable(),
-            detail: transportUnitDetailSchema.optional(),
-        })
-        .strict(),
-});
-
 export const orderSchemas = {
     calculateEstimateSchema,
     checkMaintenanceFeasibilitySchema,
@@ -458,18 +332,12 @@ export const orderSchemas = {
     progressStatusSchema,
     updateTimeWindowsSchema,
     adjustLogisticsPricingSchema,
-    approveStandardPricingSchema,
     approvePlatformPricingSchema,
     approveQuoteSchema,
     declineQuoteSchema,
-    updateVehicleSchema,
-    updateTripTypeSchema,
     cancelOrderSchema,
     addOrderItemSchema,
     updateOrderItemQuantitySchema,
     updateMaintenanceDecisionSchema,
     adminApproveQuoteSchema,
-    truckDetailsSchema,
-    createTransportUnitSchema,
-    updateTransportUnitSchema,
 };

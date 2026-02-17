@@ -426,38 +426,6 @@ const cancelOrder = catchAsync(async (req, res) => {
     });
 });
 
-// ----------------------------------- UPDATE VEHICLE (NEW) -----------------------------------
-const updateOrderVehicle = catchAsync(async (req, res) => {
-    const user = (req as any).user;
-    const platformId = (req as any).platformId;
-    const id = getRequiredString(req.params.id, "id");
-
-    const result = await OrderServices.updateOrderVehicle(id, platformId, user, req.body);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Vehicle type updated successfully.",
-        data: result,
-    });
-});
-
-// ----------------------------------- UPDATE TRIP TYPE (NEW) ---------------------------------
-const updateOrderTripType = catchAsync(async (req, res) => {
-    const user = (req as any).user;
-    const platformId = (req as any).platformId;
-    const id = getRequiredString(req.params.id, "id");
-
-    const result = await OrderServices.updateOrderTripType(id, platformId, user, req.body);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Trip type updated successfully.",
-        data: result,
-    });
-});
-
 // ----------------------------------- UPDATE MAINTENANCE DECISION ------------------------
 const updateMaintenanceDecision = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
@@ -487,86 +455,6 @@ const getPendingApprovalOrders = catchAsync(async (req, res) => {
     });
 });
 
-// ----------------------------------- ADD TRUCK DETAILS -----------------------------------
-const addTruckDetails = catchAsync(async (req, res) => {
-    const platformId = (req as any).platformId;
-    const user = (req as any).user;
-    const orderId = getRequiredString(req.params.id, "id");
-
-    const result = await OrderServices.addTruckDetails(orderId, platformId, req.body, user.id);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Truck details added successfully",
-        data: result,
-    });
-});
-
-const listTransportUnits = catchAsync(async (req, res) => {
-    const platformId = (req as any).platformId;
-    const user = (req as any).user;
-    const orderId = getRequiredString(req.params.id, "id");
-    const result = await OrderServices.listTransportUnits(orderId, platformId, user.id);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Transport units fetched successfully",
-        data: result,
-    });
-});
-
-const createTransportUnit = catchAsync(async (req, res) => {
-    const platformId = (req as any).platformId;
-    const user = (req as any).user;
-    const orderId = getRequiredString(req.params.id, "id");
-    const result = await OrderServices.createTransportUnit(orderId, platformId, req.body, user.id);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Transport unit created successfully",
-        data: result,
-    });
-});
-
-const updateTransportUnit = catchAsync(async (req, res) => {
-    const platformId = (req as any).platformId;
-    const user = (req as any).user;
-    const orderId = getRequiredString(req.params.id, "id");
-    const unitId = getRequiredString(req.params.unitId, "unitId");
-    const result = await OrderServices.updateTransportUnit(
-        orderId,
-        unitId,
-        platformId,
-        req.body,
-        user.id
-    );
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Transport unit updated successfully",
-        data: result,
-    });
-});
-
-const deleteTransportUnit = catchAsync(async (req, res) => {
-    const platformId = (req as any).platformId;
-    const user = (req as any).user;
-    const orderId = getRequiredString(req.params.id, "id");
-    const unitId = getRequiredString(req.params.unitId, "unitId");
-    const result = await OrderServices.deleteTransportUnit(orderId, unitId, platformId, user.id);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Transport unit deleted successfully",
-        data: result,
-    });
-});
-
 export const OrderControllers = {
     calculateEstimate,
     checkMaintenanceFeasibility,
@@ -591,8 +479,6 @@ export const OrderControllers = {
     adminApproveQuote,
     returnToLogistics,
     cancelOrder,
-    updateOrderVehicle,
-    updateOrderTripType,
     updateMaintenanceDecision,
     // addOrderItem,
     // removeOrderItem,
@@ -600,9 +486,4 @@ export const OrderControllers = {
     // adjustLogisticsPricing,
     // getPricingReviewOrders,
     // getOrderPricingDetails,
-    addTruckDetails,
-    listTransportUnits,
-    createTransportUnit,
-    updateTransportUnit,
-    deleteTransportUnit,
 };

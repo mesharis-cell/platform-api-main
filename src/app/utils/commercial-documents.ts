@@ -39,6 +39,8 @@ type NormalizedDocumentLineItem = {
     line_item_id: string;
     description: string;
     quantity: number;
+    category?: string;
+    billing_mode?: string;
     buy_total: number;
     sell_total: number;
     buy_unit_rate: number;
@@ -49,7 +51,6 @@ type NormalizedPricing = {
     margin_percent: number;
     buy: {
         base_ops_total: number;
-        transport_total: number;
         catalog_total: number;
         custom_total: number;
         service_fee: number;
@@ -57,7 +58,6 @@ type NormalizedPricing = {
     };
     sell: {
         base_ops_total: number;
-        transport_total: number;
         catalog_total: number;
         custom_total: number;
         service_fee: number;
@@ -111,7 +111,6 @@ export type CommercialDocumentPdfPayload = {
         from_collection_name?: string;
     }>;
     pricing: {
-        transport_rate: string;
         service_fee: string;
         logistics_base_price: string;
         final_total_price: string;
@@ -147,12 +146,14 @@ const mapLineItems = (
         description: string | null;
         quantity: string | number | null;
         total: string | number | null;
+        category?: string | null;
+        billing_mode?: string | null;
         is_voided?: boolean | null;
     }>,
     marginPercent: number
 ): NormalizedDocumentLineItem[] =>
     lineItems
-        .filter((lineItem) => !lineItem.is_voided)
+        .filter((lineItem) => !lineItem.is_voided && (lineItem.billing_mode || "BILLABLE") === "BILLABLE")
         .map((lineItem) => {
             const quantity = toNumber(lineItem.quantity);
             const buyTotal = toNumber(lineItem.total);
@@ -161,6 +162,8 @@ const mapLineItems = (
                 line_item_id: lineItem.line_item_id,
                 description: lineItem.description || "",
                 quantity,
+                category: lineItem.category || undefined,
+                billing_mode: lineItem.billing_mode || "BILLABLE",
                 buy_total: buyTotal,
                 sell_total: sellTotal,
                 buy_unit_rate: quantity > 0 ? roundCurrency(buyTotal / quantity) : 0,
@@ -171,20 +174,16 @@ const mapLineItems = (
 const mapPricing = (
     pricing: {
         base_ops_total: string | number | null;
-        transport: unknown;
         line_items: unknown;
         margin: unknown;
-    },
-    fallbackTransport = 0
+    }
 ): NormalizedPricing => {
     const baseOpsTotal = toNumber(pricing.base_ops_total);
-    const transportTotal = toNumber((pricing.transport as any)?.final_rate ?? fallbackTransport);
     const catalogTotal = toNumber((pricing.line_items as any)?.catalog_total);
     const customTotal = toNumber((pricing.line_items as any)?.custom_total);
     const marginPercent = toNumber((pricing.margin as any)?.percent);
     const summary = calculatePricingSummary({
         base_ops_total: baseOpsTotal,
-        transport_rate: transportTotal,
         catalog_total: catalogTotal,
         custom_total: customTotal,
         margin_percent: marginPercent,
@@ -194,15 +193,13 @@ const mapPricing = (
         margin_percent: marginPercent,
         buy: {
             base_ops_total: baseOpsTotal,
-            transport_total: transportTotal,
             catalog_total: catalogTotal,
             custom_total: customTotal,
             service_fee: roundCurrency(catalogTotal + customTotal),
-            final_total: roundCurrency(baseOpsTotal + transportTotal + catalogTotal + customTotal),
+            final_total: roundCurrency(baseOpsTotal + catalogTotal + customTotal),
         },
         sell: {
             base_ops_total: summary.sell_lines.base_ops_total,
-            transport_total: summary.sell_lines.transport_total,
             catalog_total: summary.sell_lines.catalog_total,
             custom_total: summary.sell_lines.custom_total,
             service_fee: summary.service_fee,
@@ -234,7 +231,7 @@ const getOrderCommercialContext = async (
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Order pricing is missing");
 
     const venueLocation = (order.venue_location as any) || {};
-    const pricing = mapPricing(order.order_pricing, 0);
+    const pricing = mapPricing(order.order_pricing);
     const lineItems = mapLineItems(order.line_items as any, pricing.margin_percent);
 
     return {
@@ -305,7 +302,7 @@ const getServiceRequestCommercialContext = async (
     if (!serviceRequest.request_pricing)
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Service request pricing is missing");
 
-    const pricing = mapPricing(serviceRequest.request_pricing, 0);
+    const pricing = mapPricing(serviceRequest.request_pricing);
     const lineItems = mapLineItems(serviceRequest.line_items as any, pricing.margin_percent);
 
     return {
@@ -384,7 +381,7 @@ export const listOrderCommercialContexts = async (
         .filter((o) => o.company && o.order_pricing)
         .map((order) => {
             const venueLocation = (order.venue_location as any) || {};
-            const pricing = mapPricing(order.order_pricing!, 0);
+            const pricing = mapPricing(order.order_pricing!);
             const lineItems = mapLineItems(order.line_items as any, pricing.margin_percent);
             return {
                 context_type: "ORDER" as const,
@@ -448,7 +445,7 @@ export const listServiceRequestCommercialContexts = async (
     return rows
         .filter((sr) => sr.company && sr.request_pricing)
         .map((sr) => {
-            const pricing = mapPricing(sr.request_pricing!, 0);
+            const pricing = mapPricing(sr.request_pricing!);
             const lineItems = mapLineItems(sr.line_items as any, pricing.margin_percent);
             return {
                 context_type: "SERVICE_REQUEST" as const,
@@ -562,10 +559,6 @@ export const buildCommercialDocumentPdfPayload = (
             logistics_base_price: (sellSide
                 ? context.pricing.sell.base_ops_total
                 : context.pricing.buy.base_ops_total
-            ).toFixed(2),
-            transport_rate: (sellSide
-                ? context.pricing.sell.transport_total
-                : context.pricing.buy.transport_total
             ).toFixed(2),
             service_fee: serviceFee.toFixed(2),
             final_total_price: (sellSide

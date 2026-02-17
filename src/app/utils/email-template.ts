@@ -28,9 +28,6 @@ export async function getEmailTemplate(
             <p style="margin: 6px 0;"><strong>Logistics & Handling:</strong> ${formatAmount(
                 data.pricing.base_ops_total
             )} AED</p>
-            <p style="margin: 6px 0;"><strong>Transport (${data.venueCity || "—"}, ${
-                data.tripType || "—"
-            }):</strong> ${formatAmount(data.pricing.transport?.final_rate)} AED</p>
             ${lineItemsHtml}
             <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 12px 0;">
             <p style="margin: 6px 0;"><strong>Subtotal:</strong> ${formatAmount(

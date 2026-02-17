@@ -26,6 +26,7 @@ export async function seedHybridPricing() {
             .from(cities)
             .where(eq(cities.platform_id, platform.id));
         const cityMap = new Map(platformCities.map((city) => [city.name, city.id]));
+        const cityNameById = new Map(platformCities.map((city) => [city.id, city.name]));
 
         const [defaultVehicleType] = await db
             .select({
@@ -204,6 +205,18 @@ export async function seedHybridPricing() {
             },
         ];
 
+        const platformTransportRates = await db
+            .select({
+                id: transportRates.id,
+                city_id: transportRates.city_id,
+                trip_type: transportRates.trip_type,
+                vehicle_type_id: transportRates.vehicle_type_id,
+                rate: transportRates.rate,
+                is_active: transportRates.is_active,
+            })
+            .from(transportRates)
+            .where(eq(transportRates.platform_id, platform.id));
+
         const existingServices = await db
             .select()
             .from(serviceTypes)
@@ -219,6 +232,50 @@ export async function seedHybridPricing() {
                     category: service.category as any,
                     unit: service.unit,
                     default_rate: service.default_rate,
+                    default_metadata: {},
+                    transport_rate_id: null,
+                    description: service.description,
+                    display_order: service.display_order,
+                    is_active: true,
+                });
+                servicesCreated++;
+            }
+
+            const transportServiceData = platformTransportRates
+                .filter(
+                    (rate) =>
+                        rate.is_active &&
+                        (!defaultVehicleType || rate.vehicle_type_id === defaultVehicleType.id)
+                )
+                .map((rate, idx) => {
+                    const cityName = cityNameById.get(rate.city_id) || "Unknown City";
+                    const tripLabel = rate.trip_type === "ROUND_TRIP" ? "Round Trip" : "One Way";
+                    return {
+                        name: `Transport - ${cityName} (${tripLabel})`,
+                        category: "TRANSPORT" as const,
+                        unit: "trip",
+                        default_rate: rate.rate,
+                        default_metadata: {
+                            city_id: rate.city_id,
+                            city_name: cityName,
+                            trip_direction: rate.trip_type,
+                            vehicle_type_id: rate.vehicle_type_id,
+                        },
+                        transport_rate_id: rate.id,
+                        description: `Transport service synced from ${cityName} ${tripLabel} rate card`,
+                        display_order: serviceTypeData.length + idx + 1,
+                    };
+                });
+
+            for (const service of transportServiceData) {
+                await db.insert(serviceTypes).values({
+                    platform_id: platform.id,
+                    name: service.name,
+                    category: service.category,
+                    unit: service.unit,
+                    default_rate: service.default_rate,
+                    default_metadata: service.default_metadata,
+                    transport_rate_id: service.transport_rate_id,
                     description: service.description,
                     display_order: service.display_order,
                     is_active: true,

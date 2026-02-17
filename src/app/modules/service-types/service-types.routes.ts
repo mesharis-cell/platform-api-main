@@ -45,6 +45,15 @@ router.put(
     ServiceTypesControllers.updateServiceType
 );
 
+// Sync transport rates into transport service catalog
+router.post(
+    "/sync-transport-rates",
+    platformValidator,
+    auth("ADMIN"),
+    payloadValidator(ServiceTypesSchemas.syncTransportRateCardsSchema),
+    ServiceTypesControllers.syncTransportRateCards
+);
+
 // Delete (deactivate) service type
 router.delete(
     "/:id",
