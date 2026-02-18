@@ -7,11 +7,10 @@ import { companies, companyDomains, platforms, users, otp } from "../../../db/sc
 import config from "../../config";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
-import { sendEmail } from "../../services/email.service";
 import { tokenGenerator } from "../../utils/jwt-helpers";
 import { ForgotPasswordPayload, LoginCredential, ResetPasswordPayload } from "./Auth.interfaces";
 import { OTPGenerator } from "../../utils/helper";
-import { emailTemplates } from "../../utils/email-templates";
+import { eventBus, EVENT_TYPES } from "../../events";
 import { OTPVerifier } from "../../utils/otp-verifier";
 import { PERMISSIONS } from "../../constants/permissions";
 
@@ -449,14 +448,18 @@ const forgotPassword = async (platformId: string, payload: ForgotPasswordPayload
         const generatedOTP = OTPGenerator();
         const expirationTime = new Date(new Date().getTime() + 5 * 60000);
 
-        // Step 2.3: Send OTP email
-        await sendEmail({
-            to: email,
-            subject: `OTP for password reset`,
-            html: emailTemplates.forgot_password_otp({
+        // Step 2.3: Emit auth.password_reset_requested event
+        await eventBus.emit({
+            platform_id: platformId,
+            event_type: EVENT_TYPES.AUTH_PASSWORD_RESET_REQUESTED,
+            entity_type: "USER",
+            entity_id: user.id,
+            actor_id: null,
+            actor_role: null,
+            payload: {
                 email,
                 otp: String(generatedOTP),
-            }),
+            },
         });
 
         // Step 2.4: Save OTP record in the database

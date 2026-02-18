@@ -24,7 +24,6 @@ import {
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
-import { sendEmail } from "../../services/email.service";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
 import {
@@ -54,14 +53,9 @@ import {
 import { shouldAwaitFabrication } from "./order-pricing.helpers";
 import { LineItemsServices } from "../order-line-items/order-line-items.services";
 import { ReskinRequestsServices } from "../reskin-requests/reskin-requests.services";
-import { multipleEmailSender } from "../../utils/email-sender";
-import { emailTemplates } from "../../utils/email-templates";
-import { NotificationType } from "../notification-logs/notification-logs.interfaces";
-import { NotificationLogServices } from "../notification-logs/notification-logs.services";
-import { getNotificationTypeForTransition } from "../notification-logs/notification-logs.utils";
+import { eventBus, EVENT_TYPES } from "../../events";
 import { orderIdGenerator } from "./order.utils";
 import { uuidRegex } from "../../constants/common";
-import { getPlatformAdminEmails, getPlatformLogisticsStaffEmails } from "../../utils/helper-query";
 import config from "../../config";
 import { formatDateForEmail } from "../../utils/date-time";
 import { TransportRatesServices } from "../transport-rates/transport-rates.services";
@@ -474,7 +468,7 @@ const submitOrderFromCart = async (
                 order_id: orderId,
                 company_id: companyId,
                 brand_id: brand_id || null,
-                user_id: user.id,
+                created_by: user.id,
                 contact_name: contact_name,
                 contact_email: contact_email,
                 contact_phone: contact_phone,
@@ -517,61 +511,28 @@ const submitOrderFromCart = async (
         return order;
     });
 
-    // Step 7: Send email to admin, logistics staff and client
-    // Step 7.a: Prepare email data
-    const emailData = {
-        order_id: orderResult.order_id,
-        company_name: (company as any)?.name || "N/A",
-        event_start_date: formatDateForEmail(event_start_date),
-        event_end_date: formatDateForEmail(event_end_date),
-        venue_city: city.name,
-        total_volume: calculatedVolume,
-        item_count: items.length,
-        view_order_url: `${config.client_url}/orders/${orderResult.order_id}`,
-    };
-
-    // Step 7.b: Send email to admin
-    const platformAdminEmails = await getPlatformAdminEmails(platformId);
-    await multipleEmailSender(
-        platformAdminEmails,
-        `New Order Submitted: ${emailData.order_id}`,
-        emailTemplates.submit_order({
-            ...emailData,
-            by_role: {
-                greeting: "Platform Admin",
-                message: "A new order has been submitted and requires review.",
-                action: "Review this order in the admin dashboard and monitor the pricing workflow.",
-            },
-        })
-    );
-
-    // Step 7.c: Send email to logistics staff
-    const logisticsStaffEmails = await getPlatformLogisticsStaffEmails(platformId);
-    await multipleEmailSender(
-        logisticsStaffEmails,
-        `New Order Submitted: ${emailData.order_id}`,
-        emailTemplates.submit_order({
-            ...emailData,
-            by_role: {
-                greeting: "Logistics Team",
-                message: "A new order has been submitted and requires pricing review.",
-                action: "Review the order details and provide pricing within 24-48 hours.",
-            },
-        })
-    );
-
-    // Step 7.d: Send email to client
-    await sendEmail({
-        to: contact_email,
-        subject: `Order Confirmation: ${emailData.order_id}`,
-        html: emailTemplates.submit_order({
-            ...emailData,
-            by_role: {
-                greeting: "Client",
-                message: "Your order has been successfully submitted.",
-                action: "You will receive a quote via email within 24-48 hours. Track your order status in the dashboard.",
-            },
-        }),
+    // Step 7: Emit order.submitted event
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: EVENT_TYPES.ORDER_SUBMITTED,
+        entity_type: "ORDER",
+        entity_id: orderResult.id,
+        actor_id: user.id,
+        actor_role: user.role,
+        payload: {
+            entity_id_readable: orderResult.order_id,
+            company_id: companyId,
+            company_name: (company as any)?.name || "N/A",
+            contact_name: contact_name,
+            contact_email: contact_email,
+            event_start_date: formatDateForEmail(event_start_date),
+            event_end_date: formatDateForEmail(event_end_date),
+            venue_name: venue_name,
+            venue_city: city.name,
+            item_count: items.length,
+            total_volume: calculatedVolume,
+            order_url: `${config.client_url}/orders/${orderResult.order_id}`,
+        },
     });
 
     // Step 8: Return order details to client
@@ -753,7 +714,7 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
         order_id: r.order.order_id,
         company: r.company,
         brand: r.brand,
-        user_id: r.order.user_id,
+        created_by: r.order.created_by,
         job_number: r.order.job_number,
         contact_name: r.order.contact_name,
         contact_email: r.order.contact_email,
@@ -811,7 +772,7 @@ const getMyOrders = async (query: Record<string, any>, user: AuthUser, platformI
     });
 
     // Step 3: Build WHERE conditions
-    const conditions: any[] = [eq(orders.platform_id, platformId), eq(orders.user_id, user.id)];
+    const conditions: any[] = [eq(orders.platform_id, platformId), eq(orders.created_by, user.id)];
 
     // Step 3a: Filter by user role (CLIENT users see only their company's orders)
     if (user.role === "CLIENT") {
@@ -986,7 +947,7 @@ const getOrderById = async (
         .from(orders)
         .leftJoin(companies, eq(orders.company_id, companies.id))
         .leftJoin(brands, eq(orders.brand_id, brands.id))
-        .leftJoin(users, eq(orders.user_id, users.id))
+        .leftJoin(users, eq(orders.created_by, users.id))
         .leftJoin(prices, eq(orders.order_pricing_id, prices.id))
         .leftJoin(cities, eq(orders.venue_city_id, cities.id))
         .where(whereCondition)
@@ -1461,16 +1422,39 @@ const progressOrderStatus = async (
     // Step 7: Get updated order
     const [updatedOrder] = await db.select().from(orders).where(eq(orders.id, orderId));
 
-    // Step 8: Trigger notification if applicable (asynchronously, don't block response)
-    const notificationType = getNotificationTypeForTransition(currentStatus, new_status);
+    // Step 8: Emit event for status transitions that have notifications
+    const statusTransitionEventMap: Record<string, string> = {
+        "CONFIRMED->IN_PREPARATION": EVENT_TYPES.ORDER_CONFIRMED,
+        "READY_FOR_DELIVERY->IN_TRANSIT": EVENT_TYPES.ORDER_IN_TRANSIT,
+        "IN_TRANSIT->DELIVERED": EVENT_TYPES.ORDER_DELIVERED,
+    };
+    const transitionEventType = statusTransitionEventMap[`${currentStatus}->${new_status}`];
+    if (transitionEventType) {
+        const [orderWithCompany] = await db
+            .select({ company_name: companies.name, company_id: companies.id })
+            .from(companies)
+            .where(eq(companies.id, updatedOrder.company_id!));
 
-    if (notificationType) {
-        await NotificationLogServices.sendNotification(
-            platformId,
-            notificationType as NotificationType,
-            updatedOrder
-        );
-        console.log(`📧 Notification sent: ${notificationType} for order ${order.order_id}`);
+        await eventBus.emit({
+            platform_id: platformId,
+            event_type: transitionEventType,
+            entity_type: "ORDER",
+            entity_id: updatedOrder.id,
+            actor_id: user.id,
+            actor_role: user.role,
+            payload: {
+                entity_id_readable: updatedOrder.order_id,
+                company_id: updatedOrder.company_id,
+                company_name: orderWithCompany?.company_name || "N/A",
+                contact_name: updatedOrder.contact_name,
+                event_start_date: updatedOrder.event_start_date?.toISOString().split("T")[0] || "",
+                venue_name: updatedOrder.venue_name,
+                venue_city: "",
+                delivery_window: updatedOrder.delivery_window || "",
+                pickup_window: updatedOrder.pickup_window || "",
+                order_url: `${config.client_url}/orders/${updatedOrder.order_id}`,
+            },
+        });
     }
 
     return {
@@ -1627,12 +1611,29 @@ const updateOrderTimeWindows = async (
         });
     }
 
-    // Step 5: Send notification (Asynchronous)
-    await NotificationLogServices.sendNotification(
-        platformId,
-        "TIME_WINDOWS_UPDATED",
-        updatedOrder
-    );
+    // Step 5: Emit time windows updated event
+    const [twCompany] = await db
+        .select({ name: companies.name })
+        .from(companies)
+        .where(eq(companies.id, updatedOrder.company_id!));
+
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: EVENT_TYPES.ORDER_TIME_WINDOWS_UPDATED,
+        entity_type: "ORDER",
+        entity_id: updatedOrder.id,
+        actor_id: user?.id ?? null,
+        actor_role: user?.role ?? null,
+        payload: {
+            entity_id_readable: updatedOrder.order_id,
+            company_id: updatedOrder.company_id,
+            company_name: twCompany?.name || "N/A",
+            contact_name: updatedOrder.contact_name,
+            delivery_window: updatedOrder.delivery_window || "",
+            pickup_window: updatedOrder.pickup_window || "",
+            order_url: `${config.client_url}/orders/${updatedOrder.order_id}`,
+        },
+    });
 
     return {
         id: updatedOrder.id,
@@ -1651,11 +1652,12 @@ const approveQuote = async (
     payload: ApproveQuotePayload
 ) => {
     const { notes } = payload;
-    // Step 1: Fetch order with company details
+    // Step 1: Fetch order with company and pricing details
     const order = await db.query.orders.findFirst({
         where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
         with: {
             company: true,
+            order_pricing: true,
             items: {
                 with: {
                     asset: {
@@ -1760,7 +1762,22 @@ const approveQuote = async (
         });
     });
 
-    await NotificationLogServices.sendNotification(platformId, "QUOTE_APPROVED", order);
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: EVENT_TYPES.QUOTE_APPROVED,
+        entity_type: "ORDER",
+        entity_id: order.id,
+        actor_id: user.id,
+        actor_role: user.role,
+        payload: {
+            entity_id_readable: order.order_id,
+            company_id: order.company_id,
+            company_name: (order.company as any)?.name || "N/A",
+            contact_name: order.contact_name,
+            final_total: String((order.order_pricing as any)?.final_total || "0"),
+            order_url: `${config.client_url}/orders/${order.order_id}`,
+        },
+    });
 
     return {
         id: order.id,
@@ -1833,8 +1850,22 @@ const declineQuote = async (
         });
     });
 
-    // Step 6: Send decline notification (asynchronous, non-blocking)
-    await NotificationLogServices.sendNotification(platformId, "QUOTE_DECLINED", order);
+    // Step 6: Emit quote.declined event
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: EVENT_TYPES.QUOTE_DECLINED,
+        entity_type: "ORDER",
+        entity_id: order.id,
+        actor_id: user.id,
+        actor_role: user.role,
+        payload: {
+            entity_id_readable: order.order_id,
+            company_id: order.company_id,
+            company_name: order.company?.name || "N/A",
+            contact_name: order.contact_name,
+            order_url: `${config.client_url}/orders/${order.order_id}`,
+        },
+    });
 
     // Step 7: Return updated order details
     return {
@@ -2269,10 +2300,31 @@ const adminApproveQuote = async (
     // Generate/update cost estimate PDF after approval.
     await costEstimateGenerator(orderId, platformId, user, true);
 
-    // Step 4: Send notification
-    await NotificationLogServices.sendNotification(platformId, "QUOTE_SENT", {
-        ...order,
-        company,
+    // Step 4: Emit quote.sent event
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: isRevisedQuote ? EVENT_TYPES.QUOTE_REVISED : EVENT_TYPES.QUOTE_SENT,
+        entity_type: "ORDER",
+        entity_id: order.id,
+        actor_id: user.id,
+        actor_role: user.role,
+        payload: {
+            entity_id_readable: order.order_id,
+            company_id: order.company_id,
+            company_name: company?.name || "N/A",
+            contact_name: order.contact_name,
+            contact_email: order.contact_email,
+            final_total: String(orderPricing?.final_total || "0"),
+            line_items: (orderPricing?.line_items as any)?.items || [],
+            pricing: {
+                base_ops_total: String(orderPricing?.base_ops_total || "0"),
+                logistics_sub_total: String(orderPricing?.logistics_sub_total || "0"),
+                margin_amount: String((orderPricing?.margin as any)?.amount || "0"),
+                final_total: String(orderPricing?.final_total || "0"),
+            },
+            cost_estimate_url: `${config.server_url}/client/v1/invoice/download-cost-estimate-pdf/${order.order_id}?pid=${platformId}`,
+            order_url: `${config.client_url}/orders/${order.order_id}`,
+        },
     });
 
     // Step 5: Return updated order
@@ -2441,23 +2493,24 @@ export async function cancelOrder(
     });
 
     if (orderForNotification) {
-        if (notify_client) {
-            await NotificationLogServices.sendNotification(
-                platformId,
-                "ORDER_CANCELLED",
-                orderForNotification,
-                { to: [orderForNotification.contact_email] },
-                { cancellation_reason: reason, cancellation_notes: notes }
-            );
-        }
-
-        await NotificationLogServices.sendNotification(
-            platformId,
-            "ORDER_CANCELLED",
-            orderForNotification,
-            undefined,
-            { cancellation_reason: reason, cancellation_notes: notes }
-        );
+        await eventBus.emit({
+            platform_id: platformId,
+            event_type: EVENT_TYPES.ORDER_CANCELLED,
+            entity_type: "ORDER",
+            entity_id: orderId,
+            actor_id: user.id,
+            actor_role: user.role,
+            payload: {
+                entity_id_readable: orderForNotification.order_id,
+                company_id: orderForNotification.company_id,
+                company_name: (orderForNotification.company as any)?.name || "N/A",
+                contact_name: orderForNotification.contact_name,
+                cancellation_reason: reason,
+                cancellation_notes: notes,
+                suppress_entity_owner: !notify_client,
+                order_url: `${config.client_url}/orders/${orderForNotification.order_id}`,
+            },
+        });
     }
 
     return {

@@ -21,7 +21,8 @@ import {
 } from "./reskin-requests.interfaces";
 import { LineItemsServices } from "../order-line-items/order-line-items.services";
 import { generateAssetQRCode } from "../../utils/qr-generator";
-import { NotificationLogServices } from "../notification-logs/notification-logs.services";
+import { eventBus, EVENT_TYPES } from "../../events";
+import config from "../../config";
 import { AuthUser } from "../../interface/common";
 import { OrderServices } from "../order/order.services";
 import { costEstimateGenerator } from "../../utils/cost-estimate";
@@ -524,17 +525,24 @@ const cancelReskinRequest = async (
     await costEstimateGenerator(orderRecord.id, platformId, user, true);
 
     if (shouldReviseQuote) {
-        await NotificationLogServices.sendNotification(
-            platformId,
-            "QUOTE_REVISED",
-            orderRecord,
-            undefined,
-            {
-                previous_total: previousTotal,
-                new_total: pricingSummary.final_total,
+        await eventBus.emit({
+            platform_id: platformId,
+            event_type: EVENT_TYPES.QUOTE_REVISED,
+            entity_type: "ORDER",
+            entity_id: orderRecord.id,
+            actor_id: cancelled_by,
+            actor_role: "ADMIN",
+            payload: {
+                entity_id_readable: orderRecord.order_id,
+                company_id: orderRecord.company_id,
+                company_name: (orderRecord.company as any)?.name || "N/A",
+                contact_name: orderRecord.contact_name,
+                previous_total: String(previousTotal),
+                new_total: String(pricingSummary.final_total),
                 revision_reason: cancellation_reason,
-            }
-        );
+                order_url: `${config.client_url}/orders/${orderRecord.order_id}`,
+            },
+        });
     }
 
     return {

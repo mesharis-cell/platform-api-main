@@ -20,8 +20,9 @@ import {
     OutboundScanPayload,
     OutboundScanResponse,
 } from "./scanning.interfaces";
-import { NotificationLogServices } from "../notification-logs/notification-logs.services";
 import { invoiceGenerator } from "../../utils/invoice";
+import { eventBus, EVENT_TYPES } from "../../events";
+import config from "../../config";
 
 type DamageReportEntry = {
     url: string;
@@ -355,6 +356,7 @@ const completeInboundScan = async (
     const order = await db.query.orders.findFirst({
         where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
         with: {
+            company: { columns: { name: true } },
             items: {
                 with: {
                     asset: {
@@ -427,15 +429,46 @@ const completeInboundScan = async (
         // We only need to ensure status is AVAILABLE (already set during inbound scans)
     });
 
-    // Step 9: Send notification
-    await NotificationLogServices.sendNotification(platformId, "ORDER_CLOSED", { ...order });
+    // Step 9: Emit order.closed event
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: EVENT_TYPES.ORDER_CLOSED,
+        entity_type: "ORDER",
+        entity_id: order.id,
+        actor_id: user.id,
+        actor_role: user.role,
+        payload: {
+            entity_id_readable: order.order_id,
+            company_id: order.company_id,
+            company_name: (order.company as any)?.name || "N/A",
+            contact_name: order.contact_name,
+            event_start_date: order.event_start_date?.toISOString().split("T")[0] || "",
+            event_end_date: order.event_end_date?.toISOString().split("T")[0] || "",
+            order_url: `${config.client_url}/orders/${order.order_id}`,
+        },
+    });
 
     const { invoice_id } = await invoiceGenerator(orderId, platformId, false, user);
 
-    await NotificationLogServices.sendNotification(platformId, "INVOICE_GENERATED", {
-        ...order,
-        invoiceNumber: invoice_id,
-    });
+    if (invoice_id) {
+        await eventBus.emit({
+            platform_id: platformId,
+            event_type: EVENT_TYPES.INVOICE_GENERATED,
+            entity_type: "ORDER",
+            entity_id: order.id,
+            actor_id: user.id,
+            actor_role: user.role,
+            payload: {
+                entity_id_readable: order.order_id,
+                company_id: order.company_id,
+                company_name: (order.company as any)?.name || "N/A",
+                invoice_number: invoice_id,
+                final_total: "0",
+                download_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
+                order_url: `${config.client_url}/orders/${order.order_id}`,
+            },
+        });
+    }
 
     return {
         message: "Inbound scan completed successfully",
@@ -685,8 +718,23 @@ const completeOutboundScan = async (
             .where(inArray(assets.id, assetIds));
     });
 
-    // Step 8: Send notification (implement notification service)
-    await NotificationLogServices.sendNotification(platformId, "READY_FOR_DELIVERY", order);
+    // Step 8: Emit order.ready_for_delivery event
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: EVENT_TYPES.ORDER_READY_FOR_DELIVERY,
+        entity_type: "ORDER",
+        entity_id: order.id,
+        actor_id: user.id,
+        actor_role: user.role,
+        payload: {
+            entity_id_readable: order.order_id,
+            company_id: order.company_id,
+            company_name: (order.company as any)?.name || "N/A",
+            venue_name: order.venue_name,
+            delivery_window: order.delivery_window || "",
+            order_url: `${config.client_url}/orders/${order.order_id}`,
+        },
+    });
 
     return {
         message: "Outbound scan completed successfully",

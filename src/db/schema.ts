@@ -95,6 +95,13 @@ export const notificationStatusEnum = pgEnum("notification_status", [
     "FAILED",
     "RETRYING",
 ]);
+export const entityTypeEnum = pgEnum("entity_type", [
+    "ORDER",
+    "INBOUND_REQUEST",
+    "SERVICE_REQUEST",
+    "USER",
+]);
+export const recipientTypeEnum = pgEnum("recipient_type", ["ROLE", "ENTITY_OWNER", "EMAIL"]);
 export const scanTypeEnum = pgEnum("scan_type", ["OUTBOUND", "INBOUND"]);
 export const discrepancyReasonEnum = pgEnum("discrepancy_reason", ["BROKEN", "LOST", "OTHER"]);
 export const tripTypeEnum = pgEnum("trip_type", ["ONE_WAY", "ROUND_TRIP"]);
@@ -720,7 +727,7 @@ export const orders = pgTable(
             .notNull()
             .references(() => companies.id),
         brand_id: uuid("brand").references(() => brands.id),
-        user_id: uuid("user_id")
+        created_by: uuid("created_by")
             .notNull()
             .references(() => users.id),
         job_number: varchar("job_number", { length: 50 }),
@@ -790,7 +797,7 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
     platform: one(platforms, { fields: [orders.platform_id], references: [platforms.id] }),
     company: one(companies, { fields: [orders.company_id], references: [companies.id] }),
     brand: one(brands, { fields: [orders.brand_id], references: [brands.id] }),
-    user: one(users, { fields: [orders.user_id], references: [users.id] }),
+    created_by_user: one(users, { fields: [orders.created_by], references: [users.id] }),
     order_pricing: one(prices, { fields: [orders.order_pricing_id], references: [prices.id] }),
     venue_city: one(cities, { fields: [orders.venue_city_id], references: [cities.id] }),
     items: many(orderItems),
@@ -1285,43 +1292,134 @@ export const scanEventsRelations = relations(scanEvents, ({ one }) => ({
     scanned_by_user: one(users, { fields: [scanEvents.scanned_by], references: [users.id] }),
 }));
 
+// ---------------------------------- SYSTEM EVENTS ----------------------------------------
+// Purpose: Immutable record of significant things that happened in the system
+export const systemEvents = pgTable(
+    "system_events",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+
+        event_type: varchar("event_type", { length: 100 }).notNull(),
+
+        entity_type: entityTypeEnum("entity_type").notNull(),
+        entity_id: uuid("entity_id").notNull(),
+
+        actor_id: uuid("actor_id").references(() => users.id),
+        actor_role: varchar("actor_role", { length: 20 }),
+
+        payload: jsonb("payload").notNull().default({}),
+
+        occurred_at: timestamp("occurred_at").notNull().defaultNow(),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+    },
+    (table) => [
+        index("system_events_platform_idx").on(table.platform_id),
+        index("system_events_event_type_idx").on(table.event_type),
+        index("system_events_entity_idx").on(table.entity_type, table.entity_id),
+        index("system_events_occurred_at_idx").on(table.occurred_at),
+    ]
+);
+
+export const systemEventsRelations = relations(systemEvents, ({ one, many }) => ({
+    platform: one(platforms, { fields: [systemEvents.platform_id], references: [platforms.id] }),
+    actor: one(users, { fields: [systemEvents.actor_id], references: [users.id] }),
+    notification_logs: many(notificationLogs),
+}));
+
+// ---------------------------------- NOTIFICATION RULES -----------------------------------
+// Purpose: Configurable rules — who gets emailed for each event type
+export const notificationRules = pgTable(
+    "notification_rules",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+
+        event_type: varchar("event_type", { length: 100 }).notNull(),
+
+        company_id: uuid("company_id").references(() => companies.id, { onDelete: "cascade" }),
+
+        recipient_type: recipientTypeEnum("recipient_type").notNull(),
+        recipient_value: varchar("recipient_value", { length: 255 }),
+
+        template_key: varchar("template_key", { length: 100 }).notNull(),
+
+        is_enabled: boolean("is_enabled").notNull().default(true),
+        sort_order: integer("sort_order").notNull().default(0),
+
+        created_at: timestamp("created_at").notNull().defaultNow(),
+        updated_at: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => [
+        index("notification_rules_platform_event_idx").on(table.platform_id, table.event_type),
+        index("notification_rules_company_idx").on(table.company_id),
+    ]
+);
+
+export const notificationRulesRelations = relations(notificationRules, ({ one, many }) => ({
+    platform: one(platforms, {
+        fields: [notificationRules.platform_id],
+        references: [platforms.id],
+    }),
+    company: one(companies, { fields: [notificationRules.company_id], references: [companies.id] }),
+    notification_logs: many(notificationLogs),
+}));
+
 // ---------------------------------- NOTIFICATION LOGS ------------------------------------
-// Purpose: Track all system emails (Quotes, Invoices, Status Updates)
+// Purpose: One row per email sent — per-recipient delivery tracking
 export const notificationLogs = pgTable(
     "notification_logs",
     {
         id: uuid("id").primaryKey().defaultRandom(),
-        platform_id: uuid("platform")
+        platform_id: uuid("platform_id")
             .notNull()
             .references(() => platforms.id, { onDelete: "cascade" }),
-        order_id: uuid("order")
-            .notNull()
-            .references(() => orders.id, { onDelete: "cascade" }),
 
-        notification_type: varchar("notification_type", { length: 100 }).notNull(),
-        recipients: text("recipients").notNull(), // JSON string of recipients
+        event_id: uuid("event_id")
+            .notNull()
+            .references(() => systemEvents.id, { onDelete: "cascade" }),
+        rule_id: uuid("rule_id").references(() => notificationRules.id, { onDelete: "set null" }),
+
+        recipient_email: varchar("recipient_email", { length: 255 }).notNull(),
+        recipient_type: recipientTypeEnum("recipient_type").notNull(),
+        recipient_value: varchar("recipient_value", { length: 255 }),
+
+        template_key: varchar("template_key", { length: 100 }).notNull(),
+        subject: varchar("subject", { length: 500 }),
 
         status: notificationStatusEnum("status").notNull().default("QUEUED"),
-        attempts: integer("attempts").notNull().default(1),
-
-        last_attempt_at: timestamp("last_attempt_at").notNull().defaultNow(),
+        attempts: integer("attempts").notNull().default(0),
+        last_attempt_at: timestamp("last_attempt_at"),
         sent_at: timestamp("sent_at"),
-        message_id: varchar("message_id", { length: 255 }), // ID from Email Provider (Resend)
+        message_id: varchar("message_id", { length: 255 }),
         error_message: text("error_message"),
 
         created_at: timestamp("created_at").notNull().defaultNow(),
     },
     (table) => [
-        index("notification_logs_order_idx").on(table.order_id),
+        index("notification_logs_event_idx").on(table.event_id),
         index("notification_logs_status_idx").on(table.status),
+        index("notification_logs_recipient_idx").on(table.recipient_email),
+        index("notification_logs_created_at_idx").on(table.created_at),
     ]
 );
 
 export const notificationLogsRelations = relations(notificationLogs, ({ one }) => ({
-    order: one(orders, { fields: [notificationLogs.order_id], references: [orders.id] }),
     platform: one(platforms, {
         fields: [notificationLogs.platform_id],
         references: [platforms.id],
+    }),
+    event: one(systemEvents, {
+        fields: [notificationLogs.event_id],
+        references: [systemEvents.id],
+    }),
+    rule: one(notificationRules, {
+        fields: [notificationLogs.rule_id],
+        references: [notificationRules.id],
     }),
 }));
 
@@ -1449,7 +1547,7 @@ export const inboundRequests = pgTable("inbound_requests", {
     company_id: uuid("company_id")
         .notNull()
         .references(() => companies.id, { onDelete: "cascade" }),
-    requester_id: uuid("requester_id")
+    created_by: uuid("created_by")
         .notNull()
         .references(() => users.id, { onDelete: "cascade" }),
     incoming_at: timestamp("incoming_at").notNull(),
@@ -1474,8 +1572,8 @@ export const inboundRequestsRelations = relations(inboundRequests, ({ one, many 
         fields: [inboundRequests.company_id],
         references: [companies.id],
     }),
-    requester: one(users, {
-        fields: [inboundRequests.requester_id],
+    created_by_user: one(users, {
+        fields: [inboundRequests.created_by],
         references: [users.id],
     }),
     request_pricing: one(prices, {

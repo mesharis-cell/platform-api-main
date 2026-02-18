@@ -37,11 +37,8 @@ import { LineItemsServices } from "../order-line-items/order-line-items.services
 import { inboundRequestInvoiceGenerator } from "../../utils/inbound-request-invoice";
 import { inboundRequestCostEstimateGenerator } from "../../utils/inbound-request-cost-estimate";
 import { getRequestPricingToShowClient } from "../../utils/pricing-calculation";
-import { sendEmail } from "../../services/email.service";
-import { emailTemplates } from "../../utils/email-templates";
-import { getPlatformAdminEmails } from "../../utils/helper-query";
-import { multipleEmailSender } from "../../utils/email-sender";
 import config from "../../config";
+import { eventBus, EVENT_TYPES } from "../../events";
 import { calculatePricingSummary } from "../../utils/pricing-engine";
 
 // ----------------------------------- CREATE INBOUND REQUEST --------------------------------
@@ -85,7 +82,7 @@ const createInboundRequest = async (
     }
 
     // Step 2: Create inbound request and items in a transaction
-    return await db.transaction(async (tx) => {
+    const result = await db.transaction(async (tx) => {
         // Step 2.1: Calculate total volume from items
         const totalVolume = data.items.reduce(
             (acc, item) => acc + (item.quantity || 1) * Number(item.volume_per_unit),
@@ -138,7 +135,7 @@ const createInboundRequest = async (
                 platform_id: platformId,
                 inbound_request_id: requestId,
                 company_id: companyId,
-                requester_id: user.id,
+                created_by: user.id,
                 incoming_at: new Date(data.incoming_at),
                 note: data.note,
                 request_pricing_id: price.id,
@@ -170,6 +167,29 @@ const createInboundRequest = async (
 
         return request;
     });
+
+    if (result) {
+        await eventBus.emit({
+            platform_id: platformId,
+            event_type: EVENT_TYPES.INBOUND_REQUEST_SUBMITTED,
+            entity_type: "INBOUND_REQUEST",
+            entity_id: result.id,
+            actor_id: user.id,
+            actor_role: user.role,
+            payload: {
+                entity_id_readable: result.inbound_request_id,
+                company_id: companyId,
+                company_name: company.name || "N/A",
+                contact_name: user.name,
+                incoming_at: new Date(data.incoming_at).toLocaleDateString(),
+                item_count: data.items.length,
+                note: data.note || undefined,
+                request_url: `${config.client_url}/inbound-requests/${result.inbound_request_id}`,
+            },
+        });
+    }
+
+    return result;
 };
 
 // ----------------------------------- GET INBOUND REQUESTS ----------------------------------
@@ -284,7 +304,7 @@ const getInboundRequests = async (
         })
         .from(inboundRequests)
         .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
-        .leftJoin(users, eq(inboundRequests.requester_id, users.id))
+        .leftJoin(users, eq(inboundRequests.created_by, users.id))
         .leftJoin(prices, eq(inboundRequests.request_pricing_id, prices.id))
         .where(and(...conditions))
         .orderBy(sortSequence === "asc" ? asc(sortField) : desc(sortField))
@@ -374,7 +394,7 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
         })
         .from(inboundRequests)
         .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
-        .leftJoin(users, eq(inboundRequests.requester_id, users.id))
+        .leftJoin(users, eq(inboundRequests.created_by, users.id))
         .leftJoin(prices, eq(inboundRequests.request_pricing_id, prices.id))
         .where(and(...conditions));
 
@@ -626,6 +646,7 @@ const approveInboundRequestByAdmin = async (
             },
             requester: {
                 email: users.email,
+                name: users.name,
             },
             request_pricing: {
                 warehouse_ops_rate: prices.warehouse_ops_rate,
@@ -641,7 +662,7 @@ const approveInboundRequestByAdmin = async (
         .from(inboundRequests)
         .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
         .leftJoin(prices, eq(inboundRequests.request_pricing_id, prices.id))
-        .leftJoin(users, eq(inboundRequests.requester_id, users.id))
+        .leftJoin(users, eq(inboundRequests.created_by, users.id))
         .where(and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)))
         .limit(1);
 
@@ -741,16 +762,24 @@ const approveInboundRequestByAdmin = async (
         final_total_price: String(finalTotal),
     });
 
-    // TODO
-    // // Step 4: Send notification
-    // await NotificationLogServices.sendNotification(
-    //     platformId,
-    //     "QUOTE_SENT",
-    //     {
-    //         ...order,
-    //         company
-    //     }
-    // );
+    // Step 5: Emit inbound_request.quoted event
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: EVENT_TYPES.INBOUND_REQUEST_QUOTED,
+        entity_type: "INBOUND_REQUEST",
+        entity_id: inboundRequest.id,
+        actor_id: user.id,
+        actor_role: user.role,
+        payload: {
+            entity_id_readable: inboundRequest.inbound_request_id,
+            company_id: inboundRequest.company_id,
+            company_name: company?.name || "N/A",
+            contact_name: requester.name,
+            final_total: String(finalTotal),
+            cost_estimate_url: `${config.server_url}/client/v1/invoice/download-ir-cost-estimate-pdf/${inboundRequest.inbound_request_id}?pid=${platformId}`,
+            request_url: `${config.client_url}/inbound-requests/${inboundRequest.inbound_request_id}`,
+        },
+    });
 
     // Step 5: Return updated order
     return {
@@ -800,9 +829,33 @@ const approveOrDeclineQuoteByClient = async (
         })
         .where(eq(inboundRequests.id, requestId));
 
-    // TODO
-    // await NotificationLogServices.sendNotification(platformId, "QUOTE_APPROVED", order);
-    // await NotificationLogServices.sendNotification(platformId, "QUOTE_DECLINED", order);
+    // Emit inbound_request.approved or inbound_request.declined event
+    const irEventType =
+        status === "CONFIRMED"
+            ? EVENT_TYPES.INBOUND_REQUEST_APPROVED
+            : EVENT_TYPES.INBOUND_REQUEST_DECLINED;
+
+    const [irCompany] = await db
+        .select({ name: companies.name })
+        .from(companies)
+        .where(eq(companies.id, inboundRequest.company_id));
+
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: irEventType,
+        entity_type: "INBOUND_REQUEST",
+        entity_id: inboundRequest.id,
+        actor_id: user.id,
+        actor_role: user.role,
+        payload: {
+            entity_id_readable: inboundRequest.inbound_request_id,
+            company_id: inboundRequest.company_id,
+            company_name: irCompany?.name || "N/A",
+            contact_name: user.name,
+            final_total: "0",
+            request_url: `${config.client_url}/inbound-requests/${inboundRequest.inbound_request_id}`,
+        },
+    });
 
     return {
         id: inboundRequest.id,
@@ -1064,7 +1117,7 @@ const completeInboundRequest = async (
         })
         .from(inboundRequests)
         .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
-        .leftJoin(users, eq(inboundRequests.requester_id, users.id))
+        .leftJoin(users, eq(inboundRequests.created_by, users.id))
         .leftJoin(prices, eq(inboundRequests.request_pricing_id, prices.id))
         .where(and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)));
 
@@ -1273,57 +1326,43 @@ const completeInboundRequest = async (
     });
 
     // Step 7: Generate invoice
-    const { invoice_id, invoice_pdf_url, pdf_buffer } = await inboundRequestInvoiceGenerator(
-        requestId,
-        platformId,
-        user
-    );
+    const { invoice_id } = await inboundRequestInvoiceGenerator(requestId, platformId, user);
 
-    // Step 8: Send email to client and admin //
-    if (invoice_id && invoice_pdf_url) {
-        // Send email to client
-        await sendEmail({
-            to: requester.email,
-            subject: `Invoice ${invoice_id} for inbound request ${inboundRequest.inbound_request_id}`,
-            html: emailTemplates.send_ir_invoice_to_client({
-                invoice_number: invoice_id,
-                inbound_request_id: inboundRequest.inbound_request_id,
+    // Step 8: Emit inbound_request.completed and inbound_request.invoice_generated events
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: EVENT_TYPES.INBOUND_REQUEST_COMPLETED,
+        entity_type: "INBOUND_REQUEST",
+        entity_id: inboundRequest.id,
+        actor_id: user.id,
+        actor_role: user.role,
+        payload: {
+            entity_id_readable: inboundRequest.inbound_request_id,
+            company_id: inboundRequest.company_id,
+            company_name: company?.name || "N/A",
+            contact_name: requester.name,
+            request_url: `${config.client_url}/inbound-requests/${inboundRequest.inbound_request_id}`,
+        },
+    });
+
+    if (invoice_id) {
+        await eventBus.emit({
+            platform_id: platformId,
+            event_type: EVENT_TYPES.INBOUND_REQUEST_INVOICE_GENERATED,
+            entity_type: "INBOUND_REQUEST",
+            entity_id: inboundRequest.id,
+            actor_id: user.id,
+            actor_role: user.role,
+            payload: {
+                entity_id_readable: inboundRequest.inbound_request_id,
+                company_id: inboundRequest.company_id,
                 company_name: company?.name || "N/A",
-                final_total_price: String(requestPricing?.final_total),
-                download_invoice_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
-            }),
-            attachments: pdf_buffer
-                ? [
-                      {
-                          filename: `${invoice_id}.pdf`,
-                          content: pdf_buffer,
-                      },
-                  ]
-                : undefined,
+                invoice_number: invoice_id,
+                final_total: String(requestPricing?.final_total || "0"),
+                download_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
+                request_url: `${config.client_url}/inbound-requests/${inboundRequest.inbound_request_id}`,
+            },
         });
-
-        // Send email to plaform admins
-        const platformAdminEmails = await getPlatformAdminEmails(platformId);
-
-        await multipleEmailSender(
-            platformAdminEmails,
-            `Invoice Sent: ${invoice_id} for inbound request ${inboundRequest.inbound_request_id}`,
-            emailTemplates.send_ir_invoice_to_admin({
-                invoice_number: invoice_id,
-                inbound_request_id: inboundRequest.inbound_request_id,
-                company_name: company?.name || "N/A",
-                final_total_price: String(requestPricing?.final_total),
-                download_invoice_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
-            }),
-            pdf_buffer
-                ? [
-                      {
-                          filename: `${invoice_id}.pdf`,
-                          content: pdf_buffer,
-                      },
-                  ]
-                : undefined
-        );
     }
 
     const createdCount = processedAssets.filter((a) => a.action === "created").length;

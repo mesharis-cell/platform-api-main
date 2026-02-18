@@ -19,11 +19,8 @@ import { invoiceQueryValidationConfig, invoiceSortableFields } from "./invoice.u
 import { uuidRegex } from "../../constants/common";
 import { ConfirmPaymentPayload, GenerateInvoicePayload } from "./invoice.interfaces";
 import { invoiceGenerator, serviceRequestInvoiceGenerator } from "../../utils/invoice";
-import { sendEmail } from "../../services/email.service";
-import { emailTemplates } from "../../utils/email-templates";
 import config from "../../config";
-import { multipleEmailSender } from "../../utils/email-sender";
-import { getPlatformAdminEmails } from "../../utils/helper-query";
+import { eventBus, EVENT_TYPES } from "../../events";
 import {
     assertOrderCanGenerateInvoice,
     assertRoleCanReadCommercialInvoice,
@@ -473,7 +470,25 @@ const confirmPayment = async (
         });
     });
 
-    // Step 9: Return updated invoice details
+    // Step 9: Emit payment.confirmed event
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: EVENT_TYPES.PAYMENT_CONFIRMED,
+        entity_type: "ORDER",
+        entity_id: result.order.id,
+        actor_id: user.id,
+        actor_role: user.role,
+        payload: {
+            entity_id_readable: result.order.order_id,
+            company_id: result.order.company_id,
+            company_name: "N/A",
+            invoice_number: result.invoice.invoice_id,
+            final_total: "0",
+            order_url: `${config.client_url}/orders/${result.order.order_id}`,
+        },
+    });
+
+    // Step 10: Return updated invoice details
     return {
         invoice_id: result.invoice.invoice_id,
         invoice_paid_at: paymentDate.toISOString(),
@@ -516,7 +531,7 @@ const generateInvoice = async (
 
         const company = serviceRequest.company as typeof companies.$inferSelect | null;
         const pricing = serviceRequest.request_pricing;
-        const { invoice_id, invoice_pdf_url, pdf_buffer } = await serviceRequestInvoiceGenerator(
+        const { invoice_id, invoice_pdf_url } = await serviceRequestInvoiceGenerator(
             service_request_id,
             platformId,
             regenerate || false,
@@ -533,40 +548,25 @@ const generateInvoice = async (
                 .where(eq(serviceRequests.id, service_request_id));
         }
 
-        if (invoice_id && invoice_pdf_url && company?.contact_email) {
-            await sendEmail({
-                to: company.contact_email,
-                subject: `Invoice ${invoice_id} for Service Request ${serviceRequest.service_request_id}`,
-                html: emailTemplates.send_invoice_to_client({
+        if (invoice_id) {
+            await eventBus.emit({
+                platform_id: platformId,
+                event_type: EVENT_TYPES.SERVICE_REQUEST_INVOICE_GENERATED,
+                entity_type: "SERVICE_REQUEST",
+                entity_id: service_request_id,
+                actor_id: user.id,
+                actor_role: user.role,
+                payload: {
+                    entity_id_readable: serviceRequest.service_request_id,
+                    company_id: serviceRequest.company_id,
+                    company_name: company?.name || "N/A",
                     invoice_number: invoice_id,
-                    order_id: serviceRequest.service_request_id,
-                    company_name: company.name || "N/A",
-                    final_total_price: String(pricing?.final_total || "0"),
-                    download_invoice_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
-                }),
-                attachments: pdf_buffer
-                    ? [
-                          {
-                              filename: `${invoice_id}.pdf`,
-                              content: pdf_buffer,
-                          },
-                      ]
-                    : undefined,
+                    final_total: String(pricing?.final_total || "0"),
+                    download_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
+                    request_url: `${config.client_url}/service-requests/${serviceRequest.service_request_id}`,
+                },
             });
         }
-
-        const platformAdminEmails = await getPlatformAdminEmails(platformId);
-        await multipleEmailSender(
-            platformAdminEmails,
-            `Invoice Sent: ${invoice_id} for Service Request ${serviceRequest.service_request_id}`,
-            emailTemplates.send_invoice_to_admin({
-                invoice_number: invoice_id,
-                order_id: serviceRequest.service_request_id,
-                company_name: company?.name || "N/A",
-                final_total_price: String(pricing?.final_total || "0"),
-                download_invoice_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
-            })
-        );
 
         return {
             invoice_id,
@@ -636,48 +636,31 @@ const generateInvoice = async (
     });
 
     // Step 6: Generate invoice //
-    const { invoice_id, invoice_pdf_url, pdf_buffer } = await invoiceGenerator(
+    const { invoice_id, invoice_pdf_url } = await invoiceGenerator(
         order.id,
         platformId,
         regenerate,
         user
     );
 
-    if (invoice_id && invoice_pdf_url) {
-        await sendEmail({
-            to: order.contact_email,
-            subject: `Invoice ${invoice_id} for Order ${order.order_id}`,
-            html: emailTemplates.send_invoice_to_client({
-                invoice_number: invoice_id,
-                order_id: order.order_id,
+    if (invoice_id) {
+        await eventBus.emit({
+            platform_id: platformId,
+            event_type: EVENT_TYPES.INVOICE_GENERATED,
+            entity_type: "ORDER",
+            entity_id: order.id,
+            actor_id: user.id,
+            actor_role: user.role,
+            payload: {
+                entity_id_readable: order.order_id,
+                company_id: order.company_id,
                 company_name: company?.name || "N/A",
-                final_total_price: String(pricing?.final_total),
-                download_invoice_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
-            }),
-            attachments: pdf_buffer
-                ? [
-                      {
-                          filename: `${invoice_id}.pdf`,
-                          content: pdf_buffer,
-                      },
-                  ]
-                : undefined,
+                invoice_number: invoice_id,
+                final_total: String(pricing?.final_total || "0"),
+                download_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
+                order_url: `${config.client_url}/orders/${order.order_id}`,
+            },
         });
-
-        // Send email to plaform admin
-        const platformAdminEmails = await getPlatformAdminEmails(platformId);
-
-        await multipleEmailSender(
-            platformAdminEmails,
-            `Invoice Sent: ${invoice_id} for Order ${order.order_id}`,
-            emailTemplates.send_invoice_to_admin({
-                invoice_number: invoice_id,
-                order_id: order.order_id,
-                company_name: company?.name || "N/A",
-                final_total_price: String(pricing?.final_total),
-                download_invoice_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
-            })
-        );
     }
 
     // Step 4: Return invoice

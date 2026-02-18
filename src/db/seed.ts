@@ -1335,7 +1335,7 @@ async function seedOrders() {
                 order_id: def.orderId,
                 company_id: def.company.id,
                 brand_id: def.brand?.id || null,
-                user_id: def.user.id,
+                created_by: def.user.id,
                 job_number: def.jobNumber,
                 contact_name: def.user.name,
                 contact_email: def.user.email,
@@ -2764,49 +2764,462 @@ async function seedAssetVersions() {
 }
 
 // ============================================================
-// NOTIFICATION LOGS
+// NOTIFICATION RULES (DEFAULT PLATFORM RULES)
 // ============================================================
 
-async function seedNotificationLogs() {
-    console.log("📧 Seeding notification logs...");
-    let count = 0;
+async function seedNotificationRules() {
+    console.log("🔔 Seeding notification rules...");
+    const pid = S.platform.id;
 
-    for (const order of S.orders) {
-        const user = S.users.find((u: any) => u.id === order.user_id);
-        const types: string[] = [];
+    type RuleDef = {
+        event_type: string;
+        recipient_type: "ROLE" | "ENTITY_OWNER" | "EMAIL";
+        recipient_value: string | null;
+        template_key: string;
+        sort_order: number;
+    };
 
-        if (["PENDING_APPROVAL", "QUOTED", "CONFIRMED"].includes(order.order_status))
-            types.push("QUOTE_SENT");
-        if (order.order_status === "CONFIRMED") types.push("QUOTE_APPROVED");
-        if (
-            ["READY_FOR_DELIVERY", "IN_TRANSIT", "DELIVERED", "AWAITING_RETURN", "CLOSED"].includes(
-                order.order_status
-            )
-        )
-            types.push("READY_FOR_DELIVERY");
-        if (order.order_status === "CLOSED") types.push("ORDER_CLOSED");
-        if (["INVOICED", "PAID"].includes(order.financial_status)) types.push("INVOICE_GENERATED");
+    const rules: RuleDef[] = [
+        // order.submitted
+        {
+            event_type: "order.submitted",
+            recipient_type: "ENTITY_OWNER",
+            recipient_value: null,
+            template_key: "order_submitted_client",
+            sort_order: 0,
+        },
+        {
+            event_type: "order.submitted",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "order_submitted_admin",
+            sort_order: 1,
+        },
+        {
+            event_type: "order.submitted",
+            recipient_type: "ROLE",
+            recipient_value: "LOGISTICS",
+            template_key: "order_submitted_logistics",
+            sort_order: 2,
+        },
 
-        for (const t of types) {
-            await db.insert(schema.notificationLogs).values({
-                platform_id: S.platform.id,
-                order_id: order.id,
-                notification_type: t,
-                recipients: JSON.stringify({
-                    to: [user?.email || "client@test.com"],
-                    cc: ["admin@test.com"],
-                }),
-                status: "SENT" as const,
-                attempts: 1,
-                last_attempt_at: new Date(),
-                sent_at: new Date(),
-                message_id: `msg_${Date.now()}_${count}`,
-                error_message: null,
-            });
-            count++;
-        }
+        // quote.sent
+        {
+            event_type: "quote.sent",
+            recipient_type: "ENTITY_OWNER",
+            recipient_value: null,
+            template_key: "quote_sent_client",
+            sort_order: 0,
+        },
+        {
+            event_type: "quote.sent",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "quote_sent_admin",
+            sort_order: 1,
+        },
+
+        // quote.revised
+        {
+            event_type: "quote.revised",
+            recipient_type: "ENTITY_OWNER",
+            recipient_value: null,
+            template_key: "quote_revised_client",
+            sort_order: 0,
+        },
+        {
+            event_type: "quote.revised",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "quote_revised_admin",
+            sort_order: 1,
+        },
+
+        // quote.approved
+        {
+            event_type: "quote.approved",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "quote_approved_admin",
+            sort_order: 0,
+        },
+        {
+            event_type: "quote.approved",
+            recipient_type: "ROLE",
+            recipient_value: "LOGISTICS",
+            template_key: "quote_approved_logistics",
+            sort_order: 1,
+        },
+
+        // quote.declined
+        {
+            event_type: "quote.declined",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "quote_declined_admin",
+            sort_order: 0,
+        },
+        {
+            event_type: "quote.declined",
+            recipient_type: "ROLE",
+            recipient_value: "LOGISTICS",
+            template_key: "quote_declined_logistics",
+            sort_order: 1,
+        },
+
+        // invoice.generated
+        {
+            event_type: "invoice.generated",
+            recipient_type: "ENTITY_OWNER",
+            recipient_value: null,
+            template_key: "invoice_generated_client",
+            sort_order: 0,
+        },
+        {
+            event_type: "invoice.generated",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "invoice_generated_admin",
+            sort_order: 1,
+        },
+
+        // payment.confirmed
+        {
+            event_type: "payment.confirmed",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "payment_confirmed_admin",
+            sort_order: 0,
+        },
+        {
+            event_type: "payment.confirmed",
+            recipient_type: "ROLE",
+            recipient_value: "LOGISTICS",
+            template_key: "payment_confirmed_logistics",
+            sort_order: 1,
+        },
+
+        // order.confirmed
+        {
+            event_type: "order.confirmed",
+            recipient_type: "ENTITY_OWNER",
+            recipient_value: null,
+            template_key: "order_confirmed_client",
+            sort_order: 0,
+        },
+        {
+            event_type: "order.confirmed",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "order_confirmed_admin",
+            sort_order: 1,
+        },
+        {
+            event_type: "order.confirmed",
+            recipient_type: "ROLE",
+            recipient_value: "LOGISTICS",
+            template_key: "order_confirmed_logistics",
+            sort_order: 2,
+        },
+
+        // order.cancelled
+        {
+            event_type: "order.cancelled",
+            recipient_type: "ENTITY_OWNER",
+            recipient_value: null,
+            template_key: "order_cancelled_client",
+            sort_order: 0,
+        },
+        {
+            event_type: "order.cancelled",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "order_cancelled_admin",
+            sort_order: 1,
+        },
+        {
+            event_type: "order.cancelled",
+            recipient_type: "ROLE",
+            recipient_value: "LOGISTICS",
+            template_key: "order_cancelled_logistics",
+            sort_order: 2,
+        },
+
+        // order.ready_for_delivery
+        {
+            event_type: "order.ready_for_delivery",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "order_ready_admin",
+            sort_order: 0,
+        },
+
+        // order.in_transit
+        {
+            event_type: "order.in_transit",
+            recipient_type: "ENTITY_OWNER",
+            recipient_value: null,
+            template_key: "order_in_transit_client",
+            sort_order: 0,
+        },
+        {
+            event_type: "order.in_transit",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "order_in_transit_admin",
+            sort_order: 1,
+        },
+
+        // order.delivered
+        {
+            event_type: "order.delivered",
+            recipient_type: "ENTITY_OWNER",
+            recipient_value: null,
+            template_key: "order_delivered_client",
+            sort_order: 0,
+        },
+        {
+            event_type: "order.delivered",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "order_delivered_admin",
+            sort_order: 1,
+        },
+        {
+            event_type: "order.delivered",
+            recipient_type: "ROLE",
+            recipient_value: "LOGISTICS",
+            template_key: "order_delivered_logistics",
+            sort_order: 2,
+        },
+
+        // order.pickup_reminder
+        {
+            event_type: "order.pickup_reminder",
+            recipient_type: "ENTITY_OWNER",
+            recipient_value: null,
+            template_key: "pickup_reminder_client",
+            sort_order: 0,
+        },
+        {
+            event_type: "order.pickup_reminder",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "pickup_reminder_admin",
+            sort_order: 1,
+        },
+        {
+            event_type: "order.pickup_reminder",
+            recipient_type: "ROLE",
+            recipient_value: "LOGISTICS",
+            template_key: "pickup_reminder_logistics",
+            sort_order: 2,
+        },
+
+        // order.closed
+        {
+            event_type: "order.closed",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "order_closed_admin",
+            sort_order: 0,
+        },
+
+        // order.time_windows_updated
+        {
+            event_type: "order.time_windows_updated",
+            recipient_type: "ENTITY_OWNER",
+            recipient_value: null,
+            template_key: "time_windows_updated_client",
+            sort_order: 0,
+        },
+        {
+            event_type: "order.time_windows_updated",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "time_windows_updated_admin",
+            sort_order: 1,
+        },
+
+        // fabrication.completed
+        {
+            event_type: "fabrication.completed",
+            recipient_type: "ROLE",
+            recipient_value: "LOGISTICS",
+            template_key: "fabrication_completed_logistics",
+            sort_order: 0,
+        },
+        {
+            event_type: "fabrication.completed",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "fabrication_completed_admin",
+            sort_order: 1,
+        },
+
+        // inbound_request.submitted
+        {
+            event_type: "inbound_request.submitted",
+            recipient_type: "ENTITY_OWNER",
+            recipient_value: null,
+            template_key: "ir_submitted_client",
+            sort_order: 0,
+        },
+        {
+            event_type: "inbound_request.submitted",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "ir_submitted_admin",
+            sort_order: 1,
+        },
+        {
+            event_type: "inbound_request.submitted",
+            recipient_type: "ROLE",
+            recipient_value: "LOGISTICS",
+            template_key: "ir_submitted_logistics",
+            sort_order: 2,
+        },
+
+        // inbound_request.quoted
+        {
+            event_type: "inbound_request.quoted",
+            recipient_type: "ENTITY_OWNER",
+            recipient_value: null,
+            template_key: "ir_quoted_client",
+            sort_order: 0,
+        },
+
+        // inbound_request.approved
+        {
+            event_type: "inbound_request.approved",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "ir_approved_admin",
+            sort_order: 0,
+        },
+        {
+            event_type: "inbound_request.approved",
+            recipient_type: "ROLE",
+            recipient_value: "LOGISTICS",
+            template_key: "ir_approved_logistics",
+            sort_order: 1,
+        },
+
+        // inbound_request.completed
+        {
+            event_type: "inbound_request.completed",
+            recipient_type: "ENTITY_OWNER",
+            recipient_value: null,
+            template_key: "ir_completed_client",
+            sort_order: 0,
+        },
+
+        // inbound_request.invoice_generated
+        {
+            event_type: "inbound_request.invoice_generated",
+            recipient_type: "ENTITY_OWNER",
+            recipient_value: null,
+            template_key: "ir_invoice_client",
+            sort_order: 0,
+        },
+        {
+            event_type: "inbound_request.invoice_generated",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "ir_invoice_admin",
+            sort_order: 1,
+        },
+
+        // service_request.submitted
+        {
+            event_type: "service_request.submitted",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "sr_submitted_admin",
+            sort_order: 0,
+        },
+        {
+            event_type: "service_request.submitted",
+            recipient_type: "ROLE",
+            recipient_value: "LOGISTICS",
+            template_key: "sr_submitted_logistics",
+            sort_order: 1,
+        },
+
+        // service_request.quoted
+        {
+            event_type: "service_request.quoted",
+            recipient_type: "ENTITY_OWNER",
+            recipient_value: null,
+            template_key: "sr_quoted_client",
+            sort_order: 0,
+        },
+
+        // service_request.approved
+        {
+            event_type: "service_request.approved",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "sr_approved_admin",
+            sort_order: 0,
+        },
+
+        // service_request.completed
+        {
+            event_type: "service_request.completed",
+            recipient_type: "ENTITY_OWNER",
+            recipient_value: null,
+            template_key: "sr_completed_client",
+            sort_order: 0,
+        },
+        {
+            event_type: "service_request.completed",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "sr_completed_admin",
+            sort_order: 1,
+        },
+
+        // service_request.invoice_generated
+        {
+            event_type: "service_request.invoice_generated",
+            recipient_type: "ENTITY_OWNER",
+            recipient_value: null,
+            template_key: "sr_invoice_client",
+            sort_order: 0,
+        },
+        {
+            event_type: "service_request.invoice_generated",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "sr_invoice_admin",
+            sort_order: 1,
+        },
+
+        // auth.password_reset_requested
+        {
+            event_type: "auth.password_reset_requested",
+            recipient_type: "ENTITY_OWNER",
+            recipient_value: null,
+            template_key: "password_reset_otp",
+            sort_order: 0,
+        },
+    ];
+
+    for (const rule of rules) {
+        await db.insert(schema.notificationRules).values({
+            platform_id: pid,
+            event_type: rule.event_type,
+            company_id: null,
+            recipient_type: rule.recipient_type,
+            recipient_value: rule.recipient_value,
+            template_key: rule.template_key,
+            is_enabled: true,
+            sort_order: rule.sort_order,
+        });
     }
-    console.log(`✓ ${count} notification logs`);
+
+    console.log(`✓ ${rules.length} default notification rules`);
 }
 
 // ============================================================
@@ -2947,7 +3360,7 @@ async function seedInboundRequests() {
                 platform_id: pid,
                 inbound_request_id: def.id,
                 company_id: def.company.id,
-                requester_id: def.requester.id,
+                created_by: def.requester.id,
                 incoming_at: def.incomingAt,
                 note: def.note,
                 request_status: def.status,
@@ -3120,7 +3533,7 @@ async function main() {
         // Phase 6: History, invoices, notifications
         await seedOrderHistory();
         await seedInvoices();
-        await seedNotificationLogs();
+        await seedNotificationRules();
 
         // Phase 7: Inbound requests (NEW)
         await seedInboundRequests();

@@ -458,7 +458,7 @@ const exportInboundLogService = async (
         })
         .from(inboundRequests)
         .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
-        .leftJoin(users, eq(inboundRequests.requester_id, users.id))
+        .leftJoin(users, eq(inboundRequests.created_by, users.id))
         .leftJoin(prices, eq(inboundRequests.request_pricing_id, prices.id))
         .where(and(...conditions))
         .orderBy(desc(inboundRequests.created_at));

@@ -20,7 +20,7 @@ export const inboundRequestCostEstimateGenerator = async (
             company: true,
             request_pricing: true,
             items: true,
-            requester: true,
+            created_by_user: true,
         },
     });
 
@@ -56,8 +56,8 @@ export const inboundRequestCostEstimateGenerator = async (
         inbound_request_id: inboundRequest.inbound_request_id,
         estimate_number: inboundRequest.id,
         company_name: company?.name || "N/A",
-        contact_name: inboundRequest.requester?.name || "N/A",
-        contact_email: inboundRequest.requester?.email || company?.contact_email || "N/A",
+        contact_name: inboundRequest.created_by_user?.name || "N/A",
+        contact_email: inboundRequest.created_by_user?.email || company?.contact_email || "N/A",
         contact_phone: company?.contact_phone || "N/A",
         incoming_at: inboundRequest.incoming_at,
         note: inboundRequest.note || "",

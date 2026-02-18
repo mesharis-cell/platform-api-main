@@ -7,6 +7,8 @@ import { CollectionRoutes } from "../modules/collection/collection.routes";
 import { CompanyRoutes } from "../modules/company/company.routes";
 import { CountryRoutes } from "../modules/country/country.routes";
 import { NotificationLogRoutes } from "../modules/notification-logs/notification-logs.routes";
+import { NotificationRuleRoutes } from "../modules/notification-rules/notification-rules.routes";
+import { EventsRoutes } from "../modules/events/events.routes";
 import { PlatformRoutes } from "../modules/platform/platform.routes";
 import { TransportRatesRoutes } from "../modules/transport-rates/transport-rates.routes";
 import { ServiceTypesRoutes } from "../modules/service-types/service-types.routes";
@@ -90,6 +92,14 @@ const routes = [
     {
         path: "/notification-logs",
         route: NotificationLogRoutes,
+    },
+    {
+        path: "/notification-rules",
+        route: NotificationRuleRoutes,
+    },
+    {
+        path: "/events",
+        route: EventsRoutes,
     },
     {
         path: "/line-item",

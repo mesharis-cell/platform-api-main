@@ -89,7 +89,7 @@ export type NormalizedCommercialDocumentContext = {
 
 export type CommercialDocumentPdfPayload = {
     id: string;
-    user_id: string;
+    created_by: string;
     order_id: string;
     platform_id: string;
     contact_name: string;
@@ -240,7 +240,7 @@ const getOrderCommercialContext = async (
         context_id: order.id,
         reference_id: order.order_id,
         platform_id: order.platform_id,
-        created_by: order.user_id,
+        created_by: order.created_by,
         company: {
             id: order.company.id,
             name: order.company.name || "Unknown Company",
@@ -389,7 +389,7 @@ export const listOrderCommercialContexts = async (
                 context_id: order.id,
                 reference_id: order.order_id,
                 platform_id: order.platform_id,
-                created_by: order.user_id,
+                created_by: order.created_by,
                 company: {
                     id: order.company!.id,
                     name: order.company!.name || "Unknown Company",
@@ -535,7 +535,7 @@ export const buildCommercialDocumentPdfPayload = (
 
     return {
         id: context.context_id,
-        user_id: generatedByUserId || context.created_by,
+        created_by: generatedByUserId || context.created_by,
         order_id: context.reference_id,
         platform_id: context.platform_id,
         contact_name: context.contact.name,

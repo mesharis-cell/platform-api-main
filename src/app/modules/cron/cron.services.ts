@@ -1,8 +1,9 @@
 import { and, eq, lt, or, sql } from "drizzle-orm";
 import { db } from "../../../db";
-import { orders, orderStatusHistory, otp, notificationLogs } from "../../../db/schema";
+import { orders, orderStatusHistory, otp, systemEvents } from "../../../db/schema";
 import { getSystemUser } from "../../utils/helper-query";
-import { NotificationLogServices } from "../notification-logs/notification-logs.services";
+import { eventBus, EVENT_TYPES } from "../../events";
+import config from "../../config";
 
 /**
  * Unified cron job to handle both event start and event end transitions
@@ -221,20 +222,19 @@ const sendPickupReminders = async () => {
                         continue;
                     }
 
-                    // Idempotency: Check if reminder was already sent
-                    const [existingReminder] = await db
+                    // Idempotency: Check if pickup reminder event was already fired
+                    const [existingEvent] = await db
                         .select()
-                        .from(notificationLogs)
+                        .from(systemEvents)
                         .where(
                             and(
-                                eq(notificationLogs.order_id, order.id),
-                                eq(notificationLogs.notification_type, "PICKUP_REMINDER"),
-                                eq(notificationLogs.status, "SENT")
+                                eq(systemEvents.entity_id, order.id),
+                                eq(systemEvents.event_type, EVENT_TYPES.ORDER_PICKUP_REMINDER)
                             )
                         )
                         .limit(1);
 
-                    if (existingReminder) {
+                    if (existingEvent) {
                         console.log(
                             `   ⚠ Skipping order ${order.order_id}: Pickup reminder already sent`
                         );
@@ -242,12 +242,28 @@ const sendPickupReminders = async () => {
                         continue;
                     }
 
-                    // Send PICKUP_REMINDER notification
-                    await NotificationLogServices.sendNotification(
-                        platformId,
-                        "PICKUP_REMINDER",
-                        order
-                    );
+                    // Emit pickup reminder event
+                    const pickupWindowStr = pickupWindow.start
+                        ? `${new Date(pickupWindow.start).toLocaleDateString()} – ${new Date(pickupWindow.end || pickupWindow.start).toLocaleDateString()}`
+                        : "TBD";
+
+                    await eventBus.emit({
+                        platform_id: platformId,
+                        event_type: EVENT_TYPES.ORDER_PICKUP_REMINDER,
+                        entity_type: "ORDER",
+                        entity_id: order.id,
+                        actor_id: null,
+                        actor_role: "SYSTEM",
+                        payload: {
+                            entity_id_readable: order.order_id,
+                            company_id: order.company_id,
+                            company_name: (order.company as any)?.name || "N/A",
+                            contact_name: order.contact_name,
+                            venue_name: order.venue_name,
+                            pickup_window: pickupWindowStr,
+                            order_url: `${config.client_url}/orders/${order.order_id}`,
+                        },
+                    });
 
                     remindersSent++;
                 } catch (error: any) {

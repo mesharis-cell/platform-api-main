@@ -132,7 +132,7 @@
  *                             format: uuid
  *                           name:
  *                             type: string
- *                       user_id:
+ *                       created_by:
  *                         type: string
  *                         format: uuid
  *                       job_number:
@@ -332,7 +332,7 @@
  *                             format: uuid
  *                           name:
  *                             type: string
- *                       user_id:
+ *                       created_by:
  *                         type: string
  *                         format: uuid
  *                       job_number:
