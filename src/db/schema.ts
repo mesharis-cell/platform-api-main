@@ -767,10 +767,6 @@ export const orders = pgTable(
             .array()
             .default(sql`ARRAY[]::text[]`), // Outbound truck loading photos
 
-        // Logistics details
-        delivery_truck_details: jsonb("logistics_delivery_details").default("{}"), // { truck_plate: "ABC-1234", driver_name: "Ahmed", driver_contact: "+971501234567", truck_size: "3_TON", tailgate_required: true, manpower_required: true, notes: "Call 30 min before" }
-        pickup_truck_details: jsonb("logistics_pickup_details").default("{}"), // { truck_plate: "ABC-1234", driver_name: "Ahmed", driver_contact: "+971501234567", truck_size: "3_TON", tailgate_required: true, manpower_required: true, notes: "Call 30 min before" }
-
         // Timestamps
         created_at: timestamp("created_at").notNull().defaultNow(),
         updated_at: timestamp("updated_at")

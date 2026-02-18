@@ -259,27 +259,6 @@ export async function getEmailTemplate(
 			`,
         },
 
-        // Enhanced templates for all remaining types
-        A2_ADJUSTED_PRICING: {
-            subject: `Action Required: Pricing Adjustment for ${data.orderIdReadable}`,
-            html: `
-<!DOCTYPE html>
-<html><head><meta charset="UTF-8"></head>
-<body style="${baseStyle}">
-	<table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding: 40px 20px;">
-		<table width="600" cellpadding="0" cellspacing="0" style="background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
-			<tr><td style="padding: 40px;">
-				<h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #f59e0b;">⚠️ Pricing Adjustment Required</h1>
-				<p style="margin: 0 0 16px; font-size: 16px; color: #374151;">A2 Logistics has adjusted pricing for this order and requires PMG approval before sending quote to client.</p>
-                <!-- TODO: A2 Information -->
-				<p style="margin: 16px 0; color: #dc2626; font-weight: 600;">⚠️ Action Required: Please review and approve pricing before it's sent to the client.</p>
-				<a href="${data.orderUrl}" style="display: inline-block; margin: 24px 0; padding: 12px 24px; background: #f59e0b; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600;">Review Pricing</a>
-			</td></tr>
-		</table>
-	</td></tr></table>
-</body></html>
-			`,
-        },
         QUOTE_APPROVED: {
             subject: `Quote Approved: ${data.orderIdReadable}`,
             html: `

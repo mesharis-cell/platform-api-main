@@ -19,7 +19,7 @@ export function getNotificationTypeForTransition(
     const transitionMap: Record<string, string> = {
         "DRAFT->SUBMITTED": "ORDER_SUBMITTED",
         "SUBMITTED->PRICING_REVIEW": "", // No notification needed
-        "PRICING_REVIEW->PENDING_APPROVAL": "A2_ADJUSTED_PRICING", // Logistics submitted to Admin
+        "PRICING_REVIEW->PENDING_APPROVAL": "", // No notification needed
         "PENDING_APPROVAL->QUOTED": "QUOTE_SENT", // Admin approved, send to client
         "QUOTED->CONFIRMED": "QUOTE_APPROVED", // Direct to CONFIRMED
         "QUOTED->DECLINED": "QUOTE_DECLINED",
@@ -83,7 +83,6 @@ export const getRecipientsForNotification = async (
     // Notification Matrix (based on req.md Email Notification Matrix)
     const matrix: Record<NotificationType, NotificationRecipients> = {
         ORDER_SUBMITTED: { to: [clientEmail], cc: [...adminEmails, ...logisticsEmails] },
-        A2_ADJUSTED_PRICING: { to: adminEmails }, // PMG only (Action Required) - no CC to A2
         QUOTE_SENT: { to: [clientEmail], cc: adminEmails },
         QUOTE_REVISED: { to: [clientEmail], cc: adminEmails },
         QUOTE_APPROVED: { to: [...adminEmails, ...logisticsEmails] }, // PMG + A2, no CC to client

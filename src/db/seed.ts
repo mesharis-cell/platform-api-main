@@ -298,7 +298,6 @@ async function seedUsers() {
         "orders:update",
         "orders:add_time_windows",
         "pricing:review",
-        "pricing:approve_standard",
         "pricing:adjust",
         "lifecycle:progress_status",
         "lifecycle:receive_notifications",

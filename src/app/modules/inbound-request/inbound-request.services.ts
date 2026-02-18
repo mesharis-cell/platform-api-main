@@ -590,7 +590,7 @@ const submitForApproval = async (requestId: string, user: AuthUser, platformId: 
     // TODO: Step 7: Send notification
     // await NotificationLogServices.sendNotification(
     //     platformId,
-    //     "A2_ADJUSTED_PRICING",
+    //     "<notification_type>",
     //     {
     //         ...order,
     //         company

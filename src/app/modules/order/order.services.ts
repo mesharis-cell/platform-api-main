@@ -2110,13 +2110,7 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
         });
     });
 
-    // Step 6: Send notification
-    await NotificationLogServices.sendNotification(platformId, "A2_ADJUSTED_PRICING", {
-        ...order,
-        company,
-    });
-
-    // Step 7: Return updated order
+    // Step 6: Return updated order
     return {
         id: order.id,
         order_id: order.order_id,

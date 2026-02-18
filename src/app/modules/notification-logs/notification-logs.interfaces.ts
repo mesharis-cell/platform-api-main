@@ -1,6 +1,5 @@
 export type NotificationType =
     | "ORDER_SUBMITTED"
-    | "A2_ADJUSTED_PRICING"
     | "QUOTE_SENT"
     | "QUOTE_APPROVED"
     | "QUOTE_DECLINED"
