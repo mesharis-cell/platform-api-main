@@ -8,6 +8,7 @@ export type AuthUser = {
     company_id: string | null;
     platform_id: string;
     permissions: string[];
+    is_super_admin: boolean;
     iat: number;
     exp: number;
 };

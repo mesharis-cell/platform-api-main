@@ -418,6 +418,7 @@ const cancelReskinRequest = async (
             company_id: userRecord.company_id,
             platform_id: userRecord.platform_id,
             permissions: userRecord.permissions || [],
+            is_super_admin: userRecord.is_super_admin ?? false,
             iat: 0,
             exp: 0,
         };

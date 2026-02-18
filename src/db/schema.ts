@@ -320,6 +320,7 @@ export const users = pgTable(
             .notNull()
             .default(sql`ARRAY[]::text[]`),
         permission_template: permissionTemplateEnum("permission_template"),
+        is_super_admin: boolean("is_super_admin").notNull().default(false),
         is_active: boolean("is_active").notNull().default(true),
         last_login_at: timestamp("last_login_at"),
         created_at: timestamp("created_at").notNull().defaultNow(),

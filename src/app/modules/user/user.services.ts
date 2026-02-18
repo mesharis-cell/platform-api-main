@@ -1,5 +1,5 @@
 import bcrypt from "bcrypt";
-import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, lte, ne, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, lte, or } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
 import { companies, users } from "../../../db/schema";
@@ -88,7 +88,7 @@ const getUsers = async (platformId: string, query: Record<string, any>, user: Au
     });
 
     // Step 2: Build WHERE conditions
-    const conditions: any[] = [eq(users.platform_id, platformId), ne(users.id, user.id)];
+    const conditions: any[] = [eq(users.platform_id, platformId)];
 
     // Step 3: Add date range and search filters
     if (search_term) {
@@ -221,13 +221,23 @@ const updateUser = async (
         );
     }
 
+    // Non-super-admins cannot edit their own permissions
     if (
+        !user.is_super_admin &&
         user.id === id &&
         (data.permission_template || (data.permissions && data.permissions.length > 0))
     ) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            "You cannot update your own permission_template or permissions"
+            "You cannot update your own permissions. Ask another super admin."
+        );
+    }
+
+    // Only super admins can toggle is_super_admin on others
+    if ((data as any).is_super_admin !== undefined && !user.is_super_admin) {
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            "Only super admins can grant or revoke super admin status"
         );
     }
 

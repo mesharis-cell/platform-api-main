@@ -284,6 +284,11 @@ async function seedUsers() {
         "inventory:*",
         "quotes:*",
         "scanning:*",
+        "self_bookings:*",
+        "service_request:*",
+        "inbound_request:*",
+        "calendar:*",
+        "reports:*",
     ];
     const logisticsPerms = [
         "auth:*",
@@ -333,6 +338,7 @@ async function seedUsers() {
                 role: "ADMIN" as const,
                 permissions: allPerms,
                 permission_template: "PLATFORM_ADMIN" as const,
+                is_super_admin: true,
                 is_active: true,
             },
             {

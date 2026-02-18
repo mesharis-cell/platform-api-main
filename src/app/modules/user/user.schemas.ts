@@ -73,6 +73,7 @@ const updateUser = z.object({
                 .optional()
                 .nullable(),
             is_active: z.boolean().optional(),
+            is_super_admin: z.boolean().optional(),
         })
         .strict(),
 });
