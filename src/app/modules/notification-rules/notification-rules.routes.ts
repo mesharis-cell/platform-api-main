@@ -5,6 +5,7 @@ import { NotificationRuleControllers } from "./notification-rules.controllers";
 
 const router = Router();
 
+router.get("/meta", platformValidator, auth("ADMIN"), NotificationRuleControllers.getMeta);
 router.get("/", platformValidator, auth("ADMIN"), NotificationRuleControllers.listRules);
 router.post("/", platformValidator, auth("ADMIN"), NotificationRuleControllers.createRule);
 router.patch("/:id", platformValidator, auth("ADMIN"), NotificationRuleControllers.updateRule);

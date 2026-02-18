@@ -2,6 +2,7 @@ import { and, asc, eq, isNull } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
 import { notificationRules } from "../../../db/schema";
+import { EVENT_GROUPS, TEMPLATES_BY_EVENT } from "../../events/meta";
 import catchAsync from "../../shared/catch-async";
 import sendResponse from "../../shared/send-response";
 import { getRequiredString } from "../../utils/request";
@@ -160,7 +161,21 @@ const resetEventTypeRules = catchAsync(async (req, res) => {
     });
 });
 
+// ─── META (event groups + templates) ─────────────────────────────────────────
+const getMeta = catchAsync(async (_req, res) => {
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Notification meta fetched",
+        data: {
+            event_groups: EVENT_GROUPS,
+            templates_by_event: TEMPLATES_BY_EVENT,
+        },
+    });
+});
+
 export const NotificationRuleControllers = {
+    getMeta,
     listRules,
     createRule,
     updateRule,
