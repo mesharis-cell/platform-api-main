@@ -3441,6 +3441,8 @@ async function cleanup() {
 
         // Delete in reverse dependency order
         await safeDelete("notification_logs", () => db.delete(schema.notificationLogs));
+        await safeDelete("system_events", () => db.delete(schema.systemEvents));
+        await safeDelete("notification_rules", () => db.delete(schema.notificationRules));
         await safeDelete("asset_versions", () => db.delete(schema.assetVersions));
         await safeDelete("asset_condition_history", () => db.delete(schema.assetConditionHistory));
         await safeDelete("scan_events", () => db.delete(schema.scanEvents));
