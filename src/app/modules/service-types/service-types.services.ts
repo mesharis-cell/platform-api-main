@@ -226,14 +226,18 @@ const syncTransportRateCards = async (
     const existingTransportServiceTypes = await db
         .select()
         .from(serviceTypes)
-        .where(and(eq(serviceTypes.platform_id, platformId), eq(serviceTypes.category, "TRANSPORT")));
+        .where(
+            and(eq(serviceTypes.platform_id, platformId), eq(serviceTypes.category, "TRANSPORT"))
+        );
 
     const existingByRateId = new Map(
         existingTransportServiceTypes
             .filter((entry) => !!entry.transport_rate_id)
             .map((entry) => [entry.transport_rate_id as string, entry])
     );
-    const existingByName = new Map(existingTransportServiceTypes.map((entry) => [entry.name, entry]));
+    const existingByName = new Map(
+        existingTransportServiceTypes.map((entry) => [entry.name, entry])
+    );
 
     let created = 0;
     let updated = 0;

@@ -72,9 +72,12 @@ const createCustomLineItemSchema = z.object({
                 .string({ message: "Description is required" })
                 .min(1, "Description is required")
                 .max(200, "Description must be under 200 characters"),
-            category: z.enum(["ASSEMBLY", "EQUIPMENT", "HANDLING", "RESKIN", "TRANSPORT", "OTHER"], {
-                message: "Invalid category",
-            }),
+            category: z.enum(
+                ["ASSEMBLY", "EQUIPMENT", "HANDLING", "RESKIN", "TRANSPORT", "OTHER"],
+                {
+                    message: "Invalid category",
+                }
+            ),
             quantity: z
                 .number({ message: "Quantity must be a number" })
                 .positive("Quantity must be greater than 0"),

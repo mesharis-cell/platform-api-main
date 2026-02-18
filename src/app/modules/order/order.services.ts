@@ -2679,10 +2679,12 @@ const downloadGoodsForm = async (
             lineItem.category === "TRANSPORT" &&
             lineItem.billing_mode === "BILLABLE"
     );
-    const transportMetadata =
-        ((primaryTransport?.metadata as Record<string, unknown>) || {}) as Record<string, unknown>;
+    const transportMetadata = ((primaryTransport?.metadata as Record<string, unknown>) ||
+        {}) as Record<string, unknown>;
     const tripType =
-        typeof transportMetadata.trip_direction === "string" ? transportMetadata.trip_direction : "";
+        typeof transportMetadata.trip_direction === "string"
+            ? transportMetadata.trip_direction
+            : "";
     const vehicleType =
         typeof transportMetadata.vehicle_type_name === "string"
             ? transportMetadata.vehicle_type_name

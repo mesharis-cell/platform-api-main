@@ -153,7 +153,10 @@ const mapLineItems = (
     marginPercent: number
 ): NormalizedDocumentLineItem[] =>
     lineItems
-        .filter((lineItem) => !lineItem.is_voided && (lineItem.billing_mode || "BILLABLE") === "BILLABLE")
+        .filter(
+            (lineItem) =>
+                !lineItem.is_voided && (lineItem.billing_mode || "BILLABLE") === "BILLABLE"
+        )
         .map((lineItem) => {
             const quantity = toNumber(lineItem.quantity);
             const buyTotal = toNumber(lineItem.total);
@@ -171,13 +174,11 @@ const mapLineItems = (
             };
         });
 
-const mapPricing = (
-    pricing: {
-        base_ops_total: string | number | null;
-        line_items: unknown;
-        margin: unknown;
-    }
-): NormalizedPricing => {
+const mapPricing = (pricing: {
+    base_ops_total: string | number | null;
+    line_items: unknown;
+    margin: unknown;
+}): NormalizedPricing => {
     const baseOpsTotal = toNumber(pricing.base_ops_total);
     const catalogTotal = toNumber((pricing.line_items as any)?.catalog_total);
     const customTotal = toNumber((pricing.line_items as any)?.custom_total);

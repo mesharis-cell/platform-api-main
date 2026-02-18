@@ -27,13 +27,22 @@ import { calculatePricingSummary } from "../../utils/pricing-engine";
 const validateTransportMetadata = (metadata: Record<string, unknown> | undefined) => {
     if (!metadata) return;
     if (metadata.truck_plate !== undefined && String(metadata.truck_plate).length > 80) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "truck_plate must be under 80 characters");
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "truck_plate must be under 80 characters"
+        );
     }
     if (metadata.driver_name !== undefined && String(metadata.driver_name).length > 120) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "driver_name must be under 120 characters");
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "driver_name must be under 120 characters"
+        );
     }
     if (metadata.driver_contact !== undefined && String(metadata.driver_contact).length > 80) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "driver_contact must be under 80 characters");
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "driver_contact must be under 80 characters"
+        );
     }
     if (metadata.truck_size !== undefined && String(metadata.truck_size).length > 80) {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "truck_size must be under 80 characters");
@@ -41,7 +50,10 @@ const validateTransportMetadata = (metadata: Record<string, unknown> | undefined
     if (metadata.manpower !== undefined) {
         const manpower = Number(metadata.manpower);
         if (!Number.isInteger(manpower) || manpower < 0) {
-            throw new CustomizedError(httpStatus.BAD_REQUEST, "manpower must be a non-negative integer");
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "manpower must be a non-negative integer"
+            );
         }
     }
 };

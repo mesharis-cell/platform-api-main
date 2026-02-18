@@ -183,7 +183,9 @@ export const buildNotificationData = async (order: any): Promise<NotificationDat
             : undefined,
         line_items: lineItemsData.map((item) => {
             const rawItem = item as Record<string, unknown>;
-            const amount = Number(rawItem.sell_total ?? rawItem.total_sell_price ?? item.total ?? 0);
+            const amount = Number(
+                rawItem.sell_total ?? rawItem.total_sell_price ?? item.total ?? 0
+            );
             return {
                 description: item.description,
                 category: item.category,

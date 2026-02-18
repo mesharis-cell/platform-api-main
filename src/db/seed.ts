@@ -664,7 +664,9 @@ async function seedServiceTypes() {
     const defaultVehicle = S.vehicleTypes.find((v: any) => v.is_default) || S.vehicleTypes[0];
     const cityNameById = new Map(S.cities.map((city: any) => [city.id, city.name]));
     const transportServiceRows = S.transportRates
-        .filter((rate: any) => rate.company_id === null && rate.vehicle_type_id === defaultVehicle?.id)
+        .filter(
+            (rate: any) => rate.company_id === null && rate.vehicle_type_id === defaultVehicle?.id
+        )
         .map((rate: any, idx: number) => {
             const cityName = cityNameById.get(rate.city_id) || "Unknown City";
             const tripLabel = rate.trip_type === "ROUND_TRIP" ? "Round Trip" : "One Way";

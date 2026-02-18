@@ -21,15 +21,13 @@ export async function getEmailTemplate(
                       (item) =>
                           item.billing_mode === "BILLABLE" || item.billing_mode === "COMPLIMENTARY"
                   )
-                  .map(
-                      (item) => {
-                          const amount = item.amount ?? item.total;
-                          if (item.billing_mode === "COMPLIMENTARY") {
-                              return `<p style="margin: 6px 0;"><strong>${item.description}:</strong> Complimentary (valued at ${formatAmount(amount)} AED)</p>`;
-                          }
-                          return `<p style="margin: 6px 0;"><strong>${item.description}:</strong> ${formatAmount(amount)} AED</p>`;
+                  .map((item) => {
+                      const amount = item.amount ?? item.total;
+                      if (item.billing_mode === "COMPLIMENTARY") {
+                          return `<p style="margin: 6px 0;"><strong>${item.description}:</strong> Complimentary (valued at ${formatAmount(amount)} AED)</p>`;
                       }
-                  )
+                      return `<p style="margin: 6px 0;"><strong>${item.description}:</strong> ${formatAmount(amount)} AED</p>`;
+                  })
                   .join("")
             : `<p style="margin: 6px 0; color: #6b7280;">No additional service items</p>`;
     const pricingBreakdownHtml = data.pricing
