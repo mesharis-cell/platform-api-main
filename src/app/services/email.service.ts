@@ -1,8 +1,6 @@
 import { Resend } from "resend";
 import config from "../config";
 
-const resend = new Resend(config.resend_api_key);
-
 interface EmailOptions {
     to: string;
     subject: string;
@@ -12,8 +10,12 @@ interface EmailOptions {
 }
 
 export const sendEmail = async (options: EmailOptions): Promise<string> => {
+    const apiKey = config.resend_api_key;
+    if (!apiKey) throw new Error("RESEND_API_KEY is not configured");
+
+    const resend = new Resend(apiKey);
     const { to, subject, html, from, attachments } = options;
-    const fromAddress = from || config.email_from || "no-reply@unconfigured.kadence.app";
+    const fromAddress = from || "no-reply@unconfigured.kadence.app";
 
     const { data, error } = await resend.emails.send({
         from: fromAddress,
