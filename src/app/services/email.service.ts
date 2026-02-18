@@ -1,51 +1,36 @@
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import config from "../config";
+
+const resend = new Resend(config.resend_api_key);
 
 interface EmailOptions {
     to: string;
     subject: string;
     html: string;
     from?: string;
-    attachments?: Array<{ filename: string; content: any }>;
+    attachments?: Array<{ filename: string; content: Buffer | string }>;
 }
 
-// Create reusable transporter
-const createTransporter = () => {
-    return nodemailer.createTransport({
-        host: config.smtp_host,
-        port: config.smtp_port,
-        secure: config.smtp_port === 465, // true for 465, false for other ports
-        auth: {
-            user: config.smtp_user,
-            pass: config.smtp_pass,
-        },
-    });
-};
-
 export const sendEmail = async (options: EmailOptions): Promise<string> => {
-    try {
-        const { to, subject, html, from = config.email_from, attachments } = options;
+    const { to, subject, html, from, attachments } = options;
+    const fromAddress = from || config.email_from || "no-reply@unconfigured.kadence.app";
 
-        const transporter = createTransporter();
+    const { data, error } = await resend.emails.send({
+        from: fromAddress,
+        to,
+        subject,
+        html,
+        attachments: attachments?.map((a) => ({
+            filename: a.filename,
+            content: a.content,
+        })),
+    });
 
-        // Send email
-        const info = await transporter.sendMail({
-            from: from || `"${config.app_name}" <${config.email_from}>`,
-            to,
-            subject,
-            html,
-            attachments,
-        });
-
-        console.log("✅ Email sent successfully:", {
-            messageId: info.messageId,
-            to,
-            subject,
-        });
-
-        return info.messageId;
-    } catch (error) {
-        console.error("❌ Error sending email:", error);
-        throw error;
+    if (error) {
+        console.error("❌ Resend error:", error);
+        throw new Error(error.message);
     }
+
+    console.log("✅ Email sent:", { messageId: data!.id, to, subject });
+    return data!.id;
 };

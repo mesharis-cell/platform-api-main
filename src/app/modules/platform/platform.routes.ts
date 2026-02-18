@@ -10,5 +10,8 @@ router.post(
     payloadValidator(PlatformSchemas.createPlatform),
     PlatformControllers.createPlatform
 );
+router.get("/me", PlatformControllers.getMyPlatform);
+router.patch("/config", PlatformControllers.updatePlatformConfig);
+router.patch("/features", PlatformControllers.updatePlatformFeatures);
 
 export const PlatformRoutes = router;

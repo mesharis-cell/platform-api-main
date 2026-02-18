@@ -18,10 +18,14 @@ const inboundRequestItemSchema = z.object({
     packaging: z.string().optional().or(z.literal("")),
     weight_per_unit: z
         .number("Weight per unit should be a number")
-        .min(0, "Weight must be positive"),
+        .min(0, "Weight must be positive")
+        .optional()
+        .default(0),
     volume_per_unit: z
         .number("Volume per unit should be a number")
-        .min(0, "Volume must be positive"),
+        .min(0, "Volume must be positive")
+        .optional()
+        .default(0),
     dimensions: z
         .object({
             length: z.number("Length should be a number").min(0).default(0),
@@ -31,7 +35,6 @@ const inboundRequestItemSchema = z.object({
         .optional(),
     images: z.array(z.string()).optional(),
     handling_tags: z.array(z.string()).optional(),
-    asset_id: z.uuid("Asset ID should be a valid UUID").optional(),
     id: z.uuid().optional(),
 });
 

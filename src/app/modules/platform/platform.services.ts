@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { db } from "../../../db";
 import { platforms, users } from "../../../db/schema";
 import config from "../../config";
@@ -35,6 +36,42 @@ const createPlatform = async (data: CreatePlatformPayload) => {
     return result;
 };
 
+const getPlatform = async (platformId: string) => {
+    const [platform] = await db.select().from(platforms).where(eq(platforms.id, platformId));
+    return platform ?? null;
+};
+
+const updatePlatformConfig = async (platformId: string, patch: Record<string, unknown>) => {
+    const [existing] = await db
+        .select({ config: platforms.config })
+        .from(platforms)
+        .where(eq(platforms.id, platformId));
+    const merged = { ...((existing?.config as object) ?? {}), ...patch };
+    const [updated] = await db
+        .update(platforms)
+        .set({ config: merged })
+        .where(eq(platforms.id, platformId))
+        .returning();
+    return updated;
+};
+
+const updatePlatformFeatures = async (platformId: string, patch: Record<string, boolean>) => {
+    const [existing] = await db
+        .select({ features: platforms.features })
+        .from(platforms)
+        .where(eq(platforms.id, platformId));
+    const merged = { ...((existing?.features as object) ?? {}), ...patch };
+    const [updated] = await db
+        .update(platforms)
+        .set({ features: merged })
+        .where(eq(platforms.id, platformId))
+        .returning();
+    return updated;
+};
+
 export const PlatformServices = {
     createPlatform,
+    getPlatform,
+    updatePlatformConfig,
+    updatePlatformFeatures,
 };

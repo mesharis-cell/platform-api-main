@@ -21,6 +21,11 @@ const configSchema = z.object({
         .max(100, "Logistics partner name must be at most 100 characters")
         .optional(),
     support_email: z.string().email("Support email must be a valid email address").optional(),
+    from_email: z
+        .string()
+        .email("From email must be a valid email address")
+        .optional()
+        .describe("Verified sender email address used in the 'From' field for all platform emails"),
     currency: z
         .string()
         .length(3, "Currency must be a 3-letter ISO code (e.g., USD, EUR)")

@@ -5,6 +5,7 @@ import {
     notificationLogs,
     notificationRules,
     orders,
+    platforms,
     serviceRequests,
     users,
 } from "../../../db/schema";
@@ -156,10 +157,25 @@ async function getApplicableRules(
     return merged;
 }
 
+// ─── Platform from_email lookup ───────────────────────────────────────────────
+
+const UNCONFIGURED_FROM = "no-reply@unconfigured.kadence.app";
+
+async function getPlatformFromEmail(platformId: string): Promise<string> {
+    const [platform] = await db
+        .select({ config: platforms.config })
+        .from(platforms)
+        .where(eq(platforms.id, platformId));
+    return (platform?.config as any)?.from_email ?? UNCONFIGURED_FROM;
+}
+
 // ─── Main handler ─────────────────────────────────────────────────────────────
 
 export async function handleEmailNotifications(event: SystemEvent): Promise<void> {
-    const rules = await getApplicableRules(event);
+    const [rules, fromEmail] = await Promise.all([
+        getApplicableRules(event),
+        getPlatformFromEmail(event.platform_id),
+    ]);
 
     for (const rule of rules) {
         if (!rule.is_enabled) continue;
@@ -167,7 +183,6 @@ export async function handleEmailNotifications(event: SystemEvent): Promise<void
         const emails = await resolveRecipients(rule, event);
 
         for (const email of emails) {
-            // Create QUEUED log entry
             const [logEntry] = await db
                 .insert(notificationLogs)
                 .values({
@@ -194,6 +209,7 @@ export async function handleEmailNotifications(event: SystemEvent): Promise<void
                     to: email,
                     subject: rendered.subject,
                     html: rendered.html,
+                    from: fromEmail,
                 });
 
                 await db
