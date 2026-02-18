@@ -94,6 +94,15 @@ const exportAssetUtilization = catchAsync(async (req: Request, res: Response) =>
     sendCsv(res, "asset-utilization.csv", csvData);
 });
 
+const exportWorkSummary = catchAsync(async (req: Request, res: Response) => {
+    const filters = req.query as any;
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+
+    const csvData = await ExportServices.exportWorkSummaryService(filters, user, platformId);
+    sendCsv(res, "work-summary.csv", csvData);
+});
+
 export const ExportControllers = {
     exportOrders,
     exportOrderHistory,
@@ -104,4 +113,5 @@ export const ExportControllers = {
     exportRevenueReport,
     exportCostReport,
     exportAssetUtilization,
+    exportWorkSummary,
 };

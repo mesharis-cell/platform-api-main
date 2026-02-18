@@ -79,4 +79,12 @@ router.get(
     ExportControllers.exportAssetUtilization
 );
 
+router.get(
+    "/work-summary",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.ORDERS_READ, PERMISSIONS.ORDERS_EXPORT),
+    ExportControllers.exportWorkSummary
+);
+
 export const ExportRoutes = router;

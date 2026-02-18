@@ -683,6 +683,80 @@ const exportAssetUtilizationService = async (
     return Papa.unparse(csvRows);
 };
 
+/**
+ * Work Summary Export — Warehouse use
+ *
+ * One row per order showing the buy-side cost breakdown (what the platform owes
+ * the warehouse). The warehouse uses this to create their own invoice to the platform.
+ *
+ * Columns: Order ID, Company, Event Start, Event End, Status,
+ *          Ops Total, Logistics, Transport, Catalog Line Items,
+ *          Custom Line Items, Total Buy Cost
+ */
+const exportWorkSummaryService = async (
+    query: ExportBaseQuery,
+    _user: AuthUser,
+    platformId: string
+): Promise<string> => {
+    const { company_id, date_from, date_to } = query;
+    const { fromDate, toDate } = parseDateRange({ date_from, date_to });
+
+    const conditions: any[] = [
+        eq(orders.platform_id, platformId),
+        // Exclude drafts — only orders that actually incurred work
+        sql`${orders.order_status} NOT IN ('DRAFT', 'CANCELLED')`,
+    ];
+
+    if (company_id) conditions.push(eq(orders.company_id, company_id));
+    if (fromDate) conditions.push(gte(orders.event_start_date, fromDate));
+    if (toDate) conditions.push(lte(orders.event_end_date, toDate));
+
+    const rows = await db
+        .select({
+            order_id: orders.order_id,
+            order_status: orders.order_status,
+            event_start_date: orders.event_start_date,
+            event_end_date: orders.event_end_date,
+            company_name: companies.name,
+            base_ops_total: prices.base_ops_total,
+            logistics_sub_total: prices.logistics_sub_total,
+            transport: prices.transport,
+            line_items_totals: prices.line_items,
+        })
+        .from(orders)
+        .leftJoin(companies, eq(orders.company_id, companies.id))
+        .leftJoin(prices, eq(orders.order_pricing_id, prices.id))
+        .where(and(...conditions))
+        .orderBy(asc(orders.event_start_date), asc(orders.order_id));
+
+    return Papa.unparse(
+        rows.map((row) => {
+            const transport = (row.transport as any) || {};
+            const lineItemsTotals = (row.line_items_totals as any) || {};
+            const ops = parseNumber(row.base_ops_total);
+            const logistics = parseNumber(row.logistics_sub_total);
+            const transportCost = parseNumber(transport.final_rate ?? transport.system_rate ?? 0);
+            const catalogItems = parseNumber(lineItemsTotals.catalog_total ?? 0);
+            const customItems = parseNumber(lineItemsTotals.custom_total ?? 0);
+            const totalBuy = ops + logistics + transportCost + catalogItems + customItems;
+
+            return {
+                "Order ID": row.order_id,
+                Company: row.company_name || "",
+                "Event Start": formatDate(row.event_start_date),
+                "Event End": formatDate(row.event_end_date),
+                Status: row.order_status,
+                "Ops Total": formatMoney(ops),
+                Logistics: formatMoney(logistics),
+                Transport: formatMoney(transportCost),
+                "Catalog Items": formatMoney(catalogItems),
+                "Custom Items": formatMoney(customItems),
+                "Total Buy Cost": formatMoney(totalBuy),
+            };
+        })
+    );
+};
+
 export const ExportServices = {
     exportOrdersService,
     exportOrderHistoryService,
@@ -693,4 +767,5 @@ export const ExportServices = {
     exportRevenueReportService,
     exportCostReportService,
     exportAssetUtilizationService,
+    exportWorkSummaryService,
 };
