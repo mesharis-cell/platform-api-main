@@ -11,6 +11,7 @@ import {
     companies,
     orders,
     scanEvents,
+    selfBookingItems,
     warehouses,
     zones,
 } from "../../../db/schema";
@@ -840,10 +841,20 @@ const getAssetAvailabilityStats = async (id: string, user: AuthUser, platformId:
         inMaintenanceQuantity = totalQuantity;
     }
 
-    // Step 5: Calculate AVAILABLE quantity
+    // Step 5: Calculate self-booked quantity (single aggregate query)
+    const [selfBookedRow] = await db
+        .select({
+            total: sql<number>`COALESCE(SUM(${selfBookingItems.quantity} - ${selfBookingItems.returned_quantity}), 0)`,
+        })
+        .from(selfBookingItems)
+        .where(and(eq(selfBookingItems.asset_id, id), eq(selfBookingItems.status, "OUT")));
+
+    const selfBookedQuantity = Number(selfBookedRow?.total ?? 0);
+
+    // Step 6: Calculate AVAILABLE quantity
     const availableQuantity = Math.max(
         0,
-        totalQuantity - bookedQuantity - outQuantity - inMaintenanceQuantity
+        totalQuantity - bookedQuantity - outQuantity - inMaintenanceQuantity - selfBookedQuantity
     );
 
     return {
@@ -853,6 +864,7 @@ const getAssetAvailabilityStats = async (id: string, user: AuthUser, platformId:
         booked_quantity: bookedQuantity,
         out_quantity: outQuantity,
         in_maintenance_quantity: inMaintenanceQuantity,
+        self_booked_quantity: selfBookedQuantity,
         breakdown: {
             active_bookings_count: activeBookings.length,
             outbound_scans_total: totalOutbound,

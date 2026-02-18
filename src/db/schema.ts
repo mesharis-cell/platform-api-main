@@ -100,6 +100,7 @@ export const entityTypeEnum = pgEnum("entity_type", [
     "INBOUND_REQUEST",
     "SERVICE_REQUEST",
     "USER",
+    "SELF_BOOKING",
 ]);
 export const recipientTypeEnum = pgEnum("recipient_type", ["ROLE", "ENTITY_OWNER", "EMAIL"]);
 export const scanTypeEnum = pgEnum("scan_type", ["OUTBOUND", "INBOUND"]);
@@ -1206,6 +1207,75 @@ export const assetBookings = pgTable(
 export const assetBookingsRelations = relations(assetBookings, ({ one }) => ({
     asset: one(assets, { fields: [assetBookings.asset_id], references: [assets.id] }),
     order: one(orders, { fields: [assetBookings.order_id], references: [orders.id] }),
+}));
+
+// ---------------------------------- SELF BOOKINGS ----------------------------------------
+export const selfBookingStatusEnum = pgEnum("self_booking_status", [
+    "ACTIVE",
+    "COMPLETED",
+    "CANCELLED",
+]);
+export const selfBookingItemStatusEnum = pgEnum("self_booking_item_status", ["OUT", "RETURNED"]);
+
+export const selfBookings = pgTable("self_bookings", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    platform_id: uuid("platform_id")
+        .notNull()
+        .references(() => platforms.id, { onDelete: "cascade" }),
+    booked_for: varchar("booked_for", { length: 255 }).notNull(),
+    reason: text("reason"),
+    job_reference: varchar("job_reference", { length: 255 }),
+    status: selfBookingStatusEnum("status").notNull().default("ACTIVE"),
+    created_by: uuid("created_by")
+        .notNull()
+        .references(() => users.id),
+    completed_at: timestamp("completed_at"),
+    cancelled_at: timestamp("cancelled_at"),
+    cancelled_by: uuid("cancelled_by").references(() => users.id),
+    cancellation_reason: text("cancellation_reason"),
+    notes: text("notes"),
+    created_at: timestamp("created_at").notNull().defaultNow(),
+    updated_at: timestamp("updated_at")
+        .$onUpdate(() => new Date())
+        .notNull(),
+});
+
+export const selfBookingsRelations = relations(selfBookings, ({ one, many }) => ({
+    platform: one(platforms, { fields: [selfBookings.platform_id], references: [platforms.id] }),
+    created_by_user: one(users, {
+        fields: [selfBookings.created_by],
+        references: [users.id],
+        relationName: "self_booking_creator",
+    }),
+    cancelled_by_user: one(users, {
+        fields: [selfBookings.cancelled_by],
+        references: [users.id],
+        relationName: "self_booking_canceller",
+    }),
+    items: many(selfBookingItems),
+}));
+
+export const selfBookingItems = pgTable("self_booking_items", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    self_booking_id: uuid("self_booking_id")
+        .notNull()
+        .references(() => selfBookings.id, { onDelete: "cascade" }),
+    asset_id: uuid("asset_id")
+        .notNull()
+        .references(() => assets.id),
+    quantity: integer("quantity").notNull(),
+    returned_quantity: integer("returned_quantity").notNull().default(0),
+    status: selfBookingItemStatusEnum("status").notNull().default("OUT"),
+    returned_at: timestamp("returned_at"),
+    created_at: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const selfBookingItemsRelations = relations(selfBookingItems, ({ one }) => ({
+    self_booking: one(selfBookings, {
+        fields: [selfBookingItems.self_booking_id],
+        references: [selfBookings.id],
+    }),
+    asset: one(assets, { fields: [selfBookingItems.asset_id], references: [assets.id] }),
 }));
 
 // ---------------------------------- ASSET CONDITION HISTORY ------------------------------

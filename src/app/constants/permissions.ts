@@ -156,6 +156,13 @@ export const PERMISSIONS = {
     ANALYTICS_TRACK_MARGIN: "analytics:track_margin", // ✅
     ANALYTICS_FILTER_BY_COMPANY: "analytics:filter_by_company", // ✅
     ANALYTICS_ALL: "analytics:*",
+
+    // ==================== SELF BOOKINGS ====================
+    SELF_BOOKINGS_CREATE: "self_bookings:create",
+    SELF_BOOKINGS_READ: "self_bookings:read",
+    SELF_BOOKINGS_RETURN: "self_bookings:return",
+    SELF_BOOKINGS_CANCEL: "self_bookings:cancel",
+    SELF_BOOKINGS_ALL: "self_bookings:*",
 };
 
 export const PERMISSION_TEMPLATES = {

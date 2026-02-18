@@ -21,6 +21,7 @@ import { VehicleTypeRoutes } from "../modules/vehicle-type/vehicle-type.routes";
 import { LineItemsRoutes } from "../modules/order-line-items/order-line-items.routes";
 import { ExportRoutes } from "../modules/export/export.routes";
 import { ServiceRequestRoutes } from "../modules/service-request/service-request.routes";
+import { SelfBookingsRoutes } from "../modules/self-bookings/self-bookings.routes";
 
 const router = Router();
 
@@ -112,6 +113,10 @@ const routes = [
     {
         path: "/service-request",
         route: ServiceRequestRoutes,
+    },
+    {
+        path: "/self-bookings",
+        route: SelfBookingsRoutes,
     },
 ];
 

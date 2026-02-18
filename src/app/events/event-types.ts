@@ -42,12 +42,17 @@ export const EVENT_TYPES = {
     SERVICE_REQUEST_COMPLETED: "service_request.completed",
     SERVICE_REQUEST_INVOICE_GENERATED: "service_request.invoice_generated",
 
+    // Self-booking lifecycle
+    SELF_BOOKING_CREATED: "self_booking.created",
+    SELF_BOOKING_COMPLETED: "self_booking.completed",
+    SELF_BOOKING_CANCELLED: "self_booking.cancelled",
+
     // Auth
     AUTH_PASSWORD_RESET_REQUESTED: "auth.password_reset_requested",
 } as const;
 
 export type EventType = (typeof EVENT_TYPES)[keyof typeof EVENT_TYPES];
-export type EntityType = "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "USER";
+export type EntityType = "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "USER" | "SELF_BOOKING";
 
 // ============================================================
 // Base Payload (all events)
@@ -268,6 +273,33 @@ export interface ServiceRequestInvoiceGeneratedPayload extends BaseEventPayload 
     final_total: string;
     download_url: string;
     request_url: string;
+}
+
+// ============================================================
+// Self-Booking Event Payloads
+// ============================================================
+
+export interface SelfBookingCreatedPayload {
+    booked_for: string;
+    job_reference?: string;
+    reason?: string;
+    item_count: number;
+    total_units: number;
+    created_by_name: string;
+}
+
+export interface SelfBookingCompletedPayload {
+    booked_for: string;
+    job_reference?: string;
+    item_count: number;
+    total_units: number;
+}
+
+export interface SelfBookingCancelledPayload {
+    booked_for: string;
+    job_reference?: string;
+    cancellation_reason?: string;
+    cancelled_by_name: string;
 }
 
 // ============================================================

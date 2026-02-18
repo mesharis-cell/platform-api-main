@@ -280,6 +280,14 @@ const submitOrderFromCart = async (
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Company not found");
     }
 
+    const companyFeatures = (company.features as Record<string, unknown>) || {};
+    if (companyFeatures.enable_ordering === false) {
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            "Order creation is disabled for this company"
+        );
+    }
+
     const [country] = await db
         .select()
         .from(countries)
