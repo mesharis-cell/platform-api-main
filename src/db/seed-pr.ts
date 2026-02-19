@@ -25,6 +25,7 @@ import * as schema from "./schema";
 import bcrypt from "bcrypt";
 import { sql } from "drizzle-orm";
 import { seedPrAssets } from "./scripts/seed-pr-assets";
+import { ilike } from "drizzle-orm";
 
 // ============================================================
 // STATE STORE
@@ -613,6 +614,38 @@ async function seedNotificationRules() {
 }
 
 // ============================================================
+// ASSET CONDITION OVERRIDES
+// ============================================================
+
+async function applyAssetConditionOverrides() {
+    console.log("🎨 Applying asset condition overrides...");
+
+    const overrides: { name: string; condition: "GREEN" | "ORANGE" | "RED"; note: string }[] = [
+        {
+            name: "Moet FSU",
+            condition: "RED",
+            note: "Unit damaged during last activation — requires full refurbishment before next deployment.",
+        },
+        {
+            name: "Absolut Smoky Pina Small Wall Logo",
+            condition: "ORANGE",
+            note: "Minor surface scuffs and fading — usable but needs attention before next booking.",
+        },
+    ];
+
+    let applied = 0;
+    for (const override of overrides) {
+        await db
+            .update(schema.assets)
+            .set({ condition: override.condition, condition_notes: override.note })
+            .where(ilike(schema.assets.name, override.name));
+        applied++;
+        console.log(`  ✓ ${override.name} → ${override.condition}`);
+    }
+    console.log(`✓ ${applied} condition overrides applied`);
+}
+
+// ============================================================
 // MAIN
 // ============================================================
 
@@ -650,6 +683,9 @@ async function main() {
             zoneId: S.zones[0].id,
             verbose: true,
         });
+
+        // Phase 4: Asset condition overrides
+        await applyAssetConditionOverrides();
 
         console.log("\n✅ PR SEED COMPLETE!\n");
         console.log("📊 Summary:");
