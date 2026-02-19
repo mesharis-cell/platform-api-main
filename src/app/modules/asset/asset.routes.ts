@@ -55,7 +55,7 @@ router.post(
     "/batch-availability",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
-    requirePermission(PERMISSIONS.ASSETS_CHECK_AVAILABILITY),
+    requirePermission(PERMISSIONS.ASSETS_CHECK_AVAILABILITY, PERMISSIONS.ORDERS_CREATE),
     payloadValidator(AssetSchemas.batchAvailabilitySchema),
     AssetControllers.getBatchAvailability
 );
@@ -65,7 +65,7 @@ router.post(
     "/check-availability",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
-    requirePermission(PERMISSIONS.ASSETS_CHECK_AVAILABILITY),
+    requirePermission(PERMISSIONS.ASSETS_CHECK_AVAILABILITY, PERMISSIONS.ORDERS_CREATE),
     payloadValidator(AssetSchemas.checkAvailabilitySchema),
     AssetControllers.checkAssetAvailability
 );

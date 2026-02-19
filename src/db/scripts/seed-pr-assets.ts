@@ -22,15 +22,13 @@ import { S3Client, PutObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s
 import { db } from "../index";
 import * as schema from "../schema";
 import { eq, and } from "drizzle-orm";
+import { qrCodeGenerator } from "../../app/utils/qr-code-generator";
 
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
-const BUNDLE_DIR = path.resolve(
-    process.cwd(),
-    "seed/preview-latest/preview-latest"
-);
+const BUNDLE_DIR = path.resolve(process.cwd(), "seed/preview-latest/preview-latest");
 const DOCS_FILE = path.join(BUNDLE_DIR, "docs.ndjson");
 const ASSETS_FILE = path.join(BUNDLE_DIR, "assets.ndjson");
 const PHOTOS_DIR = path.join(BUNDLE_DIR, "files/photos");
@@ -148,16 +146,6 @@ async function readNdjson(filePath: string): Promise<any[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Derive a stable, short QR code from the docExternalKey
-// ---------------------------------------------------------------------------
-
-function deriveQrCode(docExternalKey: string): string {
-    // Keep it under 100 chars, unique, human-identifiable
-    const safe = docExternalKey.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-    return `PR-${safe.slice(-20)}`;
-}
-
-// ---------------------------------------------------------------------------
 // Main export (callable from seed.ts)
 // ---------------------------------------------------------------------------
 
@@ -186,10 +174,7 @@ export async function seedPrAssets(opts: SeedPrAssetsOptions) {
     };
 
     log("📦 Reading PR bundle…");
-    const [docs, photoAssets] = await Promise.all([
-        readNdjson(DOCS_FILE),
-        readNdjson(ASSETS_FILE),
-    ]);
+    const [docs, photoAssets] = await Promise.all([readNdjson(DOCS_FILE), readNdjson(ASSETS_FILE)]);
     log(`   ${docs.length} docs, ${photoAssets.length} photo assets`);
 
     // Build photo hash → ordered list (position-sorted) for each doc
@@ -213,7 +198,8 @@ export async function seedPrAssets(opts: SeedPrAssetsOptions) {
     for (const pa of photoAssets) {
         const hash = pa.assetExternalKey as string;
         if (opts.skipPhotoUpload || skipPhotos) {
-            urlByHash[hash] = `https://${S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${S3_PREFIX}/${hash}.jpg`;
+            urlByHash[hash] =
+                `https://${S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${S3_PREFIX}/${hash}.jpg`;
             skipped++;
         } else {
             const url = await uploadPhoto(hash);
@@ -239,12 +225,7 @@ export async function seedPrAssets(opts: SeedPrAssetsOptions) {
         const [existing] = await db
             .select({ id: schema.brands.id })
             .from(schema.brands)
-            .where(
-                and(
-                    eq(schema.brands.company_id, companyId),
-                    eq(schema.brands.name, brandName)
-                )
-            )
+            .where(and(eq(schema.brands.company_id, companyId), eq(schema.brands.name, brandName)))
             .limit(1);
 
         if (existing) {
@@ -273,11 +254,18 @@ export async function seedPrAssets(opts: SeedPrAssetsOptions) {
     let updated = 0;
     let errors = 0;
 
+    // Check existing assets by name+company to enable idempotent re-runs
+    // (since qr_code is generated fresh each run, we key on name+company_id instead)
+    const existingAssets = await db
+        .select({ id: schema.assets.id, name: schema.assets.name, qr_code: schema.assets.qr_code })
+        .from(schema.assets)
+        .where(eq(schema.assets.company_id, companyId));
+    const existingByName = new Map(existingAssets.map((a) => [a.name.toLowerCase(), a]));
+
     for (const doc of docs) {
         try {
             const canonicalBrand = CATEGORY_TO_BRAND[doc.category] ?? "Unknown";
             const brandId = brandMap[canonicalBrand];
-            const qrCode = deriveQrCode(doc.docExternalKey);
 
             // Build images array (position-ordered)
             const hashes: string[] = (photosByDoc[doc.docExternalKey] ?? []).filter(Boolean);
@@ -285,21 +273,16 @@ export async function seedPrAssets(opts: SeedPrAssetsOptions) {
             const onDisplayImage = images[0] ?? null;
 
             if (isDryRun) {
+                const existing = existingByName.get(doc.title.toLowerCase());
                 log(
-                    `  [DRY] "${doc.title}" → brand: ${canonicalBrand}, photos: ${images.length}, qr: ${qrCode}`
+                    `  [DRY] "${doc.title}" → brand: ${canonicalBrand}, photos: ${images.length}${existing ? " [would update]" : " [would insert]"}`
                 );
                 continue;
             }
 
-            // Check for existing asset by qr_code (idempotent)
-            const [existing] = await db
-                .select({ id: schema.assets.id })
-                .from(schema.assets)
-                .where(eq(schema.assets.qr_code, qrCode))
-                .limit(1);
+            const existing = existingByName.get(doc.title.toLowerCase());
 
             if (existing) {
-                // Update images if we have new ones
                 await db
                     .update(schema.assets)
                     .set({
@@ -310,6 +293,7 @@ export async function seedPrAssets(opts: SeedPrAssetsOptions) {
                     .where(eq(schema.assets.id, existing.id));
                 updated++;
             } else {
+                const qrCode = await qrCodeGenerator(companyId);
                 await db.insert(schema.assets).values({
                     platform_id: platformId,
                     company_id: companyId,
@@ -321,7 +305,7 @@ export async function seedPrAssets(opts: SeedPrAssetsOptions) {
                     category: canonicalBrand,
                     images,
                     on_display_image: onDisplayImage,
-                    tracking_method: "BATCH",
+                    tracking_method: "INDIVIDUAL",
                     total_quantity: 1,
                     available_quantity: 1,
                     qr_code: qrCode,
@@ -355,10 +339,7 @@ async function runStandalone() {
     }
 
     // Resolve platform
-    const [platform] = await db
-        .select({ id: schema.platforms.id })
-        .from(schema.platforms)
-        .limit(1);
+    const [platform] = await db.select({ id: schema.platforms.id }).from(schema.platforms).limit(1);
     if (!platform) {
         console.error("❌ No platform found in DB. Run seed first.");
         process.exit(1);
@@ -371,7 +352,7 @@ async function runStandalone() {
         .where(eq(schema.companies.domain, "pernod-ricard"))
         .limit(1);
     if (!company) {
-        console.error('❌ Pernod Ricard company not found. Run seed first.');
+        console.error("❌ Pernod Ricard company not found. Run seed first.");
         process.exit(1);
     }
 
@@ -415,8 +396,8 @@ async function runStandalone() {
     process.exit(0);
 }
 
-// Run standalone if executed directly
-if (import.meta.main) {
+// Run standalone when called directly via tsx/bun
+if (require.main === module) {
     runStandalone().catch((err) => {
         console.error("Fatal:", err);
         process.exit(1);
