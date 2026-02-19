@@ -627,7 +627,7 @@ async function applyAssetConditionOverrides() {
             note: "Unit damaged during last activation — requires full refurbishment before next deployment.",
         },
         {
-            name: "Absolut Smoky Pina Small Wall Logo",
+            name: "Absolute Smoky Pina Small Wall Logo",
             condition: "ORANGE",
             note: "Minor surface scuffs and fading — usable but needs attention before next booking.",
         },
