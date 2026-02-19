@@ -27,6 +27,9 @@ import { eventBus } from "../../events/event-bus";
 import { EVENT_TYPES } from "../../events/event-types";
 import config from "../../config";
 
+const LINE_ITEM_ID_UNIQUE_CONSTRAINT = "line_items_platform_line_item_id_unique";
+const MAX_LINE_ITEM_ID_INSERT_RETRIES = 3;
+
 const validateTransportMetadata = (metadata: Record<string, unknown> | undefined) => {
     if (!metadata) return;
     if (metadata.truck_plate !== undefined && String(metadata.truck_plate).length > 80) {
@@ -59,6 +62,28 @@ const validateTransportMetadata = (metadata: Record<string, unknown> | undefined
             );
         }
     }
+};
+
+const isLineItemIdConflict = (error: unknown) => {
+    const pgError = error as { code?: string; constraint?: string };
+    return pgError?.code === "23505" && pgError?.constraint === LINE_ITEM_ID_UNIQUE_CONSTRAINT;
+};
+
+const runWithLineItemIdRetry = async <T>(operation: () => Promise<T>): Promise<T> => {
+    for (let attempt = 1; attempt <= MAX_LINE_ITEM_ID_INSERT_RETRIES; attempt += 1) {
+        try {
+            return await operation();
+        } catch (error) {
+            if (!isLineItemIdConflict(error) || attempt === MAX_LINE_ITEM_ID_INSERT_RETRIES) {
+                throw error;
+            }
+        }
+    }
+
+    throw new CustomizedError(
+        httpStatus.INTERNAL_SERVER_ERROR,
+        "Failed to allocate unique line item id"
+    );
 };
 
 // ----------------------------------- GET LINE ITEMS -----------------------------------------
@@ -134,31 +159,35 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
     // Calculate total
     const total = quantity * Number(serviceType.default_rate);
 
-    const lineItemId = await lineItemIdGenerator(platform_id);
-
-    const [result] = await db
-        .insert(lineItems)
-        .values({
-            platform_id,
-            line_item_id: lineItemId,
-            order_id: order_id || null,
-            inbound_request_id: inbound_request_id || null,
-            service_request_id: service_request_id || null,
-            purpose_type,
-            service_type_id,
-            line_item_type: "CATALOG",
-            billing_mode: billing_mode || "BILLABLE",
-            category: serviceType.category,
-            description: serviceType.name,
-            quantity: quantity.toString(),
-            unit: serviceType.unit,
-            unit_rate: serviceType.default_rate,
-            total: total.toString(),
-            added_by,
-            notes: notes || null,
-            metadata: effectiveMetadata,
+    const result = await runWithLineItemIdRetry(async () =>
+        db.transaction(async (tx) => {
+            const lineItemId = await lineItemIdGenerator(platform_id, tx);
+            const [inserted] = await tx
+                .insert(lineItems)
+                .values({
+                    platform_id,
+                    line_item_id: lineItemId,
+                    order_id: order_id || null,
+                    inbound_request_id: inbound_request_id || null,
+                    service_request_id: service_request_id || null,
+                    purpose_type,
+                    service_type_id,
+                    line_item_type: "CATALOG",
+                    billing_mode: billing_mode || "BILLABLE",
+                    category: serviceType.category,
+                    description: serviceType.name,
+                    quantity: quantity.toString(),
+                    unit: serviceType.unit,
+                    unit_rate: serviceType.default_rate,
+                    total: total.toString(),
+                    added_by,
+                    notes: notes || null,
+                    metadata: effectiveMetadata,
+                })
+                .returning();
+            return inserted;
         })
-        .returning();
+    );
 
     // Update order pricing after adding new line item
     if (order_id) {
@@ -201,31 +230,35 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
     const parsedMetadata = (metadata || {}) as Record<string, unknown>;
     if (category === "TRANSPORT") validateTransportMetadata(parsedMetadata);
 
-    const lineItemId = await lineItemIdGenerator(platform_id);
-
-    const [result] = await db
-        .insert(lineItems)
-        .values({
-            platform_id,
-            order_id,
-            inbound_request_id: inbound_request_id || null,
-            service_request_id: service_request_id || null,
-            line_item_id: lineItemId,
-            purpose_type,
-            service_type_id: null,
-            line_item_type: "CUSTOM",
-            billing_mode: billing_mode || "BILLABLE",
-            category: category as any,
-            description,
-            quantity: quantity.toString(),
-            unit,
-            unit_rate: unit_rate.toString(),
-            total: total.toString(),
-            added_by,
-            notes: notes || null,
-            metadata: parsedMetadata,
+    const result = await runWithLineItemIdRetry(async () =>
+        db.transaction(async (tx) => {
+            const lineItemId = await lineItemIdGenerator(platform_id, tx);
+            const [inserted] = await tx
+                .insert(lineItems)
+                .values({
+                    platform_id,
+                    order_id,
+                    inbound_request_id: inbound_request_id || null,
+                    service_request_id: service_request_id || null,
+                    line_item_id: lineItemId,
+                    purpose_type,
+                    service_type_id: null,
+                    line_item_type: "CUSTOM",
+                    billing_mode: billing_mode || "BILLABLE",
+                    category: category as any,
+                    description,
+                    quantity: quantity.toString(),
+                    unit,
+                    unit_rate: unit_rate.toString(),
+                    total: total.toString(),
+                    added_by,
+                    notes: notes || null,
+                    metadata: parsedMetadata,
+                })
+                .returning();
+            return inserted;
         })
-        .returning();
+    );
 
     // Update order pricing after adding new line item
     if (order_id) {

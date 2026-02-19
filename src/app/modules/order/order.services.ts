@@ -1158,11 +1158,13 @@ const getOrderById = async (
             asset: {
                 id: assets.id,
                 name: assets.name,
+                qr_code: assets.qr_code,
                 status: assets.status,
                 condition: assets.condition,
                 condition_notes: assets.condition_notes,
                 refurbishment_days_estimate: assets.refurb_days_estimate,
                 images: assets.images,
+                on_display_image: assets.on_display_image,
             },
             collection: {
                 id: collections.id,

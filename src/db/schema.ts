@@ -926,6 +926,7 @@ export const lineItems = pgTable(
             .notNull(),
     },
     (table) => [
+        unique("line_items_platform_line_item_id_unique").on(table.platform_id, table.line_item_id),
         index("line_items_order_idx").on(table.order_id),
         index("line_items_inbound_request_idx").on(table.inbound_request_id),
         index("line_items_service_request_idx").on(table.service_request_id),

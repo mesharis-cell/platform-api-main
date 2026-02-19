@@ -31,6 +31,9 @@ const assertClientEntityAccess = (
     }
 };
 
+const isUuid = (value: string) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
 // ----------------------------------- GET INVOICE BY ID --------------------------------------
 const getInvoiceById = catchAsync(async (req, res) => {
     const user = (req as any).user;
@@ -134,10 +137,14 @@ const generateInvoice = catchAsync(async (req, res) => {
 const downloadCostEstimatePDF = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = resolvePlatformId(req);
-    const orderId = getRequiredString(req.params.orderId, "orderId");
+    const orderIdParam = getRequiredString(req.params.orderId, "orderId");
+
+    const orderLookupCondition = isUuid(orderIdParam)
+        ? and(eq(orders.id, orderIdParam), eq(orders.platform_id, platformId))
+        : and(eq(orders.order_id, orderIdParam), eq(orders.platform_id, platformId));
 
     const order = await db.query.orders.findFirst({
-        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
+        where: orderLookupCondition,
         with: {
             company: true,
         },
