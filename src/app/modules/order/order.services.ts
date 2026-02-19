@@ -255,9 +255,8 @@ const calculateEstimate = async (
 
     console.log("total volume: ", totalVolume);
 
-    // Step 5: Determine margin and check for rebrand items
+    // Step 5: Determine margin
     const marginPercent = parseFloat(company.platform_margin_percent);
-    const hasRebrandItems = items.some((item) => item.is_reskin_request);
 
     // Find the suitable vehicle type
     // Find the suitable vehicle type
@@ -353,7 +352,6 @@ const calculateEstimate = async (
             percent: parseFloat(marginPercent.toFixed(2)),
         },
         estimate_total: parseFloat(estimateTotal.toFixed(2)),
-        has_rebrand_items: hasRebrandItems,
         disclaimer:
             "This is a preliminary estimate. Final pricing including transport will be confirmed during review.",
     };
@@ -571,10 +569,6 @@ const submitOrderFromCart = async (
             handling_tags: asset.handling_tags || [],
             from_collection: item.from_collection_id || null,
             from_collection_name: collectionName,
-            is_reskin_request: item.is_reskin_request || false,
-            reskin_target_brand_id: item.reskin_target_brand_id || null,
-            reskin_target_brand_custom: item.reskin_target_brand_custom || null,
-            reskin_notes: item.reskin_notes || null,
             maintenance_decision: maintenanceDecision,
             requires_maintenance: requiresMaintenance,
             maintenance_refurb_days_snapshot: maintenanceRefurbDaysSnapshot,
@@ -1156,11 +1150,6 @@ const getOrderById = async (
                 handling_tags: orderItems.handling_tags,
                 from_collection: orderItems.from_collection,
                 from_collection_name: orderItems.from_collection_name,
-                is_reskin_request: orderItems.is_reskin_request,
-                reskin_target_brand_id: brands.id,
-                reskin_target_brand_name: brands.name,
-                reskin_target_brand_custom: orderItems.reskin_target_brand_custom,
-                reskin_notes: orderItems.reskin_notes,
                 maintenance_decision: orderItems.maintenance_decision,
                 requires_maintenance: orderItems.requires_maintenance,
                 maintenance_refurb_days_snapshot: orderItems.maintenance_refurb_days_snapshot,
@@ -1183,14 +1172,12 @@ const getOrderById = async (
         .from(orderItems)
         .leftJoin(assets, eq(orderItems.asset_id, assets.id))
         .leftJoin(collections, eq(orderItems.from_collection, collections.id))
-        .leftJoin(brands, eq(orderItems.reskin_target_brand_id, brands.id))
         .where(eq(orderItems.order_id, orderData.order.id));
 
     const [lineItems, linkedServiceRequests] = await Promise.all([
         LineItemsServices.getLineItems(platformId, { order_id: orderData.order.id }),
         getLinkedServiceRequestSummaries(orderData.order.id, platformId, user.role),
     ]);
-    const reskinRequests: any[] = [];
 
     const financialHistory = await db
         .select()
@@ -1252,7 +1239,6 @@ const getOrderById = async (
             user: orderData.user,
             items: itemResults,
             line_items: lineItems,
-            reskin_requests: reskinRequests,
             linked_service_requests: linkedServiceRequests,
             order_status_history: orderHistory.map((h) => ({
                 ...h,
@@ -1272,7 +1258,6 @@ const getOrderById = async (
         user: orderData.user,
         items: itemResults,
         line_items: lineItems,
-        reskin_requests: reskinRequests,
         linked_service_requests: linkedServiceRequests,
         financial_status_history: financialHistory,
         order_status_history: orderHistory,
@@ -2661,7 +2646,6 @@ const getPendingApprovalOrders = async (query: any, platformId: string) => {
             with: {
                 company: { columns: { id: true, name: true } },
                 items: { with: { asset: true } },
-                reskin_requests: true,
             },
             orderBy: orderDirection,
             limit: limitNumber,

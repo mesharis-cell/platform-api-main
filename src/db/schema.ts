@@ -550,8 +550,6 @@ export const assetsRelations = relations(assets, ({ one, many }) => ({
     order_items: many(orderItems),
     scan_events: many(scanEvents),
     bookings: many(assetBookings),
-    reskin_requests_as_original: many(reskinRequests, { relationName: "original_asset" }),
-    reskin_requests_as_new: many(reskinRequests, { relationName: "new_asset" }),
     condition_history: many(assetConditionHistory),
     versions: many(assetVersions),
 }));
@@ -809,7 +807,6 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
     venue_city: one(cities, { fields: [orders.venue_city_id], references: [cities.id] }),
     items: many(orderItems),
     line_items: many(lineItems),
-    reskin_requests: many(reskinRequests),
     scan_events: many(scanEvents),
     asset_bookings: many(assetBookings),
     order_status_history: many(orderStatusHistory),
@@ -846,12 +843,6 @@ export const orderItems = pgTable(
         from_collection: uuid("from_collection").references(() => collections.id),
         from_collection_name: varchar("from_collection_name", { length: 200 }),
 
-        // Reskin request fields (NEW)
-        is_reskin_request: boolean("is_reskin_request").notNull().default(false),
-        reskin_target_brand_id: uuid("reskin_target_brand").references(() => brands.id),
-        reskin_target_brand_custom: varchar("reskin_target_brand_custom", { length: 100 }),
-        reskin_notes: text("reskin_notes"),
-
         // Maintenance decision fields
         maintenance_decision: maintenanceDecisionEnum("maintenance_decision"),
         requires_maintenance: boolean("requires_maintenance").notNull().default(false),
@@ -877,108 +868,6 @@ export const orderItemsRelations = relations(orderItems, ({ one, many }) => ({
         fields: [orderItems.from_collection],
         references: [collections.id],
     }),
-    reskin_target_brand: one(brands, {
-        fields: [orderItems.reskin_target_brand_id],
-        references: [brands.id],
-    }),
-    reskin_request: one(reskinRequests, {
-        fields: [orderItems.id],
-        references: [reskinRequests.order_item_id],
-    }),
-}));
-
-// ---------------------------------- RESKIN REQUESTS (NEW) ------------------------------------
-export const reskinRequests = pgTable(
-    "reskin_requests",
-    {
-        id: uuid("id").primaryKey().defaultRandom(),
-        platform_id: uuid("platform")
-            .notNull()
-            .references(() => platforms.id, { onDelete: "cascade" }),
-        order_id: uuid("order")
-            .notNull()
-            .references(() => orders.id, { onDelete: "cascade" }),
-        order_item_id: uuid("order_item")
-            .notNull()
-            .references(() => orderItems.id, { onDelete: "cascade" }),
-
-        // Original asset (snapshot at request time)
-        original_asset_id: uuid("original_asset")
-            .notNull()
-            .references(() => assets.id),
-        original_asset_name: varchar("original_asset_name", { length: 200 }).notNull(),
-
-        // Target brand (one required)
-        target_brand_id: uuid("target_brand").references(() => brands.id),
-        target_brand_custom: varchar("target_brand_custom", { length: 100 }),
-
-        // Client's request (from order creation)
-        client_notes: text("client_notes").notNull(),
-
-        // Admin additions (during pricing review)
-        admin_notes: text("admin_notes"),
-
-        // Completion (when fabrication done)
-        new_asset_id: uuid("new_asset").references(() => assets.id),
-        new_asset_name: varchar("new_asset_name", { length: 200 }),
-        completed_at: timestamp("completed_at"),
-        completed_by: uuid("completed_by").references(() => users.id),
-        completion_notes: text("completion_notes"),
-        completion_photos: text("completion_photos")
-            .array()
-            .default(sql`ARRAY[]::text[]`),
-
-        // Cancellation
-        cancelled_at: timestamp("cancelled_at"),
-        cancelled_by: uuid("cancelled_by").references(() => users.id),
-        cancellation_reason: text("cancellation_reason"),
-
-        created_at: timestamp("created_at").notNull().defaultNow(),
-        updated_at: timestamp("updated_at")
-            .$onUpdate(() => new Date())
-            .notNull(),
-    },
-    (table) => [
-        index("reskin_requests_order_idx").on(table.order_id),
-        index("reskin_requests_order_item_idx").on(table.order_item_id),
-        index("reskin_requests_pending_idx")
-            .on(table.order_id)
-            .where(sql`${table.completed_at} IS NULL AND ${table.cancelled_at} IS NULL`),
-    ]
-);
-
-export const reskinRequestsRelations = relations(reskinRequests, ({ one, many }) => ({
-    platform: one(platforms, { fields: [reskinRequests.platform_id], references: [platforms.id] }),
-    order: one(orders, { fields: [reskinRequests.order_id], references: [orders.id] }),
-    order_item: one(orderItems, {
-        fields: [reskinRequests.order_item_id],
-        references: [orderItems.id],
-    }),
-    original_asset: one(assets, {
-        fields: [reskinRequests.original_asset_id],
-        references: [assets.id],
-        relationName: "original_asset",
-    }),
-    new_asset: one(assets, {
-        fields: [reskinRequests.new_asset_id],
-        references: [assets.id],
-        relationName: "new_asset",
-    }),
-    target_brand: one(brands, {
-        fields: [reskinRequests.target_brand_id],
-        references: [brands.id],
-    }),
-    completed_by_user: one(users, {
-        fields: [reskinRequests.completed_by],
-        references: [users.id],
-        relationName: "reskin_completed_by",
-    }),
-    cancelled_by_user: one(users, {
-        fields: [reskinRequests.cancelled_by],
-        references: [users.id],
-        relationName: "reskin_cancelled_by",
-    }),
-    line_items: many(lineItems),
 }));
 
 // ---------------------------------- ORDER LINE ITEMS (NEW) -----------------------------------
@@ -1000,7 +889,6 @@ export const lineItems = pgTable(
         purpose_type: invoiceTypeEnum("purpose_type").notNull(),
         // Type linkage (one or neither, not both)
         service_type_id: uuid("service_type_id").references(() => serviceTypes.id), // NULL for custom items
-        reskin_request_id: uuid("reskin_request_id").references(() => reskinRequests.id), // Links custom item to reskin
 
         // Item details
         line_item_type: lineItemTypeEnum("line_item_type").notNull(),
@@ -1041,7 +929,6 @@ export const lineItems = pgTable(
         index("line_items_order_idx").on(table.order_id),
         index("line_items_inbound_request_idx").on(table.inbound_request_id),
         index("line_items_service_request_idx").on(table.service_request_id),
-        index("line_items_reskin_request_idx").on(table.reskin_request_id),
         index("line_items_active_idx").on(table.order_id, table.is_voided),
     ]
 );
@@ -1060,10 +947,6 @@ export const lineItemsRelations = relations(lineItems, ({ one }) => ({
     service_type: one(serviceTypes, {
         fields: [lineItems.service_type_id],
         references: [serviceTypes.id],
-    }),
-    reskin_request: one(reskinRequests, {
-        fields: [lineItems.reskin_request_id],
-        references: [reskinRequests.id],
     }),
     added_by_user: one(users, { fields: [lineItems.added_by], references: [users.id] }),
     voided_by_user: one(users, { fields: [lineItems.voided_by], references: [users.id] }),

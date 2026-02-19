@@ -57,11 +57,6 @@ export type OrderItem = {
     handling_tags: string[];
     from_collection: string | null;
     from_collection_name: string | null;
-    // NEW: Reskin fields
-    is_reskin_request?: boolean;
-    reskin_target_brand_id?: string | null;
-    reskin_target_brand_custom?: string | null;
-    reskin_notes?: string | null;
     maintenance_decision?: "FIX_IN_ORDER" | "USE_AS_IS" | null;
     requires_maintenance?: boolean;
     maintenance_refurb_days_snapshot?: number | null;
@@ -90,7 +85,6 @@ export interface OrderPricingDetails {
     };
     pricing: any;
     line_items: any[];
-    reskin_requests: any[];
 }
 
 export interface StandardPricing {

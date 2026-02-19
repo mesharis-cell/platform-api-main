@@ -95,11 +95,6 @@ export const PERMISSIONS = {
     PRICING_ADMIN_APPROVE: "pricing:admin_approve", // ✅
     PRICING_ALL: "pricing:*",
 
-    // ==================== RESKIN/REBRAND WORKFLOW ====================
-    RESKIN_REQUESTS_PROCESS: "reskin_requests:process",
-    RESKIN_REQUESTS_COMPLETE: "reskin_requests:complete",
-    RESKIN_REQUESTS_CANCEL: "reskin_requests:cancel",
-
     // ==================== ORDER MANAGEMENT ====================
     ORDERS_CREATE: "orders:create", // ✅
     ORDERS_READ: "orders:read", // ✅

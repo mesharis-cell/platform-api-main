@@ -89,7 +89,6 @@ const createCustomLineItemSchema = z.object({
                 .number({ message: "Unit rate must be a number" })
                 .min(0, "Unit rate must be 0 or greater"),
             notes: z.string().optional(),
-            reskin_request_id: z.string().uuid("Invalid reskin request ID").optional(),
             billing_mode: billingModeSchema.optional().default("BILLABLE"),
             metadata: z.record(z.string(), z.unknown()).optional().default({}),
         })

@@ -6,7 +6,6 @@
 import { db } from "../../../db";
 import { orders } from "../../../db/schema";
 import { and, eq } from "drizzle-orm";
-import { ReskinRequestsServices } from "../reskin-requests/reskin-requests.services";
 
 /**
  * Calculate and store pricing estimate at order submission
@@ -76,17 +75,6 @@ import { ReskinRequestsServices } from "../reskin-requests/reskin-requests.servi
 
 //     return pricing;
 // }
-
-/**
- * Check if order should enter AWAITING_FABRICATION status
- */
-export async function shouldAwaitFabrication(
-    orderId: string,
-    platformId: string
-): Promise<boolean> {
-    const pendingReskins = await ReskinRequestsServices.getPendingReskins(orderId, platformId);
-    return pendingReskins.length > 0;
-}
 
 /**
  * Recalculate order pricing (called after line items change)

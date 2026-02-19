@@ -96,7 +96,6 @@ const S = {
     collections: [] as any[],
     orders: [] as any[],
     orderItems: [] as any[],
-    reskinRequests: [] as any[],
     lineItems: [] as any[],
     inboundRequests: [] as any[],
     serviceRequests: [] as any[],
@@ -1296,7 +1295,7 @@ async function seedOrders() {
             volume: 6.0,
             marginPercent: 22,
             instructions: "Custom Baileys branding on all furniture pieces.",
-            label: "Reskin in progress",
+            label: "Service work in progress",
         },
         {
             orderId: "ORD-20260203-009",
@@ -1323,7 +1322,7 @@ async function seedOrders() {
         const catalogTotal = ["PRICING_REVIEW", "DRAFT"].includes(def.status)
             ? 0
             : Number((150 + transportRate).toFixed(2));
-        const customTotal = def.status === "AWAITING_FABRICATION" ? 1500 : 0;
+        const customTotal = def.orderId === "ORD-20260209-008" ? 1500 : 0;
 
         const pricing = await createPricing({
             volume: def.volume,
@@ -1428,7 +1427,6 @@ async function seedOrderItems() {
         let selectedItems: Array<{
             asset: any;
             qty: number;
-            isReskin?: boolean;
             maintenanceDecision?: "FIX_IN_ORDER" | "USE_AS_IS" | null;
         }> = [];
 
@@ -1469,13 +1467,6 @@ async function seedOrderItems() {
                 { asset: furnitureAssets[2], qty: 1 },
                 { asset: glasswareAssets[0], qty: 15 },
             ];
-        } else if (order.order_id === "ORD-20260209-008") {
-            // AWAITING_FABRICATION — reskin order
-            selectedItems = [
-                { asset: furnitureAssets[0], qty: 1, isReskin: true },
-                { asset: furnitureAssets[1], qty: 1, isReskin: true },
-                { asset: glasswareAssets[0], qty: 8 },
-            ];
         } else {
             // Standard mix: 2 furniture + 1 glass + 1 other
             selectedItems = [
@@ -1503,13 +1494,6 @@ async function seedOrderItems() {
                 ? new Date(order.created_at.getTime() + 18 * 3600000)
                 : null;
 
-            // Determine reskin brand (use a different brand from the same company)
-            const companyBrands = S.brands.filter((b: any) => b.company_id === order.company_id);
-            const reskinBrand =
-                item.isReskin && companyBrands.length > 1
-                    ? companyBrands[companyBrands.length - 1]
-                    : null;
-
             const [oi] = await db
                 .insert(schema.orderItems)
                 .values({
@@ -1527,12 +1511,6 @@ async function seedOrderItems() {
                     handling_tags: a.handling_tags,
                     from_collection: null,
                     from_collection_name: null,
-                    is_reskin_request: !!item.isReskin,
-                    reskin_target_brand_id: reskinBrand?.id || null,
-                    reskin_target_brand_custom: null,
-                    reskin_notes: item.isReskin
-                        ? "Apply new branding as per attached mockup. Timeline critical."
-                        : null,
                     maintenance_decision: maintenanceDecision,
                     requires_maintenance: requiresMaintenance,
                     maintenance_refurb_days_snapshot: maintenanceRefurbDaysSnapshot,
@@ -1543,46 +1521,6 @@ async function seedOrderItems() {
         }
     }
     console.log(`✓ ${S.orderItems.length} order items`);
-}
-
-// ============================================================
-// RESKIN REQUESTS — for AWAITING_FABRICATION order
-// ============================================================
-
-async function seedReskinRequests() {
-    console.log("🎨 Seeding reskin requests...");
-
-    const reskinItems = S.orderItems.filter((i: any) => i.is_reskin_request);
-    for (const item of reskinItems) {
-        const order = S.orders.find((o: any) => o.id === item.order_id);
-        if (!order) continue;
-
-        const [rr] = await db
-            .insert(schema.reskinRequests)
-            .values({
-                platform_id: S.platform.id,
-                order_id: order.id,
-                order_item_id: item.id,
-                original_asset_id: item.asset_id,
-                original_asset_name: item.asset_name,
-                target_brand_id: item.reskin_target_brand_id,
-                target_brand_custom: null,
-                client_notes: "Apply new branding as per mockup. Timeline is critical for event.",
-                admin_notes: "In fabrication queue. Estimated 7 days completion.",
-                new_asset_id: null,
-                new_asset_name: null,
-                completed_at: null,
-                completed_by: null,
-                completion_notes: null,
-                completion_photos: [],
-                cancelled_at: null,
-                cancelled_by: null,
-                cancellation_reason: null,
-            })
-            .returning();
-        S.reskinRequests.push(rr);
-    }
-    console.log(`✓ ${S.reskinRequests.length} reskin requests`);
 }
 
 // ============================================================
@@ -1618,7 +1556,6 @@ async function seedLineItems() {
                     line_item_id: lineItemId,
                     purpose_type: "ORDER" as const,
                     service_type_id: svc.id,
-                    reskin_request_id: null,
                     line_item_type: "CATALOG" as const,
                     category: svc.category,
                     description: svc.name,
@@ -1663,7 +1600,6 @@ async function seedLineItems() {
                     line_item_id: lineItemId,
                     purpose_type: "ORDER" as const,
                     service_type_id: transportService.id,
-                    reskin_request_id: null,
                     line_item_type: "CATALOG" as const,
                     category: "TRANSPORT" as const,
                     description: transportService.name,
@@ -1698,7 +1634,6 @@ async function seedLineItems() {
                     line_item_id: lineItemId,
                     purpose_type: "ORDER" as const,
                     service_type_id: null,
-                    reskin_request_id: null,
                     line_item_type: "CUSTOM" as const,
                     category: "TRANSPORT" as const,
                     description: "Site access escort vehicle",
@@ -1732,7 +1667,6 @@ async function seedLineItems() {
                     line_item_id: lineItemId,
                     purpose_type: "ORDER" as const,
                     service_type_id: null,
-                    reskin_request_id: null,
                     line_item_type: "CUSTOM" as const,
                     category: "OTHER" as const,
                     description: "Complimentary loading buffer",
@@ -1750,44 +1684,12 @@ async function seedLineItems() {
                 .returning();
             S.lineItems.push(complimentaryLine);
         }
-
-        // Add reskin custom line items for AWAITING_FABRICATION order
-        const orderReskins = S.reskinRequests.filter((r: any) => r.order_id === order.id);
-        for (const rr of orderReskins) {
-            const lineItemId = await lineItemIdGenerator(S.platform.id);
-            const [li] = await db
-                .insert(schema.lineItems)
-                .values({
-                    platform_id: S.platform.id,
-                    order_id: order.id,
-                    inbound_request_id: null,
-                    line_item_id: lineItemId,
-                    purpose_type: "ORDER" as const,
-                    service_type_id: null,
-                    reskin_request_id: rr.id,
-                    line_item_type: "CUSTOM" as const,
-                    category: "RESKIN" as const,
-                    description: `Rebrand: ${rr.original_asset_name}`,
-                    quantity: null,
-                    unit: null,
-                    unit_rate: null,
-                    total: "750.00",
-                    billing_mode: "BILLABLE" as const,
-                    added_by: admin.id,
-                    added_at: new Date(order.created_at.getTime() + 36 * 3600000),
-                    notes: "Custom fabrication and branding application",
-                    metadata: {},
-                    is_voided: false,
-                })
-                .returning();
-            S.lineItems.push(li);
-        }
     }
     console.log(`✓ ${S.lineItems.length} line items`);
 }
 
 // ============================================================
-// SERVICE REQUESTS — Standalone maintenance/reskin/refurb flows
+// SERVICE REQUESTS — standalone operational/commercial flows
 // ============================================================
 async function seedServiceRequests() {
     console.log("🧰 Seeding service requests...");
@@ -1822,10 +1724,8 @@ async function seedServiceRequests() {
             asset.condition === "RED"
     );
 
-    const reskinOrder = S.orders.find((order: any) => order.order_id === "ORD-20260209-008");
-    const reskinOrderItem = S.orderItems.find(
-        (item: any) => item.order_id === reskinOrder?.id && item.is_reskin_request
-    );
+    const linkedOrder = S.orders.find((order: any) => order.order_id === "ORD-20260209-008");
+    const linkedOrderItem = S.orderItems.find((item: any) => item.order_id === linkedOrder?.id);
 
     const getServiceTypeByName = (name: string) => {
         const svc = S.serviceTypes.find((service: any) => service.name === name);
@@ -1903,12 +1803,12 @@ async function seedServiceRequests() {
             billing_mode: "CLIENT_BILLABLE" as const,
             request_status: "APPROVED" as const,
             commercial_status: "QUOTED" as const,
-            title: "Standalone reskin package for launch assets",
+            title: "Standalone service package for launch assets",
             description:
-                "Standalone reskin request with commercial quote sent to client before execution starts.",
+                "Standalone service request with commercial quote sent to client before execution starts.",
             related_asset_id: dgOrange?.id || null,
-            related_order_id: reskinOrder?.id || null,
-            related_order_item_id: reskinOrderItem?.id || null,
+            related_order_id: linkedOrder?.id || null,
+            related_order_item_id: linkedOrderItem?.id || null,
             requested_start_at: daysFromNow(2),
             requested_due_at: daysFromNow(8),
             created_by: admin.id,
@@ -2169,7 +2069,6 @@ async function seedServiceRequests() {
                     line_item_id: lineItemId,
                     purpose_type: "SERVICE_REQUEST" as const,
                     service_type_id: serviceType.id,
-                    reskin_request_id: null,
                     line_item_type: "CATALOG" as const,
                     category: serviceType.category,
                     description: serviceType.name,
@@ -2198,7 +2097,6 @@ async function seedServiceRequests() {
                     line_item_id: lineItemId,
                     purpose_type: "SERVICE_REQUEST" as const,
                     service_type_id: null,
-                    reskin_request_id: null,
                     line_item_type: "CUSTOM" as const,
                     category: customItem.category,
                     description: customItem.description,
@@ -3473,7 +3371,6 @@ async function cleanup() {
         );
         await safeDelete("service_request_items", () => db.delete(schema.serviceRequestItems));
         await safeDelete("service_requests", () => db.delete(schema.serviceRequests));
-        await safeDelete("reskin_requests", () => db.delete(schema.reskinRequests));
         await safeDelete("order_items", () => db.delete(schema.orderItems));
         await safeDelete("orders", () => db.delete(schema.orders));
         await safeDelete("inbound_request_items", () => db.delete(schema.inboundRequestItems));
@@ -3537,7 +3434,6 @@ async function main() {
         // Phase 4: Orders & workflow
         await seedOrders();
         await seedOrderItems();
-        await seedReskinRequests();
         await seedLineItems();
         await seedServiceRequests();
         await seedAssetBookings();

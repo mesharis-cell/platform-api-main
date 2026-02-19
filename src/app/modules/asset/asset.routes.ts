@@ -50,16 +50,6 @@ router.post(
     AssetControllers.generateQRCode
 );
 
-// Complete maintenance
-// router.post(
-//     "/complete-maintenance",
-//     platformValidator,
-//     auth("ADMIN", "LOGISTICS"),
-//     requirePermission(PERMISSIONS.CONDITIONS_COMPLETE_MAINTENANCE),
-//     payloadValidator(AssetSchemas.completeMaintenanceSchema),
-//     AssetControllers.completeMaintenance
-// );
-
 // Batch availability check
 router.post(
     "/batch-availability",

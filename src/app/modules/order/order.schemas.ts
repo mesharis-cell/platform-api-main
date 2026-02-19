@@ -10,7 +10,6 @@ const calculateEstimateSchema = z.object({
                 z.object({
                     asset_id: z.uuid("Invalid asset ID"),
                     quantity: z.number().int().positive("Quantity must be positive"),
-                    is_reskin_request: z.boolean().optional(),
                 })
             ),
             venue_city: z.string("Venue city is required"),
@@ -54,13 +53,6 @@ export const orderItemSchema = z
             .int("Quantity should be an integer")
             .positive("Quantity must be a positive integer"),
         from_collection_id: z.uuid("Invalid collection ID").optional(),
-        is_reskin_request: z.boolean().optional().default(false),
-        reskin_target_brand_id: z.uuid("Invalid brand ID").optional(),
-        reskin_target_brand_custom: z
-            .string()
-            .max(100, "Custom brand name must be under 100 characters")
-            .optional(),
-        reskin_notes: z.string().min(10, "Reskin notes must be at least 10 characters").optional(),
         maintenance_decision: z
             .enum(
                 maintenanceDecisionEnum.enumValues,
@@ -68,22 +60,7 @@ export const orderItemSchema = z
             )
             .optional(),
     })
-    .refine(
-        (data) => {
-            // If reskin requested, must have target brand and notes
-            if (data.is_reskin_request) {
-                return (
-                    (data.reskin_target_brand_id || data.reskin_target_brand_custom) &&
-                    data.reskin_notes
-                );
-            }
-            return true;
-        },
-        {
-            message: "Reskin requests require target brand and notes",
-            path: ["is_reskin_request"],
-        }
-    );
+    .strict();
 
 const addOrderItemSchema = z.object({
     body: z.object({

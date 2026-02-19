@@ -163,7 +163,6 @@
 //         total_weight: (weightPerUnit * quantity).toFixed(2),
 //         condition_notes: null,
 //         handling_tags: asset.handling_tags || [],
-//         is_reskin_request: false,
 //     });
 
 //     // Recalculate pricing
