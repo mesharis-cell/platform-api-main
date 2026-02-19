@@ -25,7 +25,7 @@ import * as schema from "./schema";
 import bcrypt from "bcrypt";
 import { sql } from "drizzle-orm";
 import { seedPrAssets } from "./scripts/seed-pr-assets";
-import { ilike } from "drizzle-orm";
+import { ilike, eq } from "drizzle-orm";
 
 // ============================================================
 // STATE STORE
@@ -41,6 +41,7 @@ const S = {
     brands: [] as any[],
     zones: [] as any[],
     vehicleTypes: [] as any[],
+    serviceTypes: [] as any[],
 };
 
 const hashPassword = (pw: string) => bcrypt.hash(pw, 10);
@@ -456,52 +457,56 @@ async function seedTransportRates() {
 async function seedServiceTypes() {
     console.log("🛠️  Seeding service types...");
     const pid = S.platform.id;
-    const services = [
-        {
-            name: "Basic Assembly",
-            category: "ASSEMBLY" as const,
-            unit: "hour",
-            default_rate: "75.00",
-        },
-        {
-            name: "Complex Assembly",
-            category: "ASSEMBLY" as const,
-            unit: "hour",
-            default_rate: "120.00",
-        },
-        {
-            name: "Forklift Operation",
-            category: "EQUIPMENT" as const,
-            unit: "hour",
-            default_rate: "200.00",
-        },
-        {
-            name: "Loading / Unloading",
-            category: "HANDLING" as const,
-            unit: "hour",
-            default_rate: "60.00",
-        },
-        {
-            name: "Fragile Item Handling",
-            category: "HANDLING" as const,
-            unit: "unit",
-            default_rate: "25.00",
-        },
+    const baseServices = [
+        { name: "Basic Assembly", category: "ASSEMBLY" as const, unit: "hour", default_rate: "75.00" },
+        { name: "Complex Assembly", category: "ASSEMBLY" as const, unit: "hour", default_rate: "120.00" },
+        { name: "Forklift Operation", category: "EQUIPMENT" as const, unit: "hour", default_rate: "200.00" },
+        { name: "Loading / Unloading", category: "HANDLING" as const, unit: "hour", default_rate: "60.00" },
+        { name: "Fragile Item Handling", category: "HANDLING" as const, unit: "unit", default_rate: "25.00" },
         { name: "Vinyl Wrap", category: "RESKIN" as const, unit: "unit", default_rate: "300.00" },
         { name: "Storage Fee", category: "OTHER" as const, unit: "day", default_rate: "50.00" },
-        {
-            name: "Cleaning Service",
-            category: "OTHER" as const,
-            unit: "unit",
-            default_rate: "35.00",
-        },
+        { name: "Cleaning Service", category: "OTHER" as const, unit: "unit", default_rate: "35.00" },
     ];
-    await db
-        .insert(schema.serviceTypes)
-        .values(
-            services.map((s, i) => ({ platform_id: pid, ...s, display_order: i, is_active: true }))
-        );
-    console.log(`✓ ${services.length} service types`);
+
+    // Fetch transport rates seeded above and generate TRANSPORT service types
+    const seededRates = await db
+        .select({
+            id: schema.transportRates.id,
+            city_id: schema.transportRates.city_id,
+            vehicle_type_id: schema.transportRates.vehicle_type_id,
+            trip_type: schema.transportRates.trip_type,
+            rate: schema.transportRates.rate,
+        })
+        .from(schema.transportRates)
+        .where(eq(schema.transportRates.platform_id, pid));
+
+    const transportServices = seededRates.map((r, i) => {
+        const city = S.cities.find((c: any) => c.id === r.city_id);
+        const vt = S.vehicleTypes.find((v: any) => v.id === r.vehicle_type_id);
+        const cityName = city?.name ?? "Unknown";
+        const vtName = vt?.name ?? "Truck";
+        const tripLabel = r.trip_type === "ROUND_TRIP" ? "Round-trip" : "One-way";
+        return {
+            platform_id: pid,
+            name: `Transport - ${cityName} · ${vtName} (${tripLabel})`,
+            category: "TRANSPORT" as const,
+            unit: "trip",
+            default_rate: r.rate,
+            transport_rate_id: r.id,
+            default_metadata: { city_id: r.city_id, vehicle_type_id: r.vehicle_type_id, trip_direction: r.trip_type },
+            display_order: baseServices.length + i,
+            is_active: true,
+        };
+    });
+
+    const allServices = [
+        ...baseServices.map((s, i) => ({ platform_id: pid, ...s, display_order: i, is_active: true })),
+        ...transportServices,
+    ];
+
+    const inserted = await db.insert(schema.serviceTypes).values(allServices).returning();
+    S.serviceTypes = inserted;
+    console.log(`✓ ${baseServices.length} base + ${transportServices.length} transport service types`);
 }
 
 async function seedNotificationRules() {
