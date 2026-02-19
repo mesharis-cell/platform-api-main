@@ -6,7 +6,6 @@ import platformValidator from "../../middleware/platform-validator";
 import { PERMISSIONS } from "../../constants/permissions";
 import { OrderControllers } from "./order.controllers";
 import { orderSchemas } from "./order.schemas";
-import { ReskinRequestsRoutes } from "../reskin-requests/reskin-requests.routes";
 import featureValidator from "../../middleware/feature-validator";
 import { featureNames } from "../../constants/common";
 
@@ -252,9 +251,6 @@ router.post(
 
 // Order Line Items (nested under /order/:orderId/line-items)
 // router.use("/:orderId/line-items", OrderLineItemsRoutes);
-
-// Reskin Requests (nested under /order/:orderId/reskin-requests)
-router.use("/:orderId/reskin-requests", ReskinRequestsRoutes);
 
 // ---------------------------------- ORDER ITEM ADJUSTMENTS (NEW) -----------------------------
 

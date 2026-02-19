@@ -144,6 +144,44 @@ const approveServiceRequestQuote = catchAsync(async (req, res) => {
     });
 });
 
+const respondToServiceRequestQuote = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+    const id = getRequiredString(req.params.id, "id");
+    const result = await ServiceRequestServices.respondToServiceRequestQuote(
+        id,
+        req.body,
+        platformId,
+        user
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Service request quote response saved successfully",
+        data: result,
+    });
+});
+
+const applyServiceRequestConcession = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+    const id = getRequiredString(req.params.id, "id");
+    const result = await ServiceRequestServices.applyServiceRequestConcession(
+        id,
+        req.body,
+        platformId,
+        user
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Service request concession applied successfully",
+        data: result,
+    });
+});
+
 export const ServiceRequestControllers = {
     listServiceRequests,
     getServiceRequestById,
@@ -153,4 +191,6 @@ export const ServiceRequestControllers = {
     cancelServiceRequest,
     updateServiceRequestCommercialStatus,
     approveServiceRequestQuote,
+    respondToServiceRequestQuote,
+    applyServiceRequestConcession,
 };

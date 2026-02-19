@@ -11,11 +11,11 @@ import {
     companies,
     financialStatusHistory,
     invoices,
-    lineItems,
     prices,
     orders,
     orderStatusHistory,
-    reskinRequests,
+    serviceRequestStatusHistory,
+    serviceRequests,
     scanEvents,
     users,
     vehicleTypes,
@@ -50,9 +50,7 @@ import {
     validateInboundScanningComplete,
     validateRoleBasedTransition,
 } from "./order.utils";
-import { shouldAwaitFabrication } from "./order-pricing.helpers";
 import { LineItemsServices } from "../order-line-items/order-line-items.services";
-import { ReskinRequestsServices } from "../reskin-requests/reskin-requests.services";
 import { eventBus, EVENT_TYPES } from "../../events";
 import { orderIdGenerator } from "./order.utils";
 import { uuidRegex } from "../../constants/common";
@@ -63,6 +61,165 @@ import { costEstimateGenerator } from "../../utils/cost-estimate";
 import { calculatePricingSummary } from "../../utils/pricing-engine";
 import { GoodsFormType, generateGoodsFormXlsx } from "../../utils/goods-form-xlsx";
 import { validateMaintenanceFeasibilityForAssets } from "./order-feasibility.utils";
+
+const FULFILLMENT_READINESS_STATUSES = new Set([
+    "IN_PREPARATION",
+    "READY_FOR_DELIVERY",
+    "IN_TRANSIT",
+    "DELIVERED",
+    "IN_USE",
+    "AWAITING_RETURN",
+    "RETURN_IN_TRANSIT",
+    "CLOSED",
+]);
+
+const getLinkedServiceRequestSummaries = async (
+    orderDbId: string,
+    platformId: string,
+    role: AuthUser["role"]
+) => {
+    const rows = await db
+        .select({
+            id: serviceRequests.id,
+            service_request_id: serviceRequests.service_request_id,
+            request_type: serviceRequests.request_type,
+            billing_mode: serviceRequests.billing_mode,
+            link_mode: serviceRequests.link_mode,
+            blocks_fulfillment: serviceRequests.blocks_fulfillment,
+            request_status: serviceRequests.request_status,
+            commercial_status: serviceRequests.commercial_status,
+            client_sell_override_total: serviceRequests.client_sell_override_total,
+            concession_applied_at: serviceRequests.concession_applied_at,
+            request_pricing_id: serviceRequests.request_pricing_id,
+            final_total: prices.final_total,
+        })
+        .from(serviceRequests)
+        .leftJoin(prices, eq(serviceRequests.request_pricing_id, prices.id))
+        .where(
+            and(
+                eq(serviceRequests.platform_id, platformId),
+                eq(serviceRequests.related_order_id, orderDbId)
+            )
+        )
+        .orderBy(desc(serviceRequests.created_at));
+
+    return rows.map((row) => {
+        const clientTotal =
+            row.client_sell_override_total !== null && row.client_sell_override_total !== undefined
+                ? String(row.client_sell_override_total)
+                : String(row.final_total || "0");
+        return {
+            id: row.id,
+            service_request_id: row.service_request_id,
+            request_type: row.request_type,
+            billing_mode: row.billing_mode,
+            link_mode: row.link_mode,
+            blocks_fulfillment: row.blocks_fulfillment,
+            request_status: row.request_status,
+            commercial_status: row.commercial_status,
+            is_concession_applied: !!row.concession_applied_at,
+            total: role === "LOGISTICS" ? null : clientTotal,
+            request_pricing_id: row.request_pricing_id,
+        };
+    });
+};
+
+const hasUnresolvedBlockingServiceRequests = async (orderDbId: string, platformId: string) => {
+    const blocking = await db
+        .select({
+            request_status: serviceRequests.request_status,
+            concession_applied_at: serviceRequests.concession_applied_at,
+        })
+        .from(serviceRequests)
+        .where(
+            and(
+                eq(serviceRequests.platform_id, platformId),
+                eq(serviceRequests.related_order_id, orderDbId),
+                eq(serviceRequests.blocks_fulfillment, true)
+            )
+        );
+
+    return blocking.some((request) => {
+        if (request.concession_applied_at) return false;
+        return !["COMPLETED", "CANCELLED"].includes(request.request_status);
+    });
+};
+
+const autoApproveBundledServiceRequests = async (
+    orderDbId: string,
+    platformId: string,
+    actor: AuthUser
+) => {
+    const bundled = await db
+        .select({
+            id: serviceRequests.id,
+            service_request_id: serviceRequests.service_request_id,
+            company_id: serviceRequests.company_id,
+            request_status: serviceRequests.request_status,
+            commercial_status: serviceRequests.commercial_status,
+            request_pricing_id: serviceRequests.request_pricing_id,
+            client_sell_override_total: serviceRequests.client_sell_override_total,
+            related_order_id: serviceRequests.related_order_id,
+            request_type: serviceRequests.request_type,
+            billing_mode: serviceRequests.billing_mode,
+            company_name: companies.name,
+            final_total: prices.final_total,
+        })
+        .from(serviceRequests)
+        .leftJoin(companies, eq(serviceRequests.company_id, companies.id))
+        .leftJoin(prices, eq(serviceRequests.request_pricing_id, prices.id))
+        .where(
+            and(
+                eq(serviceRequests.platform_id, platformId),
+                eq(serviceRequests.related_order_id, orderDbId),
+                eq(serviceRequests.link_mode, "BUNDLED_WITH_ORDER"),
+                eq(serviceRequests.billing_mode, "CLIENT_BILLABLE")
+            )
+        );
+
+    for (const request of bundled) {
+        if (["QUOTE_APPROVED", "INVOICED", "PAID"].includes(request.commercial_status)) continue;
+        await db
+            .update(serviceRequests)
+            .set({
+                commercial_status: "QUOTE_APPROVED",
+                updated_at: new Date(),
+            })
+            .where(eq(serviceRequests.id, request.id));
+
+        await db.insert(serviceRequestStatusHistory).values({
+            service_request_id: request.id,
+            platform_id: platformId,
+            from_status: request.request_status,
+            to_status: request.request_status,
+            note: "Commercial status auto-approved with linked order quote approval",
+            changed_by: actor.id,
+        });
+
+        const finalTotal =
+            request.client_sell_override_total !== null &&
+            request.client_sell_override_total !== undefined
+                ? String(request.client_sell_override_total)
+                : String(request.final_total || "0");
+
+        await eventBus.emit({
+            platform_id: platformId,
+            event_type: EVENT_TYPES.SERVICE_REQUEST_APPROVED,
+            entity_type: "SERVICE_REQUEST",
+            entity_id: request.id,
+            actor_id: actor.id,
+            actor_role: actor.role,
+            payload: {
+                entity_id_readable: request.service_request_id,
+                company_id: request.company_id,
+                company_name: request.company_name || "N/A",
+                contact_name: "Client",
+                final_total: finalTotal,
+                request_url: `${config.client_url}/service-requests/${request.id}`,
+            },
+        });
+    }
+};
 
 // ----------------------------------- CALCULATE ESTIMATE -------------------------------------
 const calculateEstimate = async (
@@ -1029,10 +1186,11 @@ const getOrderById = async (
         .leftJoin(brands, eq(orderItems.reskin_target_brand_id, brands.id))
         .where(eq(orderItems.order_id, orderData.order.id));
 
-    const [lineItems, reskinRequests] = await Promise.all([
+    const [lineItems, linkedServiceRequests] = await Promise.all([
         LineItemsServices.getLineItems(platformId, { order_id: orderData.order.id }),
-        ReskinRequestsServices.listReskinRequests(orderData.order.id, platformId),
+        getLinkedServiceRequestSummaries(orderData.order.id, platformId, user.role),
     ]);
+    const reskinRequests: any[] = [];
 
     const financialHistory = await db
         .select()
@@ -1095,6 +1253,7 @@ const getOrderById = async (
             items: itemResults,
             line_items: lineItems,
             reskin_requests: reskinRequests,
+            linked_service_requests: linkedServiceRequests,
             order_status_history: orderHistory.map((h) => ({
                 ...h,
                 status_label: CLIENT_SAFE_LABELS[h.status] || h.status,
@@ -1114,6 +1273,7 @@ const getOrderById = async (
         items: itemResults,
         line_items: lineItems,
         reskin_requests: reskinRequests,
+        linked_service_requests: linkedServiceRequests,
         financial_status_history: financialHistory,
         order_status_history: orderHistory,
         venue_city: orderData.venue_city?.name || null,
@@ -1307,6 +1467,16 @@ const progressOrderStatus = async (
         );
     }
 
+    if (FULFILLMENT_READINESS_STATUSES.has(new_status)) {
+        const hasBlockingSR = await hasUnresolvedBlockingServiceRequests(order.id, platformId);
+        if (hasBlockingSR) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Cannot progress order while blocking linked service requests are unresolved"
+            );
+        }
+    }
+
     // Step 4.5: Validate date-based transitions
     const today = dayjs().startOf("day");
 
@@ -1327,32 +1497,6 @@ const progressOrderStatus = async (
             throw new CustomizedError(
                 httpStatus.BAD_REQUEST,
                 "All assets condition must be GREEN before transitioning to AWAITING_FABRICATION or CONFIRMED"
-            );
-        }
-
-        // Fetch all reskin request and check if all rekin request is completed
-        const requests = await db.query.reskinRequests.findMany({
-            where: and(
-                eq(reskinRequests.order_id, orderId),
-                eq(reskinRequests.platform_id, platformId)
-            ),
-            with: {
-                order_item: true,
-                original_asset: true,
-                target_brand: true,
-                new_asset: true,
-            },
-        });
-
-        // Check if all reskin requests are completed
-        const allReskinRequestsCompleted = requests.every(
-            (request) => request.completed_at !== null || request.cancelled_at !== null
-        );
-
-        if (!allReskinRequestsCompleted) {
-            throw new CustomizedError(
-                httpStatus.BAD_REQUEST,
-                "All reskin requests must be completed before transitioning to AWAITING_FABRICATION or CONFIRMED"
             );
         }
     }
@@ -1739,13 +1883,8 @@ const approveQuote = async (
                 .set({ status: asset.status, available_quantity: asset.available_quantity })
                 .where(eq(assets.id, asset.id));
         }
-
-        // Check if order has pending reskins (NEW) - MOVE OUTSIDE TRANSACTION
     });
-
-    // Check for pending reskins AFTER bookings created
-    const hasPendingReskins = await shouldAwaitFabrication(orderId, platformId);
-    const nextStatus = hasPendingReskins ? "AWAITING_FABRICATION" : "CONFIRMED";
+    const nextStatus = "CONFIRMED";
 
     await db.transaction(async (tx) => {
         // Update order status based on reskins
@@ -1763,12 +1902,12 @@ const approveQuote = async (
             platform_id: platformId,
             order_id: orderId,
             status: nextStatus,
-            notes: hasPendingReskins
-                ? "Client approved quote. Order awaiting fabrication completion."
-                : notes || "Client approved quote",
+            notes: notes || "Client approved quote",
             updated_by: user.id,
         });
     });
+
+    await autoApproveBundledServiceRequests(orderId, platformId, user);
 
     await eventBus.emit({
         platform_id: platformId,
@@ -2214,25 +2353,6 @@ const adminApproveQuote = async (
         );
     }
 
-    const unprocessedReskins = await db
-        .select({ id: orderItems.id })
-        .from(orderItems)
-        .leftJoin(reskinRequests, eq(reskinRequests.order_item_id, orderItems.id))
-        .where(
-            and(
-                eq(orderItems.order_id, orderId),
-                eq(orderItems.is_reskin_request, true),
-                isNull(reskinRequests.id)
-            )
-        );
-
-    if (unprocessedReskins.length > 0) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            "All rebrand requests must be processed before approving the quote"
-        );
-    }
-
     // Determine if this is a revised quote (order was previously quoted)
     const isRevisedQuote = ["QUOTE_SENT", "QUOTE_REVISED"].includes(order.financial_status);
     const newFinancialStatus = isRevisedQuote ? "QUOTE_REVISED" : "QUOTE_SENT";
@@ -2423,8 +2543,6 @@ export async function cancelOrder(
         );
     }
 
-    let cancelledReskinsCount = 0; // Store count before transaction ends
-
     await db.transaction(async (tx) => {
         // 1. Update order status
         await tx
@@ -2439,44 +2557,7 @@ export async function cancelOrder(
         // 2. Release all asset bookings
         await tx.delete(assetBookings).where(eq(assetBookings.order_id, orderId));
 
-        // 3. Cancel any pending reskin requests
-        const pendingReskins = await tx
-            .select()
-            .from(reskinRequests)
-            .where(
-                and(
-                    eq(reskinRequests.order_id, orderId),
-                    isNull(reskinRequests.completed_at),
-                    isNull(reskinRequests.cancelled_at)
-                )
-            );
-
-        cancelledReskinsCount = pendingReskins.length; // Store count
-
-        for (const reskin of pendingReskins) {
-            // Mark reskin as cancelled
-            await tx
-                .update(reskinRequests)
-                .set({
-                    cancelled_at: new Date(),
-                    cancelled_by: user.id,
-                    cancellation_reason: "Order cancelled",
-                })
-                .where(eq(reskinRequests.id, reskin.id));
-
-            // Void linked line items
-            await tx
-                .update(lineItems)
-                .set({
-                    is_voided: true,
-                    voided_at: new Date(),
-                    voided_by: user.id,
-                    void_reason: "Order cancelled",
-                })
-                .where(eq(lineItems.reskin_request_id, reskin.id));
-        }
-
-        // 4. Log to order status history
+        // 3. Log to order status history
         await tx.insert(orderStatusHistory).values({
             platform_id: platformId,
             order_id: orderId,
@@ -2485,7 +2566,7 @@ export async function cancelOrder(
             updated_by: user.id,
         });
 
-        // 5. Log to financial status history
+        // 4. Log to financial status history
         await tx.insert(financialStatusHistory).values({
             platform_id: platformId,
             order_id: orderId,
@@ -2524,7 +2605,7 @@ export async function cancelOrder(
     return {
         success: true,
         order_id: order.order_id,
-        cancelled_reskins: cancelledReskinsCount, // ✅ Now in scope
+        cancelled_reskins: 0,
     };
 }
 

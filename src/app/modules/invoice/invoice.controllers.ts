@@ -4,11 +4,32 @@ import sendResponse from "../../shared/send-response";
 import { InvoiceServices } from "./invoice.services";
 import { getPDFBufferFromS3 } from "../../services/s3.service";
 import { db } from "../../../db";
-import { companies, inboundRequests, invoices, orders, serviceRequests } from "../../../db/schema";
+import { companies, inboundRequests, orders, serviceRequests } from "../../../db/schema";
 import { and, eq } from "drizzle-orm";
 import CustomizedError from "../../error/customized-error";
 import { getRequiredString } from "../../utils/request";
 import { serviceRequestCostEstimateGenerator } from "../../utils/service-request-cost-estimate";
+
+const resolvePlatformId = (req: any) =>
+    getRequiredString(
+        ((req as any).platformId as string | undefined) ||
+            (req.query.pid as string | string[] | undefined),
+        "pid"
+    );
+
+const assertClientEntityAccess = (
+    user: any,
+    companyId: string | null | undefined,
+    entityLabel: string
+) => {
+    if (user?.role !== "CLIENT") return;
+    if (!user.company_id || !companyId || user.company_id !== companyId) {
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            `You do not have access to this ${entityLabel}`
+        );
+    }
+};
 
 // ----------------------------------- GET INVOICE BY ID --------------------------------------
 const getInvoiceById = catchAsync(async (req, res) => {
@@ -44,19 +65,13 @@ const downloadInvoice = catchAsync(async (req, res) => {
 
 // ----------------------------------- DOWNLOAD INVOICE PDF (DIRECT) --------------------------
 const downloadInvoicePDF = catchAsync(async (req, res) => {
-    const platformId = getRequiredString(req.query.pid as string | string[] | undefined, "pid");
+    const user = (req as any).user;
+    const platformId = resolvePlatformId(req);
     const invoiceId = getRequiredString(req.params.invoiceId, "invoiceId");
 
-    const [invoice] = await db
-        .select()
-        .from(invoices)
-        .where(and(eq(invoices.invoice_id, invoiceId), eq(invoices.platform_id, platformId)));
+    const invoice = await InvoiceServices.getInvoiceById(invoiceId, user, platformId);
 
-    if (!invoice) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Invoice not found");
-    }
-
-    const buffer = await getPDFBufferFromS3(invoice.invoice_pdf_url);
+    const buffer = await getPDFBufferFromS3(invoice.invoice_pdf_url as string);
     const fileName = `${invoice.invoice_id}.pdf`;
 
     // Set headers for PDF download
@@ -117,7 +132,8 @@ const generateInvoice = catchAsync(async (req, res) => {
 
 // ----------------------------------- DOWNLOAD COST ESTIMATE PDF (DIRECT) --------------------
 const downloadCostEstimatePDF = catchAsync(async (req, res) => {
-    const platformId = getRequiredString(req.query.pid as string | string[] | undefined, "pid");
+    const user = (req as any).user;
+    const platformId = resolvePlatformId(req);
     const orderId = getRequiredString(req.params.orderId, "orderId");
 
     const order = await db.query.orders.findFirst({
@@ -130,6 +146,7 @@ const downloadCostEstimatePDF = catchAsync(async (req, res) => {
     if (!order) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
     }
+    assertClientEntityAccess(user, order.company_id, "order");
 
     const company = order.company as typeof companies.$inferSelect | null;
     const companySlug = (company?.name || "unknown-company").replace(/\s/g, "-").toLowerCase();
@@ -149,7 +166,8 @@ const downloadCostEstimatePDF = catchAsync(async (req, res) => {
 
 // ----------------------------------- DOWNLOAD INBOUND REQEUEST COST ESTIMATE PDF (DIRECT) ---
 const downloadIRCostEstimatePDF = catchAsync(async (req, res) => {
-    const platformId = getRequiredString(req.query.pid as string | string[] | undefined, "pid");
+    const user = (req as any).user;
+    const platformId = resolvePlatformId(req);
     const requestId = getRequiredString(req.params.requestId, "requestId");
 
     const request = await db.query.inboundRequests.findFirst({
@@ -165,6 +183,7 @@ const downloadIRCostEstimatePDF = catchAsync(async (req, res) => {
     if (!request) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found");
     }
+    assertClientEntityAccess(user, request.company_id, "inbound request");
 
     const company = request.company as typeof companies.$inferSelect | null;
     const companySlug = (company?.name || "unknown-company").replace(/\s/g, "-").toLowerCase();
@@ -184,7 +203,8 @@ const downloadIRCostEstimatePDF = catchAsync(async (req, res) => {
 
 // ----------------------------------- DOWNLOAD SERVICE REQUEST COST ESTIMATE PDF (DIRECT) ----
 const downloadServiceRequestCostEstimatePDF = catchAsync(async (req, res) => {
-    const platformId = getRequiredString(req.query.pid as string | string[] | undefined, "pid");
+    const user = (req as any).user;
+    const platformId = resolvePlatformId(req);
     const requestId = getRequiredString(req.params.requestId, "requestId");
 
     const serviceRequest = await db.query.serviceRequests.findFirst({
@@ -200,6 +220,7 @@ const downloadServiceRequestCostEstimatePDF = catchAsync(async (req, res) => {
     if (!serviceRequest) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Service request not found");
     }
+    assertClientEntityAccess(user, serviceRequest.company_id, "service request");
 
     const company = serviceRequest.company as typeof companies.$inferSelect | null;
     const companySlug = (company?.name || "unknown-company").replace(/\s/g, "-").toLowerCase();

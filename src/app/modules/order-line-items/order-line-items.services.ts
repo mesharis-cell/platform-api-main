@@ -23,6 +23,9 @@ import queryValidator from "../../utils/query-validator";
 import { inboundRequestCostEstimateGenerator } from "../../utils/inbound-request-cost-estimate";
 import { serviceRequestCostEstimateGenerator } from "../../utils/service-request-cost-estimate";
 import { calculatePricingSummary } from "../../utils/pricing-engine";
+import { eventBus } from "../../events/event-bus";
+import { EVENT_TYPES } from "../../events/event-types";
+import config from "../../config";
 
 const validateTransportMetadata = (metadata: Record<string, unknown> | undefined) => {
     if (!metadata) return;
@@ -488,6 +491,7 @@ const updateOrderPricingAfterLineItemChange = async (
         .select({
             order: orders,
             company: {
+                name: companies.name,
                 platform_margin_percent: companies.platform_margin_percent,
                 warehouse_ops_rate: companies.warehouse_ops_rate,
             },
@@ -646,6 +650,7 @@ const updateServiceRequestPricingAfterLineItemChange = async (
         .select({
             service_request: serviceRequests,
             company: {
+                name: companies.name,
                 platform_margin_percent: companies.platform_margin_percent,
                 warehouse_ops_rate: companies.warehouse_ops_rate,
             },
@@ -761,6 +766,44 @@ const updateServiceRequestPricingAfterLineItemChange = async (
         .where(eq(prices.id, pricingId));
 
     await serviceRequestCostEstimateGenerator(serviceRequestId, platformId, true);
+
+    const requiresRevision =
+        serviceRequest.service_request.billing_mode === "CLIENT_BILLABLE" &&
+        ["QUOTED", "QUOTE_APPROVED", "INVOICED", "PAID"].includes(
+            serviceRequest.service_request.commercial_status
+        );
+
+    if (requiresRevision) {
+        await db
+            .update(serviceRequests)
+            .set({
+                commercial_status: "PENDING_QUOTE",
+                client_sell_override_total: null,
+                concession_reason: null,
+                concession_approved_by: null,
+                concession_applied_at: null,
+                updated_at: new Date(),
+            })
+            .where(eq(serviceRequests.id, serviceRequestId));
+
+        await eventBus.emit({
+            platform_id: platformId,
+            event_type: EVENT_TYPES.SERVICE_REQUEST_QUOTE_REVISED,
+            entity_type: "SERVICE_REQUEST",
+            entity_id: serviceRequest.service_request.id,
+            actor_id: null,
+            actor_role: null,
+            payload: {
+                entity_id_readable: serviceRequest.service_request.service_request_id,
+                company_id: serviceRequest.service_request.company_id,
+                company_name: serviceRequest.company?.name || "N/A",
+                contact_name: "Client",
+                final_total: pricingSummary.final_total.toFixed(2),
+                revision_reason: "Line items changed after quote issuance",
+                request_url: `${config.client_url}/service-requests/${serviceRequest.service_request.id}`,
+            },
+        });
+    }
 };
 
 export const LineItemsServices = {

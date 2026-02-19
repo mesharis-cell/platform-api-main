@@ -69,4 +69,20 @@ router.post(
     ServiceRequestControllers.approveServiceRequestQuote
 );
 
+router.post(
+    "/:id/quote-response",
+    platformValidator,
+    auth("CLIENT"),
+    payloadValidator(ServiceRequestSchemas.respondServiceRequestQuoteSchema),
+    ServiceRequestControllers.respondToServiceRequestQuote
+);
+
+router.post(
+    "/:id/concession",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    payloadValidator(ServiceRequestSchemas.applyServiceRequestConcessionSchema),
+    ServiceRequestControllers.applyServiceRequestConcession
+);
+
 export const ServiceRequestRoutes = router;

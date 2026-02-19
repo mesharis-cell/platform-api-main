@@ -63,6 +63,27 @@ export const srQuotedClient: EmailTemplate = {
     },
 };
 
+// ─── sr_quote_revised_client ─────────────────────────────────────────────────
+export const srQuoteRevisedClient: EmailTemplate = {
+    subject: (payload) => `Service Request Quote Revised: ${p(payload).entity_id_readable}`,
+    html: (payload) => {
+        const d = p(payload);
+        return wrap(`
+            <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Service Request Quote Updated</h1>
+            <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Hi ${d.contact_name}, the quote for your service request has been revised and is ready for review.</p>
+            ${infoBox(`
+                ${infoRow("Request ID", d.entity_id_readable)}
+                ${infoRow("Company", d.company_name)}
+                ${infoRow("Reason", d.revision_reason || "Quote updated")}
+                <p style="margin: 8px 0; font-size: 18px; font-weight: bold; color: #111827;">Total: ${formatAmount(d.final_total)} AED</p>
+            `)}
+            <p style="margin: 16px 0; color: #dc2626; font-weight: 600;">⚠️ Action Required: Please review the revised quote.</p>
+            ${actionButton("Review Revised Quote", d.request_url)}
+            ${footer()}
+        `);
+    },
+};
+
 // ─── sr_approved_admin ───────────────────────────────────────────────────────
 export const srApprovedAdmin: EmailTemplate = {
     subject: (payload) => `Service Request Approved: ${p(payload).entity_id_readable}`,

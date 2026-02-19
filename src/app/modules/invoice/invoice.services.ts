@@ -9,6 +9,7 @@ import {
     orders,
     inboundRequests,
     serviceRequests,
+    platforms,
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
@@ -27,9 +28,25 @@ import {
     assertServiceRequestCanGenerateInvoice,
     projectPricingByRole,
 } from "../../utils/commercial-policy";
+import { featureNames } from "../../constants/common";
+
+const assertKadenceInvoicingEnabled = async (platformId: string) => {
+    const [platform] = await db
+        .select({ features: platforms.features })
+        .from(platforms)
+        .where(eq(platforms.id, platformId))
+        .limit(1);
+    const features = (platform?.features || {}) as Record<string, boolean>;
+    if (features?.[featureNames.enable_kadence_invoicing] === true) return;
+    throw new CustomizedError(
+        httpStatus.FORBIDDEN,
+        "Kadence invoicing is disabled for this platform"
+    );
+};
 
 // ----------------------------------- GET INVOICE BY ID --------------------------------------
 const getInvoiceById = async (invoiceId: string, user: AuthUser, platformId: string) => {
+    await assertKadenceInvoicingEnabled(platformId);
     assertRoleCanReadCommercialInvoice(user.role);
 
     // Step 1: Determine if invoiceId is UUID or invoice_id
@@ -148,6 +165,7 @@ const getInvoiceById = async (invoiceId: string, user: AuthUser, platformId: str
 
 // ----------------------------------- DOWNLOAD INVOICE ---------------------------------------
 export const downloadInvoice = async (invoiceId: string, user: AuthUser, platformId: string) => {
+    await assertKadenceInvoicingEnabled(platformId);
     // Get invoice with access control
     const invoice = await getInvoiceById(invoiceId, user, platformId);
 
@@ -163,6 +181,7 @@ export const downloadInvoice = async (invoiceId: string, user: AuthUser, platfor
 
 // ----------------------------------- GET INVOICES -------------------------------------------
 const getInvoices = async (query: Record<string, any>, user: AuthUser, platformId: string) => {
+    await assertKadenceInvoicingEnabled(platformId);
     assertRoleCanReadCommercialInvoice(user.role);
 
     const {
@@ -399,6 +418,7 @@ const confirmPayment = async (
     user: AuthUser,
     platformId: string
 ) => {
+    await assertKadenceInvoicingEnabled(platformId);
     // Step 2: Fetch invoice with order information
     const [result] = await db
         .select({
@@ -505,6 +525,7 @@ const generateInvoice = async (
     user: AuthUser,
     payload: GenerateInvoicePayload
 ) => {
+    await assertKadenceInvoicingEnabled(platformId);
     const { order_id, service_request_id, regenerate } = payload;
 
     if (service_request_id) {

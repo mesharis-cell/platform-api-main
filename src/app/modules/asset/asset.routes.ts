@@ -116,24 +116,6 @@ router.get(
     AssetControllers.getAssetScanHistory
 );
 
-// Sent asset to maintenance
-router.patch(
-    "/:id/sent-to-maintenance",
-    platformValidator,
-    auth("ADMIN", "LOGISTICS"),
-    // requirePermission(PERMISSIONS.CONDITIONS_COMPLETE_MAINTENANCE),
-    AssetControllers.sentAssetToMaintenance
-);
-
-// Complete maintenance
-router.patch(
-    "/:id/complete-maintenance",
-    platformValidator,
-    auth("ADMIN", "LOGISTICS"),
-    // requirePermission(PERMISSIONS.CONDITIONS_COMPLETE_MAINTENANCE),
-    AssetControllers.completeMaintenance
-);
-
 // Get asset versions
 router.get(
     "/:id/versions",

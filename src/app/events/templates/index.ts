@@ -67,6 +67,7 @@ import {
     srInvoiceAdmin,
     srInvoiceClient,
     srQuotedClient,
+    srQuoteRevisedClient,
     srSubmittedAdmin,
     srSubmittedLogistics,
 } from "./service-request";
@@ -127,6 +128,7 @@ const registry: Record<string, EmailTemplate> = {
     sr_submitted_admin: srSubmittedAdmin,
     sr_submitted_logistics: srSubmittedLogistics,
     sr_quoted_client: srQuotedClient,
+    sr_quote_revised_client: srQuoteRevisedClient,
     sr_approved_admin: srApprovedAdmin,
     sr_completed_client: srCompletedClient,
     sr_completed_admin: srCompletedAdmin,

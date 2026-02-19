@@ -3161,6 +3161,15 @@ async function seedNotificationRules() {
             sort_order: 0,
         },
 
+        // service_request.quote_revised
+        {
+            event_type: "service_request.quote_revised",
+            recipient_type: "ENTITY_OWNER",
+            recipient_value: null,
+            template_key: "sr_quote_revised_client",
+            sort_order: 0,
+        },
+
         // service_request.approved
         {
             event_type: "service_request.approved",

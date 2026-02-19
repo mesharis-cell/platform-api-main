@@ -38,6 +38,7 @@ export const EVENT_TYPES = {
     // Service request lifecycle
     SERVICE_REQUEST_SUBMITTED: "service_request.submitted",
     SERVICE_REQUEST_QUOTED: "service_request.quoted",
+    SERVICE_REQUEST_QUOTE_REVISED: "service_request.quote_revised",
     SERVICE_REQUEST_APPROVED: "service_request.approved",
     SERVICE_REQUEST_COMPLETED: "service_request.completed",
     SERVICE_REQUEST_INVOICE_GENERATED: "service_request.invoice_generated",
@@ -254,6 +255,13 @@ export interface ServiceRequestSubmittedPayload extends BaseEventPayload {
 export interface ServiceRequestQuotedPayload extends BaseEventPayload {
     contact_name: string;
     final_total: string;
+    request_url: string;
+}
+
+export interface ServiceRequestQuoteRevisedPayload extends BaseEventPayload {
+    contact_name: string;
+    final_total: string;
+    revision_reason?: string;
     request_url: string;
 }
 

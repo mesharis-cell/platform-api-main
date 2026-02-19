@@ -104,6 +104,7 @@ const getConfigByHostname = async (origin: string) => {
                     id: platforms.id,
                     name: platforms.name,
                     config: platforms.config,
+                    features: platforms.features,
                 })
                 .from(platforms)
                 .where(eq(platforms.domain, rootDomain))
@@ -120,6 +121,7 @@ const getConfigByHostname = async (origin: string) => {
                     primary_color: config?.primary_color || null,
                     secondary_color: config?.secondary_color || null,
                     currency: config?.currency || null,
+                    features: (platform.features || {}) as Record<string, boolean>,
                 };
             }
             return null;
@@ -132,15 +134,20 @@ const getConfigByHostname = async (origin: string) => {
                 company_id: companyDomains.company_id,
                 company_name: companies.name,
                 settings: companies.settings,
+                company_features: companies.features,
+                platform_features: platforms.features,
             })
             .from(companyDomains)
             .innerJoin(companies, eq(companyDomains.company_id, companies.id))
+            .innerJoin(platforms, eq(companyDomains.platform_id, platforms.id))
             .where(eq(companyDomains.hostname, hostname))
             .limit(1);
 
         if (result) {
             const settings = result.settings as any;
             const branding = settings?.branding || {};
+            const platformFeatures = (result.platform_features || {}) as Record<string, boolean>;
+            const companyFeatures = (result.company_features || {}) as Record<string, boolean>;
 
             return {
                 platform_id: result.platform_id,
@@ -150,6 +157,9 @@ const getConfigByHostname = async (origin: string) => {
                 primary_color: branding?.primary_color || null,
                 secondary_color: branding?.secondary_color || null,
                 currency: null,
+                features: { ...platformFeatures, ...companyFeatures },
+                platform_features: platformFeatures,
+                company_features: companyFeatures,
             };
         }
 
@@ -161,6 +171,7 @@ const getConfigByHostname = async (origin: string) => {
                 id: platforms.id,
                 name: platforms.name,
                 config: platforms.config,
+                features: platforms.features,
             })
             .from(platforms)
             .where(eq(platforms.domain, url.host || url.href))
@@ -177,6 +188,7 @@ const getConfigByHostname = async (origin: string) => {
                 primary_color: config?.primary_color || null,
                 secondary_color: config?.secondary_color || null,
                 currency: config?.currency || null,
+                features: (platform.features || {}) as Record<string, boolean>,
             };
         }
 
@@ -186,15 +198,20 @@ const getConfigByHostname = async (origin: string) => {
                 company_id: companyDomains.company_id,
                 company_name: companies.name,
                 settings: companies.settings,
+                company_features: companies.features,
+                platform_features: platforms.features,
             })
             .from(companyDomains)
             .innerJoin(companies, eq(companyDomains.company_id, companies.id))
+            .innerJoin(platforms, eq(companyDomains.platform_id, platforms.id))
             .where(eq(companyDomains.hostname, url.host || url.href))
             .limit(1);
 
         if (result) {
             const settings = result.settings as any;
             const branding = settings?.branding || {};
+            const platformFeatures = (result.platform_features || {}) as Record<string, boolean>;
+            const companyFeatures = (result.company_features || {}) as Record<string, boolean>;
 
             return {
                 platform_id: result.platform_id,
@@ -204,6 +221,9 @@ const getConfigByHostname = async (origin: string) => {
                 primary_color: branding?.primary_color || null,
                 secondary_color: branding?.secondary_color || null,
                 currency: null,
+                features: { ...platformFeatures, ...companyFeatures },
+                platform_features: platformFeatures,
+                company_features: companyFeatures,
             };
         }
 

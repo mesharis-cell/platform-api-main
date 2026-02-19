@@ -24,3 +24,11 @@ export type UpdateServiceRequestCommercialStatusPayload = z.infer<
 export type ApproveServiceRequestQuotePayload = z.infer<
     typeof ServiceRequestSchemas.approveServiceRequestQuoteSchema
 >["body"];
+
+export type RespondServiceRequestQuotePayload = z.infer<
+    typeof ServiceRequestSchemas.respondServiceRequestQuoteSchema
+>["body"];
+
+export type ApplyServiceRequestConcessionPayload = z.infer<
+    typeof ServiceRequestSchemas.applyServiceRequestConcessionSchema
+>["body"];

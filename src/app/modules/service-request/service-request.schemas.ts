@@ -2,6 +2,7 @@ import z from "zod";
 import {
     serviceRequestBillingModeEnum,
     serviceRequestCommercialStatusEnum,
+    serviceRequestLinkModeEnum,
     serviceRequestStatusEnum,
     serviceRequestTypeEnum,
 } from "../../../db/schema";
@@ -23,6 +24,8 @@ const createServiceRequestSchema = z.object({
             company_id: z.string().uuid("Invalid company ID").optional(),
             request_type: z.enum(serviceRequestTypeEnum.enumValues),
             billing_mode: z.enum(serviceRequestBillingModeEnum.enumValues).default("INTERNAL_ONLY"),
+            link_mode: z.enum(serviceRequestLinkModeEnum.enumValues).default("STANDALONE"),
+            blocks_fulfillment: z.boolean().optional(),
             title: z
                 .string({ message: "Title is required" })
                 .min(1, "Title is required")
@@ -45,9 +48,13 @@ const updateServiceRequestSchema = z.object({
     body: z
         .object({
             billing_mode: z.enum(serviceRequestBillingModeEnum.enumValues).optional(),
+            link_mode: z.enum(serviceRequestLinkModeEnum.enumValues).optional(),
+            blocks_fulfillment: z.boolean().optional(),
             title: z.string().min(1).max(200).optional(),
             description: z.string().max(5000).optional(),
             related_asset_id: z.string().uuid().optional().nullable(),
+            related_order_id: z.string().uuid().optional().nullable(),
+            related_order_item_id: z.string().uuid().optional().nullable(),
             requested_start_at: z.string().datetime().optional().nullable(),
             requested_due_at: z.string().datetime().optional().nullable(),
             items: z.array(serviceRequestItemSchema).min(1).optional(),
@@ -81,6 +88,7 @@ const updateServiceRequestCommercialStatusSchema = z.object({
         .object({
             commercial_status: z.enum(serviceRequestCommercialStatusEnum.enumValues),
             note: z.string().max(1000).optional(),
+            revision_reason: z.string().max(1000).optional(),
         })
         .strict(),
 });
@@ -93,6 +101,26 @@ const approveServiceRequestQuoteSchema = z.object({
         .strict(),
 });
 
+const respondServiceRequestQuoteSchema = z.object({
+    body: z
+        .object({
+            action: z.enum(["APPROVE", "DECLINE", "REQUEST_REVISION"]),
+            note: z.string().max(1000).optional(),
+        })
+        .strict(),
+});
+
+const applyServiceRequestConcessionSchema = z.object({
+    body: z
+        .object({
+            concession_reason: z
+                .string({ message: "Concession reason is required" })
+                .min(10, "Concession reason must be at least 10 characters")
+                .max(1000, "Concession reason must be under 1000 characters"),
+        })
+        .strict(),
+});
+
 export const ServiceRequestSchemas = {
     createServiceRequestSchema,
     updateServiceRequestSchema,
@@ -100,4 +128,6 @@ export const ServiceRequestSchemas = {
     cancelServiceRequestSchema,
     updateServiceRequestCommercialStatusSchema,
     approveServiceRequestQuoteSchema,
+    respondServiceRequestQuoteSchema,
+    applyServiceRequestConcessionSchema,
 };

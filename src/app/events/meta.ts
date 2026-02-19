@@ -71,6 +71,7 @@ export const EVENT_GROUPS: EventGroup[] = [
         events: [
             { key: "service_request.submitted", label: "SR Submitted" },
             { key: "service_request.quoted", label: "SR Quoted" },
+            { key: "service_request.quote_revised", label: "SR Quote Revised" },
             { key: "service_request.approved", label: "SR Approved" },
             { key: "service_request.completed", label: "SR Completed" },
             { key: "service_request.invoice_generated", label: "SR Invoice" },
@@ -167,6 +168,9 @@ export const TEMPLATES_BY_EVENT: Record<string, TemplateMeta[]> = {
         { key: "sr_submitted_logistics", label: "Logistics — SR Submitted" },
     ],
     "service_request.quoted": [{ key: "sr_quoted_client", label: "Client — SR Quoted" }],
+    "service_request.quote_revised": [
+        { key: "sr_quote_revised_client", label: "Client — SR Quote Revised" },
+    ],
     "service_request.approved": [{ key: "sr_approved_admin", label: "Admin — SR Approved" }],
     "service_request.completed": [
         { key: "sr_completed_client", label: "Client — SR Completed" },

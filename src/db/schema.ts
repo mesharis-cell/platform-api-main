@@ -158,6 +158,11 @@ export const serviceRequestBillingModeEnum = pgEnum("service_request_billing_mod
     "INTERNAL_ONLY",
     "CLIENT_BILLABLE",
 ]);
+export const serviceRequestLinkModeEnum = pgEnum("service_request_link_mode", [
+    "STANDALONE",
+    "BUNDLED_WITH_ORDER",
+    "SEPARATE_CHANGE_REQUEST",
+]);
 
 // ---------------------------------- PLATFORM -------------------------------------------
 // Config structure:
@@ -1773,6 +1778,8 @@ export const serviceRequests = pgTable(
         billing_mode: serviceRequestBillingModeEnum("billing_mode")
             .notNull()
             .default("INTERNAL_ONLY"),
+        link_mode: serviceRequestLinkModeEnum("link_mode").notNull().default("STANDALONE"),
+        blocks_fulfillment: boolean("blocks_fulfillment").notNull().default(false),
         request_status: serviceRequestStatusEnum("request_status").notNull().default("DRAFT"),
         commercial_status: serviceRequestCommercialStatusEnum("commercial_status")
             .notNull()
@@ -1783,6 +1790,13 @@ export const serviceRequests = pgTable(
         related_order_id: uuid("related_order_id").references(() => orders.id),
         related_order_item_id: uuid("related_order_item_id").references(() => orderItems.id),
         request_pricing_id: uuid("request_pricing_id").references(() => prices.id),
+        client_sell_override_total: decimal("client_sell_override_total", {
+            precision: 12,
+            scale: 2,
+        }),
+        concession_reason: text("concession_reason"),
+        concession_approved_by: uuid("concession_approved_by").references(() => users.id),
+        concession_applied_at: timestamp("concession_applied_at"),
         requested_start_at: timestamp("requested_start_at"),
         requested_due_at: timestamp("requested_due_at"),
         created_by: uuid("created_by")
@@ -1887,6 +1901,11 @@ export const serviceRequestsRelations = relations(serviceRequests, ({ one, many 
         fields: [serviceRequests.cancelled_by],
         references: [users.id],
         relationName: "service_request_cancelled_by_user",
+    }),
+    concession_approved_by_user: one(users, {
+        fields: [serviceRequests.concession_approved_by],
+        references: [users.id],
+        relationName: "service_request_concession_approved_by_user",
     }),
     line_items: many(lineItems),
     invoices: many(invoices),
