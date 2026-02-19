@@ -407,58 +407,61 @@ async function seedBrands() {
     const pr = companyByName("Pernod Ricard");
     const dg = companyByName("Diageo");
 
+    // Pernod Ricard brands (full catalogue from thin-MVP import)
+    const prBrands = [
+        { name: "Absolut", description: "Absolut Vodka activations" },
+        { name: "Altos", description: "Altos Tequila brand activations" },
+        { name: "Avion", description: "Avion Tequila brand activations" },
+        { name: "Barracuda", description: "Barracuda venue brand assets" },
+        { name: "Beefeater", description: "Beefeater Gin brand activations" },
+        { name: "Blenders Pride", description: "Blenders Pride whisky activations" },
+        { name: "Cedar's", description: "Cedar's non-alcoholic spirit activations" },
+        { name: "Chivas Regal", description: "Chivas Regal whisky events" },
+        { name: "General", description: "General / multi-use platform assets" },
+        { name: "Havana Club", description: "Havana Club rum brand activations" },
+        { name: "Jameson", description: "Jameson Irish Whiskey brand experiences" },
+        { name: "Le Cercle", description: "Le Cercle brand assets" },
+        { name: "Lillet", description: "Lillet aperitif brand activations" },
+        { name: "Longitude 77", description: "Longitude 77 brand activations" },
+        { name: "Longmorn", description: "Longmorn whisky brand activations" },
+        { name: "Malfy", description: "Malfy Gin brand activations" },
+        { name: "Martell", description: "Martell Cognac brand activations" },
+        { name: "Moët", description: "Moët & Chandon champagne activations" },
+        { name: "Monkey 47", description: "Monkey 47 Gin brand activations" },
+        { name: "Multi-Brand", description: "Cross-brand and multi-brand activations" },
+        { name: "Mumm", description: "Mumm champagne brand activations" },
+        { name: "Perrier-Jouët", description: "Perrier-Jouët champagne brand activations" },
+        { name: "Ricard", description: "Ricard pastis brand activations" },
+        { name: "Royal Salute", description: "Royal Salute whisky brand activations" },
+        { name: "Royal Stag", description: "Royal Stag whisky brand activations" },
+        { name: "Sainte Marguerite", description: "Château Sainte Marguerite brand activations" },
+        { name: "Sipsmith", description: "Sipsmith Gin brand activations" },
+        { name: "The Glenlivet", description: "The Glenlivet whisky brand activations" },
+        { name: "Unknown", description: "Unidentified / pending categorisation" },
+    ].map((b) => ({
+        platform_id: pid,
+        company_id: pr.id,
+        logo_url: brandLogo(b.name),
+        is_active: true,
+        ...b,
+    }));
+
+    // Diageo brands
+    const dgBrands = [
+        { name: "Johnnie Walker", description: "Johnnie Walker activations" },
+        { name: "Guinness", description: "Guinness experiences" },
+        { name: "Baileys", description: "Baileys brand events" },
+    ].map((b) => ({
+        platform_id: pid,
+        company_id: dg.id,
+        logo_url: brandLogo(b.name),
+        is_active: true,
+        ...b,
+    }));
+
     const brands = await db
         .insert(schema.brands)
-        .values([
-            {
-                platform_id: pid,
-                company_id: pr.id,
-                name: "Absolut",
-                description: "Absolut Vodka activations",
-                logo_url: brandLogo("Absolut"),
-                is_active: true,
-            },
-            {
-                platform_id: pid,
-                company_id: pr.id,
-                name: "Chivas Regal",
-                description: "Chivas Regal events",
-                logo_url: brandLogo("Chivas Regal"),
-                is_active: true,
-            },
-            {
-                platform_id: pid,
-                company_id: pr.id,
-                name: "Jameson",
-                description: "Jameson brand experiences",
-                logo_url: brandLogo("Jameson"),
-                is_active: true,
-            },
-            {
-                platform_id: pid,
-                company_id: dg.id,
-                name: "Johnnie Walker",
-                description: "Johnnie Walker activations",
-                logo_url: brandLogo("Johnnie Walker"),
-                is_active: true,
-            },
-            {
-                platform_id: pid,
-                company_id: dg.id,
-                name: "Guinness",
-                description: "Guinness experiences",
-                logo_url: brandLogo("Guinness"),
-                is_active: true,
-            },
-            {
-                platform_id: pid,
-                company_id: dg.id,
-                name: "Baileys",
-                description: "Baileys brand events",
-                logo_url: brandLogo("Baileys"),
-                is_active: true,
-            },
-        ])
+        .values([...prBrands, ...dgBrands])
         .returning();
     S.brands = brands;
     console.log(`✓ ${brands.length} brands`);
