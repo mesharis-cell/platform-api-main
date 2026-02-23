@@ -31,8 +31,19 @@ const forgotPasswordSchema = z.object({
         .strict(),
 });
 
+const refreshTokenSchema = z.object({
+    body: z
+        .object({
+            refresh_token: z
+                .string({ error: "Refresh token is required" })
+                .min(1, "Refresh token is required"),
+        })
+        .strict(),
+});
+
 export const AuthSchemas = {
     loginValidationSchema,
     resetPasswordValidationSchema,
     forgotPasswordSchema,
+    refreshTokenSchema,
 };

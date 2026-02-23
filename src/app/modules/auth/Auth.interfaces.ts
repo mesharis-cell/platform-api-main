@@ -13,3 +13,6 @@ export interface ResetPasswordPayload {
 }
 // ----------------------------------- FORGOT PASSWORD PAYLOAD --------------------------------
 export type ForgotPasswordPayload = z.infer<typeof AuthSchemas.forgotPasswordSchema>["body"];
+
+// ----------------------------------- REFRESH TOKEN PAYLOAD ---------------------------------
+export type RefreshTokenPayload = z.infer<typeof AuthSchemas.refreshTokenSchema>["body"];

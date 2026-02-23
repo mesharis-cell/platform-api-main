@@ -1,5 +1,5 @@
 // ---------------------------------- GENERATE UNIQUE QR CODE ----------------------------------
-// Format: ASSET-{companyCode}-{timestamp}-{random}
+// Format: ASSET-{companyCode}-{YYYYMMDD}-{random}
 import { randomBytes } from "crypto";
 import { eq } from "drizzle-orm";
 import { db } from "../../db";
@@ -24,12 +24,12 @@ export const qrCodeGenerator = async (companyID: string) => {
     let isUnique = false;
     let attempts = 0;
     const maxAttempts = 10;
+    const dateSegment = new Date().toISOString().slice(0, 10).replace(/-/g, "");
 
     // Ensure uniqueness with retry logic
     while (!isUnique && attempts < maxAttempts) {
-        const timestamp = Date.now();
         const random = randomBytes(3).toString("hex").toUpperCase();
-        qrCode = `ASSET-${companyCode}-${timestamp}-${random}`;
+        qrCode = `ASSET-${companyCode}-${dateSegment}-${random}`;
 
         // Check if QR code already exists
         const existing = await db.query.assets.findFirst({

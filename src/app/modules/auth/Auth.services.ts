@@ -7,8 +7,13 @@ import { companies, companyDomains, platforms, users, otp } from "../../../db/sc
 import config from "../../config";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
-import { tokenGenerator } from "../../utils/jwt-helpers";
-import { ForgotPasswordPayload, LoginCredential, ResetPasswordPayload } from "./Auth.interfaces";
+import { tokenGenerator, tokenVerifier } from "../../utils/jwt-helpers";
+import {
+    ForgotPasswordPayload,
+    LoginCredential,
+    RefreshTokenPayload,
+    ResetPasswordPayload,
+} from "./Auth.interfaces";
 import { OTPGenerator } from "../../utils/helper";
 import { eventBus, EVENT_TYPES } from "../../events";
 import { OTPVerifier } from "../../utils/otp-verifier";
@@ -82,6 +87,65 @@ const login = async (credential: LoginCredential, platformId: string) => {
     return {
         ...userData,
         last_login_at: new Date(),
+        access_token: accessToken,
+        refresh_token: refreshToken,
+    };
+};
+
+const refresh = async (payload: RefreshTokenPayload) => {
+    const { refresh_token } = payload;
+
+    let verifiedUser: AuthUser;
+    try {
+        verifiedUser = tokenVerifier(
+            refresh_token,
+            config.jwt_refresh_secret as Secret
+        ) as AuthUser;
+    } catch {
+        throw new CustomizedError(httpStatus.UNAUTHORIZED, "Invalid or expired refresh token");
+    }
+
+    if (!verifiedUser?.id || !verifiedUser?.platform_id) {
+        throw new CustomizedError(httpStatus.UNAUTHORIZED, "Invalid refresh token payload");
+    }
+
+    const [user] = await db
+        .select()
+        .from(users)
+        .where(
+            and(
+                eq(users.id, verifiedUser.id),
+                eq(users.platform_id, verifiedUser.platform_id),
+                eq(users.is_active, true)
+            )
+        );
+
+    if (!user) {
+        throw new CustomizedError(httpStatus.UNAUTHORIZED, "User not found or inactive");
+    }
+
+    const jwtPayload = {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        company_id: user.company_id,
+        platform_id: user.platform_id,
+    };
+
+    const accessToken = tokenGenerator(
+        jwtPayload,
+        config.jwt_access_secret as Secret,
+        config.jwt_access_expires_in
+    );
+
+    const refreshToken = tokenGenerator(
+        jwtPayload,
+        config.jwt_refresh_secret as Secret,
+        config.jwt_refresh_expires_in
+    );
+
+    return {
         access_token: accessToken,
         refresh_token: refreshToken,
     };
@@ -531,6 +595,7 @@ const forgotPassword = async (platformId: string, payload: ForgotPasswordPayload
 
 export const AuthServices = {
     login,
+    refresh,
     getConfigByHostname,
     resetPassword,
     forgotPassword,
