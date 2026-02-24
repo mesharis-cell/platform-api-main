@@ -1,7 +1,7 @@
 /**
  * DEMO-READY DATABASE SEED
  *
- * Single platform: gameondevelopment.live
+ * Single platform: kadence.ae
  * Two companies: Pernod Ricard + Diageo
  * Deterministic QR codes (survive re-seeds)
  * Explicit demo-ready orders at required statuses
@@ -124,14 +124,14 @@ async function seedPlatform() {
     const [platform] = await db
         .insert(schema.platforms)
         .values({
-            name: "Game On Development",
-            domain: "gameondevelopment.live",
+            name: "Kadence",
+            domain: "kadence.ae",
             config: {
                 logo_url: "https://placehold.co/200x80/f97316/ffffff?text=Game+On",
                 primary_color: "#f97316",
                 secondary_color: "#0ea5e9",
                 logistics_partner_name: "A2 Logistics",
-                support_email: "support@gameondevelopment.live",
+                support_email: "support@kadence.ae",
                 currency: "AED",
                 feasibility: {
                     minimum_lead_hours: 24,
@@ -235,7 +235,7 @@ async function seedCompanyDomains() {
     const domains = S.companies.map((c) => ({
         platform_id: S.platform.id,
         company_id: c.id,
-        hostname: `${c.domain}.gameondevelopment.live`,
+        hostname: `${c.domain}.kadence.ae`,
         type: "VANITY" as const,
         is_verified: true,
         is_active: true,

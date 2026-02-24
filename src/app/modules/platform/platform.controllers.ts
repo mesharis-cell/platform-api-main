@@ -46,9 +46,21 @@ const updatePlatformFeatures = catchAsync(async (req, res) => {
     });
 });
 
+const updatePlatformDomain = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId as string;
+    const result = await PlatformServices.updatePlatformDomain(platformId, req.body.domain);
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Platform domain updated",
+        data: result,
+    });
+});
+
 export const PlatformControllers = {
     createPlatform,
     getMyPlatform,
     updatePlatformConfig,
     updatePlatformFeatures,
+    updatePlatformDomain,
 };

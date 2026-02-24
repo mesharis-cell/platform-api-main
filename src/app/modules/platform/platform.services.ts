@@ -69,9 +69,19 @@ const updatePlatformFeatures = async (platformId: string, patch: Record<string, 
     return updated;
 };
 
+const updatePlatformDomain = async (platformId: string, domain: string) => {
+    const [updated] = await db
+        .update(platforms)
+        .set({ domain })
+        .where(eq(platforms.id, platformId))
+        .returning();
+    return updated;
+};
+
 export const PlatformServices = {
     createPlatform,
     getPlatform,
     updatePlatformConfig,
     updatePlatformFeatures,
+    updatePlatformDomain,
 };

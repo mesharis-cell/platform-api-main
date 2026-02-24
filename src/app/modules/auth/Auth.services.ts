@@ -151,9 +151,18 @@ const refresh = async (payload: RefreshTokenPayload) => {
     };
 };
 
+const ENV_PREFIXES = new Set(["staging", "dev", "preview", "test"]);
+
+/** Strip a leading env prefix so staging.admin.kadence.ae → admin.kadence.ae */
+const normalizeHostname = (hostname: string): string => {
+    const parts = hostname.split(".");
+    if (parts.length > 2 && ENV_PREFIXES.has(parts[0])) return parts.slice(1).join(".");
+    return hostname;
+};
+
 const getConfigByHostname = async (origin: string) => {
     const url = new URL(origin);
-    const hostname = url.hostname;
+    const hostname = normalizeHostname(url.hostname);
     const subdomain = hostname.split(".")[0];
 
     // Production environment
@@ -238,7 +247,7 @@ const getConfigByHostname = async (origin: string) => {
                 features: platforms.features,
             })
             .from(platforms)
-            .where(eq(platforms.domain, url.host || url.href))
+            .where(eq(platforms.domain, hostname))
             .limit(1);
 
         if (platform) {
@@ -268,7 +277,7 @@ const getConfigByHostname = async (origin: string) => {
             .from(companyDomains)
             .innerJoin(companies, eq(companyDomains.company_id, companies.id))
             .innerJoin(platforms, eq(companyDomains.platform_id, platforms.id))
-            .where(eq(companyDomains.hostname, url.host || url.href))
+            .where(eq(companyDomains.hostname, hostname))
             .limit(1);
 
         if (result) {

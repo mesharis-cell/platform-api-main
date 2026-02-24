@@ -23,6 +23,7 @@ import { ExportRoutes } from "../modules/export/export.routes";
 import { ServiceRequestRoutes } from "../modules/service-request/service-request.routes";
 import { SelfBookingsRoutes } from "../modules/self-bookings/self-bookings.routes";
 import { TeamRoutes } from "../modules/team/team.routes";
+import { CompanyDomainRoutes } from "../modules/company-domain/company-domain.routes";
 
 const router = Router();
 
@@ -122,6 +123,10 @@ const routes = [
     {
         path: "/team",
         route: TeamRoutes,
+    },
+    {
+        path: "/company-domain",
+        route: CompanyDomainRoutes,
     },
 ];
 

@@ -52,6 +52,20 @@ const createPlatform = z.object({
     }),
 });
 
+const updatePlatformDomain = z.object({
+    body: z.object({
+        domain: z
+            .string()
+            .min(1, "Domain is required")
+            .max(253, "Domain must be at most 253 characters")
+            .regex(
+                /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/,
+                "Invalid domain format"
+            ),
+    }),
+});
+
 export const PlatformSchemas = {
     createPlatform,
+    updatePlatformDomain,
 };

@@ -122,7 +122,7 @@ async function seedPlatform() {
         .insert(schema.platforms)
         .values({
             name: "Kadence",
-            domain: "gameondevelopment.live",
+            domain: "kadence.ae",
             config: {},
             features: {},
         })
@@ -183,7 +183,7 @@ async function seedCompanyDomains() {
     await db.insert(schema.companyDomains).values({
         platform_id: S.platform.id,
         company_id: S.company.id,
-        hostname: "pernod-ricard.gameondevelopment.live",
+        hostname: "pernod-ricard.kadence.ae",
         type: "VANITY" as const,
         is_verified: true,
         is_active: true,
