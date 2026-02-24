@@ -118,14 +118,11 @@ async function getAllowedOrigins(): Promise<Set<string>> {
  * Useful when domains are added/updated via admin panel
  */
 export async function refreshCorsCache(): Promise<void> {
-    lastCacheUpdate = 0; // Force cache refresh
+    lastCacheUpdate = 0;
     await getAllowedOrigins();
     console.log("[CORS] Cache refreshed");
 }
 
-/**
- * Get current cached origins (for debugging/monitoring)
- */
 export function getCachedOrigins(): string[] {
     return Array.from(allowedOriginsCache);
 }

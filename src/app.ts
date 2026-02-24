@@ -68,7 +68,7 @@ app.get("/", (req: Request, res: Response) => {
 });
 
 // main routes
-app.use("/api", router);
+app.use("/", router);
 app.use("/api-docs", swaggerRoutes);
 
 // handle error
