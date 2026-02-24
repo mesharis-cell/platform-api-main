@@ -2,6 +2,11 @@ import z from "zod";
 import { assetConditionEnum, assetStatusEnum, trackingMethodEnum } from "../../../db/schema";
 import { enumMessageGenerator } from "../../utils/helper";
 
+const assetImageSchema = z.object({
+    url: z.string().url("Invalid image URL"),
+    note: z.string().max(500, "Image note must be under 500 characters").optional(),
+});
+
 const createAssetSchema = z.object({
     body: z
         .object({
@@ -22,7 +27,7 @@ const createAssetSchema = z.object({
                 .string()
                 .min(1, "Category is required")
                 .max(100, "Category must be under 100 characters"),
-            images: z.array(z.string().url("Invalid image URL")).optional().default([]),
+            images: z.array(assetImageSchema).optional().default([]),
             on_display_image: z.string().url("Invalid on display image URL").optional(),
             tracking_method: z.enum(trackingMethodEnum.enumValues, {
                 message: enumMessageGenerator("Tracking method", trackingMethodEnum.enumValues),
@@ -64,6 +69,7 @@ const createAssetSchema = z.object({
                 .int("Refurbishment days must be an integer")
                 .min(0, "Refurbishment days cannot be negative")
                 .optional(),
+            team_id: z.string().uuid("Invalid team ID").optional().nullable(),
             handling_tags: z.array(z.string()).optional().default([]),
             status: z
                 .enum(assetStatusEnum.enumValues, {
@@ -105,7 +111,7 @@ const updateAssetSchema = z.object({
             .optional(),
         description: z.string().optional().nullable(),
         category: z.string().optional(),
-        images: z.array(z.string().url("Invalid image URL")).optional(),
+        images: z.array(assetImageSchema).optional(),
         on_display_image: z.string().url("Invalid on display image URL").optional().nullable(),
         tracking_method: z
             .enum(trackingMethodEnum.enumValues, {
@@ -148,6 +154,7 @@ const updateAssetSchema = z.object({
             .min(0, "Refurbishment days cannot be negative")
             .optional()
             .nullable(),
+        team_id: z.string().uuid("Invalid team ID").optional().nullable(),
         handling_tags: z.array(z.string()).optional(),
         status: z
             .enum(Object.values(assetStatusEnum.enumValues), {

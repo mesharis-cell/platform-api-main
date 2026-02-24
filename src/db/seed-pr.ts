@@ -42,6 +42,7 @@ const S = {
     zones: [] as any[],
     vehicleTypes: [] as any[],
     serviceTypes: [] as any[],
+    teams: [] as any[],
 };
 
 const hashPassword = (pw: string) => bcrypt.hash(pw, 10);
@@ -458,14 +459,44 @@ async function seedServiceTypes() {
     console.log("🛠️  Seeding service types...");
     const pid = S.platform.id;
     const baseServices = [
-        { name: "Basic Assembly", category: "ASSEMBLY" as const, unit: "hour", default_rate: "75.00" },
-        { name: "Complex Assembly", category: "ASSEMBLY" as const, unit: "hour", default_rate: "120.00" },
-        { name: "Forklift Operation", category: "EQUIPMENT" as const, unit: "hour", default_rate: "200.00" },
-        { name: "Loading / Unloading", category: "HANDLING" as const, unit: "hour", default_rate: "60.00" },
-        { name: "Fragile Item Handling", category: "HANDLING" as const, unit: "unit", default_rate: "25.00" },
+        {
+            name: "Basic Assembly",
+            category: "ASSEMBLY" as const,
+            unit: "hour",
+            default_rate: "75.00",
+        },
+        {
+            name: "Complex Assembly",
+            category: "ASSEMBLY" as const,
+            unit: "hour",
+            default_rate: "120.00",
+        },
+        {
+            name: "Forklift Operation",
+            category: "EQUIPMENT" as const,
+            unit: "hour",
+            default_rate: "200.00",
+        },
+        {
+            name: "Loading / Unloading",
+            category: "HANDLING" as const,
+            unit: "hour",
+            default_rate: "60.00",
+        },
+        {
+            name: "Fragile Item Handling",
+            category: "HANDLING" as const,
+            unit: "unit",
+            default_rate: "25.00",
+        },
         { name: "Vinyl Wrap", category: "RESKIN" as const, unit: "unit", default_rate: "300.00" },
         { name: "Storage Fee", category: "OTHER" as const, unit: "day", default_rate: "50.00" },
-        { name: "Cleaning Service", category: "OTHER" as const, unit: "unit", default_rate: "35.00" },
+        {
+            name: "Cleaning Service",
+            category: "OTHER" as const,
+            unit: "unit",
+            default_rate: "35.00",
+        },
     ];
 
     // Fetch transport rates seeded above and generate TRANSPORT service types
@@ -493,20 +524,31 @@ async function seedServiceTypes() {
             unit: "trip",
             default_rate: r.rate,
             transport_rate_id: r.id,
-            default_metadata: { city_id: r.city_id, vehicle_type_id: r.vehicle_type_id, trip_direction: r.trip_type },
+            default_metadata: {
+                city_id: r.city_id,
+                vehicle_type_id: r.vehicle_type_id,
+                trip_direction: r.trip_type,
+            },
             display_order: baseServices.length + i,
             is_active: true,
         };
     });
 
     const allServices = [
-        ...baseServices.map((s, i) => ({ platform_id: pid, ...s, display_order: i, is_active: true })),
+        ...baseServices.map((s, i) => ({
+            platform_id: pid,
+            ...s,
+            display_order: i,
+            is_active: true,
+        })),
         ...transportServices,
     ];
 
     const inserted = await db.insert(schema.serviceTypes).values(allServices).returning();
     S.serviceTypes = inserted;
-    console.log(`✓ ${baseServices.length} base + ${transportServices.length} transport service types`);
+    console.log(
+        `✓ ${baseServices.length} base + ${transportServices.length} transport service types`
+    );
 }
 
 async function seedNotificationRules() {
@@ -619,6 +661,45 @@ async function seedNotificationRules() {
 }
 
 // ============================================================
+// TEAMS
+// ============================================================
+
+async function seedTeams() {
+    console.log("👥 Seeding teams...");
+    const teamDefs = [
+        {
+            name: "Abu Dhabi Team",
+            description: "AD activation and warehouse crew",
+            see: true,
+            book: false,
+        },
+        {
+            name: "Dubai Team",
+            description: "Dubai activation and warehouse crew",
+            see: true,
+            book: true,
+        },
+    ];
+
+    for (const def of teamDefs) {
+        const [team] = await db
+            .insert(schema.teams)
+            .values({
+                platform_id: S.platform.id,
+                company_id: S.company.id,
+                name: def.name,
+                description: def.description,
+                can_other_teams_see: def.see,
+                can_other_teams_book: def.book,
+            })
+            .returning();
+        S.teams.push(team);
+        console.log(`  ✓ ${def.name}`);
+    }
+    console.log(`✅ ${S.teams.length} teams seeded`);
+}
+
+// ============================================================
 // ASSET CONDITION OVERRIDES
 // ============================================================
 
@@ -680,7 +761,10 @@ async function main() {
         await seedServiceTypes();
         await seedNotificationRules();
 
-        // Phase 3: PR assets from thin-MVP bundle
+        // Phase 3: Teams
+        await seedTeams();
+
+        // Phase 4: PR assets from thin-MVP bundle
         await seedPrAssets({
             platformId: S.platform.id,
             companyId: S.company.id,

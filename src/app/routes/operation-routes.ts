@@ -22,6 +22,7 @@ import { LineItemsRoutes } from "../modules/order-line-items/order-line-items.ro
 import { ExportRoutes } from "../modules/export/export.routes";
 import { ServiceRequestRoutes } from "../modules/service-request/service-request.routes";
 import { SelfBookingsRoutes } from "../modules/self-bookings/self-bookings.routes";
+import { TeamRoutes } from "../modules/team/team.routes";
 
 const router = Router();
 
@@ -117,6 +118,10 @@ const routes = [
     {
         path: "/self-bookings",
         route: SelfBookingsRoutes,
+    },
+    {
+        path: "/team",
+        route: TeamRoutes,
     },
 ];
 

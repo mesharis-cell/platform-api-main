@@ -269,8 +269,11 @@ export async function seedPrAssets(opts: SeedPrAssetsOptions) {
 
             // Build images array (position-ordered)
             const hashes: string[] = (photosByDoc[doc.docExternalKey] ?? []).filter(Boolean);
-            const images = hashes.map((h) => urlByHash[h]).filter(Boolean) as string[];
-            const onDisplayImage = images[0] ?? null;
+            const images = hashes
+                .map((h) => urlByHash[h])
+                .filter(Boolean)
+                .map((url) => ({ url: url as string }));
+            const onDisplayImage = images[0]?.url ?? null;
 
             if (isDryRun) {
                 const existing = existingByName.get(doc.title.toLowerCase());

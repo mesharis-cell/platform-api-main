@@ -58,7 +58,11 @@ const hashPassword = async (pw: string) => bcrypt.hash(pw, 10);
 
 const daysFromNow = (d: number) => new Date(Date.now() + d * 24 * 60 * 60 * 1000);
 
-const generateAssetImages = (category: string, name: string, count = 3): string[] => {
+const generateAssetImages = (
+    category: string,
+    name: string,
+    count = 3
+): { url: string; note?: string }[] => {
     const colors: Record<string, string[]> = {
         Furniture: ["8B4513", "654321", "A0522D"],
         Glassware: ["4682B4", "87CEEB", "B0E0E6"],
@@ -70,7 +74,9 @@ const generateAssetImages = (category: string, name: string, count = 3): string[
     const views = ["Front", "Side", "Detail"];
     return Array.from({ length: count }, (_, i) => {
         const text = `${category}\\n${name.slice(0, 18)}\\n(${views[i]})`;
-        return `https://placehold.co/800x600/${c[i % c.length]}/FFFFFF?text=${encodeURIComponent(text)}`;
+        return {
+            url: `https://placehold.co/800x600/${c[i % c.length]}/FFFFFF?text=${encodeURIComponent(text)}`,
+        };
     });
 };
 
@@ -92,6 +98,7 @@ const S = {
     vehicleTypes: [] as any[],
     transportRates: [] as any[],
     serviceTypes: [] as any[],
+    teams: [] as any[],
     assets: [] as any[],
     collections: [] as any[],
     orders: [] as any[],
@@ -704,6 +711,59 @@ async function seedServiceTypes() {
     console.log(
         `✓ ${S.serviceTypes.length} service types (${baseServices.length} base + ${transportServices.length} transport)`
     );
+}
+
+// ============================================================
+// TEAMS
+// ============================================================
+async function seedTeams() {
+    console.log("👥 Seeding teams...");
+    const pid = S.platform.id;
+
+    const teamDefs = [
+        {
+            company: "Pernod Ricard",
+            name: "Abu Dhabi Team",
+            description: "AD activation crew",
+            see: true,
+            book: false,
+        },
+        {
+            company: "Pernod Ricard",
+            name: "Dubai Team",
+            description: "Dubai activation crew",
+            see: true,
+            book: true,
+        },
+        {
+            company: "Red Bull",
+            name: "Events Team",
+            description: "Events & sponsorships",
+            see: true,
+            book: false,
+        },
+    ];
+
+    for (const def of teamDefs) {
+        const company = companyByName(def.company);
+        if (!company) continue;
+
+        const [team] = await db
+            .insert(schema.teams)
+            .values({
+                platform_id: pid,
+                company_id: company.id,
+                name: def.name,
+                description: def.description,
+                can_other_teams_see: def.see,
+                can_other_teams_book: def.book,
+            })
+            .returning();
+        S.teams.push(team);
+        console.log(`  ✓ ${def.name}`);
+    }
+
+    console.log(`✅ ${S.teams.length} teams seeded`);
 }
 
 // ============================================================
@@ -3428,6 +3488,7 @@ async function main() {
         await seedServiceTypes();
 
         // Phase 3: Assets & collections
+        await seedTeams();
         await seedAssets();
         await seedCollections();
 

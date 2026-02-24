@@ -1,5 +1,6 @@
 import { relations, sql } from "drizzle-orm";
 import {
+    type AnyPgColumn,
     boolean,
     decimal,
     foreignKey,
@@ -490,10 +491,9 @@ export const assets = pgTable(
         name: varchar("name", { length: 200 }).notNull(),
         description: text("description"),
         category: varchar("category", { length: 100 }).notNull(),
-        images: text("images")
-            .array()
+        images: jsonb("images")
             .notNull()
-            .default(sql`ARRAY[]::text[]`),
+            .default(sql`'[]'::jsonb`), // AssetImage[]: {url: string, note?: string}
         on_display_image: text("on_display_image"),
         tracking_method: trackingMethodEnum("tracking_method").notNull(),
         total_quantity: integer("total_quantity").notNull().default(1),
@@ -513,6 +513,8 @@ export const assets = pgTable(
         status: assetStatusEnum("status").notNull().default("AVAILABLE"),
         last_scanned_at: timestamp("last_scanned_at"),
         last_scanned_by: uuid("last_scanned_by").references(() => users.id),
+
+        team_id: uuid("team_id").references((): AnyPgColumn => teams.id, { onDelete: "set null" }),
 
         // Asset transformation tracking (NEW)
         transformed_from: uuid("transformed_from"),
@@ -546,12 +548,66 @@ export const assetsRelations = relations(assets, ({ one, many }) => ({
     warehouse: one(warehouses, { fields: [assets.warehouse_id], references: [warehouses.id] }),
     zone: one(zones, { fields: [assets.zone_id], references: [zones.id] }),
     last_scanned_by_user: one(users, { fields: [assets.last_scanned_by], references: [users.id] }),
+    team: one(teams, { fields: [assets.team_id], references: [teams.id] }),
     collection_items: many(collectionItems),
     order_items: many(orderItems),
     scan_events: many(scanEvents),
     bookings: many(assetBookings),
     condition_history: many(assetConditionHistory),
     versions: many(assetVersions),
+}));
+
+// ---------------------------------- TEAMS -----------------------------------------------
+export const teams = pgTable(
+    "teams",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        company_id: uuid("company_id")
+            .notNull()
+            .references(() => companies.id, { onDelete: "cascade" }),
+        name: varchar("name", { length: 100 }).notNull(),
+        description: text("description"),
+        can_other_teams_see: boolean("can_other_teams_see").notNull().default(true),
+        can_other_teams_book: boolean("can_other_teams_book").notNull().default(false),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+        updated_at: timestamp("updated_at")
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [
+        index("teams_company_idx").on(table.company_id),
+        index("teams_platform_idx").on(table.platform_id),
+    ]
+);
+
+export const teamsRelations = relations(teams, ({ one, many }) => ({
+    company: one(companies, { fields: [teams.company_id], references: [companies.id] }),
+    platform: one(platforms, { fields: [teams.platform_id], references: [platforms.id] }),
+    members: many(teamMembers),
+    assets: many(assets),
+}));
+
+export const teamMembers = pgTable(
+    "team_members",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        team_id: uuid("team_id")
+            .notNull()
+            .references(() => teams.id, { onDelete: "cascade" }),
+        user_id: uuid("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+    },
+    (table) => [unique().on(table.team_id, table.user_id)]
+);
+
+export const teamMembersRelations = relations(teamMembers, ({ one }) => ({
+    team: one(teams, { fields: [teamMembers.team_id], references: [teams.id] }),
+    user: one(users, { fields: [teamMembers.user_id], references: [users.id] }),
 }));
 
 // ---------------------------------- COLLECTION ------------------------------------------
