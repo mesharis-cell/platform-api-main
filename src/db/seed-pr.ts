@@ -14,7 +14,7 @@
  *   - All PR brands (29)
  *   - Vehicle types, transport rates, service types
  *   - Notification rules
- *   - Assets (576 from thin-MVP bundle via seedPrAssets)
+ *   - Assets (from preview-latest import bundle via seedPrAssets)
  *
  * Run: bun run db:seed:pr
  */
@@ -25,7 +25,7 @@ import * as schema from "./schema";
 import bcrypt from "bcrypt";
 import { sql } from "drizzle-orm";
 import { seedPrAssets } from "./scripts/seed-pr-assets";
-import { ilike, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 // ============================================================
 // STATE STORE
@@ -187,6 +187,7 @@ async function seedCompanyDomains() {
         type: "VANITY" as const,
         is_verified: true,
         is_active: true,
+        is_primary: true,
     });
     console.log("✓ 1 company domain");
 }
@@ -197,10 +198,10 @@ async function seedWarehouse() {
         .insert(schema.warehouses)
         .values({
             platform_id: S.platform.id,
-            name: "PMG Main Warehouse",
+            name: "DIC Warehouse",
             country: "UAE",
             city: "Dubai",
-            address: "Al Quoz Industrial Area, Dubai, UAE",
+            address: "DIC Labour Village, Dubai, UAE",
             is_active: true,
         })
         .returning();
@@ -243,9 +244,14 @@ async function seedUsers() {
         "auth:*",
         "users:read",
         "companies:read",
+        "brands:create",
         "brands:read",
+        "warehouses:create",
         "warehouses:read",
+        "warehouses:update",
+        "zones:create",
         "zones:read",
+        "zones:update",
         "assets:*",
         "collections:*",
         "orders:read",
@@ -297,6 +303,50 @@ async function seedUsers() {
                 company_id: null,
                 name: "Logistics User",
                 email: "logistics@test.com",
+                password: pw,
+                role: "LOGISTICS" as const,
+                permissions: logisticsPerms,
+                permission_template: "LOGISTICS_STAFF" as const,
+                is_active: true,
+            },
+            {
+                platform_id: S.platform.id,
+                company_id: null,
+                name: "Andrew Crabtree",
+                email: "ac@a2eventsco.com",
+                password: pw,
+                role: "LOGISTICS" as const,
+                permissions: logisticsPerms,
+                permission_template: "LOGISTICS_STAFF" as const,
+                is_active: true,
+            },
+            {
+                platform_id: S.platform.id,
+                company_id: null,
+                name: "Emlyn Culverwell",
+                email: "ec@a2eventsco.com",
+                password: pw,
+                role: "LOGISTICS" as const,
+                permissions: logisticsPerms,
+                permission_template: "LOGISTICS_STAFF" as const,
+                is_active: true,
+            },
+            {
+                platform_id: S.platform.id,
+                company_id: null,
+                name: "Will Baxter",
+                email: "wb@a2eventsco.com",
+                password: pw,
+                role: "LOGISTICS" as const,
+                permissions: logisticsPerms,
+                permission_template: "LOGISTICS_STAFF" as const,
+                is_active: true,
+            },
+            {
+                platform_id: S.platform.id,
+                company_id: null,
+                name: "Sarah Bannister",
+                email: "sb@a2eventsco.com",
                 password: pw,
                 role: "LOGISTICS" as const,
                 permissions: logisticsPerms,
@@ -374,18 +424,9 @@ async function seedZones() {
                 platform_id: S.platform.id,
                 warehouse_id: S.warehouse.id,
                 company_id: S.company.id,
-                name: "PR-A",
-                description: "Pernod Ricard primary zone",
+                name: "N/A",
+                description: "N/A",
                 capacity: 1000,
-                is_active: true,
-            },
-            {
-                platform_id: S.platform.id,
-                warehouse_id: S.warehouse.id,
-                company_id: S.company.id,
-                name: "PR-B",
-                description: "Pernod Ricard overflow zone",
-                capacity: 500,
                 is_active: true,
             },
         ])
@@ -605,6 +646,13 @@ async function seedNotificationRules() {
             sort_order: 0,
         },
         {
+            event_type: "quote.revised",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "quote_revised_admin",
+            sort_order: 1,
+        },
+        {
             event_type: "order.confirmed",
             recipient_type: "ENTITY_OWNER",
             recipient_value: null,
@@ -614,9 +662,16 @@ async function seedNotificationRules() {
         {
             event_type: "order.confirmed",
             recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "order_confirmed_admin",
+            sort_order: 1,
+        },
+        {
+            event_type: "order.confirmed",
+            recipient_type: "ROLE",
             recipient_value: "LOGISTICS",
             template_key: "order_confirmed_logistics",
-            sort_order: 1,
+            sort_order: 2,
         },
         {
             event_type: "order.delivered",
@@ -626,37 +681,93 @@ async function seedNotificationRules() {
             sort_order: 0,
         },
         {
+            event_type: "order.delivered",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "order_delivered_admin",
+            sort_order: 1,
+        },
+        {
+            event_type: "order.delivered",
+            recipient_type: "ROLE",
+            recipient_value: "LOGISTICS",
+            template_key: "order_delivered_logistics",
+            sort_order: 2,
+        },
+        {
             event_type: "order.closed",
-            recipient_type: "ENTITY_OWNER",
-            recipient_value: null,
-            template_key: "order_closed_client",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "order_closed_admin",
             sort_order: 0,
         },
         {
-            event_type: "service_request.created",
+            event_type: "service_request.submitted",
             recipient_type: "ROLE",
             recipient_value: "ADMIN",
-            template_key: "service_request_created_admin",
+            template_key: "sr_submitted_admin",
             sort_order: 0,
+        },
+        {
+            event_type: "service_request.submitted",
+            recipient_type: "ROLE",
+            recipient_value: "LOGISTICS",
+            template_key: "sr_submitted_logistics",
+            sort_order: 1,
         },
         {
             event_type: "service_request.completed",
             recipient_type: "ENTITY_OWNER",
             recipient_value: null,
-            template_key: "service_request_completed_client",
+            template_key: "sr_completed_client",
             sort_order: 0,
         },
         {
-            event_type: "inbound_request.completed",
+            event_type: "service_request.completed",
             recipient_type: "ROLE",
             recipient_value: "ADMIN",
-            template_key: "inbound_request_completed_admin",
+            template_key: "sr_completed_admin",
+            sort_order: 1,
+        },
+        {
+            event_type: "inbound_request.completed",
+            recipient_type: "ENTITY_OWNER",
+            recipient_value: null,
+            template_key: "ir_completed_client",
+            sort_order: 0,
+        },
+        {
+            event_type: "self_booking.created",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "self_booking_created_admin",
+            sort_order: 0,
+        },
+        {
+            event_type: "self_booking.completed",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "self_booking_completed_admin",
+            sort_order: 0,
+        },
+        {
+            event_type: "self_booking.cancelled",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "self_booking_cancelled_admin",
+            sort_order: 0,
+        },
+        {
+            event_type: "auth.password_reset_requested",
+            recipient_type: "ENTITY_OWNER",
+            recipient_value: null,
+            template_key: "password_reset_otp",
             sort_order: 0,
         },
     ];
     await db
         .insert(schema.notificationRules)
-        .values(rules.map((r) => ({ platform_id: pid, is_active: true, ...r })));
+        .values(rules.map((r) => ({ platform_id: pid, company_id: null, is_enabled: true, ...r })));
     console.log(`✓ ${rules.length} notification rules`);
 }
 
@@ -700,38 +811,6 @@ async function seedTeams() {
 }
 
 // ============================================================
-// ASSET CONDITION OVERRIDES
-// ============================================================
-
-async function applyAssetConditionOverrides() {
-    console.log("🎨 Applying asset condition overrides...");
-
-    const overrides: { name: string; condition: "GREEN" | "ORANGE" | "RED"; note: string }[] = [
-        {
-            name: "Moet FSU",
-            condition: "RED",
-            note: "Unit damaged during last activation — requires full refurbishment before next deployment.",
-        },
-        {
-            name: "Absolute Smoky Pina Small Wall Logo",
-            condition: "ORANGE",
-            note: "Minor surface scuffs and fading — usable but needs attention before next booking.",
-        },
-    ];
-
-    let applied = 0;
-    for (const override of overrides) {
-        await db
-            .update(schema.assets)
-            .set({ condition: override.condition, condition_notes: override.note })
-            .where(ilike(schema.assets.name, override.name));
-        applied++;
-        console.log(`  ✓ ${override.name} → ${override.condition}`);
-    }
-    console.log(`✓ ${applied} condition overrides applied`);
-}
-
-// ============================================================
 // MAIN
 // ============================================================
 
@@ -772,9 +851,6 @@ async function main() {
             zoneId: S.zones[0].id,
             verbose: true,
         });
-
-        // Phase 4: Asset condition overrides
-        await applyAssetConditionOverrides();
 
         console.log("\n✅ PR SEED COMPLETE!\n");
         console.log("📊 Summary:");
