@@ -78,6 +78,14 @@ export const EVENT_GROUPS: EventGroup[] = [
         ],
     },
     {
+        label: "Self-Bookings",
+        events: [
+            { key: "self_booking.created", label: "Self-Booking Created" },
+            { key: "self_booking.completed", label: "Self-Booking Completed" },
+            { key: "self_booking.cancelled", label: "Self-Booking Cancelled" },
+        ],
+    },
+    {
         label: "Auth",
         events: [{ key: "auth.password_reset_requested", label: "Password Reset" }],
     },
@@ -179,6 +187,15 @@ export const TEMPLATES_BY_EVENT: Record<string, TemplateMeta[]> = {
     "service_request.invoice_generated": [
         { key: "sr_invoice_client", label: "Client — SR Invoice" },
         { key: "sr_invoice_admin", label: "Admin — SR Invoice" },
+    ],
+    "self_booking.created": [
+        { key: "self_booking_created_admin", label: "Admin — Self-Booking Created" },
+    ],
+    "self_booking.completed": [
+        { key: "self_booking_completed_admin", label: "Admin — Self-Booking Completed" },
+    ],
+    "self_booking.cancelled": [
+        { key: "self_booking_cancelled_admin", label: "Admin — Self-Booking Cancelled" },
     ],
     "auth.password_reset_requested": [
         { key: "password_reset_otp", label: "User — Password Reset OTP" },

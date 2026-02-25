@@ -444,7 +444,7 @@ const completeInboundScan = async (
             contact_name: order.contact_name,
             event_start_date: order.event_start_date?.toISOString().split("T")[0] || "",
             event_end_date: order.event_end_date?.toISOString().split("T")[0] || "",
-            order_url: `${config.client_url}/orders/${order.order_id}`,
+            order_url: "",
         },
     });
 
@@ -465,7 +465,7 @@ const completeInboundScan = async (
                 invoice_number: invoice_id,
                 final_total: "0",
                 download_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
-                order_url: `${config.client_url}/orders/${order.order_id}`,
+                order_url: "",
             },
         });
     }
@@ -732,7 +732,7 @@ const completeOutboundScan = async (
             company_name: (order.company as any)?.name || "N/A",
             venue_name: order.venue_name,
             delivery_window: order.delivery_window || "",
-            order_url: `${config.client_url}/orders/${order.order_id}`,
+            order_url: "",
         },
     });
 

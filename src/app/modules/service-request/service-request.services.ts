@@ -30,7 +30,6 @@ import {
 } from "../../utils/commercial-policy";
 import { eventBus } from "../../events/event-bus";
 import { EVENT_TYPES } from "../../events/event-types";
-import config from "../../config";
 
 const buildServiceRequestCode = async (platformId: string) => {
     const now = new Date();
@@ -161,7 +160,7 @@ const getServiceRequestEventContext = async (serviceRequest: {
         billing_mode: serviceRequest.billing_mode,
         contact_name: relatedOrder?.contact_name || "Client",
         final_total: finalTotal,
-        request_url: `${config.client_url}/service-requests/${serviceRequest.id}`,
+        request_url: "",
     };
 };
 

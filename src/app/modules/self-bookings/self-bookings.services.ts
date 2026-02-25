@@ -119,6 +119,7 @@ const createSelfBooking = async (
             actor_id: user.id,
             actor_role: "ADMIN",
             payload: {
+                entity_id_readable: created.id,
                 booked_for: created.booked_for,
                 job_reference: created.job_reference ?? undefined,
                 reason: created.reason ?? undefined,
@@ -301,6 +302,7 @@ const returnScan = async (
                 actor_id: null,
                 actor_role: null,
                 payload: {
+                    entity_id_readable: id,
                     booked_for: updated.booked_for,
                     job_reference: updated.job_reference ?? undefined,
                     item_count: updated.items.length,
@@ -358,6 +360,7 @@ const cancelSelfBooking = async (
             actor_id: userId,
             actor_role: "ADMIN",
             payload: {
+                entity_id_readable: id,
                 booked_for: cancelled.booked_for,
                 job_reference: cancelled.job_reference ?? undefined,
                 cancellation_reason: payload.cancellation_reason ?? undefined,

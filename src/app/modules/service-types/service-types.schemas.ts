@@ -7,13 +7,15 @@ const createServiceTypeSchema = z.object({
                 .string({ message: "Name is required" })
                 .min(1, "Name is required")
                 .max(100, "Name must be under 100 characters"),
-            category: z.enum(
-                ["ASSEMBLY", "EQUIPMENT", "HANDLING", "RESKIN", "TRANSPORT", "OTHER"],
-                {
+            category: z
+                .enum(["ASSEMBLY", "EQUIPMENT", "HANDLING", "RESKIN", "TRANSPORT", "OTHER"], {
                     message:
                         "Category must be ASSEMBLY, EQUIPMENT, HANDLING, RESKIN, TRANSPORT, or OTHER",
-                }
-            ),
+                })
+                .refine((value) => value !== "TRANSPORT", {
+                    message:
+                        "Transport service types are system-managed. Use sync-transport-rates.",
+                }),
             unit: z
                 .string({ message: "Unit is required" })
                 .min(1, "Unit is required")

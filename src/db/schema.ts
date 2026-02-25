@@ -273,14 +273,20 @@ export const companyDomains = pgTable(
             .references(() => companies.id, { onDelete: "cascade" }),
         hostname: text("hostname").notNull().unique(), // e.g., 'client.diageo.com' or 'diageo.pmg-platform.com'
         type: hostnameTypeEnum("type").notNull(),
-        is_verified: boolean("is_verified").default(false),
-        is_active: boolean("is_active").default(true),
+        is_verified: boolean("is_verified").default(false).notNull(),
+        is_active: boolean("is_active").default(true).notNull(),
+        is_primary: boolean("is_primary").default(false).notNull(),
         created_at: timestamp("created_at").notNull().defaultNow(),
         updated_at: timestamp("updated_at")
             .$onUpdate(() => new Date())
             .notNull(),
     },
-    (table) => [index("company_domains_hostname_idx").on(table.hostname)]
+    (table) => [
+        index("company_domains_hostname_idx").on(table.hostname),
+        uniqueIndex("company_domains_one_active_primary_idx")
+            .on(table.company_id)
+            .where(sql`${table.is_primary} = true and ${table.is_active} = true`),
+    ]
 );
 
 export const companiesRelations = relations(companies, ({ one, many }) => ({

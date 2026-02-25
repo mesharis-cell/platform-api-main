@@ -7,6 +7,7 @@ const createCompanyDomain = z.object({
         type: z.enum(["VANITY", "CUSTOM"], { message: "Type must be VANITY or CUSTOM" }),
         is_verified: z.boolean().optional().default(false),
         is_active: z.boolean().optional().default(true),
+        is_primary: z.boolean().optional().default(false),
     }),
 });
 
@@ -16,6 +17,7 @@ const updateCompanyDomain = z.object({
         type: z.enum(["VANITY", "CUSTOM"]).optional(),
         is_verified: z.boolean().optional(),
         is_active: z.boolean().optional(),
+        is_primary: z.boolean().optional(),
     }),
 });
 

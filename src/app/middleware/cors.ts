@@ -1,5 +1,6 @@
 import cors from "cors";
 import { db } from "../../db";
+import { eq } from "drizzle-orm";
 import { platforms, companyDomains } from "../../db/schema";
 import config from "../config";
 
@@ -33,11 +34,19 @@ const DEV_ORIGINS = [
     "https://pmg-backend.vercel.app",
 ];
 
-// Subdomain prefixes for platform domains
-const SUBDOMAIN_PREFIXES = ["admin", "warehouse", "client", "logistics", "api"];
+// Canonical app subdomains for platform domains
+const SUBDOMAIN_PREFIXES = ["admin", "warehouse", "api"];
 
 // Environment prefixes that can appear before any subdomain (e.g. staging.admin.kadence.ae)
 const ENV_PREFIXES = ["staging", "dev", "preview", "test"];
+
+const normalizeHost = (value: string) =>
+    String(value || "")
+        .trim()
+        .toLowerCase()
+        .replace(/^https?:\/\//, "")
+        .split("/")[0]
+        .split(":")[0];
 
 /**
  * Fetches all allowed origins from the database with caching
@@ -54,38 +63,43 @@ async function getAllowedOrigins(): Promise<Set<string>> {
         // Fetch platform domains and company custom domains in parallel
         const [platformDomains, customDomains] = await Promise.all([
             db.select({ domain: platforms.domain }).from(platforms),
-            db.select({ hostname: companyDomains.hostname }).from(companyDomains),
+            db
+                .select({ hostname: companyDomains.hostname })
+                .from(companyDomains)
+                .where(eq(companyDomains.is_active, true)),
         ]);
 
         const origins = new Set<string>();
 
         // Add platform domains with all subdomain variations
         platformDomains.forEach(({ domain }) => {
-            if (domain) {
+            const normalizedDomain = normalizeHost(domain || "");
+            if (normalizedDomain) {
                 // Add the base domain (both http and https for flexibility)
-                origins.add(`https://${domain}`);
-                origins.add(`http://${domain}`);
+                origins.add(`https://${normalizedDomain}`);
+                origins.add(`http://${normalizedDomain}`);
 
                 // Add all subdomain prefixes (and their env-prefixed variants)
                 SUBDOMAIN_PREFIXES.forEach((prefix) => {
-                    origins.add(`https://${prefix}.${domain}`);
-                    origins.add(`http://${prefix}.${domain}`);
+                    origins.add(`https://${prefix}.${normalizedDomain}`);
+                    origins.add(`http://${prefix}.${normalizedDomain}`);
                     ENV_PREFIXES.forEach((env) => {
-                        origins.add(`https://${env}.${prefix}.${domain}`);
-                        origins.add(`http://${env}.${prefix}.${domain}`);
+                        origins.add(`https://${env}.${prefix}.${normalizedDomain}`);
+                        origins.add(`http://${env}.${prefix}.${normalizedDomain}`);
                     });
                 });
             }
         });
 
-        // Add custom company domains + env-prefixed variants
+        // Add active company domains + env-prefixed variants
         customDomains.forEach(({ hostname }) => {
-            if (hostname) {
-                origins.add(`https://${hostname}`);
-                origins.add(`http://${hostname}`);
+            const normalizedHost = normalizeHost(hostname || "");
+            if (normalizedHost) {
+                origins.add(`https://${normalizedHost}`);
+                origins.add(`http://${normalizedHost}`);
                 ENV_PREFIXES.forEach((env) => {
-                    origins.add(`https://${env}.${hostname}`);
-                    origins.add(`http://${env}.${hostname}`);
+                    origins.add(`https://${env}.${normalizedHost}`);
+                    origins.add(`http://${env}.${normalizedHost}`);
                 });
             }
         });

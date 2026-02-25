@@ -3,19 +3,45 @@ import httpStatus from "http-status";
 import { db } from "../../../db";
 import { notificationRules } from "../../../db/schema";
 import { EVENT_GROUPS, TEMPLATES_BY_EVENT } from "../../events/meta";
+import CustomizedError from "../../error/customized-error";
 import catchAsync from "../../shared/catch-async";
 import sendResponse from "../../shared/send-response";
-import { getRequiredString } from "../../utils/request";
+import { NotificationRuleSchemas } from "./notification-rules.schemas";
+
+const validEventTypes = new Set(
+    EVENT_GROUPS.flatMap((group) => group.events.map((event) => event.key))
+);
+
+const assertValidEventType = (eventType: string) => {
+    if (!validEventTypes.has(eventType)) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, `Unsupported event_type: ${eventType}`);
+    }
+};
+
+const assertTemplateKeyForEvent = (eventType: string, templateKey: string) => {
+    const allowed = (TEMPLATES_BY_EVENT[eventType] || []).map((template) => template.key);
+    if (!allowed.includes(templateKey)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `template_key "${templateKey}" is not allowed for event "${eventType}"`
+        );
+    }
+};
 
 // ─── LIST RULES ───────────────────────────────────────────────────────────────
 const listRules = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
-    const { event_type, company_id } = req.query;
+    const { event_type, company_id } = NotificationRuleSchemas.listRulesQuerySchema.parse(
+        req.query
+    );
 
     const conditions = [eq(notificationRules.platform_id, platformId)];
-    if (event_type) conditions.push(eq(notificationRules.event_type, event_type as string));
+    if (event_type) {
+        assertValidEventType(event_type);
+        conditions.push(eq(notificationRules.event_type, event_type));
+    }
     if (company_id === "null") conditions.push(isNull(notificationRules.company_id));
-    else if (company_id) conditions.push(eq(notificationRules.company_id, company_id as string));
+    else if (company_id) conditions.push(eq(notificationRules.company_id, company_id));
 
     const rules = await db
         .select()
@@ -42,11 +68,10 @@ const createRule = catchAsync(async (req, res) => {
         company_id,
         sort_order,
         is_enabled,
-    } = req.body;
+    } = NotificationRuleSchemas.createRuleSchema.parse({ body: req.body }).body;
 
-    getRequiredString(event_type, "event_type");
-    getRequiredString(recipient_type, "recipient_type");
-    getRequiredString(template_key, "template_key");
+    assertValidEventType(event_type);
+    assertTemplateKeyForEvent(event_type, template_key);
 
     const [rule] = await db
         .insert(notificationRules)
@@ -73,8 +98,12 @@ const createRule = catchAsync(async (req, res) => {
 // ─── UPDATE RULE ──────────────────────────────────────────────────────────────
 const updateRule = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
-    const id = getRequiredString(req.params.id, "id");
-    const { is_enabled, template_key, sort_order } = req.body;
+    const { id } = NotificationRuleSchemas.ruleIdParamsSchema.parse(req.params);
+    const { is_enabled, template_key, sort_order } = NotificationRuleSchemas.updateRuleSchema.parse(
+        {
+            body: req.body,
+        }
+    ).body;
 
     const [existing] = await db
         .select()
@@ -88,6 +117,10 @@ const updateRule = catchAsync(async (req, res) => {
             message: "Notification rule not found",
             data: null,
         });
+    }
+
+    if (template_key !== undefined) {
+        assertTemplateKeyForEvent(existing.event_type, template_key);
     }
 
     const updates: Partial<typeof notificationRules.$inferInsert> = { updated_at: new Date() };
@@ -112,7 +145,7 @@ const updateRule = catchAsync(async (req, res) => {
 // ─── DELETE RULE ──────────────────────────────────────────────────────────────
 const deleteRule = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
-    const id = getRequiredString(req.params.id, "id");
+    const { id } = NotificationRuleSchemas.ruleIdParamsSchema.parse(req.params);
 
     const [existing] = await db
         .select()
@@ -141,15 +174,19 @@ const deleteRule = catchAsync(async (req, res) => {
 // ─── RESET EVENT TYPE RULES ───────────────────────────────────────────────────
 const resetEventTypeRules = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
-    const event_type = getRequiredString(req.params.event_type, "event_type");
-    const { company_id } = req.query;
+    const { event_type } = NotificationRuleSchemas.resetEventTypeParamsSchema.parse(req.params);
+    const { company_id } = NotificationRuleSchemas.resetEventTypeQuerySchema.parse(req.query);
+    assertValidEventType(event_type);
 
     const conditions = [
         eq(notificationRules.platform_id, platformId),
         eq(notificationRules.event_type, event_type),
     ];
-    if (company_id) conditions.push(eq(notificationRules.company_id, company_id as string));
-    else conditions.push(isNull(notificationRules.company_id));
+    if (company_id && company_id !== "null") {
+        conditions.push(eq(notificationRules.company_id, company_id));
+    } else {
+        conditions.push(isNull(notificationRules.company_id));
+    }
 
     await db.delete(notificationRules).where(and(...conditions));
 

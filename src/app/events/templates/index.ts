@@ -72,6 +72,13 @@ import {
     srSubmittedLogistics,
 } from "./service-request";
 
+// Self-booking templates
+import {
+    selfBookingCancelledAdmin,
+    selfBookingCompletedAdmin,
+    selfBookingCreatedAdmin,
+} from "./self-booking";
+
 // Auth templates
 import { passwordResetOtp } from "./auth";
 
@@ -134,6 +141,11 @@ const registry: Record<string, EmailTemplate> = {
     sr_completed_admin: srCompletedAdmin,
     sr_invoice_client: srInvoiceClient,
     sr_invoice_admin: srInvoiceAdmin,
+
+    // Self-bookings
+    self_booking_created_admin: selfBookingCreatedAdmin,
+    self_booking_completed_admin: selfBookingCompletedAdmin,
+    self_booking_cancelled_admin: selfBookingCancelledAdmin,
 
     // Auth
     password_reset_otp: passwordResetOtp,

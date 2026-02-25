@@ -184,7 +184,7 @@ const createInboundRequest = async (
                 incoming_at: new Date(data.incoming_at).toLocaleDateString(),
                 item_count: data.items.length,
                 note: data.note || undefined,
-                request_url: `${config.client_url}/inbound-requests/${result.inbound_request_id}`,
+                request_url: "",
             },
         });
     }
@@ -777,7 +777,7 @@ const approveInboundRequestByAdmin = async (
             contact_name: requester.name,
             final_total: String(finalTotal),
             cost_estimate_url: `${config.server_url}/client/v1/invoice/download-ir-cost-estimate-pdf/${inboundRequest.inbound_request_id}?pid=${platformId}`,
-            request_url: `${config.client_url}/inbound-requests/${inboundRequest.inbound_request_id}`,
+            request_url: "",
         },
     });
 
@@ -853,7 +853,7 @@ const approveOrDeclineQuoteByClient = async (
             company_name: irCompany?.name || "N/A",
             contact_name: user.name,
             final_total: "0",
-            request_url: `${config.client_url}/inbound-requests/${inboundRequest.inbound_request_id}`,
+            request_url: "",
         },
     });
 
@@ -1341,7 +1341,7 @@ const completeInboundRequest = async (
             company_id: inboundRequest.company_id,
             company_name: company?.name || "N/A",
             contact_name: requester.name,
-            request_url: `${config.client_url}/inbound-requests/${inboundRequest.inbound_request_id}`,
+            request_url: "",
         },
     });
 
@@ -1360,7 +1360,7 @@ const completeInboundRequest = async (
                 invoice_number: invoice_id,
                 final_total: String(requestPricing?.final_total || "0"),
                 download_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
-                request_url: `${config.client_url}/inbound-requests/${inboundRequest.inbound_request_id}`,
+                request_url: "",
             },
         });
     }

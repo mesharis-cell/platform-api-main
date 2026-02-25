@@ -57,10 +57,22 @@ const updatePlatformDomain = catchAsync(async (req, res) => {
     });
 });
 
+const getPlatformUrlDiagnostics = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId as string;
+    const result = await PlatformServices.getPlatformUrlDiagnostics(platformId);
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Platform URL diagnostics fetched",
+        data: result,
+    });
+});
+
 export const PlatformControllers = {
     createPlatform,
     getMyPlatform,
     updatePlatformConfig,
     updatePlatformFeatures,
     updatePlatformDomain,
+    getPlatformUrlDiagnostics,
 };

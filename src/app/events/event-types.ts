@@ -288,26 +288,32 @@ export interface ServiceRequestInvoiceGeneratedPayload extends BaseEventPayload 
 // ============================================================
 
 export interface SelfBookingCreatedPayload {
+    entity_id_readable?: string;
     booked_for: string;
     job_reference?: string;
     reason?: string;
     item_count: number;
     total_units: number;
     created_by_name: string;
+    self_booking_url?: string;
 }
 
 export interface SelfBookingCompletedPayload {
+    entity_id_readable?: string;
     booked_for: string;
     job_reference?: string;
     item_count: number;
     total_units: number;
+    self_booking_url?: string;
 }
 
 export interface SelfBookingCancelledPayload {
+    entity_id_readable?: string;
     booked_for: string;
     job_reference?: string;
     cancellation_reason?: string;
     cancelled_by_name: string;
+    self_booking_url?: string;
 }
 
 // ============================================================

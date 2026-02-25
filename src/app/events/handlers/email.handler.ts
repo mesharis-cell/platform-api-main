@@ -10,6 +10,11 @@ import {
     users,
 } from "../../../db/schema";
 import { sendEmail } from "../../services/email.service";
+import {
+    AppTarget,
+    DeepLinkEntityType,
+    UrlResolverService,
+} from "../../services/url-resolver.service";
 import { renderTemplate } from "../templates";
 import { SystemEvent } from "../event-types";
 import { sql } from "drizzle-orm";
@@ -157,6 +162,80 @@ async function getApplicableRules(
     return merged;
 }
 
+const mapEntityTypeToDeepLink = (entityType: string): DeepLinkEntityType | null => {
+    switch (entityType) {
+        case "ORDER":
+            return "ORDER";
+        case "INBOUND_REQUEST":
+            return "INBOUND_REQUEST";
+        case "SERVICE_REQUEST":
+            return "SERVICE_REQUEST";
+        case "SELF_BOOKING":
+            return "SELF_BOOKING";
+        default:
+            return null;
+    }
+};
+
+const inferRuleTargetApp = (
+    rule: typeof notificationRules.$inferSelect,
+    event: SystemEvent
+): AppTarget | null => {
+    if (rule.recipient_type === "ROLE") {
+        if (rule.recipient_value === "ADMIN") return "ADMIN";
+        if (rule.recipient_value === "LOGISTICS") return "WAREHOUSE";
+        return null;
+    }
+
+    if (rule.recipient_type === "ENTITY_OWNER") {
+        if (event.entity_type === "USER") return null;
+        if (event.entity_type === "SELF_BOOKING") return "ADMIN";
+        return "CLIENT";
+    }
+
+    if (rule.recipient_type === "EMAIL") {
+        const key = String(rule.template_key || "").toLowerCase();
+        if (key.endsWith("_admin")) return "ADMIN";
+        if (key.endsWith("_logistics")) return "WAREHOUSE";
+        if (key.endsWith("_client")) return "CLIENT";
+        return "ADMIN";
+    }
+
+    return null;
+};
+
+const injectDeepLink = async (
+    rule: typeof notificationRules.$inferSelect,
+    event: SystemEvent,
+    entityCompanyId: string | null
+): Promise<Record<string, unknown>> => {
+    const app = inferRuleTargetApp(rule, event);
+    const deepLinkEntityType = mapEntityTypeToDeepLink(event.entity_type);
+
+    if (!app || !deepLinkEntityType) {
+        return { ...(event.payload as Record<string, unknown>) };
+    }
+
+    const link = await UrlResolverService.resolveEntityDeepLink({
+        platformId: event.platform_id,
+        companyId: entityCompanyId,
+        app,
+        entityType: deepLinkEntityType,
+        entityId: event.entity_id,
+    });
+
+    if (!link) return { ...(event.payload as Record<string, unknown>) };
+
+    const payload = { ...(event.payload as Record<string, unknown>) };
+    if (event.entity_type === "ORDER") payload.order_url = link;
+    if (event.entity_type === "INBOUND_REQUEST" || event.entity_type === "SERVICE_REQUEST") {
+        payload.request_url = link;
+    }
+    if (event.entity_type === "SELF_BOOKING") payload.self_booking_url = link;
+
+    return payload;
+};
+
 // ─── Platform from_email lookup ───────────────────────────────────────────────
 
 const UNCONFIGURED_FROM = "no-reply@unconfigured.kadence.app";
@@ -176,6 +255,10 @@ export async function handleEmailNotifications(event: SystemEvent): Promise<void
         getApplicableRules(event),
         getPlatformFromEmail(event.platform_id),
     ]);
+    const eventCompanyId =
+        event.entity_type === "USER"
+            ? null
+            : await getEntityCompanyId(event.entity_type, event.entity_id);
 
     for (const rule of rules) {
         if (!rule.is_enabled) continue;
@@ -202,7 +285,8 @@ export async function handleEmailNotifications(event: SystemEvent): Promise<void
             let subject: string | undefined;
 
             try {
-                const rendered = renderTemplate(rule.template_key, event.payload);
+                const resolvedPayload = await injectDeepLink(rule, event, eventCompanyId);
+                const rendered = renderTemplate(rule.template_key, resolvedPayload);
                 subject = rendered.subject;
 
                 const messageId = await sendEmail({
