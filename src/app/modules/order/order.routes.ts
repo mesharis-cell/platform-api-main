@@ -6,10 +6,50 @@ import platformValidator from "../../middleware/platform-validator";
 import { PERMISSIONS } from "../../constants/permissions";
 import { OrderControllers } from "./order.controllers";
 import { orderSchemas } from "./order.schemas";
-import { OrderLineItemsRoutes } from "../order-line-items/order-line-items.routes";
-import { ReskinRequestsRoutes } from "../reskin-requests/reskin-requests.routes";
+import featureValidator from "../../middleware/feature-validator";
+import { featureNames } from "../../constants/common";
 
 const router = Router();
+
+// Calculate order estimate (NEW)
+router.post(
+    "/estimate",
+    platformValidator,
+    auth("CLIENT"),
+    featureValidator(featureNames.show_estimate_on_order_creation),
+    payloadValidator(orderSchemas.calculateEstimateSchema),
+    OrderControllers.calculateEstimate
+);
+
+// Validate maintenance feasibility at event-date/review steps
+router.post(
+    "/check-maintenance-feasibility",
+    platformValidator,
+    auth("CLIENT"),
+    requirePermission(PERMISSIONS.ORDERS_CREATE),
+    payloadValidator(orderSchemas.checkMaintenanceFeasibilitySchema),
+    OrderControllers.checkMaintenanceFeasibility
+);
+
+// Backward-compatible alias
+router.post(
+    "/check-red-feasibility",
+    platformValidator,
+    auth("CLIENT"),
+    requirePermission(PERMISSIONS.ORDERS_CREATE),
+    payloadValidator(orderSchemas.checkMaintenanceFeasibilitySchema),
+    OrderControllers.checkMaintenanceFeasibility
+);
+
+// Submit order
+router.post(
+    "/submit-from-cart",
+    platformValidator,
+    auth("CLIENT"),
+    requirePermission(PERMISSIONS.ORDERS_CREATE),
+    payloadValidator(orderSchemas.submitOrderSchema),
+    OrderControllers.submitOrderFromCart
+);
 
 // Get orders
 router.get(
@@ -32,6 +72,15 @@ router.get(
     OrderControllers.exportOrders
 );
 
+// Download goods form (XLSX)
+router.get(
+    "/:id/goods-form",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.ORDERS_READ),
+    OrderControllers.downloadGoodsForm
+);
+
 // Get order statistics (CLIENT only)
 router.get(
     "/dashboard-summary",
@@ -41,13 +90,13 @@ router.get(
 );
 
 // Get pricing review orders (Logistics)
-router.get(
-    "/pricing-review",
-    platformValidator,
-    auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.PRICING_REVIEW),
-    OrderControllers.getPricingReviewOrders
-);
+// router.get(
+//     "/pricing-review",
+//     platformValidator,
+//     auth("ADMIN", "LOGISTICS"),
+//     requirePermission(PERMISSIONS.PRICING_REVIEW),
+//     OrderControllers.getPricingReviewOrders
+// );
 
 // Get pending approval orders (Admin)
 router.get(
@@ -67,25 +116,12 @@ router.get(
 );
 
 // Get order pricing details
-router.get(
-    "/:id/pricing-details",
-    platformValidator,
-    auth("ADMIN", "LOGISTICS"),
-    OrderControllers.getOrderPricingDetails
-);
-
-// Calculate order estimate (NEW)
-router.post("/estimate", platformValidator, auth("CLIENT"), OrderControllers.calculateEstimate);
-
-// Submit order
-router.post(
-    "/submit-from-cart",
-    platformValidator,
-    auth("CLIENT"),
-    requirePermission(PERMISSIONS.ORDERS_CREATE),
-    payloadValidator(orderSchemas.submitOrderSchema),
-    OrderControllers.submitOrder
-);
+// router.get(
+//     "/:id/pricing-details",
+//     platformValidator,
+//     auth("ADMIN", "LOGISTICS"),
+//     OrderControllers.getOrderPricingDetails
+// );
 
 // Approve quote
 router.patch(
@@ -149,7 +185,7 @@ router.get(
     "/:id/status-history",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
-    requirePermission(PERMISSIONS.ORDERS_VIEW_STATUS_HISTORY),
+    // requirePermission(PERMISSIONS.ORDERS_VIEW_STATUS_HISTORY),
     OrderControllers.getOrderStatusHistory
 );
 
@@ -161,54 +197,24 @@ router.get(
     OrderControllers.getOrderScanEvents
 );
 
-// Adjust logistics pricing
-router.patch(
-    "/:id/adjust-pricing",
-    platformValidator,
-    auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.PRICING_ADJUST),
-    payloadValidator(orderSchemas.adjustLogisticsPricingSchema),
-    OrderControllers.adjustLogisticsPricing
-);
-
-// Approve standard pricing
-router.patch(
-    "/:id/approve-standard-pricing",
-    platformValidator,
-    auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.PRICING_APPROVE_STANDARD),
-    payloadValidator(orderSchemas.approveStandardPricingSchema),
-    OrderControllers.approveStandardPricing
-);
-
-// Approve platform pricing
-router.patch(
-    "/:id/approve-platform-pricing",
-    platformValidator,
-    auth("ADMIN"),
-    requirePermission(PERMISSIONS.PRICING_ADMIN_APPROVE),
-    payloadValidator(orderSchemas.approvePlatformPricingSchema),
-    OrderControllers.approvePlatformPricing
-);
-
 // ---------------------------------- NEW PRICING WORKFLOW ROUTES ----------------------------------
 
-// Update vehicle type (Logistics) - TODO: Implement controller
-// router.patch(
-//     "/:id/vehicle",
-//     platformValidator,
-//     auth("ADMIN", "LOGISTICS"),
-//     requirePermission(PERMISSIONS.PRICING_REVIEW),
-//     payloadValidator(orderSchemas.updateVehicleSchema),
-//     OrderControllers.updateOrderVehicle
-// );
+// Update maintenance decision (Admin + Logistics)
+router.patch(
+    "/:id/maintenance-decision",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.ORDERS_UPDATE),
+    payloadValidator(orderSchemas.updateMaintenanceDecisionSchema),
+    OrderControllers.updateMaintenanceDecision
+);
 
 // Submit for approval (Logistics → Admin)
 router.post(
     "/:id/submit-for-approval",
     platformValidator,
-    auth("LOGISTICS"),
-    requirePermission(PERMISSIONS.PRICING_REVIEW),
+    auth("ADMIN", "LOGISTICS"),
+    // requirePermission(PERMISSIONS.PRICING_REVIEW),
     OrderControllers.submitForApproval
 );
 
@@ -217,7 +223,8 @@ router.post(
     "/:id/admin-approve-quote",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.PRICING_ADMIN_APPROVE),
+    // requirePermission(PERMISSIONS.PRICING_ADMIN_APPROVE),
+    payloadValidator(orderSchemas.adminApproveQuoteSchema),
     OrderControllers.adminApproveQuote
 );
 
@@ -226,7 +233,7 @@ router.post(
     "/:id/return-to-logistics",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.PRICING_ADMIN_APPROVE),
+    // requirePermission(PERMISSIONS.PRICING_ADMIN_APPROVE),
     OrderControllers.returnToLogistics
 );
 
@@ -235,7 +242,7 @@ router.post(
     "/:id/cancel",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.ORDERS_CANCEL),
+    // requirePermission(PERMISSIONS.ORDERS_CANCEL),
     payloadValidator(orderSchemas.cancelOrderSchema),
     OrderControllers.cancelOrder
 );
@@ -243,9 +250,37 @@ router.post(
 // ---------------------------------- NESTED ROUTES (NEW) ----------------------------------
 
 // Order Line Items (nested under /order/:orderId/line-items)
-router.use("/:orderId/line-items", OrderLineItemsRoutes);
+// router.use("/:orderId/line-items", OrderLineItemsRoutes);
 
-// Reskin Requests (nested under /order/:orderId/reskin-requests)
-router.use("/:orderId/reskin-requests", ReskinRequestsRoutes);
+// ---------------------------------- ORDER ITEM ADJUSTMENTS (NEW) -----------------------------
+
+// Add order item during review
+// router.post(
+//     "/:id/items",
+//     platformValidator,
+//     auth("LOGISTICS"),
+//     // requirePermission(PERMISSIONS.PRICING_REVIEW),
+//     payloadValidator(orderSchemas.addOrderItemSchema),
+//     OrderControllers.addOrderItem
+// );
+
+// // Remove order item during review
+// router.delete(
+//     "/:id/items/:item_id",
+//     platformValidator,
+//     auth("LOGISTICS"),
+//     // requirePermission(PERMISSIONS.PRICING_REVIEW),
+//     OrderControllers.removeOrderItem
+// );
+
+// // Update order item quantity during review
+// router.patch(
+//     "/:id/items/:item_id/quantity",
+//     platformValidator,
+//     auth("LOGISTICS"),
+//     // requirePermission(PERMISSIONS.PRICING_REVIEW),
+//     payloadValidator(orderSchemas.updateOrderItemQuantitySchema),
+//     OrderControllers.updateOrderItemQuantity
+// );
 
 export const OrderRoutes = router;

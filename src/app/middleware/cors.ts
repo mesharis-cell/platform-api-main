@@ -36,6 +36,9 @@ const DEV_ORIGINS = [
 // Subdomain prefixes for platform domains
 const SUBDOMAIN_PREFIXES = ["admin", "warehouse", "client", "logistics", "api"];
 
+// Environment prefixes that can appear before any subdomain (e.g. staging.admin.kadence.ae)
+const ENV_PREFIXES = ["staging", "dev", "preview", "test"];
+
 /**
  * Fetches all allowed origins from the database with caching
  */
@@ -63,19 +66,27 @@ async function getAllowedOrigins(): Promise<Set<string>> {
                 origins.add(`https://${domain}`);
                 origins.add(`http://${domain}`);
 
-                // Add all subdomain prefixes
+                // Add all subdomain prefixes (and their env-prefixed variants)
                 SUBDOMAIN_PREFIXES.forEach((prefix) => {
                     origins.add(`https://${prefix}.${domain}`);
                     origins.add(`http://${prefix}.${domain}`);
+                    ENV_PREFIXES.forEach((env) => {
+                        origins.add(`https://${env}.${prefix}.${domain}`);
+                        origins.add(`http://${env}.${prefix}.${domain}`);
+                    });
                 });
             }
         });
 
-        // Add custom company domains (e.g., client.diageo.com, custom.example.com)
+        // Add custom company domains + env-prefixed variants
         customDomains.forEach(({ hostname }) => {
             if (hostname) {
                 origins.add(`https://${hostname}`);
                 origins.add(`http://${hostname}`);
+                ENV_PREFIXES.forEach((env) => {
+                    origins.add(`https://${env}.${hostname}`);
+                    origins.add(`http://${env}.${hostname}`);
+                });
             }
         });
 
@@ -107,14 +118,11 @@ async function getAllowedOrigins(): Promise<Set<string>> {
  * Useful when domains are added/updated via admin panel
  */
 export async function refreshCorsCache(): Promise<void> {
-    lastCacheUpdate = 0; // Force cache refresh
+    lastCacheUpdate = 0;
     await getAllowedOrigins();
     console.log("[CORS] Cache refreshed");
 }
 
-/**
- * Get current cached origins (for debugging/monitoring)
- */
 export function getCachedOrigins(): string[] {
     return Array.from(allowedOriginsCache);
 }

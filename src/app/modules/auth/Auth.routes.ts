@@ -34,4 +34,6 @@ router.post(
     AuthControllers.forgotPassword
 );
 
+router.post("/refresh", payloadValidator(AuthSchemas.refreshTokenSchema), AuthControllers.refresh);
+
 export const AuthRoutes = router;

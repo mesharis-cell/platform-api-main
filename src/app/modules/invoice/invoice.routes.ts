@@ -6,6 +6,8 @@ import { invoiceSchemas } from "./invoice.schemas";
 import payloadValidator from "../../middleware/payload-validator";
 import requirePermission from "../../middleware/permission";
 import { PERMISSIONS } from "../../constants/permissions";
+import featureValidator from "../../middleware/feature-validator";
+import { featureNames } from "../../constants/common";
 
 const router = Router();
 
@@ -13,7 +15,8 @@ const router = Router();
 router.get(
     "/",
     platformValidator,
-    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    auth("ADMIN", "CLIENT"),
+    featureValidator(featureNames.enable_kadence_invoicing),
     requirePermission(PERMISSIONS.INVOICES_READ),
     InvoiceControllers.getInvoices
 );
@@ -23,6 +26,7 @@ router.post(
     "/generate",
     platformValidator,
     auth("ADMIN"),
+    featureValidator(featureNames.enable_kadence_invoicing),
     requirePermission(PERMISSIONS.INVOICES_GENERATE),
     payloadValidator(invoiceSchemas.generateInvoice),
     InvoiceControllers.generateInvoice
@@ -32,7 +36,8 @@ router.post(
 router.get(
     "/:invoiceId",
     platformValidator,
-    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    auth("ADMIN", "CLIENT"),
+    featureValidator(featureNames.enable_kadence_invoicing),
     requirePermission(PERMISSIONS.INVOICES_READ),
     InvoiceControllers.getInvoiceById
 );
@@ -40,25 +45,58 @@ router.get(
 router.get(
     "/download/:invoiceId",
     platformValidator,
-    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    auth("ADMIN", "CLIENT"),
+    featureValidator(featureNames.enable_kadence_invoicing),
     requirePermission(PERMISSIONS.INVOICES_DOWNLOAD),
     InvoiceControllers.downloadInvoice
 );
 
 // Download invoice PDF (direct download)
-router.get("/download-pdf/:invoiceId", InvoiceControllers.downloadInvoicePDF);
+router.get(
+    "/download-pdf/:invoiceId",
+    platformValidator,
+    auth("ADMIN", "CLIENT"),
+    featureValidator(featureNames.enable_kadence_invoicing),
+    requirePermission(PERMISSIONS.INVOICES_DOWNLOAD),
+    InvoiceControllers.downloadInvoicePDF
+);
 
 // Confirm payment (ADMIN only)
 router.patch(
     "/:orderId/confirm-payment",
     platformValidator,
     auth("ADMIN"),
+    featureValidator(featureNames.enable_kadence_invoicing),
     requirePermission(PERMISSIONS.INVOICES_CONFIRM_PAYMENT),
     payloadValidator(invoiceSchemas.confirmPayment),
     InvoiceControllers.confirmPayment
 );
 
 // Download cost estimate PDF (direct download)
-router.get("/download-cost-estimate-pdf/:orderId", InvoiceControllers.downloadCostEstimatePDF);
+router.get(
+    "/download-cost-estimate-pdf/:orderId",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    requirePermission(PERMISSIONS.INVOICES_DOWNLOAD),
+    InvoiceControllers.downloadCostEstimatePDF
+);
+
+// Download inbound request cost estimate PDF (direct download)
+router.get(
+    "/download-ir-cost-estimate-pdf/:requestId",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    requirePermission(PERMISSIONS.INVOICES_DOWNLOAD),
+    InvoiceControllers.downloadIRCostEstimatePDF
+);
+
+// Download service request cost estimate PDF (direct download)
+router.get(
+    "/download-sr-cost-estimate-pdf/:requestId",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    requirePermission(PERMISSIONS.INVOICES_DOWNLOAD),
+    InvoiceControllers.downloadServiceRequestCostEstimatePDF
+);
 
 export const InvoiceRoutes = router;

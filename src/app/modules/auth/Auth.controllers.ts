@@ -56,9 +56,21 @@ const forgotPassword = catchAsync(async (req, res) => {
     });
 });
 
+const refresh = catchAsync(async (req, res) => {
+    const result = await AuthServices.refresh(req.body);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Token refreshed successfully",
+        data: result,
+    });
+});
+
 export const AuthControllers = {
     login,
     getPlatformByDomain,
     resetPassword,
     forgotPassword,
+    refresh,
 };

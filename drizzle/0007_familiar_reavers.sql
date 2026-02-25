@@ -1,1 +1,0 @@
-ALTER TABLE "orders" ADD COLUMN "invoice_pdf_url" varchar(255);

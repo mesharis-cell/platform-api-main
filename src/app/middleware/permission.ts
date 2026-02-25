@@ -12,6 +12,9 @@ const requirePermission = (...requiredPermissions: string[]) => {
                 throw new CustomizedError(httpStatus.UNAUTHORIZED, "User not authenticated");
             }
 
+            // Super admins bypass all permission checks
+            if (user.is_super_admin) return next();
+
             // Step 2: Get user's permissions array from database
             const userPermissions: string[] = user.permissions || [];
 

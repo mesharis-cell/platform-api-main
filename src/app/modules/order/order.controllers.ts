@@ -5,8 +5,43 @@ import sendResponse from "../../shared/send-response";
 import { OrderServices } from "./order.services";
 import { getRequiredString } from "../../utils/request";
 
+// ----------------------------------- CALCULATE ESTIMATE ---------------------------------
+const calculateEstimate = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const companyId = user.company_id;
+
+    if (!companyId) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Company ID is required");
+    }
+
+    const estimate = await OrderServices.calculateEstimate(platformId, companyId, req.body);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Estimate calculated successfully.",
+        data: { estimate },
+    });
+});
+
+// ---------------------------- CHECK MAINTENANCE FEASIBILITY -----------------------------
+const checkMaintenanceFeasibility = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const result = await OrderServices.checkMaintenanceFeasibility(platformId, req.body);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: result.feasible
+            ? "Maintenance feasibility validated successfully."
+            : "Maintenance feasibility failed for one or more assets.",
+        data: result,
+    });
+});
+
 // ----------------------------------- SUBMIT ORDER ---------------------------------------
-const submitOrder = catchAsync(async (req, res) => {
+const submitOrderFromCart = catchAsync(async (req, res) => {
     // Extract user and platform ID from middleware
     const user = (req as any).user;
     const platformId = (req as any).platformId;
@@ -59,82 +94,6 @@ const getMyOrders = catchAsync(async (req, res) => {
         meta: result.meta,
         data: result.data,
     });
-});
-
-// ----------------------------------- EXPORT ORDERS --------------------------------------
-const exportOrders = catchAsync(async (req, res) => {
-    const user = (req as any).user;
-    const platformId = (req as any).platformId;
-
-    // Fetch all matching orders (no pagination, max 10,000 records)
-    const query = {
-        ...req.query,
-        page: 1,
-        limit: 10000, // Max export limit
-        sort_by: "created_at",
-        sort_order: "desc",
-    };
-
-    const result = await OrderServices.getOrders(query, user, platformId);
-
-    // Build CSV headers
-    const headers = [
-        "Order ID",
-        "Company",
-        "Brand",
-        "Job Number",
-        "Contact Name",
-        "Contact Email",
-        "Contact Phone",
-        "Event Start",
-        "Event End",
-        "Venue Name",
-        "Venue City",
-        "Venue Country",
-        "Volume (m³)",
-        "Weight (kg)",
-        "Order Status",
-        "Financial Status",
-        "Item Count",
-        "Created At",
-    ];
-
-    // Build CSV rows
-    const rows = result.data.map((order) => [
-        order.order_id || "",
-        order.company?.name || "",
-        order.brand?.name || "",
-        order.job_number || "",
-        order.contact_name || "",
-        order.contact_email || "",
-        order.contact_phone || "",
-        order.event_start_date || "",
-        order.event_end_date || "",
-        order.venue_name || "",
-        (order.venue_location as any)?.city || "",
-        (order.venue_location as any)?.country || "",
-        (order.calculated_totals as any)?.volume || "",
-        (order.calculated_totals as any)?.weight || "",
-        order.order_status || "",
-        order.financial_status || "",
-        order.item_count || 0,
-        order.created_at || "",
-    ]);
-
-    // Convert to CSV
-    const csvContent = [
-        headers.join(","),
-        ...rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")),
-    ].join("\n");
-
-    // Generate filename with timestamp
-    const timestamp = new Date().toISOString().replace(/:/g, "-").split(".")[0];
-    const filename = `orders-export-${timestamp}.csv`;
-
-    // Set response headers for CSV download
-    res.setHeader("Content-Type", "text/csv");
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-    res.status(httpStatus.OK).send(csvContent);
 });
 
 // ----------------------------------- GET ORDER BY ID ------------------------------------
@@ -219,9 +178,10 @@ const getOrderStatusHistory = catchAsync(async (req, res) => {
 // ----------------------------------- UPDATE TIME WINDOWS --------------------------------
 const updateTimeWindows = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
+    const user = (req as any).user;
     const id = getRequiredString(req.params.id, "id");
 
-    const result = await OrderServices.updateOrderTimeWindows(id, req.body, platformId);
+    const result = await OrderServices.updateOrderTimeWindows(id, req.body, platformId, user);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -231,85 +191,7 @@ const updateTimeWindows = catchAsync(async (req, res) => {
     });
 });
 
-// ----------------------------------- GET PRICING REVIEW ORDERS --------------------------
-const getPricingReviewOrders = catchAsync(async (req, res) => {
-    const platformId = (req as any).platformId;
-
-    const result = await OrderServices.getPricingReviewOrders(req.query, platformId);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Pricing review orders fetched successfully",
-        meta: result.meta,
-        data: result.data,
-    });
-});
-
-// ----------------------------------- GET ORDER PRICING DETAILS ------------------------------
-const getOrderPricingDetails = catchAsync(async (req, res) => {
-    const platformId = (req as any).platformId;
-    const id = getRequiredString(req.params.id, "id");
-
-    const result = await OrderServices.getOrderPricingDetails(id, platformId);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Order pricing details fetched successfully",
-        data: result,
-    });
-});
-
-// ----------------------------------- ADJUST LOGISTICS PRICING -----------------------------------
-const adjustLogisticsPricing = catchAsync(async (req, res) => {
-    const user = (req as any).user;
-    const platformId = (req as any).platformId;
-    const id = getRequiredString(req.params.id, "id");
-
-    const result = await OrderServices.adjustLogisticsPricing(id, user, platformId, req.body);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Logistics pricing adjusted successfully",
-        data: result,
-    });
-});
-
-// ----------------------------------- APPROVE STANDARD PRICING -----------------------------------
-const approveStandardPricing = catchAsync(async (req, res) => {
-    const user = (req as any).user;
-    const platformId = (req as any).platformId;
-    const id = getRequiredString(req.params.id, "id");
-
-    const result = await OrderServices.approveStandardPricing(id, user, platformId, req.body);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Standard pricing approved successfully. Quote sent to client.",
-        data: result,
-    });
-});
-
-// ----------------------------------- APPROVE PLATFORM PRICING -----------------------------------
-const approvePlatformPricing = catchAsync(async (req, res) => {
-    const user = (req as any).user;
-    const platformId = (req as any).platformId;
-    const id = getRequiredString(req.params.id, "id");
-
-    const result = await OrderServices.approvePlatformPricing(id, user, platformId, req.body);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Platform pricing approved successfully. Quote sent to client.",
-        data: result,
-    });
-});
-
-// ----------------------------------- APPROVE QUOTE ----------------------------------------------
+// ----------------------------------- APPROVE QUOTE --------------------------------------
 const approveQuote = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
@@ -325,7 +207,7 @@ const approveQuote = catchAsync(async (req, res) => {
     });
 });
 
-// ----------------------------------- DECLINE QUOTE ----------------------------------------------
+// ----------------------------------- DECLINE QUOTE --------------------------------------
 const declineQuote = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
@@ -341,7 +223,7 @@ const declineQuote = catchAsync(async (req, res) => {
     });
 });
 
-// ----------------------------------- GET ORDER STATISTICS (CLIENT) ------------------------------
+// ----------------------------------- GET ORDER STATISTICS (CLIENT) ----------------------
 const getOrderStatistics = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
@@ -362,7 +244,104 @@ const getOrderStatistics = catchAsync(async (req, res) => {
     });
 });
 
-// ----------------------------------- CHANGE FINANCIAL STATUS -----------------------------------
+// ----------------------------------- EXPORT ORDERS --------------------------------------
+const exportOrders = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+
+    // Fetch all matching orders (no pagination, max 10,000 records)
+    const query = {
+        ...req.query,
+        page: 1,
+        limit: 10000, // Max export limit
+        sort_by: "created_at",
+        sort_order: "desc",
+    };
+
+    const result = await OrderServices.getOrders(query, user, platformId);
+
+    // Build CSV headers
+    const headers = [
+        "Order ID",
+        "Company",
+        "Brand",
+        "Job Number",
+        "Contact Name",
+        "Contact Email",
+        "Contact Phone",
+        "Event Start",
+        "Event End",
+        "Venue Name",
+        "Venue City",
+        "Venue Country",
+        "Volume (m³)",
+        "Weight (kg)",
+        "Order Status",
+        "Financial Status",
+        "Item Count",
+        "Created At",
+    ];
+
+    // Build CSV rows
+    const rows = result.data.map((order) => [
+        order.order_id || "",
+        order.company?.name || "",
+        order.brand?.name || "",
+        order.job_number || "",
+        order.contact_name || "",
+        order.contact_email || "",
+        order.contact_phone || "",
+        order.event_start_date || "",
+        order.event_end_date || "",
+        order.venue_name || "",
+        (order.venue_location as any)?.city || "",
+        (order.venue_location as any)?.country || "",
+        (order.calculated_totals as any)?.volume || "",
+        (order.calculated_totals as any)?.weight || "",
+        order.order_status || "",
+        order.financial_status || "",
+        order.item_count || 0,
+        order.created_at || "",
+    ]);
+
+    // Convert to CSV
+    const csvContent = [
+        headers.join(","),
+        ...rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")),
+    ].join("\n");
+
+    // Generate filename with timestamp
+    const timestamp = new Date().toISOString().replace(/:/g, "-").split(".")[0];
+    const filename = `orders-export-${timestamp}.csv`;
+
+    // Set response headers for CSV download
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.status(httpStatus.OK).send(csvContent);
+});
+
+// ----------------------------------- DOWNLOAD GOODS FORM -----------------------------------
+const downloadGoodsForm = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const orderId = getRequiredString(req.params.id, "id");
+    const requestedFormType = String(req.query.form_type || "AUTO").toUpperCase();
+    const formType =
+        requestedFormType === "GOODS_IN" || requestedFormType === "GOODS_OUT"
+            ? requestedFormType
+            : "AUTO";
+
+    const result = await OrderServices.downloadGoodsForm(orderId, platformId, user, formType);
+
+    res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader("Content-Disposition", `attachment; filename="${result.filename}"`);
+    res.status(httpStatus.OK).send(result.buffer);
+});
+
+// ----------------------------------- CHANGE FINANCIAL STATUS ----------------------------
 const sendInvoice = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
@@ -378,10 +357,10 @@ const sendInvoice = catchAsync(async (req, res) => {
     });
 });
 
-// ----------------------------------- SUBMIT FOR APPROVAL (NEW) -----------------------------------
+// ----------------------------------- SUBMIT FOR APPROVAL (NEW) --------------------------
 const submitForApproval = catchAsync(async (req, res) => {
     const user = (req as any).user;
-    const platformId = (req as any).platform_id;
+    const platformId = (req as any).platformId;
     const id = getRequiredString(req.params.id, "id");
 
     const result = await OrderServices.submitForApproval(id, user, platformId);
@@ -397,15 +376,10 @@ const submitForApproval = catchAsync(async (req, res) => {
 // ----------------------------------- ADMIN APPROVE QUOTE (NEW) -----------------------------------
 const adminApproveQuote = catchAsync(async (req, res) => {
     const user = (req as any).user;
-    const platformId = (req as any).platform_id;
+    const platformId = (req as any).platformId;
     const id = getRequiredString(req.params.id, "id");
-    const { margin_override_percent, margin_override_reason } = req.body;
 
-    const marginOverride = margin_override_percent
-        ? { percent: margin_override_percent, reason: margin_override_reason }
-        : undefined;
-
-    const result = await OrderServices.adminApproveQuote(id, user, platformId, marginOverride);
+    const result = await OrderServices.adminApproveQuote(id, user, platformId, req.body);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -418,7 +392,7 @@ const adminApproveQuote = catchAsync(async (req, res) => {
 // ----------------------------------- RETURN TO LOGISTICS (NEW) -----------------------------------
 const returnToLogistics = catchAsync(async (req, res) => {
     const user = (req as any).user;
-    const platformId = (req as any).platform_id;
+    const platformId = (req as any).platformId;
     const id = getRequiredString(req.params.id, "id");
     const { reason } = req.body;
 
@@ -439,11 +413,10 @@ const returnToLogistics = catchAsync(async (req, res) => {
 // ----------------------------------- CANCEL ORDER (NEW) -----------------------------------
 const cancelOrder = catchAsync(async (req, res) => {
     const user = (req as any).user;
-    const platformId = (req as any).platform_id;
+    const platformId = (req as any).platformId;
     const id = getRequiredString(req.params.id, "id");
-    const payload = req.body;
 
-    const result = await OrderServices.cancelOrder(id, user, platformId, payload);
+    const result = await OrderServices.cancelOrder(id, platformId, req.body, user);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -453,97 +426,64 @@ const cancelOrder = catchAsync(async (req, res) => {
     });
 });
 
-// ----------------------------------- CALCULATE ESTIMATE (NEW) -----------------------------------
-const calculateEstimate = catchAsync(async (req, res) => {
-    const user = (req as any).user;
-    const platformId = (req as any).platform_id;
-    const companyId = user.company_id;
+// ----------------------------------- UPDATE MAINTENANCE DECISION ------------------------
+const updateMaintenanceDecision = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const id = getRequiredString(req.params.id, "id");
 
-    if (!companyId) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "Company ID is required");
-    }
-
-    const { items, venue_city, transport_trip_type } = req.body;
-
-    // Validation
-    if (!items || !Array.isArray(items) || items.length === 0) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "Items array is required");
-    }
-
-    if (!venue_city) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "venue_city is required");
-    }
-
-    if (!transport_trip_type) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "transport_trip_type is required");
-    }
-
-    if (!["ONE_WAY", "ROUND_TRIP"].includes(transport_trip_type)) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            "transport_trip_type must be ONE_WAY or ROUND_TRIP"
-        );
-    }
-
-    const estimate = await OrderServices.calculateOrderEstimate(
-        platformId,
-        companyId,
-        items,
-        venue_city,
-        transport_trip_type
-    );
+    const result = await OrderServices.updateMaintenanceDecision(id, platformId, req.body);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
         success: true,
-        message: "Estimate calculated successfully.",
-        data: { estimate },
+        message: "Maintenance decision updated successfully.",
+        data: result,
+    });
+});
+
+const getPendingApprovalOrders = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+
+    const result = await OrderServices.getPendingApprovalOrders(req.query, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Pending approval orders fetched successfully",
+        data: result.data,
+        meta: result.meta,
     });
 });
 
 export const OrderControllers = {
-    submitOrder,
+    calculateEstimate,
+    checkMaintenanceFeasibility,
+    submitOrderFromCart,
     getOrders,
     getMyOrders,
     exportOrders,
+    downloadGoodsForm,
     getOrderById,
     updateJobNumber,
     getOrderScanEvents,
     progressOrderStatus,
     getOrderStatusHistory,
     updateTimeWindows,
-    getPricingReviewOrders,
-    getOrderPricingDetails,
-    adjustLogisticsPricing,
-    approveStandardPricing, // DEPRECATED
-    approvePlatformPricing, // DEPRECATED
     approveQuote,
     declineQuote,
     getOrderStatistics,
     sendInvoice,
     // NEW CONTROLLERS
-    getPendingApprovalOrders: catchAsync(async (req, res) => {
-        const platformId = (req as any).platform_id;
-        const query = req.query;
-
-        const result = await OrderServices.getPendingApprovalOrders(query, platformId);
-
-        sendResponse(res, {
-            statusCode: httpStatus.OK,
-            success: true,
-            message: "Pending approval orders fetched successfully",
-            data: result.data,
-            meta: result.meta,
-        });
-    }),
+    getPendingApprovalOrders,
     submitForApproval,
     adminApproveQuote,
     returnToLogistics,
     cancelOrder,
-    calculateEstimate,
+    updateMaintenanceDecision,
+    // addOrderItem,
+    // removeOrderItem,
+    // updateOrderItemQuantity,
+    // adjustLogisticsPricing,
+    // getPricingReviewOrders,
+    // getOrderPricingDetails,
 };
-
-// {
-//     orderId: result.orderId,
-//         status: result.status,
-//         }

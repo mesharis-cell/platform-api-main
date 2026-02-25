@@ -5,18 +5,21 @@ import sendResponse from "../../shared/send-response";
 import { uploadImageToS3 } from "../../services/s3.service";
 import CustomizedError from "../../error/customized-error";
 
+const buildKey = (companyId: string | undefined, originalname: string, isDraft: boolean) => {
+    const rand = `${Date.now()}-${crypto.randomBytes(8).toString("hex")}`;
+    if (isDraft) return `drafts/${rand}/${originalname}`;
+    if (companyId) return `${companyId}/${rand}/${originalname}`;
+    return `${rand}/${originalname}`;
+};
+
 const uploadImageController = catchAsync(async (req, res) => {
     const file = req.file;
     const companyId = req.body.companyId as string;
+    const isDraft = req.query.draft === "true";
 
-    if (!file) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "No file to upload");
-    }
+    if (!file) throw new CustomizedError(httpStatus.BAD_REQUEST, "No file to upload");
 
-    const fileName = companyId
-        ? `${companyId}/${Date.now()}-${Date.now()}-${crypto.randomBytes(8).toString("hex")}/${file.originalname}`
-        : `${Date.now()}-${Date.now()}-${crypto.randomBytes(8).toString("hex")}/${file.originalname}`;
-
+    const fileName = buildKey(companyId, file.originalname, isDraft);
     const imageUrl = await uploadImageToS3(file.buffer, fileName, file.mimetype);
 
     sendResponse(res, {
@@ -31,21 +34,17 @@ const uploadImageController = catchAsync(async (req, res) => {
 const uploadMultipleImagesController = catchAsync(async (req, res) => {
     const files = req.files as { [fieldname: string]: Express.Multer.File[] };
     const companyId = req.body.companyId as string;
+    const isDraft = req.query.draft === "true";
 
-    if (!files || !files.files || files.files.length === 0) {
+    if (!files || !files.files || files.files.length === 0)
         throw new CustomizedError(httpStatus.BAD_REQUEST, "No files to upload");
-    }
 
-    // Upload all images in parallel
-    const uploadPromises = files.files.map(async (file) => {
-        const fileName = companyId
-            ? `${companyId}/${Date.now()}-${Date.now()}-${crypto.randomBytes(8).toString("hex")}/${file.originalname}`
-            : `${Date.now()}-${Date.now()}-${crypto.randomBytes(8).toString("hex")}/${file.originalname}`;
-        const imageUrl = await uploadImageToS3(file.buffer, fileName, file.mimetype);
-        return imageUrl;
-    });
-
-    const imageUrls = await Promise.all(uploadPromises);
+    const imageUrls = await Promise.all(
+        files.files.map(async (file) => {
+            const fileName = buildKey(companyId, file.originalname, isDraft);
+            return uploadImageToS3(file.buffer, fileName, file.mimetype);
+        })
+    );
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

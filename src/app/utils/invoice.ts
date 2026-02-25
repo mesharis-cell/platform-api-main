@@ -3,6 +3,16 @@ import { db } from "../../db";
 import { invoices, orders } from "../../db/schema";
 import { deleteFileFromS3, uploadPDFToS3 } from "../services/s3.service";
 import { renderInvoicePDF } from "./invoice-pdf";
+import CustomizedError from "../error/customized-error";
+import httpStatus from "http-status";
+import { AuthUser } from "../interface/common";
+import {
+    buildCommercialDocumentPdfPayload,
+    buildInvoiceS3Key,
+    CommercialDocumentContextType,
+    CommercialDocumentPdfPayload,
+    getCommercialDocumentContext,
+} from "./commercial-documents";
 
 // --------------------------------- INVOICE NUMBER GENERATOR ---------------------------------
 // FORMAT: INV-YYYYMMDD-###
@@ -34,79 +44,119 @@ export const invoiceNumberGenerator = async (platformId: string): Promise<string
     return `INV-${dateStr}-${paddedSequence}`;
 };
 
-// --------------------------------- INVOICE GENERATOR ----------------------------------------
-export const invoiceGenerator = async (
-    data: InvoicePayload,
-    regenerate: boolean = false
-): Promise<{ invoice_id: string; invoice_pdf_url: string; pdf_buffer: Buffer }> => {
+const getExistingInvoiceForContext = async (
+    contextType: CommercialDocumentContextType,
+    contextId: string,
+    platformId: string
+) => {
+    if (contextType === "ORDER") {
+        const [invoice] = await db
+            .select()
+            .from(invoices)
+            .where(and(eq(invoices.order_id, contextId), eq(invoices.platform_id, platformId)));
+        return invoice;
+    }
+
     const [invoice] = await db
         .select()
         .from(invoices)
-        .where(and(eq(invoices.order_id, data.id), eq(invoices.platform_id, data.platform_id)));
+        .where(
+            and(eq(invoices.service_request_id, contextId), eq(invoices.platform_id, platformId))
+        );
+    return invoice;
+};
 
-    if (invoice && !regenerate) {
-        throw new Error(
-            "Invoice already exists for this order. Use regenerate flag to create new invoice."
+const generateInvoiceForContext = async (
+    contextType: CommercialDocumentContextType,
+    contextId: string,
+    platformId: string,
+    regenerate: boolean,
+    user: AuthUser
+): Promise<{ invoice_id: string; invoice_pdf_url: string; pdf_buffer: Buffer }> => {
+    const existingInvoice = await getExistingInvoiceForContext(contextType, contextId, platformId);
+    const label = contextType === "ORDER" ? "order" : "service request";
+
+    if (existingInvoice && !regenerate) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Invoice already exists for this ${label}. Use regenerate=true to rebuild PDF.`
+        );
+    }
+    if (regenerate && existingInvoice?.invoice_paid_at) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Cannot regenerate invoice after payment has been confirmed"
         );
     }
 
-    // Prevent regeneration after payment confirmed
-    if (regenerate && invoice && invoice.invoice_paid_at) {
-        throw new Error("Cannot regenerate invoice after payment has been confirmed");
+    const invoiceNumber =
+        regenerate && existingInvoice?.invoice_id
+            ? existingInvoice.invoice_id
+            : await invoiceNumberGenerator(platformId);
+
+    if (regenerate && existingInvoice?.invoice_pdf_url) {
+        await deleteFileFromS3(existingInvoice.invoice_pdf_url);
     }
 
-    // Generate or reuse invoice number
-    let invoiceNumber: string;
-    if (regenerate && invoice?.invoice_id) {
-        if (invoice.invoice_pdf_url) {
-            await deleteFileFromS3(invoice.invoice_pdf_url);
-        }
-        invoiceNumber = invoice.invoice_id;
-    } else {
-        invoiceNumber = await invoiceNumberGenerator(data.platform_id);
-    }
+    const context = await getCommercialDocumentContext(contextType, contextId, platformId);
+    const invoiceData: CommercialDocumentPdfPayload = buildCommercialDocumentPdfPayload(
+        context,
+        "SELL_SIDE",
+        user.id
+    );
 
-    // Generate PDF
     const pdfBuffer = await renderInvoicePDF({
-        ...data,
+        ...invoiceData,
         invoice_number: invoiceNumber,
         invoice_date: new Date(),
     });
+    const s3Key = buildInvoiceS3Key(context, invoiceNumber);
+    const pdfUrl = await uploadPDFToS3(pdfBuffer, invoiceNumber, s3Key);
 
-    // Upload PDF to S3
-    const key = `invoices/${data.company_name.replace(/\s/g, "-").toLowerCase()}/${invoiceNumber}.pdf`;
-    const pdfUrl = await uploadPDFToS3(pdfBuffer, invoiceNumber, key);
-
-    // Save or update invoice record (wrapped in transaction)
-    if (regenerate && invoice) {
+    if (regenerate && existingInvoice) {
         await db
             .update(invoices)
             .set({
                 invoice_pdf_url: pdfUrl,
                 updated_at: new Date(),
-                updated_by: data.user_id,
+                updated_by: user.id,
             })
-            .where(and(eq(invoices.id, invoice.id), eq(invoices.platform_id, data.platform_id)));
-    } else {
-        // Create invoice and update order
+            .where(and(eq(invoices.id, existingInvoice.id), eq(invoices.platform_id, platformId)));
+
+        return {
+            invoice_id: invoiceNumber,
+            invoice_pdf_url: pdfUrl,
+            pdf_buffer: pdfBuffer,
+        };
+    }
+
+    if (contextType === "ORDER") {
         await db.transaction(async (tx) => {
-            // Insert invoice
             await tx.insert(invoices).values({
-                platform_id: data.platform_id,
-                generated_by: data.user_id,
-                order_id: data.id,
+                platform_id: platformId,
+                generated_by: user.id,
+                order_id: contextId,
+                type: "ORDER",
                 invoice_id: invoiceNumber,
                 invoice_pdf_url: pdfUrl,
             });
 
-            // Update order financial status
             await tx
                 .update(orders)
                 .set({
-                    financial_status: "PENDING_INVOICE",
+                    financial_status: "INVOICED",
                     updated_at: new Date(),
                 })
-                .where(and(eq(orders.id, data.id), eq(orders.platform_id, data.platform_id)));
+                .where(and(eq(orders.id, contextId), eq(orders.platform_id, platformId)));
+        });
+    } else {
+        await db.insert(invoices).values({
+            platform_id: platformId,
+            generated_by: user.id,
+            service_request_id: contextId,
+            type: "SERVICE_REQUEST",
+            invoice_id: invoiceNumber,
+            invoice_pdf_url: pdfUrl,
         });
     }
 
@@ -117,37 +167,19 @@ export const invoiceGenerator = async (
     };
 };
 
-// --------------------------------- TYPES ----------------------------------------------------
-export type HandlingTag = "Fragile" | "HighValue" | "HeavyLift" | "AssemblyRequired";
+export const invoiceGenerator = async (
+    orderId: string,
+    platformId: string,
+    regenerate: boolean = false,
+    user: AuthUser
+) => generateInvoiceForContext("ORDER", orderId, platformId, regenerate, user);
 
-export type InvoicePayload = {
-    id: string;
-    user_id: string;
-    order_id: string;
-    platform_id: string;
-    contact_name: string;
-    contact_email: string;
-    contact_phone: string;
-    company_name: string;
-    event_start_date: Date;
-    event_end_date: Date;
-    venue_name: string;
-    venue_country: string;
-    venue_city: string;
-    venue_address: string;
-    order_status: string;
-    financial_status: string;
-    items: Array<{
-        asset_name: string;
-        quantity: number;
-        handling_tags: HandlingTag[];
-        from_collection_name?: string;
-    }>;
-    pricing: {
-        logistics_base_price: string;
-        platform_margin_percent: string;
-        platform_margin_amount: string;
-        final_total_price: string;
-        show_breakdown: boolean;
-    };
-};
+export const serviceRequestInvoiceGenerator = async (
+    serviceRequestId: string,
+    platformId: string,
+    regenerate: boolean,
+    user: AuthUser
+) => generateInvoiceForContext("SERVICE_REQUEST", serviceRequestId, platformId, regenerate, user);
+
+export type HandlingTag = "Fragile" | "HighValue" | "HeavyLift" | "AssemblyRequired";
+export type InvoicePayload = CommercialDocumentPdfPayload;

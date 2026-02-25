@@ -35,7 +35,7 @@ export const orderQueryValidationConfig = {
 
 // ------------------------------------- ORDER ID GENERATOR -------------------------------------
 // FORMAT: ORD-YYYYMMDD-XXX
-export const orderIdGenerator = async (): Promise<string> => {
+export const orderIdGenerator = async (platformId: string): Promise<string> => {
     const today = new Date();
     const dateStr = today.toISOString().split("T")[0].replace(/-/g, ""); // YYYYMMDD
 
@@ -44,7 +44,9 @@ export const orderIdGenerator = async (): Promise<string> => {
     const todayOrders = await db
         .select({ order_id: orders.order_id })
         .from(orders)
-        .where(sql`${orders.order_id} LIKE ${prefix + "%"}`)
+        .where(
+            and(eq(orders.platform_id, platformId), sql`${orders.order_id} LIKE ${prefix + "%"}`)
+        )
         .orderBy(desc(orders.order_id))
         .limit(1);
 
@@ -63,17 +65,19 @@ export const orderIdGenerator = async (): Promise<string> => {
 export const VALID_STATE_TRANSITIONS: Record<string, string[]> = {
     DRAFT: ["SUBMITTED"],
     SUBMITTED: ["PRICING_REVIEW"],
-    PRICING_REVIEW: ["QUOTED", "PENDING_APPROVAL"],
+    PRICING_REVIEW: ["PENDING_APPROVAL"],
     PENDING_APPROVAL: ["QUOTED"],
     QUOTED: ["CONFIRMED", "DECLINED"],
     DECLINED: [],
-    CONFIRMED: ["IN_PREPARATION"],
+    CONFIRMED: ["AWAITING_FABRICATION", "IN_PREPARATION"],
+    AWAITING_FABRICATION: ["IN_PREPARATION"],
     IN_PREPARATION: ["READY_FOR_DELIVERY"],
     READY_FOR_DELIVERY: ["IN_TRANSIT"],
     IN_TRANSIT: ["DELIVERED"],
     DELIVERED: ["IN_USE"],
     IN_USE: ["AWAITING_RETURN"],
-    AWAITING_RETURN: ["CLOSED"],
+    AWAITING_RETURN: ["RETURN_IN_TRANSIT"],
+    RETURN_IN_TRANSIT: ["CLOSED"],
     CLOSED: [],
 };
 
@@ -108,12 +112,14 @@ export function validateRoleBasedTransition(
     if (user.role === "LOGISTICS") {
         const allowedLogisticsTransitions = [
             "CONFIRMED->IN_PREPARATION",
+            "AWAITING_FABRICATION->IN_PREPARATION",
             "IN_PREPARATION->READY_FOR_DELIVERY",
             "READY_FOR_DELIVERY->IN_TRANSIT",
             "IN_TRANSIT->DELIVERED",
             "DELIVERED->IN_USE",
             "IN_USE->AWAITING_RETURN",
-            "AWAITING_RETURN->CLOSED",
+            "AWAITING_RETURN->RETURN_IN_TRANSIT",
+            "RETURN_IN_TRANSIT->CLOSED",
         ];
 
         const transitionKey = `${fromStatus}->${toStatus}`;
@@ -284,12 +290,14 @@ export const checkAssetsForOrder = async (
         } else {
             const remainingQuantity = Math.max(0, availableQuantity - item.quantity);
 
-            const assetStatus: AssetStatus =
-                asset.tracking_method === "INDIVIDUAL"
-                    ? "BOOKED"
-                    : remainingQuantity <= 0
-                      ? "BOOKED"
-                      : "AVAILABLE";
+            // const assetStatus: AssetStatus =
+            //     asset.tracking_method === "INDIVIDUAL"
+            //         ? "BOOKED"
+            //         : remainingQuantity <= 0
+            //             ? "BOOKED"
+            //             : "AVAILABLE";
+
+            const assetStatus: AssetStatus = "BOOKED";
 
             availableItems.push({
                 ...asset,
@@ -319,3 +327,24 @@ export const checkAssetsForOrder = async (
 
     return availableItems;
 };
+
+export const NON_CANCELLABLE_STATUSES = [
+    "READY_FOR_DELIVERY",
+    "IN_TRANSIT",
+    "DELIVERED",
+    "IN_USE",
+    "AWAITING_RETURN",
+    "RETURN_IN_TRANSIT",
+    "CLOSED",
+    "DECLINED",
+    "CANCELLED",
+];
+
+export const CANCEL_REASONS = [
+    "client_requested",
+    "asset_unavailable",
+    "pricing_dispute",
+    "event_cancelled",
+    "fabrication_failed",
+    "other",
+];

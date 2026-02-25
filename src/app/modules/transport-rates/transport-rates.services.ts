@@ -1,26 +1,39 @@
-import { and, asc, count, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNull, getTableColumns } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { transportRates } from "../../../db/schema";
+import { cities, companies, transportRates, vehicleTypes } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import paginationMaker from "../../utils/pagination-maker";
 import {
     CreateTransportRatePayload,
+    TripType,
     UpdateTransportRatePayload,
 } from "./transport-rates.interfaces";
+import { uuidRegex } from "../../constants/common";
 
-// ----------------------------------- GET TRANSPORT RATE (LOOKUP) -----------------------------------
-/**
- * Look up transport rate for specific parameters
- * Hierarchy: Company-specific → Platform default
- */
-const getTransportRate = async (
+// ----------------------------------- LOOKUP TRANSPORT RATE ----------------------------------
+const lookupTransportRate = async (
     platformId: string,
     companyId: string | null,
-    emirate: string,
-    tripType: string,
-    vehicleType: string
-): Promise<number> => {
+    city: string,
+    tripType: TripType,
+    vehicleTypeId: string
+) => {
+    // Step 1: Check if city is a valid UUID
+    const isUUID = uuidRegex.test(city);
+
+    // Step 2: Build where condition for city based on input type
+    const whereCondition = isUUID
+        ? and(eq(cities.id, city), eq(cities.platform_id, platformId))
+        : and(eq(cities.name, city), eq(cities.platform_id, platformId));
+
+    // Step 3: Fetch order with relations
+    const [cityInfo] = await db.select().from(cities).where(whereCondition).limit(1);
+
+    if (!cityInfo) {
+        return null;
+    }
+
     // Step 1: Try company-specific rate first
     if (companyId) {
         const [companyRate] = await db
@@ -30,16 +43,16 @@ const getTransportRate = async (
                 and(
                     eq(transportRates.platform_id, platformId),
                     eq(transportRates.company_id, companyId),
-                    eq(transportRates.emirate, emirate),
-                    eq(transportRates.trip_type, tripType as any),
-                    eq(transportRates.vehicle_type, vehicleType as any),
+                    eq(transportRates.city_id, cityInfo.id),
+                    eq(transportRates.trip_type, tripType),
+                    eq(transportRates.vehicle_type_id, vehicleTypeId),
                     eq(transportRates.is_active, true)
                 )
             )
             .limit(1);
 
         if (companyRate) {
-            return parseFloat(companyRate.rate);
+            return companyRate;
         }
     }
 
@@ -51,22 +64,23 @@ const getTransportRate = async (
             and(
                 eq(transportRates.platform_id, platformId),
                 isNull(transportRates.company_id),
-                eq(transportRates.emirate, emirate),
-                eq(transportRates.trip_type, tripType as any),
-                eq(transportRates.vehicle_type, vehicleType as any),
+                eq(transportRates.city_id, cityInfo.id),
+                eq(transportRates.trip_type, tripType),
+                eq(transportRates.vehicle_type_id, vehicleTypeId),
                 eq(transportRates.is_active, true)
             )
         )
         .limit(1);
 
     if (!platformRate) {
-        throw new CustomizedError(
-            httpStatus.NOT_FOUND,
-            `No transport rate found for ${emirate} / ${tripType} / ${vehicleType}`
-        );
+        return null;
+        // throw new CustomizedError(
+        //     httpStatus.NOT_FOUND,
+        //     `No transport rate found for ${cityInfo.name} / ${tripType} / ${vehicleType}`
+        // );
     }
 
-    return parseFloat(platformRate.rate);
+    return platformRate;
 };
 
 // ----------------------------------- LIST TRANSPORT RATES -----------------------------------
@@ -78,7 +92,7 @@ const listTransportRates = async (query: Record<string, any>, platformId: string
         sort_order,
         emirate,
         trip_type,
-        vehicle_type,
+        vehicle_type_id,
         company_id,
         include_inactive,
     } = query;
@@ -95,15 +109,15 @@ const listTransportRates = async (query: Record<string, any>, platformId: string
     const conditions: any[] = [eq(transportRates.platform_id, platformId)];
 
     if (emirate) {
-        conditions.push(eq(transportRates.emirate, emirate));
+        conditions.push(eq(transportRates.city_id, emirate));
     }
 
     if (trip_type) {
         conditions.push(eq(transportRates.trip_type, trip_type as any));
     }
 
-    if (vehicle_type) {
-        conditions.push(eq(transportRates.vehicle_type, vehicle_type as any));
+    if (vehicle_type_id) {
+        conditions.push(eq(transportRates.vehicle_type_id, vehicle_type_id));
     }
 
     if (company_id !== undefined) {
@@ -125,8 +139,25 @@ const listTransportRates = async (query: Record<string, any>, platformId: string
     // Execute queries in parallel
     const [result, total] = await Promise.all([
         db
-            .select()
+            .select({
+                ...getTableColumns(transportRates),
+                city: {
+                    id: cities.id,
+                    name: cities.name,
+                },
+                company: {
+                    id: companies.id,
+                    name: companies.name,
+                },
+                vehicle_type: {
+                    id: vehicleTypes.id,
+                    name: vehicleTypes.name,
+                },
+            })
             .from(transportRates)
+            .leftJoin(cities, eq(transportRates.city_id, cities.id))
+            .leftJoin(companies, eq(transportRates.company_id, companies.id))
+            .leftJoin(vehicleTypes, eq(transportRates.vehicle_type_id, vehicleTypes.id))
             .where(and(...conditions))
             .orderBy(orderDirection)
             .limit(limitNumber)
@@ -171,7 +202,7 @@ const getTransportRateById = async (id: string, platformId: string) => {
 
 // ----------------------------------- CREATE TRANSPORT RATE -----------------------------------
 const createTransportRate = async (data: CreateTransportRatePayload) => {
-    const { platform_id, company_id, emirate, area, trip_type, vehicle_type, rate, is_active } =
+    const { platform_id, company_id, city_id, area, trip_type, vehicle_type_id, rate, is_active } =
         data;
 
     // Check for duplicate
@@ -184,10 +215,10 @@ const createTransportRate = async (data: CreateTransportRatePayload) => {
                 company_id
                     ? eq(transportRates.company_id, company_id)
                     : isNull(transportRates.company_id),
-                eq(transportRates.emirate, emirate),
+                eq(transportRates.city_id, city_id),
                 area ? eq(transportRates.area, area) : isNull(transportRates.area),
                 eq(transportRates.trip_type, trip_type as any),
-                eq(transportRates.vehicle_type, vehicle_type as any)
+                eq(transportRates.vehicle_type_id, vehicle_type_id as any)
             )
         )
         .limit(1);
@@ -204,10 +235,10 @@ const createTransportRate = async (data: CreateTransportRatePayload) => {
         .values({
             platform_id,
             company_id: company_id || null,
-            emirate,
+            city_id: city_id,
             area: area || null,
-            trip_type: trip_type as any,
-            vehicle_type: vehicle_type as any,
+            trip_type: trip_type,
+            vehicle_type_id: vehicle_type_id,
             rate: rate.toString(),
             is_active: is_active ?? true,
         })
@@ -271,7 +302,7 @@ const deleteTransportRate = async (id: string, platformId: string) => {
 };
 
 export const TransportRatesServices = {
-    getTransportRate,
+    lookupTransportRate,
     listTransportRates,
     getTransportRateById,
     createTransportRate,

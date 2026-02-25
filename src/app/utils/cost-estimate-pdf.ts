@@ -11,10 +11,10 @@ const formatCurrency = (amount: string): string => {
 // COST ESTIMATE PDF - Black & White Design
 // ============================================================
 export async function renderCostEstimatePDF(
-    data: InvoicePayload & { estimate_number: string; estimate_date: Date }
+    data: InvoicePayload & { estimate_date: Date }
 ): Promise<Buffer> {
     console.log("=== Starting Cost Estimate PDF Generation ===");
-    console.log("Estimate Number:", data.estimate_number);
+    console.log("Order ID:", data.order_id);
 
     return new Promise((resolve, reject) => {
         try {
@@ -281,21 +281,16 @@ export async function renderCostEstimatePDF(
                 doc.fontSize(10)
                     .font("Helvetica")
                     .fillColor("#555")
-                    .text(
-                        `Service Fee (${data.pricing.platform_margin_percent}%)`,
-                        summaryX,
-                        doc.y
-                    );
+                    .text(`Service Fee (Including Reskin)`, summaryX, doc.y);
 
                 doc.fontSize(10)
                     .font("Helvetica")
+                    .fillColor("#555")
                     .fillColor("#000")
-                    .text(
-                        formatCurrency(data.pricing.platform_margin_amount),
-                        summaryX,
-                        doc.y - 12,
-                        { align: "right", width: summaryWidth }
-                    );
+                    .text(formatCurrency(data.pricing.service_fee), summaryX, doc.y - 12, {
+                        align: "right",
+                        width: summaryWidth,
+                    });
 
                 doc.moveDown(0.8);
 
@@ -356,7 +351,6 @@ export async function renderCostEstimatePDF(
                 "This is an estimate only and not a final invoice",
                 "Final costs may vary based on actual requirements",
                 "Estimate valid for 30 days from the estimate date",
-                `Reference number: ${data.estimate_number}`,
             ];
 
             notes.forEach((note) => {

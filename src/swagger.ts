@@ -9,10 +9,10 @@ import "./app/modules/calendar/calendar.swagger";
 import "./app/modules/catalog/catalog.swagger";
 import "./app/modules/collection/collection.swagger";
 import "./app/modules/company/company.swagger";
+import "./app/modules/inbound-request/inbound-request.swagger";
 import "./app/modules/invoice/invoice.swagger";
 import "./app/modules/order/order.swagger";
 import "./app/modules/platform/platform.swagger";
-import "./app/modules/pricing-tier/pricing-tier.swagger";
 import "./app/modules/scanning/scanning.swagger";
 import "./app/modules/upload/upload.swagger";
 import "./app/modules/user/user.swagger";
@@ -157,6 +157,10 @@ const swaggerDefinition = {
         {
             name: "Company Management",
             description: "Company CRUD operations for tenant management",
+        },
+        {
+            name: "Inbound Request",
+            description: "Inbound request operations for sending items to warehouse",
         },
         {
             name: "Invoice Management",

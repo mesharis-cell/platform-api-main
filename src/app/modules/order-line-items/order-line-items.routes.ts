@@ -2,19 +2,17 @@ import { Router } from "express";
 import auth from "../../middleware/auth";
 import payloadValidator from "../../middleware/payload-validator";
 import platformValidator from "../../middleware/platform-validator";
-import requirePermission from "../../middleware/permission";
-import { PERMISSIONS } from "../../constants/permissions";
-import { OrderLineItemsControllers } from "./order-line-items.controllers";
-import { OrderLineItemsSchemas } from "./order-line-items.schemas";
+import { LineItemsControllers } from "./order-line-items.controllers";
+import { LineItemsSchemas } from "./order-line-items.schemas";
 
 const router = Router({ mergeParams: true }); // mergeParams to access :orderId
 
-// List line items for an order
+// Get line items
 router.get(
     "/",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
-    OrderLineItemsControllers.listOrderLineItems
+    LineItemsControllers.getLineItems
 );
 
 // Create catalog line item
@@ -22,19 +20,19 @@ router.post(
     "/catalog",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.ORDER_LINE_ITEMS_MANAGE),
-    payloadValidator(OrderLineItemsSchemas.createCatalogLineItemSchema),
-    OrderLineItemsControllers.createCatalogLineItem
+    // requirePermission(PERMISSIONS.ORDER_LINE_ITEMS_MANAGE),
+    payloadValidator(LineItemsSchemas.createCatalogLineItemSchema),
+    LineItemsControllers.createCatalogLineItem
 );
 
 // Create custom line item
 router.post(
     "/custom",
     platformValidator,
-    auth("ADMIN"),
-    requirePermission(PERMISSIONS.ORDER_LINE_ITEMS_MANAGE),
-    payloadValidator(OrderLineItemsSchemas.createCustomLineItemSchema),
-    OrderLineItemsControllers.createCustomLineItem
+    auth("ADMIN", "LOGISTICS"),
+    // requirePermission(PERMISSIONS.ORDER_LINE_ITEMS_MANAGE),
+    payloadValidator(LineItemsSchemas.createCustomLineItemSchema),
+    LineItemsControllers.createCustomLineItem
 );
 
 // Update line item
@@ -42,9 +40,9 @@ router.put(
     "/:itemId",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.ORDER_LINE_ITEMS_MANAGE),
-    payloadValidator(OrderLineItemsSchemas.updateLineItemSchema),
-    OrderLineItemsControllers.updateLineItem
+    // requirePermission(PERMISSIONS.ORDER_LINE_ITEMS_MANAGE),
+    payloadValidator(LineItemsSchemas.updateLineItemSchema),
+    LineItemsControllers.updateLineItem
 );
 
 // Void (soft delete) line item
@@ -52,9 +50,9 @@ router.delete(
     "/:itemId",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.ORDER_LINE_ITEMS_MANAGE),
-    payloadValidator(OrderLineItemsSchemas.voidLineItemSchema),
-    OrderLineItemsControllers.voidLineItem
+    // requirePermission(PERMISSIONS.ORDER_LINE_ITEMS_MANAGE),
+    payloadValidator(LineItemsSchemas.voidLineItemSchema),
+    LineItemsControllers.voidLineItem
 );
 
-export const OrderLineItemsRoutes = router;
+export const LineItemsRoutes = router;

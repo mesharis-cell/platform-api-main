@@ -1,6 +1,49 @@
 import { z } from "zod";
-import { orderStatusEnum } from "../../../db/schema";
+import { maintenanceDecisionEnum, orderStatusEnum } from "../../../db/schema";
 import { enumMessageGenerator } from "../../utils/helper";
+import { CANCEL_REASONS } from "./order.utils";
+
+const calculateEstimateSchema = z.object({
+    body: z
+        .object({
+            items: z.array(
+                z.object({
+                    asset_id: z.uuid("Invalid asset ID"),
+                    quantity: z.number().int().positive("Quantity must be positive"),
+                })
+            ),
+            venue_city: z.string("Venue city is required"),
+            trip_type: z.enum(["ONE_WAY", "ROUND_TRIP"]).optional().default("ROUND_TRIP"),
+        })
+        .strict(),
+});
+
+const checkMaintenanceFeasibilitySchema = z.object({
+    body: z
+        .object({
+            items: z
+                .array(
+                    z.object({
+                        asset_id: z.uuid("Invalid asset ID"),
+                        maintenance_decision: z
+                            .enum(
+                                maintenanceDecisionEnum.enumValues,
+                                enumMessageGenerator(
+                                    "Maintenance decision",
+                                    maintenanceDecisionEnum.enumValues
+                                )
+                            )
+                            .optional(),
+                    })
+                )
+                .min(1, "At least one item is required"),
+            event_start_date: z
+                .string("Event start date is required")
+                .refine((date) => !isNaN(Date.parse(date)), "Invalid event start date format")
+                .transform((date) => new Date(date)),
+        })
+        .strict(),
+});
 
 export const orderItemSchema = z
     .object({
@@ -10,31 +53,39 @@ export const orderItemSchema = z
             .int("Quantity should be an integer")
             .positive("Quantity must be a positive integer"),
         from_collection_id: z.uuid("Invalid collection ID").optional(),
-        // Reskin/rebrand fields (NEW)
-        is_reskin_request: z.boolean().optional().default(false),
-        reskin_target_brand_id: z.uuid("Invalid brand ID").optional(),
-        reskin_target_brand_custom: z
-            .string()
-            .max(100, "Custom brand name must be under 100 characters")
+        maintenance_decision: z
+            .enum(
+                maintenanceDecisionEnum.enumValues,
+                enumMessageGenerator("Maintenance decision", maintenanceDecisionEnum.enumValues)
+            )
             .optional(),
-        reskin_notes: z.string().min(10, "Reskin notes must be at least 10 characters").optional(),
     })
-    .refine(
-        (data) => {
-            // If reskin requested, must have target brand and notes
-            if (data.is_reskin_request) {
-                return (
-                    (data.reskin_target_brand_id || data.reskin_target_brand_custom) &&
-                    data.reskin_notes
-                );
-            }
-            return true;
-        },
-        {
-            message: "Reskin requests require target brand and notes",
-            path: ["is_reskin_request"],
-        }
-    );
+    .strict();
+
+const addOrderItemSchema = z.object({
+    body: z.object({
+        asset_id: z.string().uuid("Invalid asset ID"),
+        quantity: z.number().int().positive("Quantity must be positive"),
+    }),
+});
+
+const updateOrderItemQuantitySchema = z.object({
+    body: z.object({
+        quantity: z.number().int().positive("Quantity must be positive"),
+    }),
+});
+
+const updateMaintenanceDecisionSchema = z.object({
+    body: z
+        .object({
+            order_item_id: z.uuid("Invalid order item ID"),
+            maintenance_decision: z.enum(
+                maintenanceDecisionEnum.enumValues,
+                enumMessageGenerator("Maintenance decision", maintenanceDecisionEnum.enumValues)
+            ),
+        })
+        .strict(),
+});
 
 const submitOrderSchema = z.object({
     body: z
@@ -44,12 +95,6 @@ const submitOrderSchema = z.object({
                 .min(1, "At least one item is required"),
 
             brand_id: z.uuid("Invalid brand ID").optional(),
-            transport_trip_type: z
-                .enum(["ONE_WAY", "ROUND_TRIP"], {
-                    message: "Trip type must be ONE_WAY or ROUND_TRIP",
-                })
-                .optional()
-                .default("ROUND_TRIP"),
             event_start_date: z
                 .string("Event start date is required")
                 .refine((date) => !isNaN(Date.parse(date)), "Invalid event start date format")
@@ -62,11 +107,8 @@ const submitOrderSchema = z.object({
                 .string("Venue name is required")
                 .min(1, "Venue name is required")
                 .max(200),
-            venue_country: z
-                .string("Venue country is required")
-                .min(1, "Venue country is required")
-                .max(50),
-            venue_city: z.string("Venue city is required").min(1, "Venue city is required").max(50),
+            venue_country_id: z.uuid("Venue country should be a valid UUID"),
+            venue_city_id: z.uuid("Venue city should be a valid UUID"),
             venue_address: z
                 .string("Venue address is required")
                 .min(1, "Venue address is required"),
@@ -128,6 +170,7 @@ const progressStatusSchema = z.object({
                 enumMessageGenerator("New status", orderStatusEnum.enumValues)
             ),
             notes: z.string().optional(),
+            delivery_photos: z.array(z.string().url("Invalid delivery photo URL")).optional(),
         })
         .strict(),
 });
@@ -198,14 +241,6 @@ const adjustLogisticsPricingSchema = z.object({
         .strict(),
 });
 
-const approveStandardPricingSchema = z.object({
-    body: z
-        .object({
-            notes: z.string("Notes should be a text").optional(),
-        })
-        .strict(),
-});
-
 const approvePlatformPricingSchema = z.object({
     body: z
         .object({
@@ -239,34 +274,12 @@ const declineQuoteSchema = z.object({
         .strict(),
 });
 
-const updateVehicleSchema = z.object({
-    body: z
-        .object({
-            vehicle_type: z.enum(["STANDARD", "7_TON", "10_TON"], {
-                message: "Vehicle type must be STANDARD, 7_TON, or 10_TON",
-            }),
-            reason: z
-                .string("Reason should be a text")
-                .min(10, "Reason must be at least 10 characters"),
-        })
-        .strict(),
-});
-
 const cancelOrderSchema = z.object({
     body: z
         .object({
             reason: z.enum(
-                [
-                    "client_requested",
-                    "asset_unavailable",
-                    "pricing_dispute",
-                    "event_cancelled",
-                    "fabrication_failed",
-                    "other",
-                ],
-                {
-                    message: "Invalid cancellation reason",
-                }
+                CANCEL_REASONS,
+                enumMessageGenerator("Cancellation reason", CANCEL_REASONS)
             ),
             notes: z
                 .string("Notes should be a text")
@@ -276,16 +289,33 @@ const cancelOrderSchema = z.object({
         .strict(),
 });
 
+const adminApproveQuoteSchema = z.object({
+    body: z
+        .object({
+            margin_override_percent: z
+                .number("Margin override percent should be a number")
+                .min(0, "Margin override percent must be greater than 0")
+                .max(100, "Margin override percent must be less than 100")
+                .optional(),
+            margin_override_reason: z.string("Margin override reason should be a text").optional(),
+        })
+        .strict(),
+});
+
 export const orderSchemas = {
+    calculateEstimateSchema,
+    checkMaintenanceFeasibilitySchema,
     submitOrderSchema,
     updateJobNumberSchema,
     progressStatusSchema,
     updateTimeWindowsSchema,
     adjustLogisticsPricingSchema,
-    approveStandardPricingSchema,
     approvePlatformPricingSchema,
     approveQuoteSchema,
     declineQuoteSchema,
-    updateVehicleSchema,
     cancelOrderSchema,
+    addOrderItemSchema,
+    updateOrderItemQuantitySchema,
+    updateMaintenanceDecisionSchema,
+    adminApproveQuoteSchema,
 };

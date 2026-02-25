@@ -1,39 +1,35 @@
 import z from "zod";
-import { OrderLineItemsSchemas } from "./order-line-items.schemas";
+import { LineItemsSchemas } from "./order-line-items.schemas";
 
 export type CreateCatalogLineItemPayload = z.infer<
-    typeof OrderLineItemsSchemas.createCatalogLineItemSchema
+    typeof LineItemsSchemas.createCatalogLineItemSchema
 >["body"] & {
     platform_id: string;
-    order_id: string;
     added_by: string;
 };
 
 export type CreateCustomLineItemPayload = z.infer<
-    typeof OrderLineItemsSchemas.createCustomLineItemSchema
+    typeof LineItemsSchemas.createCustomLineItemSchema
 >["body"] & {
     platform_id: string;
-    order_id: string;
     added_by: string;
 };
 
-export type UpdateLineItemPayload = z.infer<
-    typeof OrderLineItemsSchemas.updateLineItemSchema
->["body"];
+export type UpdateLineItemPayload = z.infer<typeof LineItemsSchemas.updateLineItemSchema>["body"];
 
-export type VoidLineItemPayload = z.infer<
-    typeof OrderLineItemsSchemas.voidLineItemSchema
->["body"] & {
+export type VoidLineItemPayload = z.infer<typeof LineItemsSchemas.voidLineItemSchema>["body"] & {
     voided_by: string;
 };
 
 export interface OrderLineItem {
     id: string;
     platform_id: string;
-    order_id: string;
+    order_id: string | null;
+    inbound_request_id: string | null;
+    service_request_id: string | null;
     service_type_id: string | null;
-    reskin_request_id: string | null;
     line_item_type: "CATALOG" | "CUSTOM";
+    billing_mode: "BILLABLE" | "NON_BILLABLE" | "COMPLIMENTARY";
     category: string;
     description: string;
     quantity: string | null;
@@ -43,6 +39,7 @@ export interface OrderLineItem {
     added_by: string;
     added_at: Date;
     notes: string | null;
+    metadata: Record<string, unknown>;
     is_voided: boolean;
     voided_at: Date | null;
     voided_by: string | null;

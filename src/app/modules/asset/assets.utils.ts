@@ -23,7 +23,6 @@ export const ASSET_REQUIRED_COLUMNS = [
     "name",
     "category",
     "tracking_method",
-    "qr_code",
     "weight_per_unit",
     "dimensions",
     "volume_per_unit",

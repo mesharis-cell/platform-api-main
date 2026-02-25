@@ -5,7 +5,6 @@ import {
     assetBookings,
     assetConditionHistory,
     assets,
-    companies,
     orderStatusHistory,
     orders,
     scanEvents,
@@ -22,7 +21,35 @@ import {
     OutboundScanResponse,
 } from "./scanning.interfaces";
 import { invoiceGenerator } from "../../utils/invoice";
-import { NotificationLogServices } from "../notification-logs/notification-logs.services";
+import { eventBus, EVENT_TYPES } from "../../events";
+import config from "../../config";
+
+type DamageReportEntry = {
+    url: string;
+    description?: string;
+};
+
+const normalizeDamageReportEntries = (
+    entries?: Array<{ url: string; description?: string }>,
+    legacyPhotos?: string[]
+): DamageReportEntry[] => {
+    const normalized = new Map<string, string | undefined>();
+
+    (entries || []).forEach((entry) => {
+        const url = entry.url?.trim();
+        if (!url) return;
+        const description = entry.description?.trim();
+        normalized.set(url, description && description.length > 0 ? description : undefined);
+    });
+
+    (legacyPhotos || []).forEach((photoUrl) => {
+        const url = photoUrl?.trim();
+        if (!url || normalized.has(url)) return;
+        normalized.set(url, undefined);
+    });
+
+    return Array.from(normalized.entries()).map(([url, description]) => ({ url, description }));
+};
 
 // ----------------------------------- INBOUND SCAN ---------------------------------------
 const inboundScan = async (
@@ -35,11 +62,19 @@ const inboundScan = async (
         qr_code,
         condition,
         notes,
-        photos,
+        latest_return_images,
+        damage_report_entries,
+        damage_report_photos,
         refurb_days_estimate,
         discrepancy_reason,
         quantity,
     } = data;
+
+    const normalizedDamageEntries = normalizeDamageReportEntries(
+        damage_report_entries,
+        damage_report_photos
+    );
+    const normalizedDamagePhotos = normalizedDamageEntries.map((entry) => entry.url);
 
     // Step 1: Get order with items
     const order = await db.query.orders.findFirst({
@@ -58,6 +93,15 @@ const inboundScan = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
     }
 
+    // Step 1b: Validate order status allows inbound scanning
+    const INBOUND_ALLOWED_STATUSES = ["AWAITING_RETURN", "RETURN_IN_TRANSIT"];
+    if (!INBOUND_ALLOWED_STATUSES.includes(order.order_status)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Inbound scanning not allowed in status: ${order.order_status}. Order must be in AWAITING_RETURN or RETURN_IN_TRANSIT.`
+        );
+    }
+
     // Step 2: Find asset by QR code
     const asset = await db.query.assets.findFirst({
         where: and(eq(assets.qr_code, qr_code), eq(assets.platform_id, platformId)),
@@ -65,6 +109,31 @@ const inboundScan = async (
 
     if (!asset) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found with this QR code");
+    }
+
+    if (asset.status === "TRANSFORMED") {
+        if (!asset.transformed_to) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Asset has been transformed and is no longer scannable"
+            );
+        }
+
+        const newAsset = await db.query.assets.findFirst({
+            where: eq(assets.id, asset.transformed_to),
+        });
+
+        if (newAsset) {
+            return {
+                message: "Asset has been transformed. Please scan the new asset QR code.",
+                asset,
+                redirect_asset: {
+                    id: newAsset.id,
+                    name: newAsset.name,
+                    qr_code: newAsset.qr_code,
+                },
+            };
+        }
     }
 
     // Step 3: Check if asset is in this order
@@ -102,6 +171,20 @@ const inboundScan = async (
         );
     }
 
+    if (!latest_return_images || latest_return_images.length < 2) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "At least 2 wide return photos are required for inbound scans"
+        );
+    }
+
+    if (condition !== "GREEN" && normalizedDamageEntries.length === 0) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "At least one damage report photo is required for damaged inbound items"
+        );
+    }
+
     // Step 7: Create scan event
     await db.insert(scanEvents).values({
         order_id: orderId,
@@ -110,7 +193,10 @@ const inboundScan = async (
         quantity: scanQuantity,
         condition,
         notes: notes || null,
-        photos: photos || [],
+        photos: normalizedDamagePhotos,
+        latest_return_images: latest_return_images || [],
+        damage_report_photos: normalizedDamagePhotos,
+        damage_report_entries: normalizedDamageEntries,
         discrepancy_reason: discrepancy_reason || null,
         scanned_by: user.id,
         scanned_at: new Date(),
@@ -138,7 +224,8 @@ const inboundScan = async (
             asset_id: asset.id,
             condition,
             notes: notes || null,
-            photos: photos || [],
+            photos: normalizedDamagePhotos,
+            damage_report_entries: normalizedDamageEntries,
             updated_by: user.id,
         });
     } else {
@@ -152,7 +239,7 @@ const inboundScan = async (
             .where(eq(assets.id, asset.id));
     }
 
-    // Step 9: Update asset quantities (move items back to AVAILABLE)
+    // Step 9: Update inventory counts and latest return imagery.
     const newStatus: "AVAILABLE" | "BOOKED" | "OUT" | "MAINTENANCE" = "AVAILABLE";
 
     await db
@@ -160,10 +247,21 @@ const inboundScan = async (
         .set({
             available_quantity: sql`${assets.available_quantity} + ${scanQuantity}`,
             status: newStatus,
+            images: latest_return_images,
         })
         .where(eq(assets.id, asset.id));
 
-    // Step 10: Get updated asset
+    // Step 10: Version snapshot after inbound scan
+    const { AssetServices } = await import("../asset/assets.services");
+    await AssetServices.createAssetVersionSnapshot(
+        asset.id,
+        platformId,
+        "Inbound scan",
+        user.id,
+        orderId
+    );
+
+    // Step 10b: Get updated asset
     const updatedAsset = await db.query.assets.findFirst({
         where: eq(assets.id, asset.id),
     });
@@ -258,7 +356,7 @@ const completeInboundScan = async (
     const order = await db.query.orders.findFirst({
         where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
         with: {
-            company: true,
+            company: { columns: { name: true } },
             items: {
                 with: {
                     asset: {
@@ -279,10 +377,10 @@ const completeInboundScan = async (
     }
 
     // Step 2: Validate order status
-    if (order.order_status !== "AWAITING_RETURN") {
+    if (!["AWAITING_RETURN", "RETURN_IN_TRANSIT"].includes(order.order_status)) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            `Cannot complete inbound scan. Order status must be AWAITING_RETURN, current: ${order.order_status}`
+            `Cannot complete inbound scan. Order status must be AWAITING_RETURN or RETURN_IN_TRANSIT, current: ${order.order_status}`
         );
     }
 
@@ -327,65 +425,50 @@ const completeInboundScan = async (
             updated_by: user.id,
         });
 
-        // Step 8: Update asset status and available quantity
-        const freeAssets = order.items.map((i) => ({
-            id: i.asset_id,
-            status: "AVAILABLE",
-            available_quantity: i.asset.available_quantity + i.quantity,
-        }));
-
-        for (const asset of freeAssets) {
-            await tx
-                .update(assets)
-                .set({ status: "AVAILABLE", available_quantity: asset.available_quantity })
-                .where(eq(assets.id, asset.id));
-        }
+        // Note: available_quantity is already incremented per-scan in inboundScan
+        // We only need to ensure status is AVAILABLE (already set during inbound scans)
     });
 
-    // Step 9: Send notification
-    await NotificationLogServices.sendNotification(platformId, "ORDER_CLOSED", { ...order });
-
-    // Step 10: Generate and send invoice
-    const venueLocation = order.venue_location as any;
-    const company = order.company as typeof companies.$inferSelect | null;
-    const invoiceData = {
-        id: order.id,
-        user_id: user.id,
-        platform_id: order.platform_id,
-        order_id: order.order_id,
-        contact_name: order.contact_name,
-        contact_email: order.contact_email,
-        contact_phone: order.contact_phone,
-        company_name: company?.name || "N/A",
-        event_start_date: order.event_start_date,
-        event_end_date: order.event_end_date,
-        venue_name: order.venue_name,
-        venue_country: venueLocation.country || "N/A",
-        venue_city: venueLocation.city || "N/A",
-        venue_address: venueLocation.address || "N/A",
-        order_status: order.order_status,
-        financial_status: order.financial_status,
-        pricing: {
-            logistics_base_price: (order.logistics_pricing as any)?.base_price || 0,
-            platform_margin_percent: (order.platform_pricing as any)?.margin_percent || 0,
-            platform_margin_amount: (order.platform_pricing as any)?.margin_amount || 0,
-            final_total_price: (order.final_pricing as any)?.total_price || 0,
-            show_breakdown: false,
+    // Step 9: Emit order.closed event
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: EVENT_TYPES.ORDER_CLOSED,
+        entity_type: "ORDER",
+        entity_id: order.id,
+        actor_id: user.id,
+        actor_role: user.role,
+        payload: {
+            entity_id_readable: order.order_id,
+            company_id: order.company_id,
+            company_name: (order.company as any)?.name || "N/A",
+            contact_name: order.contact_name,
+            event_start_date: order.event_start_date?.toISOString().split("T")[0] || "",
+            event_end_date: order.event_end_date?.toISOString().split("T")[0] || "",
+            order_url: `${config.client_url}/orders/${order.order_id}`,
         },
-        items: order.items.map((item) => ({
-            asset_name: item.asset.name,
-            quantity: item.quantity,
-            handling_tags: item.handling_tags as any,
-            from_collection_name: item.from_collection_name || "N/A",
-        })),
-    };
-
-    const { invoice_id } = await invoiceGenerator(invoiceData);
-
-    await NotificationLogServices.sendNotification(platformId, "INVOICE_GENERATED", {
-        ...order,
-        invoiceNumber: invoice_id,
     });
+
+    const { invoice_id } = await invoiceGenerator(orderId, platformId, false, user);
+
+    if (invoice_id) {
+        await eventBus.emit({
+            platform_id: platformId,
+            event_type: EVENT_TYPES.INVOICE_GENERATED,
+            entity_type: "ORDER",
+            entity_id: order.id,
+            actor_id: user.id,
+            actor_role: user.role,
+            payload: {
+                entity_id_readable: order.order_id,
+                company_id: order.company_id,
+                company_name: (order.company as any)?.name || "N/A",
+                invoice_number: invoice_id,
+                final_total: "0",
+                download_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
+                order_url: `${config.client_url}/orders/${order.order_id}`,
+            },
+        });
+    }
 
     return {
         message: "Inbound scan completed successfully",
@@ -432,6 +515,38 @@ const outboundScan = async (
 
     if (!asset) {
         throw new CustomizedError(httpStatus.NOT_FOUND, `Asset not found with QR code: ${qr_code}`);
+    }
+
+    if (asset.status === "TRANSFORMED") {
+        if (!asset.transformed_to) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Asset has been transformed and is no longer scannable"
+            );
+        }
+
+        const newAsset = await db.query.assets.findFirst({
+            where: eq(assets.id, asset.transformed_to),
+        });
+
+        if (newAsset) {
+            return {
+                success: false,
+                asset: {
+                    asset_id: asset.id,
+                    asset_name: asset.name,
+                    tracking_method: asset.tracking_method,
+                    scanned_quantity: 0,
+                    required_quantity: 0,
+                    remaining_quantity: 0,
+                },
+                redirect_asset: {
+                    id: newAsset.id,
+                    name: newAsset.name,
+                    qr_code: newAsset.qr_code,
+                },
+            };
+        }
     }
 
     // Step 4: Check if asset is in this order
@@ -603,8 +718,23 @@ const completeOutboundScan = async (
             .where(inArray(assets.id, assetIds));
     });
 
-    // Step 8: Send notification (implement notification service)
-    await NotificationLogServices.sendNotification(platformId, "READY_FOR_DELIVERY", order);
+    // Step 8: Emit order.ready_for_delivery event
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: EVENT_TYPES.ORDER_READY_FOR_DELIVERY,
+        entity_type: "ORDER",
+        entity_id: order.id,
+        actor_id: user.id,
+        actor_role: user.role,
+        payload: {
+            entity_id_readable: order.order_id,
+            company_id: order.company_id,
+            company_name: (order.company as any)?.name || "N/A",
+            venue_name: order.venue_name,
+            delivery_window: order.delivery_window || "",
+            order_url: `${config.client_url}/orders/${order.order_id}`,
+        },
+    });
 
     return {
         message: "Outbound scan completed successfully",
@@ -673,6 +803,46 @@ const getOutboundProgress = async (
     };
 };
 
+// ----------------------------------- UPLOAD TRUCK PHOTOS -------------------------------------
+const uploadTruckPhotos = async (
+    orderId: string,
+    photos: string[],
+    user: AuthUser,
+    platformId: string
+) => {
+    // Step 1: Get order
+    const order = await db.query.orders.findFirst({
+        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
+    });
+
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    }
+
+    // Step 2: Validate order status (should be during outbound scanning)
+    if (!["IN_PREPARATION", "READY_FOR_DELIVERY"].includes(order.order_status)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Truck photos can only be uploaded during outbound scanning"
+        );
+    }
+
+    // Step 3: Store photos in order metadata or create a separate record
+    // For now, we'll update the order with truck_photos field
+    await db
+        .update(orders)
+        .set({
+            truck_photos: photos,
+            updated_at: new Date(),
+        })
+        .where(eq(orders.id, orderId));
+
+    return {
+        order_id: order.order_id,
+        photos_count: photos.length,
+    };
+};
+
 export const ScanningServices = {
     inboundScan,
     getInboundProgress,
@@ -680,4 +850,5 @@ export const ScanningServices = {
     outboundScan,
     completeOutboundScan,
     getOutboundProgress,
+    uploadTruckPhotos,
 };

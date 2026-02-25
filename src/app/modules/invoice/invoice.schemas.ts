@@ -25,8 +25,13 @@ export const confirmPayment = z.object({
 export const generateInvoice = z.object({
     body: z
         .object({
-            order_id: z.uuid("Order ID should be a valid UUID"),
+            order_id: z.uuid("Order ID should be a valid UUID").optional(),
+            service_request_id: z.uuid("Service request ID should be a valid UUID").optional(),
             regenerate: z.boolean("Regenerate should be a boolean").optional().default(false),
+        })
+        .refine((data) => !!data.order_id || !!data.service_request_id, {
+            message: "Either order_id or service_request_id is required",
+            path: ["order_id"],
         })
         .strict(),
 });

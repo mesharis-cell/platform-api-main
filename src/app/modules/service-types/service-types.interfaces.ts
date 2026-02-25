@@ -10,3 +10,7 @@ export type CreateServiceTypePayload = z.infer<
 export type UpdateServiceTypePayload = z.infer<
     typeof ServiceTypesSchemas.updateServiceTypeSchema
 >["body"];
+
+export type SyncTransportRateCardsPayload = z.infer<
+    typeof ServiceTypesSchemas.syncTransportRateCardsSchema
+>["body"];

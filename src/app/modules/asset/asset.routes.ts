@@ -20,11 +20,12 @@ router.post(
     AssetControllers.createAsset
 );
 
-// Bulk upload assets
+// Bulk upload assets //
 router.post(
     "/bulk-upload",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.ASSETS_BULK_UPLOAD),
     fileUploader.singleUpload.single("file"),
     AssetControllers.bulkUploadAssets
 );
@@ -49,21 +50,12 @@ router.post(
     AssetControllers.generateQRCode
 );
 
-// Complete maintenance
-router.post(
-    "/complete-maintenance",
-    platformValidator,
-    auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.CONDITIONS_COMPLETE_MAINTENANCE),
-    payloadValidator(AssetSchemas.completeMaintenanceSchema),
-    AssetControllers.completeMaintenance
-);
-
 // Batch availability check
 router.post(
     "/batch-availability",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
+    requirePermission(PERMISSIONS.ASSETS_CHECK_AVAILABILITY, PERMISSIONS.ORDERS_CREATE),
     payloadValidator(AssetSchemas.batchAvailabilitySchema),
     AssetControllers.getBatchAvailability
 );
@@ -73,6 +65,7 @@ router.post(
     "/check-availability",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
+    requirePermission(PERMISSIONS.ASSETS_CHECK_AVAILABILITY, PERMISSIONS.ORDERS_CREATE),
     payloadValidator(AssetSchemas.checkAvailabilitySchema),
     AssetControllers.checkAssetAvailability
 );
@@ -100,6 +93,7 @@ router.get(
     "/:id/availability-stats",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
+    requirePermission(PERMISSIONS.ASSETS_AVAILABILITY_STATS),
     AssetControllers.getAssetAvailabilityStats
 );
 
@@ -108,7 +102,16 @@ router.get(
     "/:id/scan-history",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.ASSETS_SCAN_HISTORY),
     AssetControllers.getAssetScanHistory
+);
+
+// Get asset versions
+router.get(
+    "/:id/versions",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    AssetControllers.getAssetVersions
 );
 
 // Update asset

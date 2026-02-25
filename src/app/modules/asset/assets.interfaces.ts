@@ -2,6 +2,11 @@ import z from "zod";
 import { AssetSchemas } from "./asset.schemas";
 import { assetStatusEnum } from "../../../db/schema";
 
+export interface AssetImage {
+    url: string;
+    note?: string;
+}
+
 export type CreateAssetPayload = z.infer<typeof AssetSchemas.createAssetSchema>["body"] & {
     platform_id: string;
 };
@@ -86,7 +91,7 @@ export interface ValidatedAssetData {
     brand_id?: string | null;
     description?: string | null;
     handling_tags: string[];
-    images: string[];
+    images: AssetImage[];
     condition: "GREEN" | "ORANGE" | "RED";
 }
 

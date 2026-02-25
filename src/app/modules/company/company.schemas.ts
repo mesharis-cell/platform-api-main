@@ -23,9 +23,13 @@ const createCompany = z.object({
             .max(50, { message: "Domain cannot exceed 50 characters" }),
         settings: settingsSchema,
         platform_margin_percent: z
-            .number()
+            .number("Platform margin percent should be a number")
             .min(0, { message: "Platform margin percent must be at least 0" })
             .max(100, { message: "Platform margin percent cannot exceed 100" })
+            .optional(),
+        warehouse_ops_rate: z
+            .number("Warehouse ops rate should be a number")
+            .min(0, { message: "Warehouse ops rate must be at least 0" })
             .optional(),
         contact_email: z
             .string()
@@ -58,6 +62,10 @@ const updateCompany = z.object({
             .min(0, { message: "Platform margin percent must be at least 0" })
             .max(100, { message: "Platform margin percent cannot exceed 100" })
             .optional(),
+        warehouse_ops_rate: z
+            .number("Warehouse ops rate should be a number")
+            .min(0, { message: "Warehouse ops rate must be at least 0" })
+            .optional(),
         contact_email: z
             .string()
             .email({ message: "Invalid email format" })
@@ -67,6 +75,7 @@ const updateCompany = z.object({
             .string()
             .max(50, { message: "Phone number cannot exceed 50 characters" })
             .optional(),
+        features: z.record(z.string(), z.boolean()).optional(),
         is_active: z.boolean().optional(),
     }),
 });

@@ -2,8 +2,6 @@ import { Router } from "express";
 import auth from "../../middleware/auth";
 import payloadValidator from "../../middleware/payload-validator";
 import platformValidator from "../../middleware/platform-validator";
-import requirePermission from "../../middleware/permission";
-import { PERMISSIONS } from "../../constants/permissions";
 import { ServiceTypesControllers } from "./service-types.controllers";
 import { ServiceTypesSchemas } from "./service-types.schemas";
 
@@ -14,7 +12,7 @@ router.get(
     "/",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.SERVICE_TYPES_MANAGE),
+    // requirePermission(PERMISSIONS.SERVICE_TYPES_MANAGE),
     ServiceTypesControllers.listServiceTypes
 );
 
@@ -23,7 +21,7 @@ router.get(
     "/:id",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.SERVICE_TYPES_MANAGE),
+    // requirePermission(PERMISSIONS.SERVICE_TYPES_MANAGE),
     ServiceTypesControllers.getServiceTypeById
 );
 
@@ -32,7 +30,7 @@ router.post(
     "/",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.SERVICE_TYPES_MANAGE),
+    // requirePermission(PERMISSIONS.SERVICE_TYPES_MANAGE),
     payloadValidator(ServiceTypesSchemas.createServiceTypeSchema),
     ServiceTypesControllers.createServiceType
 );
@@ -42,9 +40,18 @@ router.put(
     "/:id",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.SERVICE_TYPES_MANAGE),
+    // requirePermission(PERMISSIONS.SERVICE_TYPES_MANAGE),
     payloadValidator(ServiceTypesSchemas.updateServiceTypeSchema),
     ServiceTypesControllers.updateServiceType
+);
+
+// Sync transport rates into transport service catalog
+router.post(
+    "/sync-transport-rates",
+    platformValidator,
+    auth("ADMIN"),
+    payloadValidator(ServiceTypesSchemas.syncTransportRateCardsSchema),
+    ServiceTypesControllers.syncTransportRateCards
 );
 
 // Delete (deactivate) service type
@@ -52,7 +59,7 @@ router.delete(
     "/:id",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.SERVICE_TYPES_MANAGE),
+    // requirePermission(PERMISSIONS.SERVICE_TYPES_MANAGE),
     ServiceTypesControllers.deleteServiceType
 );
 

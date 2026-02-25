@@ -2,12 +2,14 @@ import { Router } from "express";
 import { AnalyticsRoutes } from "../modules/analytics/analytics.routes";
 import { AssetRoutes } from "../modules/asset/asset.routes";
 import { BrandRoutes } from "../modules/brand/brand.routes";
+import { CityRoutes } from "../modules/city/city.routes";
 import { CollectionRoutes } from "../modules/collection/collection.routes";
 import { CompanyRoutes } from "../modules/company/company.routes";
+import { CountryRoutes } from "../modules/country/country.routes";
 import { NotificationLogRoutes } from "../modules/notification-logs/notification-logs.routes";
+import { NotificationRuleRoutes } from "../modules/notification-rules/notification-rules.routes";
+import { EventsRoutes } from "../modules/events/events.routes";
 import { PlatformRoutes } from "../modules/platform/platform.routes";
-import { PricingTierRoutes } from "../modules/pricing-tier/pricing-tier.routes";
-import { PricingConfigRoutes } from "../modules/pricing-config/pricing-config.routes";
 import { TransportRatesRoutes } from "../modules/transport-rates/transport-rates.routes";
 import { ServiceTypesRoutes } from "../modules/service-types/service-types.routes";
 import { UserRoutes } from "../modules/user/user.routes";
@@ -15,6 +17,13 @@ import { WarehouseRoutes } from "../modules/warehouse/warehouse.routes";
 import { ZoneRoutes } from "../modules/zone/zone.routes";
 import { ScanningRoutes } from "../modules/scanning/scanning.routes";
 import { UploadRoutes } from "../modules/upload/upload.route";
+import { VehicleTypeRoutes } from "../modules/vehicle-type/vehicle-type.routes";
+import { LineItemsRoutes } from "../modules/order-line-items/order-line-items.routes";
+import { ExportRoutes } from "../modules/export/export.routes";
+import { ServiceRequestRoutes } from "../modules/service-request/service-request.routes";
+import { SelfBookingsRoutes } from "../modules/self-bookings/self-bookings.routes";
+import { TeamRoutes } from "../modules/team/team.routes";
+import { CompanyDomainRoutes } from "../modules/company-domain/company-domain.routes";
 
 const router = Router();
 
@@ -36,6 +45,14 @@ const routes = [
         route: BrandRoutes,
     },
     {
+        path: "/country",
+        route: CountryRoutes,
+    },
+    {
+        path: "/city",
+        route: CityRoutes,
+    },
+    {
         path: "/warehouse",
         route: WarehouseRoutes,
     },
@@ -48,20 +65,16 @@ const routes = [
         route: CollectionRoutes,
     },
     {
-        path: "/pricing-tier",
-        route: PricingTierRoutes, // DEPRECATED - will be removed
-    },
-    {
-        path: "/pricing/config",
-        route: PricingConfigRoutes,
-    },
-    {
         path: "/pricing/transport-rates",
         route: TransportRatesRoutes,
     },
     {
         path: "/pricing/service-types",
         route: ServiceTypesRoutes,
+    },
+    {
+        path: "/pricing/vehicle-types",
+        route: VehicleTypeRoutes,
     },
     {
         path: "/asset",
@@ -82,6 +95,38 @@ const routes = [
     {
         path: "/notification-logs",
         route: NotificationLogRoutes,
+    },
+    {
+        path: "/notification-rules",
+        route: NotificationRuleRoutes,
+    },
+    {
+        path: "/events",
+        route: EventsRoutes,
+    },
+    {
+        path: "/line-item",
+        route: LineItemsRoutes,
+    },
+    {
+        path: "/export",
+        route: ExportRoutes,
+    },
+    {
+        path: "/service-request",
+        route: ServiceRequestRoutes,
+    },
+    {
+        path: "/self-bookings",
+        route: SelfBookingsRoutes,
+    },
+    {
+        path: "/team",
+        route: TeamRoutes,
+    },
+    {
+        path: "/company-domain",
+        route: CompanyDomainRoutes,
     },
 ];
 

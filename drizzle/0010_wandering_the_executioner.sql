@@ -1,0 +1,1 @@
+ALTER TABLE "vehicle_types" ALTER COLUMN "vehicle_size" SET DATA TYPE numeric(10, 3);

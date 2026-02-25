@@ -9,6 +9,7 @@ import queryValidator from "../../utils/query-validator";
 import { CreateCompanyPayload } from "./company.interfaces";
 import { companyQueryValidationConfig, companySortableFields } from "./company.utils";
 import { PERMISSIONS } from "../../constants/permissions";
+import { companyFeatures } from "../../constants/common";
 
 // ----------------------------------- CREATE COMPANY -----------------------------------
 const createCompany = async (data: CreateCompanyPayload) => {
@@ -58,6 +59,7 @@ const createCompany = async (data: CreateCompanyPayload) => {
             const dbData: any = {
                 ...data,
                 domain: companyDomain,
+                features: companyFeatures,
             };
 
             // Convert platform_margin_percent to string if provided

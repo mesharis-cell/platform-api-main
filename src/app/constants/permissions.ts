@@ -41,6 +41,13 @@ export const PERMISSIONS = {
     BRANDS_DELETE: "brands:delete", // ✅
     BRANDS_ALL: "brands:*",
 
+    // ==================== COUNTRY MANAGEMENT ====================
+    COUNTRIES_CREATE: "countries:create", // ✅
+    COUNTRIES_READ: "countries:read", // ✅
+    COUNTRIES_UPDATE: "countries:update", // ✅
+    COUNTRIES_DELETE: "countries:delete", // ✅
+    COUNTRIES_ALL: "countries:*",
+
     // ==================== ASSET MANAGEMENT ====================
     ASSETS_CREATE: "assets:create", // ✅
     ASSETS_READ: "assets:read", // ✅
@@ -48,7 +55,15 @@ export const PERMISSIONS = {
     ASSETS_DELETE: "assets:delete", // ✅
     ASSETS_GENERATE_QR: "assets:generate_qr", // ✅
     ASSETS_UPLOAD_PHOTOS: "assets:upload_photos",
+    ASSETS_BULK_UPLOAD: "assets:bulk_upload", // ✅
+    ASSETS_CHECK_AVAILABILITY: "assets:check_availability", // ✅
+    ASSETS_AVAILABILITY_STATS: "assets:availability_stats", // ✅
+    ASSETS_SCAN_HISTORY: "assets:scan_history", // ✅
     ASSETS_ALL: "assets:*",
+
+    // ==================== CALENDAR ============================
+    CALENDAR_READ: "calendar:read",
+    CALENDAR_ALL: "calendar:*",
 
     // ==================== COLLECTION MANAGEMENT ====================
     COLLECTIONS_CREATE: "collections:create", // ✅
@@ -75,16 +90,10 @@ export const PERMISSIONS = {
 
     // ==================== PRICING REVIEW ====================
     PRICING_REVIEW: "pricing:review", // ✅
-    PRICING_APPROVE_STANDARD: "pricing:approve_standard", // ✅ DEPRECATED (all go through admin now)
     PRICING_ADJUST: "pricing:adjust", // ✅
     PRICING_ADMIN_REVIEW_ADJUSTMENT: "pricing:admin_review_adjustment", // ✅
     PRICING_ADMIN_APPROVE: "pricing:admin_approve", // ✅
     PRICING_ALL: "pricing:*",
-
-    // ==================== RESKIN/REBRAND WORKFLOW ====================
-    RESKIN_REQUESTS_PROCESS: "reskin_requests:process",
-    RESKIN_REQUESTS_COMPLETE: "reskin_requests:complete",
-    RESKIN_REQUESTS_CANCEL: "reskin_requests:cancel",
 
     // ==================== ORDER MANAGEMENT ====================
     ORDERS_CREATE: "orders:create", // ✅
@@ -142,6 +151,13 @@ export const PERMISSIONS = {
     ANALYTICS_TRACK_MARGIN: "analytics:track_margin", // ✅
     ANALYTICS_FILTER_BY_COMPANY: "analytics:filter_by_company", // ✅
     ANALYTICS_ALL: "analytics:*",
+
+    // ==================== SELF BOOKINGS ====================
+    SELF_BOOKINGS_CREATE: "self_bookings:create",
+    SELF_BOOKINGS_READ: "self_bookings:read",
+    SELF_BOOKINGS_RETURN: "self_bookings:return",
+    SELF_BOOKINGS_CANCEL: "self_bookings:cancel",
+    SELF_BOOKINGS_ALL: "self_bookings:*",
 };
 
 export const PERMISSION_TEMPLATES = {
@@ -150,6 +166,7 @@ export const PERMISSION_TEMPLATES = {
         PERMISSIONS.USERS_ALL,
         PERMISSIONS.COMPANIES_ALL,
         PERMISSIONS.BRANDS_ALL,
+        PERMISSIONS.COUNTRIES_ALL,
         PERMISSIONS.WAREHOUSES_ALL,
         PERMISSIONS.ZONES_ALL,
         PERMISSIONS.ASSETS_ALL,
@@ -164,6 +181,7 @@ export const PERMISSION_TEMPLATES = {
         PERMISSIONS.LIFECYCLE_ALL,
         PERMISSIONS.NOTIFICATIONS_ALL,
         PERMISSIONS.ANALYTICS_ALL,
+        PERMISSIONS.CALENDAR_ALL,
     ],
     LOGISTICS_STAFF: [
         PERMISSIONS.AUTH_LOGIN,
@@ -171,9 +189,16 @@ export const PERMISSION_TEMPLATES = {
         PERMISSIONS.USERS_READ,
         PERMISSIONS.COMPANIES_READ,
         PERMISSIONS.BRANDS_READ,
+        PERMISSIONS.BRANDS_CREATE,
+        PERMISSIONS.BRANDS_UPDATE,
+        PERMISSIONS.COUNTRIES_READ,
         PERMISSIONS.WAREHOUSES_READ,
+        PERMISSIONS.WAREHOUSES_CREATE,
+        PERMISSIONS.WAREHOUSES_UPDATE,
         PERMISSIONS.ZONES_READ,
         PERMISSIONS.ZONES_CREATE,
+        PERMISSIONS.ZONES_UPDATE,
+        PERMISSIONS.ZONES_DELETE,
         PERMISSIONS.ASSETS_ALL,
         PERMISSIONS.COLLECTIONS_ALL,
         PERMISSIONS.ORDERS_READ,
@@ -183,19 +208,25 @@ export const PERMISSION_TEMPLATES = {
         PERMISSIONS.ORDERS_VIEW_STATUS_HISTORY,
         PERMISSIONS.ORDERS_EXPORT,
         PERMISSIONS.PRICING_REVIEW,
-        PERMISSIONS.PRICING_APPROVE_STANDARD,
         PERMISSIONS.PRICING_ADJUST,
         PERMISSIONS.SCANNING_ALL,
         PERMISSIONS.INVENTORY_ALL,
         PERMISSIONS.CONDITIONS_ALL,
         PERMISSIONS.LIFECYCLE_PROGRESS_STATUS,
         PERMISSIONS.LIFECYCLE_RECEIVE_NOTIFICATIONS,
+        // Required for secured cost-estimate PDF routes
+        PERMISSIONS.INVOICES_DOWNLOAD,
+        PERMISSIONS.ASSETS_CHECK_AVAILABILITY,
+        PERMISSIONS.ASSETS_AVAILABILITY_STATS,
+        PERMISSIONS.ASSETS_SCAN_HISTORY,
+        PERMISSIONS.CALENDAR_READ,
     ],
     CLIENT_USER: [
         PERMISSIONS.AUTH_LOGIN,
         PERMISSIONS.AUTH_RESET_PASSWORD,
         PERMISSIONS.COMPANIES_READ,
         PERMISSIONS.BRANDS_READ,
+        PERMISSIONS.COUNTRIES_READ,
         PERMISSIONS.ASSETS_READ,
         PERMISSIONS.COLLECTIONS_READ,
         PERMISSIONS.ORDERS_CREATE,
@@ -207,6 +238,9 @@ export const PERMISSION_TEMPLATES = {
         PERMISSIONS.INVOICES_READ,
         PERMISSIONS.INVOICES_DOWNLOAD,
         PERMISSIONS.LIFECYCLE_RECEIVE_NOTIFICATIONS,
+        PERMISSIONS.ASSETS_CHECK_AVAILABILITY,
+        PERMISSIONS.ASSETS_AVAILABILITY_STATS,
+        PERMISSIONS.CALENDAR_READ,
     ],
 };
 

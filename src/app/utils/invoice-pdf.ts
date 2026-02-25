@@ -245,7 +245,181 @@ export async function renderInvoicePDF(
                 .lineWidth(1.5)
                 .stroke("#000");
 
-            doc.y = currentY + 20;
+            // Logistics Base Cost Row
+            const logisticsCostY = currentY + 10;
+            doc.fontSize(10)
+                .font("Helvetica-Bold")
+                .fillColor("#000")
+                .text("Total", margin + contentWidth * 0.55, logisticsCostY, {
+                    width: contentWidth * 0.25,
+                    align: "right",
+                });
+
+            doc.fontSize(10)
+                .font("Helvetica-Bold")
+                .fillColor("#000")
+                .text(
+                    formatCurrency(data.pricing.logistics_base_price),
+                    margin + contentWidth * 0.8,
+                    logisticsCostY,
+                    {
+                        width: contentWidth * 0.15,
+                        align: "right",
+                    }
+                );
+
+            doc.y = logisticsCostY + 30;
+
+            // ============================================================
+            // LINE ITEMS TABLE (New)
+            // ============================================================
+            if (data.line_items && data.line_items.length > 0) {
+                doc.fontSize(8)
+                    .font("Helvetica-Bold")
+                    .fillColor("#000")
+                    .text("LINE ITEMS", margin, doc.y);
+
+                doc.rect(margin, doc.y + 2, 60, 1).fill("#000");
+
+                doc.moveDown(1);
+
+                const tableTop = doc.y;
+                const colSNoX = margin;
+                const colDescX = margin + 35;
+                const colQtyX = margin + contentWidth * 0.55;
+                const colRateX = margin + contentWidth * 0.65;
+                const colTotalX = margin + contentWidth * 0.8;
+
+                // Table header
+                doc.fontSize(8)
+                    .font("Helvetica-Bold")
+                    .fillColor("#000")
+                    .text("S.No", colSNoX, tableTop, { width: 30, align: "center" })
+                    .text("DESCRIPTION", colDescX, tableTop)
+                    .text("QTY", colQtyX, tableTop, { width: contentWidth * 0.1, align: "center" })
+                    .text("UNIT RATE", colRateX, tableTop, {
+                        width: contentWidth * 0.15,
+                        align: "right",
+                    })
+                    .text("TOTAL", colTotalX, tableTop, {
+                        width: contentWidth * 0.15,
+                        align: "right",
+                    });
+
+                // Header line
+                doc.moveTo(margin, tableTop + 12)
+                    .lineTo(pageWidth - margin, tableTop + 12)
+                    .lineWidth(1.5)
+                    .stroke("#000");
+
+                let currentLineItemY = tableTop + 20;
+
+                // Table rows
+                data.line_items.forEach((item, index) => {
+                    const rowY = currentLineItemY;
+
+                    // Serial number
+                    doc.fontSize(9)
+                        .font("Helvetica-Bold")
+                        .fillColor("#000")
+                        .text(String(index + 1), colSNoX, rowY, { width: 30, align: "center" });
+
+                    // Line item human redable id
+                    doc.fontSize(10)
+                        .font("Helvetica")
+                        .fillColor("#000")
+                        .text(item.line_item_id, colDescX, rowY, {
+                            width: contentWidth * 0.45,
+                            continued: false,
+                        });
+
+                    // Description
+                    if (item.description) {
+                        doc.fontSize(8)
+                            .font("Helvetica")
+                            .fillColor("#666")
+                            .text(item.description, colDescX, doc.y + 2, {
+                                width: contentWidth * 0.45,
+                                continued: false,
+                            });
+                    }
+
+                    // Quantity
+                    doc.fontSize(10)
+                        .font("Helvetica-Bold")
+                        .fillColor("#000")
+                        .text(String(item.quantity), colQtyX, rowY, {
+                            width: contentWidth * 0.1,
+                            align: "center",
+                            continued: false,
+                        });
+
+                    // Unit Rate
+                    doc.fontSize(10)
+                        .font("Helvetica")
+                        .fillColor("#000")
+                        .text(formatCurrency(String(item.unit_rate)), colRateX, rowY, {
+                            width: contentWidth * 0.15,
+                            align: "right",
+                            continued: false,
+                        });
+
+                    // Total
+                    doc.fontSize(10)
+                        .font("Helvetica-Bold")
+                        .fillColor("#000")
+                        .text(formatCurrency(String(item.total)), colTotalX, rowY, {
+                            width: contentWidth * 0.15,
+                            align: "right",
+                            continued: false,
+                        });
+
+                    currentLineItemY = doc.y + 25;
+
+                    // Dotted separator
+                    if (index < data.line_items.length - 1) {
+                        doc.moveTo(margin, currentLineItemY - 7)
+                            .lineTo(pageWidth - margin, currentLineItemY - 7)
+                            .dash(3, { space: 3 })
+                            .lineWidth(0.5)
+                            .stroke("#ddd")
+                            .undash();
+                    }
+                });
+
+                // Bottom line
+                doc.moveTo(margin, currentLineItemY)
+                    .lineTo(pageWidth - margin, currentLineItemY)
+                    .lineWidth(1.5)
+                    .stroke("#000");
+
+                // Subtotal Row
+                const subTotalY = currentLineItemY + 10;
+                doc.fontSize(10)
+                    .font("Helvetica-Bold")
+                    .fillColor("#000")
+                    .text("Total", colRateX, subTotalY, {
+                        width: contentWidth * 0.15,
+                        align: "right",
+                    });
+
+                doc.fontSize(10)
+                    .font("Helvetica-Bold")
+                    .fillColor("#000")
+                    .text(
+                        formatCurrency(String(data.line_items_sub_total || 0)),
+                        colTotalX,
+                        subTotalY,
+                        {
+                            width: contentWidth * 0.15,
+                            align: "right",
+                        }
+                    );
+
+                doc.y = subTotalY + 30;
+            } else {
+                doc.y = currentY + 20;
+            }
 
             // ============================================================
             // PRICING SUMMARY
@@ -272,21 +446,14 @@ export async function renderInvoicePDF(
                 doc.fontSize(10)
                     .font("Helvetica")
                     .fillColor("#555")
-                    .text(
-                        `Service Fee (${data.pricing.platform_margin_percent}%)`,
-                        summaryX,
-                        doc.y
-                    );
+                    .text("Service Fee (Including Reskin)", summaryX, doc.y);
 
                 doc.fontSize(10)
-                    .font("Helvetica")
                     .fillColor("#000")
-                    .text(
-                        formatCurrency(data.pricing.platform_margin_amount),
-                        summaryX,
-                        doc.y - 12,
-                        { align: "right", width: summaryWidth }
-                    );
+                    .text(formatCurrency(data.pricing.service_fee), summaryX, doc.y - 12, {
+                        align: "right",
+                        width: summaryWidth,
+                    });
 
                 doc.moveDown(0.8);
 

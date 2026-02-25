@@ -3,6 +3,7 @@ import cron from "node-cron";
 import app from "./app";
 import config from "./app/config";
 import { CronServices } from "./app/modules/cron/cron.services";
+import { registerHandlers } from "./app/events";
 
 const port = config.port || 9000;
 
@@ -10,6 +11,9 @@ const server = http.createServer(app);
 
 async function main() {
     try {
+        // Register event handlers
+        registerHandlers();
+
         // start server
         server.listen(port, () => {
             console.log(`${config.app_name} server is running on port ${port}`);

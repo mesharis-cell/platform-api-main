@@ -4,7 +4,7 @@
  */
 
 import { db } from "../index";
-import { pricingConfig, transportRates, serviceTypes, platforms } from "../schema";
+import { transportRates, serviceTypes, platforms, cities, vehicleTypes } from "../schema";
 import { eq } from "drizzle-orm";
 
 export async function seedHybridPricing() {
@@ -21,27 +21,25 @@ export async function seedHybridPricing() {
     for (const platform of allPlatforms) {
         console.log(`\n📦 Seeding pricing data for platform: ${platform.name}`);
 
-        // ============================================================
-        // 1. PRICING CONFIG (Platform Default)
-        // ============================================================
-        console.log("  → Creating platform default pricing config...");
+        const platformCities = await db
+            .select({ id: cities.id, name: cities.name })
+            .from(cities)
+            .where(eq(cities.platform_id, platform.id));
+        const cityMap = new Map(platformCities.map((city) => [city.name, city.id]));
+        const cityNameById = new Map(platformCities.map((city) => [city.id, city.name]));
 
-        const existingConfig = await db
-            .select()
-            .from(pricingConfig)
-            .where(eq(pricingConfig.platform_id, platform.id))
+        const [defaultVehicleType] = await db
+            .select({
+                id: vehicleTypes.id,
+            })
+            .from(vehicleTypes)
+            .where(eq(vehicleTypes.platform_id, platform.id))
             .limit(1);
 
-        if (existingConfig.length === 0) {
-            await db.insert(pricingConfig).values({
-                platform_id: platform.id,
-                company_id: null, // Platform default
-                warehouse_ops_rate: "25.20", // 6.00 (picking) + 9.60 (handling out) + 9.60 (handling in)
-                is_active: true,
-            });
-            console.log("     ✓ Platform default config created (25.20 AED/m³)");
-        } else {
-            console.log("     ℹ️  Platform default config already exists");
+        if (!defaultVehicleType) {
+            console.log(
+                "  ⚠️  No vehicle types found for this platform. Skipping transport rates seed."
+            );
         }
 
         // ============================================================
@@ -50,197 +48,75 @@ export async function seedHybridPricing() {
         console.log("  → Creating transport rates...");
 
         const transportData = [
-            // Dubai
-            { emirate: "Dubai", trip_type: "ONE_WAY", vehicle_type: "STANDARD", rate: "300.00" },
-            { emirate: "Dubai", trip_type: "ONE_WAY", vehicle_type: "7_TON", rate: "450.00" },
-            { emirate: "Dubai", trip_type: "ONE_WAY", vehicle_type: "10_TON", rate: "600.00" },
-            { emirate: "Dubai", trip_type: "ROUND_TRIP", vehicle_type: "STANDARD", rate: "500.00" },
-            { emirate: "Dubai", trip_type: "ROUND_TRIP", vehicle_type: "7_TON", rate: "750.00" },
-            { emirate: "Dubai", trip_type: "ROUND_TRIP", vehicle_type: "10_TON", rate: "1000.00" },
-
-            // Abu Dhabi
+            { city: "Dubai", trip_type: "ONE_WAY", rate: "300.00" },
+            { city: "Dubai", trip_type: "ROUND_TRIP", rate: "500.00" },
             {
-                emirate: "Abu Dhabi",
+                city: "Abu Dhabi",
                 trip_type: "ONE_WAY",
-                vehicle_type: "STANDARD",
                 rate: "495.00",
             },
-            { emirate: "Abu Dhabi", trip_type: "ONE_WAY", vehicle_type: "7_TON", rate: "740.00" },
-            { emirate: "Abu Dhabi", trip_type: "ONE_WAY", vehicle_type: "10_TON", rate: "990.00" },
             {
-                emirate: "Abu Dhabi",
+                city: "Abu Dhabi",
                 trip_type: "ROUND_TRIP",
-                vehicle_type: "STANDARD",
                 rate: "990.00",
             },
+            { city: "Sharjah", trip_type: "ONE_WAY", rate: "400.00" },
             {
-                emirate: "Abu Dhabi",
+                city: "Sharjah",
                 trip_type: "ROUND_TRIP",
-                vehicle_type: "7_TON",
-                rate: "1485.00",
-            },
-            {
-                emirate: "Abu Dhabi",
-                trip_type: "ROUND_TRIP",
-                vehicle_type: "10_TON",
-                rate: "1980.00",
-            },
-
-            // Al Ain
-            { emirate: "Al Ain", trip_type: "ONE_WAY", vehicle_type: "STANDARD", rate: "550.00" },
-            { emirate: "Al Ain", trip_type: "ONE_WAY", vehicle_type: "7_TON", rate: "825.00" },
-            { emirate: "Al Ain", trip_type: "ONE_WAY", vehicle_type: "10_TON", rate: "1100.00" },
-            {
-                emirate: "Al Ain",
-                trip_type: "ROUND_TRIP",
-                vehicle_type: "STANDARD",
-                rate: "1100.00",
-            },
-            { emirate: "Al Ain", trip_type: "ROUND_TRIP", vehicle_type: "7_TON", rate: "1650.00" },
-            { emirate: "Al Ain", trip_type: "ROUND_TRIP", vehicle_type: "10_TON", rate: "2200.00" },
-
-            // Sharjah
-            { emirate: "Sharjah", trip_type: "ONE_WAY", vehicle_type: "STANDARD", rate: "400.00" },
-            { emirate: "Sharjah", trip_type: "ONE_WAY", vehicle_type: "7_TON", rate: "600.00" },
-            { emirate: "Sharjah", trip_type: "ONE_WAY", vehicle_type: "10_TON", rate: "800.00" },
-            {
-                emirate: "Sharjah",
-                trip_type: "ROUND_TRIP",
-                vehicle_type: "STANDARD",
                 rate: "600.00",
             },
-            { emirate: "Sharjah", trip_type: "ROUND_TRIP", vehicle_type: "7_TON", rate: "900.00" },
+            { city: "Ajman", trip_type: "ONE_WAY", rate: "400.00" },
+            { city: "Ajman", trip_type: "ROUND_TRIP", rate: "750.00" },
             {
-                emirate: "Sharjah",
-                trip_type: "ROUND_TRIP",
-                vehicle_type: "10_TON",
-                rate: "1200.00",
-            },
-
-            // Ajman
-            { emirate: "Ajman", trip_type: "ONE_WAY", vehicle_type: "STANDARD", rate: "400.00" },
-            { emirate: "Ajman", trip_type: "ONE_WAY", vehicle_type: "7_TON", rate: "600.00" },
-            { emirate: "Ajman", trip_type: "ONE_WAY", vehicle_type: "10_TON", rate: "800.00" },
-            { emirate: "Ajman", trip_type: "ROUND_TRIP", vehicle_type: "STANDARD", rate: "750.00" },
-            { emirate: "Ajman", trip_type: "ROUND_TRIP", vehicle_type: "7_TON", rate: "1125.00" },
-            { emirate: "Ajman", trip_type: "ROUND_TRIP", vehicle_type: "10_TON", rate: "1500.00" },
-
-            // Ras Al Khaimah
-            {
-                emirate: "Ras Al Khaimah",
+                city: "Ras Al Khaimah",
                 trip_type: "ONE_WAY",
-                vehicle_type: "STANDARD",
                 rate: "550.00",
             },
             {
-                emirate: "Ras Al Khaimah",
-                trip_type: "ONE_WAY",
-                vehicle_type: "7_TON",
-                rate: "825.00",
-            },
-            {
-                emirate: "Ras Al Khaimah",
-                trip_type: "ONE_WAY",
-                vehicle_type: "10_TON",
+                city: "Ras Al Khaimah",
+                trip_type: "ROUND_TRIP",
                 rate: "1100.00",
             },
             {
-                emirate: "Ras Al Khaimah",
-                trip_type: "ROUND_TRIP",
-                vehicle_type: "STANDARD",
-                rate: "1100.00",
-            },
-            {
-                emirate: "Ras Al Khaimah",
-                trip_type: "ROUND_TRIP",
-                vehicle_type: "7_TON",
-                rate: "1650.00",
-            },
-            {
-                emirate: "Ras Al Khaimah",
-                trip_type: "ROUND_TRIP",
-                vehicle_type: "10_TON",
-                rate: "2200.00",
-            },
-
-            // Umm Al Quwain
-            {
-                emirate: "Umm Al Quwain",
+                city: "Umm Al Quwain",
                 trip_type: "ONE_WAY",
-                vehicle_type: "STANDARD",
                 rate: "550.00",
             },
             {
-                emirate: "Umm Al Quwain",
-                trip_type: "ONE_WAY",
-                vehicle_type: "7_TON",
-                rate: "825.00",
-            },
-            {
-                emirate: "Umm Al Quwain",
-                trip_type: "ONE_WAY",
-                vehicle_type: "10_TON",
+                city: "Umm Al Quwain",
+                trip_type: "ROUND_TRIP",
                 rate: "1100.00",
             },
+            { city: "Fujairah", trip_type: "ONE_WAY", rate: "600.00" },
             {
-                emirate: "Umm Al Quwain",
+                city: "Fujairah",
                 trip_type: "ROUND_TRIP",
-                vehicle_type: "STANDARD",
                 rate: "1100.00",
-            },
-            {
-                emirate: "Umm Al Quwain",
-                trip_type: "ROUND_TRIP",
-                vehicle_type: "7_TON",
-                rate: "1650.00",
-            },
-            {
-                emirate: "Umm Al Quwain",
-                trip_type: "ROUND_TRIP",
-                vehicle_type: "10_TON",
-                rate: "2200.00",
-            },
-
-            // Fujairah
-            { emirate: "Fujairah", trip_type: "ONE_WAY", vehicle_type: "STANDARD", rate: "600.00" },
-            { emirate: "Fujairah", trip_type: "ONE_WAY", vehicle_type: "7_TON", rate: "900.00" },
-            { emirate: "Fujairah", trip_type: "ONE_WAY", vehicle_type: "10_TON", rate: "1200.00" },
-            {
-                emirate: "Fujairah",
-                trip_type: "ROUND_TRIP",
-                vehicle_type: "STANDARD",
-                rate: "1100.00",
-            },
-            {
-                emirate: "Fujairah",
-                trip_type: "ROUND_TRIP",
-                vehicle_type: "7_TON",
-                rate: "1650.00",
-            },
-            {
-                emirate: "Fujairah",
-                trip_type: "ROUND_TRIP",
-                vehicle_type: "10_TON",
-                rate: "2200.00",
             },
         ];
 
-        let transportCreated = 0;
-        for (const rate of transportData) {
-            const existing = await db
-                .select()
-                .from(transportRates)
-                .where(eq(transportRates.platform_id, platform.id))
-                .limit(1);
+        const existingTransport = await db
+            .select()
+            .from(transportRates)
+            .where(eq(transportRates.platform_id, platform.id))
+            .limit(1);
 
-            if (existing.length === 0) {
+        let transportCreated = 0;
+        if (existingTransport.length === 0 && defaultVehicleType) {
+            for (const rate of transportData) {
+                const cityId = cityMap.get(rate.city);
+                if (!cityId) {
+                    console.log(`     ↳ Skipping rate for missing city: ${rate.city}`);
+                    continue;
+                }
                 await db.insert(transportRates).values({
                     platform_id: platform.id,
                     company_id: null, // Platform default
-                    emirate: rate.emirate,
+                    city_id: cityId,
                     area: null,
                     trip_type: rate.trip_type as any,
-                    vehicle_type: rate.vehicle_type as any,
+                    vehicle_type_id: defaultVehicleType.id,
                     rate: rate.rate,
                     is_active: true,
                 });
@@ -319,23 +195,87 @@ export async function seedHybridPricing() {
                 description: "One-time mobilisation fee for 10-ton forklift",
                 display_order: 8,
             },
+            {
+                name: "Special Handling",
+                category: "HANDLING",
+                unit: "unit",
+                default_rate: null,
+                description: "Special handling for non-standard items",
+                display_order: 9,
+            },
         ];
 
-        let servicesCreated = 0;
-        for (const service of serviceTypeData) {
-            const existing = await db
-                .select()
-                .from(serviceTypes)
-                .where(eq(serviceTypes.platform_id, platform.id))
-                .limit(1);
+        const platformTransportRates = await db
+            .select({
+                id: transportRates.id,
+                city_id: transportRates.city_id,
+                trip_type: transportRates.trip_type,
+                vehicle_type_id: transportRates.vehicle_type_id,
+                rate: transportRates.rate,
+                is_active: transportRates.is_active,
+            })
+            .from(transportRates)
+            .where(eq(transportRates.platform_id, platform.id));
 
-            if (existing.length === 0) {
+        const existingServices = await db
+            .select()
+            .from(serviceTypes)
+            .where(eq(serviceTypes.platform_id, platform.id))
+            .limit(1);
+
+        let servicesCreated = 0;
+        if (existingServices.length === 0) {
+            for (const service of serviceTypeData) {
                 await db.insert(serviceTypes).values({
                     platform_id: platform.id,
                     name: service.name,
                     category: service.category as any,
                     unit: service.unit,
                     default_rate: service.default_rate,
+                    default_metadata: {},
+                    transport_rate_id: null,
+                    description: service.description,
+                    display_order: service.display_order,
+                    is_active: true,
+                });
+                servicesCreated++;
+            }
+
+            const transportServiceData = platformTransportRates
+                .filter(
+                    (rate) =>
+                        rate.is_active &&
+                        (!defaultVehicleType || rate.vehicle_type_id === defaultVehicleType.id)
+                )
+                .map((rate, idx) => {
+                    const cityName = cityNameById.get(rate.city_id) || "Unknown City";
+                    const tripLabel = rate.trip_type === "ROUND_TRIP" ? "Round Trip" : "One Way";
+                    return {
+                        name: `Transport - ${cityName} (${tripLabel})`,
+                        category: "TRANSPORT" as const,
+                        unit: "trip",
+                        default_rate: rate.rate,
+                        default_metadata: {
+                            city_id: rate.city_id,
+                            city_name: cityName,
+                            trip_direction: rate.trip_type,
+                            vehicle_type_id: rate.vehicle_type_id,
+                        },
+                        transport_rate_id: rate.id,
+                        description: `Transport service synced from ${cityName} ${tripLabel} rate card`,
+                        display_order: serviceTypeData.length + idx + 1,
+                    };
+                });
+
+            for (const service of transportServiceData) {
+                await db.insert(serviceTypes).values({
+                    platform_id: platform.id,
+                    name: service.name,
+                    category: service.category,
+                    unit: service.unit,
+                    default_rate: service.default_rate,
+                    default_metadata: service.default_metadata,
+                    transport_rate_id: service.transport_rate_id,
                     description: service.description,
                     display_order: service.display_order,
                     is_active: true,

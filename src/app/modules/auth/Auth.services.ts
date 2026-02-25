@@ -7,11 +7,15 @@ import { companies, companyDomains, platforms, users, otp } from "../../../db/sc
 import config from "../../config";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
-import { sendEmail } from "../../services/email.service";
-import { tokenGenerator } from "../../utils/jwt-helpers";
-import { ForgotPasswordPayload, LoginCredential, ResetPasswordPayload } from "./Auth.interfaces";
+import { tokenGenerator, tokenVerifier } from "../../utils/jwt-helpers";
+import {
+    ForgotPasswordPayload,
+    LoginCredential,
+    RefreshTokenPayload,
+    ResetPasswordPayload,
+} from "./Auth.interfaces";
 import { OTPGenerator } from "../../utils/helper";
-import { emailTemplates } from "../../utils/email-templates";
+import { eventBus, EVENT_TYPES } from "../../events";
 import { OTPVerifier } from "../../utils/otp-verifier";
 import { PERMISSIONS } from "../../constants/permissions";
 
@@ -88,9 +92,77 @@ const login = async (credential: LoginCredential, platformId: string) => {
     };
 };
 
+const refresh = async (payload: RefreshTokenPayload) => {
+    const { refresh_token } = payload;
+
+    let verifiedUser: AuthUser;
+    try {
+        verifiedUser = tokenVerifier(
+            refresh_token,
+            config.jwt_refresh_secret as Secret
+        ) as AuthUser;
+    } catch {
+        throw new CustomizedError(httpStatus.UNAUTHORIZED, "Invalid or expired refresh token");
+    }
+
+    if (!verifiedUser?.id || !verifiedUser?.platform_id) {
+        throw new CustomizedError(httpStatus.UNAUTHORIZED, "Invalid refresh token payload");
+    }
+
+    const [user] = await db
+        .select()
+        .from(users)
+        .where(
+            and(
+                eq(users.id, verifiedUser.id),
+                eq(users.platform_id, verifiedUser.platform_id),
+                eq(users.is_active, true)
+            )
+        );
+
+    if (!user) {
+        throw new CustomizedError(httpStatus.UNAUTHORIZED, "User not found or inactive");
+    }
+
+    const jwtPayload = {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        company_id: user.company_id,
+        platform_id: user.platform_id,
+    };
+
+    const accessToken = tokenGenerator(
+        jwtPayload,
+        config.jwt_access_secret as Secret,
+        config.jwt_access_expires_in
+    );
+
+    const refreshToken = tokenGenerator(
+        jwtPayload,
+        config.jwt_refresh_secret as Secret,
+        config.jwt_refresh_expires_in
+    );
+
+    return {
+        access_token: accessToken,
+        refresh_token: refreshToken,
+    };
+};
+
+const ENV_PREFIXES = new Set(["staging", "dev", "preview", "test"]);
+
+/** Strip a leading env prefix so staging.admin.kadence.ae → admin.kadence.ae */
+const normalizeHostname = (hostname: string): string => {
+    const parts = hostname.split(".");
+    if (parts.length > 2 && ENV_PREFIXES.has(parts[0])) return parts.slice(1).join(".");
+    return hostname;
+};
+
 const getConfigByHostname = async (origin: string) => {
     const url = new URL(origin);
-    const hostname = url.hostname;
+    const hostname = normalizeHostname(url.hostname);
     const subdomain = hostname.split(".")[0];
 
     // Production environment
@@ -105,6 +177,7 @@ const getConfigByHostname = async (origin: string) => {
                     id: platforms.id,
                     name: platforms.name,
                     config: platforms.config,
+                    features: platforms.features,
                 })
                 .from(platforms)
                 .where(eq(platforms.domain, rootDomain))
@@ -121,6 +194,7 @@ const getConfigByHostname = async (origin: string) => {
                     primary_color: config?.primary_color || null,
                     secondary_color: config?.secondary_color || null,
                     currency: config?.currency || null,
+                    features: (platform.features || {}) as Record<string, boolean>,
                 };
             }
             return null;
@@ -133,15 +207,20 @@ const getConfigByHostname = async (origin: string) => {
                 company_id: companyDomains.company_id,
                 company_name: companies.name,
                 settings: companies.settings,
+                company_features: companies.features,
+                platform_features: platforms.features,
             })
             .from(companyDomains)
             .innerJoin(companies, eq(companyDomains.company_id, companies.id))
+            .innerJoin(platforms, eq(companyDomains.platform_id, platforms.id))
             .where(eq(companyDomains.hostname, hostname))
             .limit(1);
 
         if (result) {
             const settings = result.settings as any;
             const branding = settings?.branding || {};
+            const platformFeatures = (result.platform_features || {}) as Record<string, boolean>;
+            const companyFeatures = (result.company_features || {}) as Record<string, boolean>;
 
             return {
                 platform_id: result.platform_id,
@@ -151,6 +230,9 @@ const getConfigByHostname = async (origin: string) => {
                 primary_color: branding?.primary_color || null,
                 secondary_color: branding?.secondary_color || null,
                 currency: null,
+                features: { ...platformFeatures, ...companyFeatures },
+                platform_features: platformFeatures,
+                company_features: companyFeatures,
             };
         }
 
@@ -162,9 +244,10 @@ const getConfigByHostname = async (origin: string) => {
                 id: platforms.id,
                 name: platforms.name,
                 config: platforms.config,
+                features: platforms.features,
             })
             .from(platforms)
-            .where(eq(platforms.domain, url.host || url.href))
+            .where(eq(platforms.domain, hostname))
             .limit(1);
 
         if (platform) {
@@ -178,6 +261,7 @@ const getConfigByHostname = async (origin: string) => {
                 primary_color: config?.primary_color || null,
                 secondary_color: config?.secondary_color || null,
                 currency: config?.currency || null,
+                features: (platform.features || {}) as Record<string, boolean>,
             };
         }
 
@@ -187,15 +271,20 @@ const getConfigByHostname = async (origin: string) => {
                 company_id: companyDomains.company_id,
                 company_name: companies.name,
                 settings: companies.settings,
+                company_features: companies.features,
+                platform_features: platforms.features,
             })
             .from(companyDomains)
             .innerJoin(companies, eq(companyDomains.company_id, companies.id))
-            .where(eq(companyDomains.hostname, url.host || url.href))
+            .innerJoin(platforms, eq(companyDomains.platform_id, platforms.id))
+            .where(eq(companyDomains.hostname, hostname))
             .limit(1);
 
         if (result) {
             const settings = result.settings as any;
             const branding = settings?.branding || {};
+            const platformFeatures = (result.platform_features || {}) as Record<string, boolean>;
+            const companyFeatures = (result.company_features || {}) as Record<string, boolean>;
 
             return {
                 platform_id: result.platform_id,
@@ -205,12 +294,166 @@ const getConfigByHostname = async (origin: string) => {
                 primary_color: branding?.primary_color || null,
                 secondary_color: branding?.secondary_color || null,
                 currency: null,
+                features: { ...platformFeatures, ...companyFeatures },
+                platform_features: platformFeatures,
+                company_features: companyFeatures,
             };
         }
 
         return null;
     }
 };
+
+// const getConfigByHostname = async (origin: string) => {
+//     const url = new URL(origin);
+//     const hostname = url.hostname;
+
+//     /**
+//      * CONFIGURATION
+//      * PLATFORM_ROOT: The domain name stored in your 'platforms' table.
+//      * AMPLIFY_MAPPING: Maps the unique AWS hash to the app's functional role.
+//      */
+//     const PLATFORM_ROOT = "my-saas-app.com";
+
+//     const AMPLIFY_MAPPING: Record<string, "admin" | "warehouse" | "client"> = {
+//         "d24txteqyd3gxb": "admin",
+//         "da9589fgr2awj": "warehouse",
+//         "d2xpl5tyv9gv2p": "client",
+//     };
+
+//     // 1. Detect if we are on an Amplify staging domain
+//     const amplifyKey = Object.keys(AMPLIFY_MAPPING).find(key => hostname.includes(key));
+
+//     // 2. Set "Effective" values to normalize logic between Normal and Amplify domains
+//     let effectiveSubdomain = hostname.split(".")[0];
+//     let effectiveRootDomain = hostname.split(".").slice(1).join(".");
+
+//     if (amplifyKey) {
+//         effectiveSubdomain = AMPLIFY_MAPPING[amplifyKey];
+//         // Force the root domain to match your DB record for Admin/Warehouse lookups
+//         effectiveRootDomain = PLATFORM_ROOT;
+//     }
+
+//     // 3. Main Logic Execution
+//     if (config.node_env === "production" || amplifyKey) {
+
+//         // CASE A: ADMIN or WAREHOUSE (Platform Level)
+//         if (effectiveSubdomain === "admin" || effectiveSubdomain === "warehouse") {
+//             const [platform] = await db
+//                 .select({
+//                     id: platforms.id,
+//                     name: platforms.name,
+//                     config: platforms.config,
+//                 })
+//                 .from(platforms)
+//                 .where(eq(platforms.domain, effectiveRootDomain))
+//                 .limit(1);
+
+//             if (platform) {
+//                 const cfg = platform.config as any;
+//                 return {
+//                     platform_name: platform.name,
+//                     platform_id: platform.id,
+//                     company_id: null,
+//                     company_name: null,
+//                     logo_url: cfg?.logo_url || null,
+//                     primary_color: cfg?.primary_color || null,
+//                     secondary_color: cfg?.secondary_color || null,
+//                     currency: cfg?.currency || null,
+//                 };
+//             }
+//             return null;
+//         }
+
+//         // CASE B: CLIENT / COMPANY DOMAINS
+//         // We use the literal 'hostname' here because your companyDomains table
+//         // should contain the specific domain (e.g., client.domain.com or the Amplify URL)
+//         const [result] = await db
+//             .select({
+//                 platform_id: companyDomains.platform_id,
+//                 company_id: companyDomains.company_id,
+//                 company_name: companies.name,
+//                 settings: companies.settings,
+//             })
+//             .from(companyDomains)
+//             .innerJoin(companies, eq(companyDomains.company_id, companies.id))
+//             .where(eq(companyDomains.hostname, hostname))
+//             .limit(1);
+
+//         if (result) {
+//             const settings = result.settings as any;
+//             const branding = settings?.branding || {};
+
+//             return {
+//                 platform_id: result.platform_id,
+//                 company_id: result.company_id,
+//                 company_name: result.company_name,
+//                 logo_url: branding?.logo_url || null,
+//                 primary_color: branding?.primary_color || null,
+//                 secondary_color: branding?.secondary_color || null,
+//                 currency: null,
+//             };
+//         }
+
+//         return null;
+
+//     } else {
+//         // CASE C: LOCAL DEVELOPMENT FALLBACK
+//         // Standard check for localhost or internal dev hostnames
+//         const [platform] = await db
+//             .select({
+//                 id: platforms.id,
+//                 name: platforms.name,
+//                 config: platforms.config,
+//             })
+//             .from(platforms)
+//             .where(eq(platforms.domain, hostname))
+//             .limit(1);
+
+//         if (platform) {
+//             const cfg = platform.config as any;
+//             return {
+//                 platform_id: platform.id,
+//                 platform_name: platform.name,
+//                 company_id: null,
+//                 company_name: null,
+//                 logo_url: cfg?.logo_url || null,
+//                 primary_color: cfg?.primary_color || null,
+//                 secondary_color: cfg?.secondary_color || null,
+//                 currency: cfg?.currency || null,
+//             };
+//         }
+
+//         const [result] = await db
+//             .select({
+//                 platform_id: companyDomains.platform_id,
+//                 company_id: companyDomains.company_id,
+//                 company_name: companies.name,
+//                 settings: companies.settings,
+//             })
+//             .from(companyDomains)
+//             .innerJoin(companies, eq(companyDomains.company_id, companies.id))
+//             .where(eq(companyDomains.hostname, hostname))
+//             .limit(1);
+
+//         if (result) {
+//             const settings = result.settings as any;
+//             const branding = settings?.branding || {};
+
+//             return {
+//                 platform_id: result.platform_id,
+//                 company_id: result.company_id,
+//                 company_name: result.company_name,
+//                 logo_url: branding?.logo_url || null,
+//                 primary_color: branding?.primary_color || null,
+//                 secondary_color: branding?.secondary_color || null,
+//                 currency: null,
+//             };
+//         }
+
+//         return null;
+//     }
+// };
 
 const resetPassword = async (
     platformId: string,
@@ -298,14 +541,18 @@ const forgotPassword = async (platformId: string, payload: ForgotPasswordPayload
         const generatedOTP = OTPGenerator();
         const expirationTime = new Date(new Date().getTime() + 5 * 60000);
 
-        // Step 2.3: Send OTP email
-        await sendEmail({
-            to: email,
-            subject: `OTP for password reset`,
-            html: emailTemplates.forgot_password_otp({
+        // Step 2.3: Emit auth.password_reset_requested event
+        await eventBus.emit({
+            platform_id: platformId,
+            event_type: EVENT_TYPES.AUTH_PASSWORD_RESET_REQUESTED,
+            entity_type: "USER",
+            entity_id: user.id,
+            actor_id: null,
+            actor_role: null,
+            payload: {
                 email,
                 otp: String(generatedOTP),
-            }),
+            },
         });
 
         // Step 2.4: Save OTP record in the database
@@ -357,6 +604,7 @@ const forgotPassword = async (platformId: string, payload: ForgotPasswordPayload
 
 export const AuthServices = {
     login,
+    refresh,
     getConfigByHostname,
     resetPassword,
     forgotPassword,
