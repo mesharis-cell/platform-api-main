@@ -1751,6 +1751,11 @@ export const serviceRequests = pgTable(
         completed_at: timestamp("completed_at"),
         completed_by: uuid("completed_by").references(() => users.id),
         completion_notes: text("completion_notes"),
+        photos: text("photos")
+            .array()
+            .notNull()
+            .default(sql`ARRAY[]::text[]`),
+        work_notes: text("work_notes"),
         cancelled_at: timestamp("cancelled_at"),
         cancelled_by: uuid("cancelled_by").references(() => users.id),
         cancellation_reason: text("cancellation_reason"),
