@@ -26,12 +26,12 @@ type ServiceRequestCommercialStatus =
 
 const ORDER_INVOICE_ALLOWED_STATUSES = new Set([
     "CONFIRMED",
-    "AWAITING_FABRICATION",
     "IN_PREPARATION",
     "READY_FOR_DELIVERY",
     "IN_TRANSIT",
     "DELIVERED",
     "IN_USE",
+    "DERIG",
     "AWAITING_RETURN",
     "RETURN_IN_TRANSIT",
     "CLOSED",

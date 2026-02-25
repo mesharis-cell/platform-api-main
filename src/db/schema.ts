@@ -58,12 +58,12 @@ export const orderStatusEnum = pgEnum("order_status", [
     "QUOTED",
     "DECLINED",
     "CONFIRMED",
-    "AWAITING_FABRICATION",
     "IN_PREPARATION",
     "READY_FOR_DELIVERY",
     "IN_TRANSIT",
     "DELIVERED",
     "IN_USE",
+    "DERIG",
     "AWAITING_RETURN",
     "RETURN_IN_TRANSIT",
     "CLOSED",
@@ -910,6 +910,11 @@ export const orderItems = pgTable(
         requires_maintenance: boolean("requires_maintenance").notNull().default(false),
         maintenance_refurb_days_snapshot: integer("maintenance_refurb_days_snapshot"),
         maintenance_decision_locked_at: timestamp("maintenance_decision_locked_at"),
+        derig_photos: text("derig_photos")
+            .array()
+            .notNull()
+            .default(sql`ARRAY[]::text[]`),
+        derig_notes: text("derig_notes"),
 
         created_at: timestamp("created_at").notNull().defaultNow(),
     },

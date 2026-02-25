@@ -302,6 +302,22 @@ const adminApproveQuoteSchema = z.object({
         .strict(),
 });
 
+const derigCaptureSchema = z.object({
+    body: z.object({
+        items: z
+            .array(
+                z.object({
+                    order_item_id: z.string().uuid("Invalid order item ID"),
+                    photos: z
+                        .array(z.string().url("Invalid photo URL"))
+                        .min(1, "At least one photo is required per item"),
+                    notes: z.string().max(2000).optional(),
+                })
+            )
+            .min(1, "At least one item is required"),
+    }),
+});
+
 export const orderSchemas = {
     calculateEstimateSchema,
     checkMaintenanceFeasibilitySchema,
@@ -317,5 +333,6 @@ export const orderSchemas = {
     addOrderItemSchema,
     updateOrderItemQuantitySchema,
     updateMaintenanceDecisionSchema,
+    derigCaptureSchema,
     adminApproveQuoteSchema,
 };

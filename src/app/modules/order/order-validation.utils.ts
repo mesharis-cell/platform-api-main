@@ -14,7 +14,6 @@ export function canCancelOrder(orderStatus: string): boolean {
         "PENDING_APPROVAL",
         "QUOTED",
         "CONFIRMED",
-        "AWAITING_FABRICATION",
         "IN_PREPARATION",
     ];
     return CANCELLABLE_STATUSES.includes(orderStatus);

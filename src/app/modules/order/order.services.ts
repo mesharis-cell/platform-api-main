@@ -84,6 +84,7 @@ const FULFILLMENT_READINESS_STATUSES = new Set([
     "IN_TRANSIT",
     "DELIVERED",
     "IN_USE",
+    "DERIG",
     "AWAITING_RETURN",
     "RETURN_IN_TRANSIT",
     "CLOSED",
@@ -1297,11 +1298,12 @@ const getOrderById = async (
             QUOTED: "Quote Ready",
             DECLINED: "Quote Declined",
             CONFIRMED: "Order Confirmed",
-            AWAITING_FABRICATION: "Custom Work In Progress",
             IN_PREPARATION: "Preparing Items",
             READY_FOR_DELIVERY: "Ready for Delivery",
             IN_TRANSIT: "In Transit",
             DELIVERED: "Delivered",
+            IN_USE: "In Use",
+            DERIG: "Derigging",
             AWAITING_RETURN: "Awaiting Pickup",
             RETURN_IN_TRANSIT: "Return In Transit",
             CLOSED: "Complete",
@@ -1541,15 +1543,14 @@ const progressOrderStatus = async (
     // Step 4.5: Validate date-based transitions
     const today = dayjs().startOf("day");
 
-    if (currentStatus === "AWAITING_FABRICATION" || currentStatus === "CONFIRMED") {
-        // fetch all assets item and check if all assets condition is GREEN
+    if (currentStatus === "CONFIRMED") {
+        // Verify all assets are GREEN before logistics can start preparation
         const assetsList = await db
             .select()
             .from(orderItems)
             .innerJoin(assets, eq(orderItems.asset_id, assets.id))
             .where(eq(orderItems.order_id, order.id));
 
-        // check if all assets condition is GREEN
         const allAssetsConditionGreen = assetsList.every(
             (asset) => asset.assets.condition === "GREEN"
         );
@@ -1557,7 +1558,7 @@ const progressOrderStatus = async (
         if (!allAssetsConditionGreen) {
             throw new CustomizedError(
                 httpStatus.BAD_REQUEST,
-                "All assets condition must be GREEN before transitioning to AWAITING_FABRICATION or CONFIRMED"
+                "All assets condition must be GREEN before transitioning from CONFIRMED to IN_PREPARATION"
             );
         }
     }
@@ -1730,11 +1731,12 @@ const getOrderStatusHistory = async (orderId: string, user: AuthUser, platformId
             QUOTED: "Quote Ready",
             DECLINED: "Quote Declined",
             CONFIRMED: "Order Confirmed",
-            AWAITING_FABRICATION: "Custom Work In Progress",
             IN_PREPARATION: "Preparing Items",
             READY_FOR_DELIVERY: "Ready for Delivery",
             IN_TRANSIT: "In Transit",
             DELIVERED: "Delivered",
+            IN_USE: "In Use",
+            DERIG: "Derigging",
             AWAITING_RETURN: "Awaiting Pickup",
             RETURN_IN_TRANSIT: "Return In Transit",
             CLOSED: "Complete",
@@ -2114,16 +2116,16 @@ const getClientOrderStatistics = async (companyId: string, platformId: string) =
     // Define status categories
     const activeOrderStatuses = [
         "CONFIRMED",
-        "AWAITING_FABRICATION",
         "IN_PREPARATION",
         "READY_FOR_DELIVERY",
         "IN_TRANSIT",
         "DELIVERED",
         "IN_USE",
+        "DERIG",
         "AWAITING_RETURN",
         "RETURN_IN_TRANSIT",
     ];
-    const upcomingEventStatuses = ["CONFIRMED", "AWAITING_FABRICATION", "IN_PREPARATION"];
+    const upcomingEventStatuses = ["CONFIRMED", "IN_PREPARATION"];
 
     // Process counts in memory
     let activeOrdersCount = 0;
@@ -2942,6 +2944,55 @@ const downloadGoodsForm = async (
     };
 };
 
+// ----------------------------------- SAVE DERIG CAPTURE ------------------------------------
+const saveDerigCapture = async (
+    orderId: string,
+    platformId: string,
+    items: { order_item_id: string; photos: string[]; notes?: string }[],
+    user: AuthUser
+) => {
+    const [order] = await db
+        .select({
+            id: orders.id,
+            order_status: orders.order_status,
+            platform_id: orders.platform_id,
+        })
+        .from(orders)
+        .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)));
+
+    if (!order) throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+
+    if (order.order_status !== "DERIG")
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Derig captures can only be saved when order is in DERIG status"
+        );
+
+    await Promise.all(
+        items.map(async (item) => {
+            const [existingItem] = await db
+                .select({ id: orderItems.id })
+                .from(orderItems)
+                .where(
+                    and(eq(orderItems.id, item.order_item_id), eq(orderItems.order_id, orderId))
+                );
+
+            if (!existingItem)
+                throw new CustomizedError(
+                    httpStatus.BAD_REQUEST,
+                    `Order item ${item.order_item_id} does not belong to this order`
+                );
+
+            await db
+                .update(orderItems)
+                .set({ derig_photos: item.photos, derig_notes: item.notes ?? null })
+                .where(eq(orderItems.id, item.order_item_id));
+        })
+    );
+
+    return { order_id: orderId, items_updated: items.length };
+};
+
 export const OrderServices = {
     submitOrderFromCart,
     getOrders,
@@ -2965,4 +3016,5 @@ export const OrderServices = {
     checkMaintenanceFeasibility,
     downloadGoodsForm,
     updateMaintenanceDecision,
+    saveDerigCapture,
 };

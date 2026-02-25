@@ -10,9 +10,11 @@ import {
     assets,
     brands,
     companies,
+    orderItems,
     orders,
     scanEvents,
     selfBookingItems,
+    users,
     warehouses,
     zones,
 } from "../../../db/schema";
@@ -1694,6 +1696,101 @@ const getAssetVersions = async (assetId: string, platformId: string) => {
     return versions;
 };
 
+// ----------------------------------- GET ASSET ORDER HISTORY -----------------------------------
+const getAssetOrderHistory = async (assetId: string, platformId: string) => {
+    // Get all bookings for this asset
+    const bookings = await db
+        .select({
+            order_id: assetBookings.order_id,
+            blocked_from: assetBookings.blocked_from,
+            blocked_until: assetBookings.blocked_until,
+        })
+        .from(assetBookings)
+        .innerJoin(orders, eq(assetBookings.order_id, orders.id))
+        .where(and(eq(assetBookings.asset_id, assetId), eq(orders.platform_id, platformId)))
+        .orderBy(desc(assetBookings.blocked_from));
+
+    if (bookings.length === 0) return [];
+
+    const orderIds = [...new Set(bookings.map((b) => b.order_id))];
+
+    // Fetch order details
+    const orderDetails = await db
+        .select({
+            id: orders.id,
+            order_id: orders.order_id,
+            order_status: orders.order_status,
+            event_start_date: orders.event_start_date,
+            event_end_date: orders.event_end_date,
+            company_name: companies.name,
+        })
+        .from(orders)
+        .leftJoin(companies, eq(orders.company_id, companies.id))
+        .where(inArray(orders.id, orderIds));
+
+    // Fetch scan events for this asset across those orders
+    const scans = await db
+        .select({
+            order_id: scanEvents.order_id,
+            scan_type: scanEvents.scan_type,
+            condition: scanEvents.condition,
+            photos: scanEvents.photos,
+            scanned_at: scanEvents.scanned_at,
+            scanned_by_name: users.name,
+        })
+        .from(scanEvents)
+        .leftJoin(users, eq(scanEvents.scanned_by, users.id))
+        .where(and(eq(scanEvents.asset_id, assetId), inArray(scanEvents.order_id, orderIds)));
+
+    // Fetch derig data from order_items
+    const derigItems = await db
+        .select({
+            order_id: orderItems.order_id,
+            derig_photos: orderItems.derig_photos,
+            derig_notes: orderItems.derig_notes,
+        })
+        .from(orderItems)
+        .where(and(eq(orderItems.asset_id, assetId), inArray(orderItems.order_id, orderIds)));
+
+    const derigByOrder = new Map(derigItems.map((d) => [d.order_id, d]));
+    const scansByOrder = new Map<string, typeof scans>();
+    for (const scan of scans) {
+        if (!scansByOrder.has(scan.order_id)) scansByOrder.set(scan.order_id, []);
+        scansByOrder.get(scan.order_id)!.push(scan);
+    }
+
+    return bookings.map((booking) => {
+        const order = orderDetails.find((o) => o.id === booking.order_id);
+        const orderScans = scansByOrder.get(booking.order_id) ?? [];
+        const outbound = orderScans.find((s) => s.scan_type === "OUTBOUND");
+        const inbound = orderScans.find((s) => s.scan_type === "INBOUND");
+        const derig = derigByOrder.get(booking.order_id);
+
+        return {
+            order_id: booking.order_id,
+            order_readable_id: order?.order_id ?? "",
+            order_status: order?.order_status ?? "",
+            company_name: order?.company_name ?? "",
+            event_start: order?.event_start_date,
+            event_end: order?.event_end_date,
+            outbound_scan: outbound
+                ? { scanned_at: outbound.scanned_at, scanned_by_name: outbound.scanned_by_name }
+                : null,
+            derig_capture:
+                derig && derig.derig_photos && derig.derig_photos.length > 0
+                    ? { photos: derig.derig_photos, notes: derig.derig_notes }
+                    : null,
+            inbound_scan: inbound
+                ? {
+                      scanned_at: inbound.scanned_at,
+                      condition: inbound.condition,
+                      photos: inbound.photos ?? [],
+                  }
+                : null,
+        };
+    });
+};
+
 export const AssetServices = {
     createAsset,
     getAssets,
@@ -1712,4 +1809,5 @@ export const AssetServices = {
     completeAssetMaintenance,
     createAssetVersionSnapshot,
     getAssetVersions,
+    getAssetOrderHistory,
 };

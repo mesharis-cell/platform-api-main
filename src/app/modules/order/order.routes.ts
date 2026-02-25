@@ -209,6 +209,16 @@ router.patch(
     OrderControllers.updateMaintenanceDecision
 );
 
+// Save derig capture photos/notes per item (only when order status is DERIG)
+router.patch(
+    "/:id/derig",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.ORDERS_UPDATE),
+    payloadValidator(orderSchemas.derigCaptureSchema),
+    OrderControllers.derigCapture
+);
+
 // Submit for approval (Logistics → Admin)
 router.post(
     "/:id/submit-for-approval",

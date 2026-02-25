@@ -31,7 +31,6 @@ type OrderStatus =
     | "QUOTED"
     | "DECLINED"
     | "CONFIRMED"
-    | "AWAITING_FABRICATION"
     | "IN_PREPARATION"
     | "READY_FOR_DELIVERY"
     | "IN_TRANSIT"
@@ -1347,7 +1346,7 @@ async function seedOrders() {
             company: dg,
             user: dgClient,
             brand: brandByName("Baileys"),
-            status: "AWAITING_FABRICATION" as OrderStatus,
+            status: "CONFIRMED" as OrderStatus,
             financial: "QUOTE_ACCEPTED" as FinancialStatus,
             venue: "Atlantis The Palm",
             cityId: dubai.id,
@@ -2194,7 +2193,7 @@ async function seedAssetBookings() {
         "DELIVERED",
         "AWAITING_RETURN",
         "RETURN_IN_TRANSIT",
-        "AWAITING_FABRICATION",
+        "DERIG",
     ];
     let count = 0;
 
@@ -2322,14 +2321,6 @@ function getStatusProgression(finalStatus: string): string[] {
         PENDING_APPROVAL: ["DRAFT", "PRICING_REVIEW", "PENDING_APPROVAL"],
         QUOTED: ["DRAFT", "PRICING_REVIEW", "PENDING_APPROVAL", "QUOTED"],
         CONFIRMED: ["DRAFT", "PRICING_REVIEW", "PENDING_APPROVAL", "QUOTED", "CONFIRMED"],
-        AWAITING_FABRICATION: [
-            "DRAFT",
-            "PRICING_REVIEW",
-            "PENDING_APPROVAL",
-            "QUOTED",
-            "CONFIRMED",
-            "AWAITING_FABRICATION",
-        ],
         IN_PREPARATION: [
             "DRAFT",
             "PRICING_REVIEW",
@@ -2451,7 +2442,7 @@ const statusNotes: Record<string, string> = {
     PENDING_APPROVAL: "Awaiting admin approval",
     QUOTED: "Quote sent to client",
     CONFIRMED: "Client approved quote",
-    AWAITING_FABRICATION: "Awaiting fabrication completion",
+    DERIG: "Derigging on site",
     IN_PREPARATION: "Items being prepared",
     READY_FOR_DELIVERY: "Ready for pickup",
     IN_TRANSIT: "En route to venue",
