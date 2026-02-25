@@ -298,6 +298,7 @@ async function seedUsers() {
         "companies:read",
         "brands:create",
         "brands:read",
+        "brands:update",
         "warehouses:create",
         "warehouses:read",
         "warehouses:update",

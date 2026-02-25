@@ -13,7 +13,7 @@ const router = Router();
 router.post(
     "/",
     platformValidator,
-    auth("ADMIN"),
+    auth("ADMIN", "LOGISTICS"),
     requirePermission(PERMISSIONS.BRANDS_CREATE),
     payloadValidator(brandsSchemas.brandSchema),
     BrandControllers.createBrand
@@ -41,7 +41,7 @@ router.get(
 router.patch(
     "/:id",
     platformValidator,
-    auth("ADMIN"),
+    auth("ADMIN", "LOGISTICS"),
     requirePermission(PERMISSIONS.BRANDS_UPDATE),
     payloadValidator(brandsSchemas.updateBrandSchema),
     BrandControllers.updateBrand

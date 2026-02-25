@@ -77,6 +77,10 @@ const createAssetSchema = z.object({
                 })
                 .optional()
                 .default("AVAILABLE"),
+            condition_photos: z
+                .array(z.string().url("Invalid condition photo URL"))
+                .optional()
+                .default([]),
         })
         .refine((data) => data.available_quantity <= data.total_quantity, {
             message: "Available quantity cannot exceed total quantity",
