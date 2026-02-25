@@ -160,7 +160,11 @@ function toAssetCondition(value: unknown): AssetCondition {
     throw new Error(`Invalid/missing asset condition in import package: "${String(value)}"`);
 }
 
-function combineImageNote(imageTitle?: string | null, note?: string | null, condition?: string | null) {
+function combineImageNote(
+    imageTitle?: string | null,
+    note?: string | null,
+    condition?: string | null
+) {
     const parts: string[] = [];
     if (imageTitle && imageTitle.trim()) parts.push(imageTitle.trim());
     if (note && note.trim()) parts.push(note.trim());
@@ -529,7 +533,8 @@ export async function seedPrAssets(opts: SeedPrAssetsOptions) {
             }
 
             const existing =
-                existingByExternalKey.get(docExternalKey) ?? existingByName.get(docTitle.toLowerCase());
+                existingByExternalKey.get(docExternalKey) ??
+                existingByName.get(docTitle.toLowerCase());
 
             if (existing) {
                 await db
@@ -582,7 +587,9 @@ export async function seedPrAssets(opts: SeedPrAssetsOptions) {
     }
 
     log(`✓ Assets: ${created} created, ${updated} updated, ${skipped} skipped, ${errors} errors`);
-    log(`✓ Links: ${totalLinks} total, ${totalLinks - unresolvedLinks} resolved, ${unresolvedLinks} unresolved`);
+    log(
+        `✓ Links: ${totalLinks} total, ${totalLinks - unresolvedLinks} resolved, ${unresolvedLinks} unresolved`
+    );
     if (unresolvedSamples.length) {
         log("⚠️  Unresolved reference samples:");
         for (const sample of unresolvedSamples) log(`   - ${sample}`);

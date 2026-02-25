@@ -47,7 +47,7 @@ const promoteDraftImages = async (
             if (!img.url.includes("/drafts/")) return img;
             const fromKey = s3KeyFromUrl(img.url);
             const filename = fromKey.split("/").pop() ?? fromKey;
-            const toKey = `${companyId}/assets/${Date.now()}-${filename}`;
+            const toKey = `images/${companyId}/assets/${Date.now()}-${filename}`;
             const newUrl = await moveS3Object(fromKey, toKey);
             return { ...img, url: newUrl };
         })
@@ -121,6 +121,18 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
                 data.company_id
             );
 
+        // Promote condition photos (also uploaded as drafts)
+        if (data.condition_photos && data.condition_photos.length > 0)
+            data.condition_photos = await Promise.all(
+                data.condition_photos.map(async (url) => {
+                    if (!url.includes("/drafts/")) return url;
+                    const fromKey = s3KeyFromUrl(url);
+                    const filename = fromKey.split("/").pop() ?? fromKey;
+                    const toKey = `images/${data.company_id}/assets/${Date.now()}-${filename}`;
+                    return moveS3Object(fromKey, toKey);
+                })
+            );
+
         // Step 3: Handle INDIVIDUAL tracking with quantity > 1 - Create N separate assets
         if (data.tracking_method === "INDIVIDUAL" && data.total_quantity > 1) {
             const createdAssets: any[] = [];
@@ -166,7 +178,7 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
                         asset_id: asset.id,
                         condition: data.condition || "GREEN",
                         notes: data.condition_notes || "Initial condition",
-                        photos: [],
+                        photos: data.condition_photos ?? [],
                         updated_by: user.id,
                     });
                 }
@@ -218,7 +230,7 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
                 asset_id: result.id,
                 condition: data.condition || "GREEN",
                 notes: data.condition_notes || "Initial condition",
-                photos: [],
+                photos: data.condition_photos ?? [],
                 updated_by: user.id,
             });
         }
