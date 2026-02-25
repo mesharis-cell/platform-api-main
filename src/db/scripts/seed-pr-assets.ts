@@ -2,7 +2,7 @@
  * Pernod Ricard Asset Migration
  *
  * Migrates preview-latest baseline package from the thin-MVP source into Kadence.
- * Current expected package counts: 577 docs (PDF items), 1351 extracted images.
+ * Package counts are validated against manifest.json at runtime.
  * Each source PDF item → one Asset in the system. Linked extracted photos → images[].
  *
  * Usage:
@@ -30,14 +30,27 @@ import { qrCodeGenerator } from "../../app/utils/qr-code-generator";
 // Config
 // ---------------------------------------------------------------------------
 
-const BUNDLE_DIR = path.resolve(process.cwd(), "seed/preview-latest");
+const BUNDLE_DIR_CANDIDATES = [
+    path.resolve(process.cwd(), "seed/preview-latest/preview-latest"),
+    path.resolve(process.cwd(), "seed/preview-latest"),
+];
+
+function hasImportBundle(dir: string): boolean {
+    return (
+        existsSync(path.join(dir, "import/docs-import.ndjson")) &&
+        existsSync(path.join(dir, "import/assets-import.ndjson"))
+    );
+}
+
+const BUNDLE_DIR =
+    BUNDLE_DIR_CANDIDATES.find((candidate) => hasImportBundle(candidate)) ??
+    BUNDLE_DIR_CANDIDATES.find((candidate) => existsSync(candidate)) ??
+    BUNDLE_DIR_CANDIDATES[0];
 const PHOTOS_DIR = path.join(BUNDLE_DIR, "files/photos");
 const IMPORT_DOCS_FILE = path.join(BUNDLE_DIR, "import/docs-import.ndjson");
 const IMPORT_ASSETS_FILE = path.join(BUNDLE_DIR, "import/assets-import.ndjson");
 const MANIFEST_FILE = path.join(BUNDLE_DIR, "manifest.json");
 const CHECKSUMS_FILE = path.join(BUNDLE_DIR, "checksums.sha256");
-const EXPECTED_DOC_COUNT = 577;
-const EXPECTED_ASSET_COUNT = 1351;
 
 const isDryRun = process.argv.includes("--dry-run");
 const skipPhotos = process.argv.includes("--skip-photos");
@@ -343,13 +356,11 @@ export async function seedPrAssets(opts: SeedPrAssetsOptions) {
             `Manifest/assets count mismatch: manifest=${manifest.counts.assets}, actual=${photoAssets.length}`
         );
     }
-    if (docs.length !== EXPECTED_DOC_COUNT) {
-        throw new Error(`Unexpected docs count for preview-latest: expected=${EXPECTED_DOC_COUNT}, actual=${docs.length}`);
+    if (docs.length === 0) {
+        throw new Error("Import package has zero docs; refusing to continue");
     }
-    if (photoAssets.length !== EXPECTED_ASSET_COUNT) {
-        throw new Error(
-            `Unexpected assets count for preview-latest: expected=${EXPECTED_ASSET_COUNT}, actual=${photoAssets.length}`
-        );
+    if (photoAssets.length === 0) {
+        throw new Error("Import package has zero photo assets; refusing to continue");
     }
 
     const photoByExternalKey = new Map<string, ImportAssetRow>();

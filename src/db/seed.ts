@@ -234,6 +234,7 @@ async function seedCompanyDomains() {
         type: "VANITY" as const,
         is_verified: true,
         is_active: true,
+        is_primary: true,
     }));
     await db.insert(schema.companyDomains).values(domains);
     console.log(`✓ ${domains.length} company domains`);
@@ -3468,6 +3469,8 @@ async function cleanup() {
         await safeDelete("assets", () => db.delete(schema.assets));
         await safeDelete("service_types", () => db.delete(schema.serviceTypes));
         await safeDelete("transport_rates", () => db.delete(schema.transportRates));
+        await safeDelete("self_booking_items", () => db.delete(schema.selfBookingItems));
+        await safeDelete("self_bookings", () => db.delete(schema.selfBookings));
         await safeDelete("cities", () => db.delete(schema.cities));
         await safeDelete("countries", () => db.delete(schema.countries));
         await safeDelete("zones", () => db.delete(schema.zones));

@@ -187,6 +187,7 @@ async function seedCompanyDomains() {
         type: "VANITY" as const,
         is_verified: true,
         is_active: true,
+        is_primary: true,
     });
     console.log("✓ 1 company domain");
 }
@@ -645,6 +646,13 @@ async function seedNotificationRules() {
             sort_order: 0,
         },
         {
+            event_type: "quote.revised",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "quote_revised_admin",
+            sort_order: 1,
+        },
+        {
             event_type: "order.confirmed",
             recipient_type: "ENTITY_OWNER",
             recipient_value: null,
@@ -654,9 +662,16 @@ async function seedNotificationRules() {
         {
             event_type: "order.confirmed",
             recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "order_confirmed_admin",
+            sort_order: 1,
+        },
+        {
+            event_type: "order.confirmed",
+            recipient_type: "ROLE",
             recipient_value: "LOGISTICS",
             template_key: "order_confirmed_logistics",
-            sort_order: 1,
+            sort_order: 2,
         },
         {
             event_type: "order.delivered",
@@ -666,37 +681,93 @@ async function seedNotificationRules() {
             sort_order: 0,
         },
         {
+            event_type: "order.delivered",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "order_delivered_admin",
+            sort_order: 1,
+        },
+        {
+            event_type: "order.delivered",
+            recipient_type: "ROLE",
+            recipient_value: "LOGISTICS",
+            template_key: "order_delivered_logistics",
+            sort_order: 2,
+        },
+        {
             event_type: "order.closed",
-            recipient_type: "ENTITY_OWNER",
-            recipient_value: null,
-            template_key: "order_closed_client",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "order_closed_admin",
             sort_order: 0,
         },
         {
-            event_type: "service_request.created",
+            event_type: "service_request.submitted",
             recipient_type: "ROLE",
             recipient_value: "ADMIN",
-            template_key: "service_request_created_admin",
+            template_key: "sr_submitted_admin",
             sort_order: 0,
+        },
+        {
+            event_type: "service_request.submitted",
+            recipient_type: "ROLE",
+            recipient_value: "LOGISTICS",
+            template_key: "sr_submitted_logistics",
+            sort_order: 1,
         },
         {
             event_type: "service_request.completed",
             recipient_type: "ENTITY_OWNER",
             recipient_value: null,
-            template_key: "service_request_completed_client",
+            template_key: "sr_completed_client",
             sort_order: 0,
         },
         {
-            event_type: "inbound_request.completed",
+            event_type: "service_request.completed",
             recipient_type: "ROLE",
             recipient_value: "ADMIN",
-            template_key: "inbound_request_completed_admin",
+            template_key: "sr_completed_admin",
+            sort_order: 1,
+        },
+        {
+            event_type: "inbound_request.completed",
+            recipient_type: "ENTITY_OWNER",
+            recipient_value: null,
+            template_key: "ir_completed_client",
+            sort_order: 0,
+        },
+        {
+            event_type: "self_booking.created",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "self_booking_created_admin",
+            sort_order: 0,
+        },
+        {
+            event_type: "self_booking.completed",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "self_booking_completed_admin",
+            sort_order: 0,
+        },
+        {
+            event_type: "self_booking.cancelled",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "self_booking_cancelled_admin",
+            sort_order: 0,
+        },
+        {
+            event_type: "auth.password_reset_requested",
+            recipient_type: "ENTITY_OWNER",
+            recipient_value: null,
+            template_key: "password_reset_otp",
             sort_order: 0,
         },
     ];
     await db
         .insert(schema.notificationRules)
-        .values(rules.map((r) => ({ platform_id: pid, is_active: true, ...r })));
+        .values(rules.map((r) => ({ platform_id: pid, company_id: null, is_enabled: true, ...r })));
     console.log(`✓ ${rules.length} notification rules`);
 }
 
