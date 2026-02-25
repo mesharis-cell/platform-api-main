@@ -215,7 +215,7 @@ const autoApproveBundledServiceRequests = async (
                 company_name: request.company_name || "N/A",
                 contact_name: "Client",
                 final_total: finalTotal,
-                request_url: `${config.client_url}/service-requests/${request.id}`,
+                request_url: "",
             },
         });
     }
@@ -690,7 +690,7 @@ const submitOrderFromCart = async (
             venue_city: city.name,
             item_count: items.length,
             total_volume: calculatedVolume,
-            order_url: `${config.client_url}/orders/${orderResult.order_id}`,
+            order_url: "",
         },
     });
 
@@ -1591,7 +1591,7 @@ const progressOrderStatus = async (
                 venue_city: "",
                 delivery_window: updatedOrder.delivery_window || "",
                 pickup_window: updatedOrder.pickup_window || "",
-                order_url: `${config.client_url}/orders/${updatedOrder.order_id}`,
+                order_url: "",
             },
         });
     }
@@ -1770,7 +1770,7 @@ const updateOrderTimeWindows = async (
             contact_name: updatedOrder.contact_name,
             delivery_window: updatedOrder.delivery_window || "",
             pickup_window: updatedOrder.pickup_window || "",
-            order_url: `${config.client_url}/orders/${updatedOrder.order_id}`,
+            order_url: "",
         },
     });
 
@@ -1909,7 +1909,7 @@ const approveQuote = async (
             company_name: (order.company as any)?.name || "N/A",
             contact_name: order.contact_name,
             final_total: String((order.order_pricing as any)?.final_total || "0"),
-            order_url: `${config.client_url}/orders/${order.order_id}`,
+            order_url: "",
         },
     });
 
@@ -1997,7 +1997,7 @@ const declineQuote = async (
             company_id: order.company_id,
             company_name: order.company?.name || "N/A",
             contact_name: order.contact_name,
-            order_url: `${config.client_url}/orders/${order.order_id}`,
+            order_url: "",
         },
     });
 
@@ -2438,7 +2438,7 @@ const adminApproveQuote = async (
                 final_total: String(orderPricing?.final_total || "0"),
             },
             cost_estimate_url: `${config.server_url}/client/v1/invoice/download-cost-estimate-pdf/${order.order_id}?pid=${platformId}`,
-            order_url: `${config.client_url}/orders/${order.order_id}`,
+            order_url: "",
         },
     });
 
@@ -2584,7 +2584,7 @@ export async function cancelOrder(
                 cancellation_reason: reason,
                 cancellation_notes: notes,
                 suppress_entity_owner: !notify_client,
-                order_url: `${config.client_url}/orders/${orderForNotification.order_id}`,
+                order_url: "",
             },
         });
     }

@@ -98,6 +98,20 @@ const getVehicleTypes = async (query: Record<string, any>, platformId: string) =
     };
 };
 
+const getVehicleTypeById = async (id: string, platformId: string) => {
+    const [existing] = await db
+        .select()
+        .from(vehicleTypes)
+        .where(and(eq(vehicleTypes.platform_id, platformId), eq(vehicleTypes.id, id)))
+        .limit(1);
+
+    if (!existing) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Vehicle type not found");
+    }
+
+    return existing;
+};
+
 const updateVehicleType = async (id: string, data: UpdateVehicleTypePayload) => {
     const { platform_id, name, vehicle_size, is_active, display_order, description, is_default } =
         data;
@@ -142,8 +156,24 @@ const updateVehicleType = async (id: string, data: UpdateVehicleTypePayload) => 
     return result;
 };
 
+const deleteVehicleType = async (id: string, platformId: string) => {
+    const [existing] = await db
+        .select()
+        .from(vehicleTypes)
+        .where(and(eq(vehicleTypes.platform_id, platformId), eq(vehicleTypes.id, id)))
+        .limit(1);
+
+    if (!existing) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Vehicle type not found");
+    }
+
+    await db.update(vehicleTypes).set({ is_active: false }).where(eq(vehicleTypes.id, id));
+};
+
 export const VehicleTypeServices = {
     createVehicleType,
     getVehicleTypes,
+    getVehicleTypeById,
     updateVehicleType,
+    deleteVehicleType,
 };

@@ -98,6 +98,13 @@ const createServiceType = async (data: CreateServiceTypePayload) => {
         is_active,
     } = data;
 
+    if (category === "TRANSPORT") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Transport service types are system-managed. Use sync-transport-rates."
+        );
+    }
+
     // Check for duplicate name
     const [existing] = await db
         .select()
@@ -111,20 +118,6 @@ const createServiceType = async (data: CreateServiceTypePayload) => {
             "Service type with this name already exists"
         );
     }
-
-    console.log("create  service type data:", {
-        platform_id,
-        name,
-        category: category as any,
-        unit,
-        default_rate:
-            default_rate !== undefined && default_rate !== null ? default_rate.toString() : null,
-        default_metadata: default_metadata || {},
-        transport_rate_id: transport_rate_id || null,
-        description: description || null,
-        display_order: display_order ?? 0,
-        is_active: is_active ?? true,
-    });
 
     const [result] = await db
         .insert(serviceTypes)
@@ -162,6 +155,13 @@ const updateServiceType = async (
 
     if (!existing) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Service type not found");
+    }
+
+    if (existing.category === "TRANSPORT" && existing.transport_rate_id) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Transport service types are system-managed. Update transport rates then sync catalog."
+        );
     }
 
     // Check name uniqueness if name is being updated
@@ -318,6 +318,13 @@ const deleteServiceType = async (id: string, platformId: string) => {
 
     if (!existing) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Service type not found");
+    }
+
+    if (existing.category === "TRANSPORT" && existing.transport_rate_id) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Transport service types are system-managed and cannot be manually deactivated."
+        );
     }
 
     // Soft delete by setting is_active to false

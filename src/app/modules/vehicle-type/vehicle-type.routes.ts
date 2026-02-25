@@ -14,12 +14,19 @@ router.get(
     VehicleTypeControllers.getVehicleTypes
 );
 
+router.get(
+    "/:id",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    VehicleTypeControllers.getVehicleTypeById
+);
+
 // POST / -> createVehicleType
 router.post(
     "/",
     platformValidator,
     auth("ADMIN"),
-    // payloadValidator(vehicleTypeSchemas.createVehicleType),
+    payloadValidator(vehicleTypeSchemas.createVehicleType),
     VehicleTypeControllers.createVehicleType
 );
 
@@ -31,5 +38,7 @@ router.patch(
     payloadValidator(vehicleTypeSchemas.updateVehicleType),
     VehicleTypeControllers.updateVehicleType
 );
+
+router.delete("/:id", platformValidator, auth("ADMIN"), VehicleTypeControllers.deleteVehicleType);
 
 export const VehicleTypeRoutes = router;

@@ -16,11 +16,6 @@ const configSchema = z.object({
             "Secondary color must be a valid hex color code (e.g., #FFF or #FFFFFF)"
         )
         .optional(),
-    logistics_partner_name: z
-        .string()
-        .max(100, "Logistics partner name must be at most 100 characters")
-        .optional(),
-    support_email: z.string().email("Support email must be a valid email address").optional(),
     from_email: z
         .string()
         .email("From email must be a valid email address")
@@ -33,10 +28,15 @@ const configSchema = z.object({
 });
 
 const featureSchema = z.object({
-    collections: z.boolean().optional().default(true),
-    bulk_import: z.boolean().optional().default(true),
-    advanced_reporting: z.boolean().optional().default(false),
-    api_access: z.boolean().optional().default(false),
+    enable_inbound_requests: z.boolean().optional().default(true),
+    show_estimate_on_order_creation: z.boolean().optional().default(true),
+    enable_kadence_invoicing: z.boolean().optional().default(false),
+});
+
+const featurePatchSchema = z.object({
+    enable_inbound_requests: z.boolean().optional(),
+    show_estimate_on_order_creation: z.boolean().optional(),
+    enable_kadence_invoicing: z.boolean().optional(),
 });
 
 const createPlatform = z.object({
@@ -65,7 +65,17 @@ const updatePlatformDomain = z.object({
     }),
 });
 
+const updatePlatformConfig = z.object({
+    body: configSchema.partial(),
+});
+
+const updatePlatformFeatures = z.object({
+    body: featurePatchSchema,
+});
+
 export const PlatformSchemas = {
     createPlatform,
     updatePlatformDomain,
+    updatePlatformConfig,
+    updatePlatformFeatures,
 };

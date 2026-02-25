@@ -25,7 +25,6 @@ import { serviceRequestCostEstimateGenerator } from "../../utils/service-request
 import { calculatePricingSummary } from "../../utils/pricing-engine";
 import { eventBus } from "../../events/event-bus";
 import { EVENT_TYPES } from "../../events/event-types";
-import config from "../../config";
 
 const LINE_ITEM_ID_UNIQUE_CONSTRAINT = "line_items_platform_line_item_id_unique";
 const MAX_LINE_ITEM_ID_INSERT_RETRIES = 3;
@@ -830,7 +829,7 @@ const updateServiceRequestPricingAfterLineItemChange = async (
                 contact_name: "Client",
                 final_total: pricingSummary.final_total.toFixed(2),
                 revision_reason: "Line items changed after quote issuance",
-                request_url: `${config.client_url}/service-requests/${serviceRequest.service_request.id}`,
+                request_url: "",
             },
         });
     }

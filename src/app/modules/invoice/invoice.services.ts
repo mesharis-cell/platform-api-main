@@ -504,7 +504,7 @@ const confirmPayment = async (
             company_name: "N/A",
             invoice_number: result.invoice.invoice_id,
             final_total: "0",
-            order_url: `${config.client_url}/orders/${result.order.order_id}`,
+            order_url: "",
         },
     });
 
@@ -584,7 +584,7 @@ const generateInvoice = async (
                     invoice_number: invoice_id,
                     final_total: String(pricing?.final_total || "0"),
                     download_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
-                    request_url: `${config.client_url}/service-requests/${serviceRequest.service_request_id}`,
+                    request_url: "",
                 },
             });
         }
@@ -679,7 +679,7 @@ const generateInvoice = async (
                 invoice_number: invoice_id,
                 final_total: String(pricing?.final_total || "0"),
                 download_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
-                order_url: `${config.client_url}/orders/${order.order_id}`,
+                order_url: "",
             },
         });
     }

@@ -19,6 +19,39 @@ import { eventBus, EVENT_TYPES } from "../../events";
 import { OTPVerifier } from "../../utils/otp-verifier";
 import { PERMISSIONS } from "../../constants/permissions";
 
+const sanitizePlatformFeatures = (features: unknown): Record<string, boolean> => {
+    const raw = (features || {}) as Record<string, unknown>;
+    return {
+        enable_inbound_requests:
+            raw.enable_inbound_requests === undefined ? true : Boolean(raw.enable_inbound_requests),
+        show_estimate_on_order_creation:
+            raw.show_estimate_on_order_creation === undefined
+                ? true
+                : Boolean(raw.show_estimate_on_order_creation),
+        enable_kadence_invoicing:
+            raw.enable_kadence_invoicing === undefined
+                ? false
+                : Boolean(raw.enable_kadence_invoicing),
+    };
+};
+
+const sanitizeCompanyFeatureOverrides = (features: unknown): Partial<Record<string, boolean>> => {
+    const raw = (features || {}) as Record<string, unknown>;
+    const overrides: Partial<Record<string, boolean>> = {};
+
+    if (raw.enable_inbound_requests !== undefined) {
+        overrides.enable_inbound_requests = Boolean(raw.enable_inbound_requests);
+    }
+    if (raw.show_estimate_on_order_creation !== undefined) {
+        overrides.show_estimate_on_order_creation = Boolean(raw.show_estimate_on_order_creation);
+    }
+    if (raw.enable_kadence_invoicing !== undefined) {
+        overrides.enable_kadence_invoicing = Boolean(raw.enable_kadence_invoicing);
+    }
+
+    return overrides;
+};
+
 const login = async (credential: LoginCredential, platformId: string) => {
     const { email, password } = credential;
 
@@ -160,9 +193,30 @@ const normalizeHostname = (hostname: string): string => {
     return hostname;
 };
 
-const getConfigByHostname = async (origin: string) => {
-    const url = new URL(origin);
-    const hostname = normalizeHostname(url.hostname);
+const parseIncomingHostname = (originOrHost?: string | null): string => {
+    const raw = String(originOrHost || "")
+        .split(",")[0]
+        ?.trim()
+        .toLowerCase();
+    if (!raw) return "";
+
+    const candidate = raw.includes("://") ? raw : `https://${raw}`;
+    try {
+        return new URL(candidate).hostname.toLowerCase();
+    } catch {
+        return raw
+            .replace(/^https?:\/\//, "")
+            .split("/")[0]
+            .split(":")[0]
+            .toLowerCase();
+    }
+};
+
+const getConfigByHostname = async (originOrHost?: string | null) => {
+    const parsedHostname = parseIncomingHostname(originOrHost);
+    if (!parsedHostname) return null;
+
+    const hostname = normalizeHostname(parsedHostname);
     const subdomain = hostname.split(".")[0];
 
     // Production environment
@@ -194,7 +248,7 @@ const getConfigByHostname = async (origin: string) => {
                     primary_color: config?.primary_color || null,
                     secondary_color: config?.secondary_color || null,
                     currency: config?.currency || null,
-                    features: (platform.features || {}) as Record<string, boolean>,
+                    features: sanitizePlatformFeatures(platform.features),
                 };
             }
             return null;
@@ -213,14 +267,14 @@ const getConfigByHostname = async (origin: string) => {
             .from(companyDomains)
             .innerJoin(companies, eq(companyDomains.company_id, companies.id))
             .innerJoin(platforms, eq(companyDomains.platform_id, platforms.id))
-            .where(eq(companyDomains.hostname, hostname))
+            .where(and(eq(companyDomains.hostname, hostname), eq(companyDomains.is_active, true)))
             .limit(1);
 
         if (result) {
             const settings = result.settings as any;
             const branding = settings?.branding || {};
-            const platformFeatures = (result.platform_features || {}) as Record<string, boolean>;
-            const companyFeatures = (result.company_features || {}) as Record<string, boolean>;
+            const platformFeatures = sanitizePlatformFeatures(result.platform_features);
+            const companyFeatures = sanitizeCompanyFeatureOverrides(result.company_features);
 
             return {
                 platform_id: result.platform_id,
@@ -261,7 +315,7 @@ const getConfigByHostname = async (origin: string) => {
                 primary_color: config?.primary_color || null,
                 secondary_color: config?.secondary_color || null,
                 currency: config?.currency || null,
-                features: (platform.features || {}) as Record<string, boolean>,
+                features: sanitizePlatformFeatures(platform.features),
             };
         }
 
@@ -277,14 +331,14 @@ const getConfigByHostname = async (origin: string) => {
             .from(companyDomains)
             .innerJoin(companies, eq(companyDomains.company_id, companies.id))
             .innerJoin(platforms, eq(companyDomains.platform_id, platforms.id))
-            .where(eq(companyDomains.hostname, hostname))
+            .where(and(eq(companyDomains.hostname, hostname), eq(companyDomains.is_active, true)))
             .limit(1);
 
         if (result) {
             const settings = result.settings as any;
             const branding = settings?.branding || {};
-            const platformFeatures = (result.platform_features || {}) as Record<string, boolean>;
-            const companyFeatures = (result.company_features || {}) as Record<string, boolean>;
+            const platformFeatures = sanitizePlatformFeatures(result.platform_features);
+            const companyFeatures = sanitizeCompanyFeatureOverrides(result.company_features);
 
             return {
                 platform_id: result.platform_id,

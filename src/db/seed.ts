@@ -130,8 +130,7 @@ async function seedPlatform() {
                 logo_url: "https://placehold.co/200x80/f97316/ffffff?text=Game+On",
                 primary_color: "#f97316",
                 secondary_color: "#0ea5e9",
-                logistics_partner_name: "A2 Logistics",
-                support_email: "support@kadence.ae",
+                from_email: "no-reply@kadence.ae",
                 currency: "AED",
                 feasibility: {
                     minimum_lead_hours: 24,
@@ -141,10 +140,6 @@ async function seedPlatform() {
                 },
             },
             features: {
-                collections: true,
-                bulk_import: true,
-                advanced_reporting: true,
-                api_access: true,
                 ...companyFeatures,
             },
             is_active: true,
@@ -3167,6 +3162,33 @@ async function seedNotificationRules() {
             recipient_value: "ADMIN",
             template_key: "sr_invoice_admin",
             sort_order: 1,
+        },
+
+        // self_booking.created
+        {
+            event_type: "self_booking.created",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "self_booking_created_admin",
+            sort_order: 0,
+        },
+
+        // self_booking.completed
+        {
+            event_type: "self_booking.completed",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "self_booking_completed_admin",
+            sort_order: 0,
+        },
+
+        // self_booking.cancelled
+        {
+            event_type: "self_booking.cancelled",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "self_booking_cancelled_admin",
+            sort_order: 0,
         },
 
         // auth.password_reset_requested

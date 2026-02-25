@@ -90,8 +90,10 @@ const listTransportRates = async (query: Record<string, any>, platformId: string
         limit,
         sort_by,
         sort_order,
+        city,
         emirate,
         trip_type,
+        vehicle_type,
         vehicle_type_id,
         company_id,
         include_inactive,
@@ -108,16 +110,18 @@ const listTransportRates = async (query: Record<string, any>, platformId: string
     // Build WHERE conditions
     const conditions: any[] = [eq(transportRates.platform_id, platformId)];
 
-    if (emirate) {
-        conditions.push(eq(transportRates.city_id, emirate));
+    const cityFilter = city || emirate;
+    if (cityFilter) {
+        conditions.push(eq(transportRates.city_id, cityFilter));
     }
 
     if (trip_type) {
         conditions.push(eq(transportRates.trip_type, trip_type as any));
     }
 
-    if (vehicle_type_id) {
-        conditions.push(eq(transportRates.vehicle_type_id, vehicle_type_id));
+    const vehicleTypeFilter = vehicle_type_id || vehicle_type;
+    if (vehicleTypeFilter) {
+        conditions.push(eq(transportRates.vehicle_type_id, vehicleTypeFilter));
     }
 
     if (company_id !== undefined) {

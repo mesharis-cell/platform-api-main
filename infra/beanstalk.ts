@@ -71,7 +71,6 @@ export function createElasticBeanstalkEnvironment(
                 ebSetting(NS.appEnv, "APP_NAME", config.appName),
                 ebSetting(NS.appEnv, "AWS_REGION", config.regions.primary),
                 ebSetting(NS.appEnv, "DATABASE_URL", ""),
-                ebSetting(NS.appEnv, "CLIENT_URL", ""),
                 ebSetting(NS.appEnv, "SERVER_URL", ""),
                 ebSetting(NS.appEnv, "SALT_ROUNDS", ""),
                 ebSetting(NS.appEnv, "JWT_ACCESS_SECRET", ""),

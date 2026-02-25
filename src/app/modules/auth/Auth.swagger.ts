@@ -57,17 +57,12 @@
  *                           nullable: true
  *                           description: Secondary/fallback theme color (hex)
  *                           example: "#10B981"
- *                         logistics_partner_name:
- *                           type: string
- *                           nullable: true
- *                           description: Name of the logistics partner
- *                           example: "A2 Logistics"
- *                         support_email:
+ *                         from_email:
  *                           type: string
  *                           format: email
  *                           nullable: true
- *                           description: Support email address
- *                           example: "support@platform.com"
+ *                           description: Verified sender email used for platform notifications
+ *                           example: "notifications@platform.com"
  *                         currency:
  *                           type: string
  *                           nullable: true

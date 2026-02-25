@@ -3,7 +3,6 @@ import { db } from "../../../db";
 import { orders, orderStatusHistory, otp, systemEvents } from "../../../db/schema";
 import { getSystemUser } from "../../utils/helper-query";
 import { eventBus, EVENT_TYPES } from "../../events";
-import config from "../../config";
 
 /**
  * Unified cron job to handle both event start and event end transitions
@@ -261,7 +260,7 @@ const sendPickupReminders = async () => {
                             contact_name: order.contact_name,
                             venue_name: order.venue_name,
                             pickup_window: pickupWindowStr,
-                            order_url: `${config.client_url}/orders/${order.order_id}`,
+                            order_url: "",
                         },
                     });
 

@@ -29,6 +29,19 @@ const createVehicleType = catchAsync(async (req, res, next) => {
     });
 });
 
+const getVehicleTypeById = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const { id } = req.params;
+
+    const result = await VehicleTypeServices.getVehicleTypeById(id as string, platformId);
+
+    return res.status(httpStatus.OK).json({
+        success: true,
+        message: "Vehicle type retrieved successfully",
+        data: result,
+    });
+});
+
 const updateVehicleType = catchAsync(async (req, res, next) => {
     const platformId = (req as any).platformId;
     const { id } = req.params;
@@ -43,8 +56,23 @@ const updateVehicleType = catchAsync(async (req, res, next) => {
     });
 });
 
+const deleteVehicleType = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const { id } = req.params;
+
+    await VehicleTypeServices.deleteVehicleType(id as string, platformId);
+
+    return res.status(httpStatus.OK).json({
+        success: true,
+        message: "Vehicle type deactivated successfully",
+        data: null,
+    });
+});
+
 export const VehicleTypeControllers = {
     getVehicleTypes,
     createVehicleType,
+    getVehicleTypeById,
     updateVehicleType,
+    deleteVehicleType,
 };

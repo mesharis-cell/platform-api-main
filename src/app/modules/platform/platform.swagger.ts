@@ -47,16 +47,11 @@
  *                     pattern: "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$"
  *                     description: Secondary brand color (hex code)
  *                     example: "#F59E0B"
- *                   logistics_partner_name:
- *                     type: string
- *                     maxLength: 100
- *                     description: Name of the logistics partner
- *                     example: "Global Logistics Inc."
- *                   support_email:
+ *                   from_email:
  *                     type: string
  *                     format: email
- *                     description: Platform support email address
- *                     example: "support@diageo-events.com"
+ *                     description: Verified sender email used for platform notifications
+ *                     example: "notifications@diageo-events.com"
  *                   currency:
  *                     type: string
  *                     minLength: 3
@@ -65,27 +60,22 @@
  *                     example: "USD"
  *               features:
  *                 type: object
- *                 description: Platform feature flags
+ *                 description: Enforced platform feature flags
  *                 properties:
- *                   collections:
+ *                   enable_inbound_requests:
  *                     type: boolean
  *                     default: true
- *                     description: Enable asset collections feature
+ *                     description: Enable inbound request workflows
  *                     example: true
- *                   bulk_import:
+ *                   show_estimate_on_order_creation:
  *                     type: boolean
  *                     default: true
- *                     description: Enable bulk import functionality
+ *                     description: Show estimate during order creation
  *                     example: true
- *                   advanced_reporting:
+ *                   enable_kadence_invoicing:
  *                     type: boolean
  *                     default: false
- *                     description: Enable advanced reporting features
- *                     example: false
- *                   api_access:
- *                     type: boolean
- *                     default: false
- *                     description: Enable API access for integrations
+ *                     description: Enable invoice generation and payment flows
  *                     example: false
  *               is_active:
  *                 type: boolean
@@ -129,28 +119,22 @@
  *                         secondary_color:
  *                           type: string
  *                           example: "#F59E0B"
- *                         logistics_partner_name:
+ *                         from_email:
  *                           type: string
- *                           example: "Global Logistics Inc."
- *                         support_email:
- *                           type: string
- *                           example: "support@diageo-events.com"
+ *                           example: "notifications@diageo-events.com"
  *                         currency:
  *                           type: string
  *                           example: "USD"
  *                     features:
  *                       type: object
  *                       properties:
- *                         collections:
+ *                         enable_inbound_requests:
  *                           type: boolean
  *                           example: true
- *                         bulk_import:
+ *                         show_estimate_on_order_creation:
  *                           type: boolean
  *                           example: true
- *                         advanced_reporting:
- *                           type: boolean
- *                           example: false
- *                         api_access:
+ *                         enable_kadence_invoicing:
  *                           type: boolean
  *                           example: false
  *                     is_active:

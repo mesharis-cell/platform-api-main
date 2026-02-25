@@ -17,8 +17,10 @@ const login = catchAsync(async (req, res) => {
 });
 
 const getPlatformByDomain = catchAsync(async (req, res) => {
-    const origin = req.headers.origin || req.headers["x-forwarded-host"];
-    const result = await AuthServices.getConfigByHostname(origin as string);
+    const origin = req.headers.origin as string | undefined;
+    const forwardedHost = req.headers["x-forwarded-host"] as string | undefined;
+    const host = req.headers.host as string | undefined;
+    const result = await AuthServices.getConfigByHostname(origin || forwardedHost || host);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -43,7 +45,6 @@ const resetPassword = catchAsync(async (req, res) => {
 });
 
 const forgotPassword = catchAsync(async (req, res) => {
-    console.log(req);
     const platformId = (req as any).platformId;
 
     const result = await AuthServices.forgotPassword(platformId, req.body);
