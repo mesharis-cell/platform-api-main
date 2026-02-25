@@ -1,7 +1,14 @@
-import { and, asc, count, desc, eq, ilike, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, ilike, isNull, lte } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { assets, brands, collectionItems, collections, companies } from "../../../db/schema";
+import {
+    assetBookings,
+    assets,
+    brands,
+    collectionItems,
+    collections,
+    companies,
+} from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import paginationMaker from "../../utils/pagination-maker";
@@ -149,6 +156,10 @@ const getCollections = async (query: Record<string, any>, user: AuthUser, platfo
                         name: true,
                         logo_url: true,
                     },
+                },
+                // Include asset IDs only — used for per-collection item count on list UI
+                assets: {
+                    columns: { id: true },
                 },
             },
             orderBy: orderDirection,
@@ -546,21 +557,42 @@ const checkCollectionAvailability = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Collection not found");
     }
 
-    // Step 5: Check availability for each item
-    const availabilityItems = collection.assets.map((item) => {
-        const isAvailable = item.asset.available_quantity >= item.default_quantity;
+    // Step 5: Check availability per item using asset_bookings date-range overlap
+    const eventStartDate = new Date(event_start_date);
+    const eventEndDate = new Date(event_end_date);
 
-        return {
-            asset_id: item.asset.id,
-            asset_name: item.asset.name,
-            default_quantity: item.default_quantity,
-            available_quantity: item.asset.available_quantity,
-            total_quantity: item.asset.total_quantity,
-            status: item.asset.status,
-            condition: item.asset.condition,
-            is_available: isAvailable,
-        };
-    });
+    const availabilityItems = await Promise.all(
+        collection.assets.map(async (item) => {
+            const overlappingBookings = await db
+                .select({ quantity: assetBookings.quantity })
+                .from(assetBookings)
+                .where(
+                    and(
+                        eq(assetBookings.asset_id, item.asset.id),
+                        // Standard interval overlap: booking starts before event ends AND booking ends after event starts
+                        lte(assetBookings.blocked_from, eventEndDate),
+                        gte(assetBookings.blocked_until, eventStartDate)
+                    )
+                );
+
+            const bookedQty = overlappingBookings.reduce((sum, b) => sum + b.quantity, 0);
+            const computedAvailable = Math.max(0, item.asset.total_quantity - bookedQty);
+            const isAvailable = computedAvailable >= item.default_quantity;
+            const isBookedForDates = bookedQty > 0;
+
+            return {
+                asset_id: item.asset.id,
+                asset_name: item.asset.name,
+                default_quantity: item.default_quantity,
+                available_quantity: computedAvailable,
+                total_quantity: item.asset.total_quantity,
+                status: item.asset.status,
+                condition: item.asset.condition,
+                is_available: isAvailable,
+                is_booked_for_dates: isBookedForDates,
+            };
+        })
+    );
 
     // Step 6: Determine if collection is fully available
     const isFullyAvailable = availabilityItems.every((item) => item.is_available);

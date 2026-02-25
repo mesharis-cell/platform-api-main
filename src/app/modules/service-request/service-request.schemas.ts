@@ -58,6 +58,8 @@ const updateServiceRequestSchema = z.object({
             requested_start_at: z.string().datetime().optional().nullable(),
             requested_due_at: z.string().datetime().optional().nullable(),
             items: z.array(serviceRequestItemSchema).min(1).optional(),
+            photos: z.array(z.string().url("Invalid photo URL")).optional(),
+            work_notes: z.string().max(5000).optional(),
         })
         .strict(),
 });

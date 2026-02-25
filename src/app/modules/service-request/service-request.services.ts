@@ -1,7 +1,9 @@
-import { and, count, desc, eq, gte, ilike, lt } from "drizzle-orm";
+import { and, count, desc, eq, ilike, inArray, not } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
 import {
+    assetConditionHistory,
+    assets,
     companies,
     orders,
     prices,
@@ -13,6 +15,7 @@ import {
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import paginationMaker from "../../utils/pagination-maker";
+import { buildServiceRequestCode } from "../../utils/service-request-code";
 import {
     ApplyServiceRequestConcessionPayload,
     ApproveServiceRequestQuotePayload,
@@ -30,27 +33,6 @@ import {
 } from "../../utils/commercial-policy";
 import { eventBus } from "../../events/event-bus";
 import { EVENT_TYPES } from "../../events/event-types";
-
-const buildServiceRequestCode = async (platformId: string) => {
-    const now = new Date();
-    const dateCode = `${now.getFullYear()}${`${now.getMonth() + 1}`.padStart(2, "0")}${`${now.getDate()}`.padStart(2, "0")}`;
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-
-    const [todayCount] = await db
-        .select({ count: count() })
-        .from(serviceRequests)
-        .where(
-            and(
-                eq(serviceRequests.platform_id, platformId),
-                gte(serviceRequests.created_at, start),
-                lt(serviceRequests.created_at, end)
-            )
-        );
-
-    const sequence = `${Number(todayCount?.count || 0) + 1}`.padStart(4, "0");
-    return `SR-${dateCode}-${sequence}`;
-};
 
 const getServiceRequestInternal = async (id: string, platformId: string) => {
     const [serviceRequest] = await db
@@ -220,8 +202,16 @@ const listServiceRequests = async (
     platformId: string,
     user: AuthUser
 ) => {
-    const { page, limit, search_term, company_id, request_status, request_type, billing_mode } =
-        query;
+    const {
+        page,
+        limit,
+        search_term,
+        company_id,
+        request_status,
+        request_type,
+        billing_mode,
+        related_order_id,
+    } = query;
     const { pageNumber, limitNumber, skip } = paginationMaker({ page, limit });
 
     const conditions = [eq(serviceRequests.platform_id, platformId)];
@@ -230,6 +220,8 @@ const listServiceRequests = async (
             throw new CustomizedError(httpStatus.FORBIDDEN, "Client account has no company access");
         }
         conditions.push(eq(serviceRequests.company_id, user.company_id));
+        // Clients only see their own CLIENT_BILLABLE SRs — internal maintenance SRs are hidden
+        conditions.push(eq(serviceRequests.billing_mode, "CLIENT_BILLABLE"));
     } else if (company_id) {
         conditions.push(eq(serviceRequests.company_id, company_id));
     }
@@ -237,6 +229,7 @@ const listServiceRequests = async (
     if (request_type) conditions.push(eq(serviceRequests.request_type, request_type));
     if (billing_mode) conditions.push(eq(serviceRequests.billing_mode, billing_mode));
     if (search_term) conditions.push(ilike(serviceRequests.title, `%${search_term.trim()}%`));
+    if (related_order_id) conditions.push(eq(serviceRequests.related_order_id, related_order_id));
 
     const [rows, total] = await Promise.all([
         db
@@ -292,6 +285,29 @@ const createServiceRequest = async (
             httpStatus.FORBIDDEN,
             "You can only create service requests for your own company"
         );
+    }
+
+    // Duplicate guard — prevent creating multiple SRs for the same order item
+    if (payload.related_order_item_id) {
+        const [existingSR] = await db
+            .select({
+                id: serviceRequests.id,
+                service_request_id: serviceRequests.service_request_id,
+            })
+            .from(serviceRequests)
+            .where(
+                and(
+                    eq(serviceRequests.related_order_item_id, payload.related_order_item_id),
+                    not(inArray(serviceRequests.request_status, ["CANCELLED"]))
+                )
+            )
+            .limit(1);
+        if (existingSR) {
+            throw new CustomizedError(
+                httpStatus.CONFLICT,
+                `Service request ${existingSR.service_request_id} already exists for this order item. Cancel it first to create a new one.`
+            );
+        }
     }
 
     const code = await buildServiceRequestCode(platformId);
@@ -402,6 +418,8 @@ const updateServiceRequest = async (
         updatePayload.related_order_id = payload.related_order_id;
     if (payload.related_order_item_id !== undefined)
         updatePayload.related_order_item_id = payload.related_order_item_id;
+    if (payload.photos !== undefined) updatePayload.photos = payload.photos;
+    if (payload.work_notes !== undefined) updatePayload.work_notes = payload.work_notes;
     if (payload.requested_start_at !== undefined) {
         updatePayload.requested_start_at = payload.requested_start_at
             ? new Date(payload.requested_start_at)
@@ -495,15 +513,44 @@ const updateServiceRequestStatus = async (
         updatePayload.completion_notes = payload.completion_notes || payload.note || null;
     }
 
-    await db.update(serviceRequests).set(updatePayload).where(eq(serviceRequests.id, id));
+    // Wrap SR status update + asset condition restore in a single transaction so they
+    // succeed or fail together — prevents partial state (SR completed but asset still RED)
+    await db.transaction(async (tx) => {
+        await tx.update(serviceRequests).set(updatePayload).where(eq(serviceRequests.id, id));
 
-    await db.insert(serviceRequestStatusHistory).values({
-        service_request_id: id,
-        platform_id: platformId,
-        from_status: existing.request_status,
-        to_status: payload.to_status,
-        note: payload.note || null,
-        changed_by: user.id,
+        await tx.insert(serviceRequestStatusHistory).values({
+            service_request_id: id,
+            platform_id: platformId,
+            from_status: existing.request_status,
+            to_status: payload.to_status,
+            note: payload.note || null,
+            changed_by: user.id,
+        });
+
+        // Auto-restore asset condition to GREEN when maintenance SR is completed
+        if (payload.to_status === "COMPLETED" && existing.related_asset_id) {
+            await tx
+                .update(assets)
+                .set({
+                    condition: "GREEN",
+                    condition_notes: null,
+                    refurb_days_estimate: null,
+                    updated_at: new Date(),
+                })
+                .where(eq(assets.id, existing.related_asset_id));
+
+            await tx.insert(assetConditionHistory).values({
+                platform_id: platformId,
+                asset_id: existing.related_asset_id,
+                condition: "GREEN",
+                notes: `Restored to GREEN — SR ${existing.service_request_id} completed${
+                    payload.completion_notes ? `: ${payload.completion_notes}` : ""
+                }`,
+                photos: [],
+                damage_report_entries: [],
+                updated_by: user.id,
+            });
+        }
     });
 
     if (payload.to_status === "COMPLETED") {

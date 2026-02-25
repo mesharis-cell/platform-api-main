@@ -1,5 +1,19 @@
 import dayjs from "dayjs";
-import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import {
+    and,
+    asc,
+    count,
+    desc,
+    eq,
+    gte,
+    ilike,
+    inArray,
+    isNull,
+    lte,
+    notInArray,
+    or,
+    sql,
+} from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
 import {
@@ -14,6 +28,7 @@ import {
     prices,
     orders,
     orderStatusHistory,
+    serviceRequestItems,
     serviceRequestStatusHistory,
     serviceRequests,
     scanEvents,
@@ -25,6 +40,7 @@ import {
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import paginationMaker from "../../utils/pagination-maker";
+import { buildServiceRequestCode } from "../../utils/service-request-code";
 import queryValidator from "../../utils/query-validator";
 import {
     SubmitOrderPayload,
@@ -88,6 +104,8 @@ const getLinkedServiceRequestSummaries = async (
             blocks_fulfillment: serviceRequests.blocks_fulfillment,
             request_status: serviceRequests.request_status,
             commercial_status: serviceRequests.commercial_status,
+            related_order_item_id: serviceRequests.related_order_item_id,
+            related_asset_id: serviceRequests.related_asset_id,
             client_sell_override_total: serviceRequests.client_sell_override_total,
             concession_applied_at: serviceRequests.concession_applied_at,
             request_pricing_id: serviceRequests.request_pricing_id,
@@ -117,6 +135,8 @@ const getLinkedServiceRequestSummaries = async (
             blocks_fulfillment: row.blocks_fulfillment,
             request_status: row.request_status,
             commercial_status: row.commercial_status,
+            related_order_item_id: row.related_order_item_id,
+            related_asset_id: row.related_asset_id,
             is_concession_applied: !!row.concession_applied_at,
             total: role === "LOGISTICS" ? null : clientTotal,
             request_pricing_id: row.request_pricing_id,
@@ -613,6 +633,14 @@ const submitOrderFromCart = async (
         calculated_by: user.id,
     };
 
+    // Pre-generate SR codes outside the transaction to avoid READ COMMITTED duplicate-code issue
+    // (in-transaction inserts aren't visible to COUNT queries in the same transaction)
+    const maintenanceItems = orderItemsData.filter((item) => item.requires_maintenance);
+    const srCodes: string[] = [];
+    for (const _ of maintenanceItems) {
+        srCodes.push(await buildServiceRequestCode(platformId));
+    }
+
     // Step 6: Create the order record
     const orderId = await orderIdGenerator(platformId);
     const orderResult = await db.transaction(async (tx) => {
@@ -656,9 +684,55 @@ const submitOrderFromCart = async (
             ...item,
             order_id: order.id,
         }));
-        await tx.insert(orderItems).values(itemsToInsert);
+        const insertedItems = await tx.insert(orderItems).values(itemsToInsert).returning();
 
-        // Step 6.d: Insert order status history
+        // Step 6.d: Auto-create MAINTENANCE SRs for RED and ORANGE FIX_IN_ORDER items
+        let srCodeIndex = 0;
+        for (const insertedItem of insertedItems) {
+            if (!insertedItem.requires_maintenance) continue;
+            const asset = foundAssets.find((a) => a.id === insertedItem.asset_id)!;
+
+            const [sr] = await tx
+                .insert(serviceRequests)
+                .values({
+                    service_request_id: srCodes[srCodeIndex++],
+                    platform_id: platformId,
+                    company_id: companyId,
+                    request_type: "MAINTENANCE",
+                    billing_mode: "INTERNAL_ONLY",
+                    link_mode: "BUNDLED_WITH_ORDER",
+                    blocks_fulfillment: true,
+                    request_status: "SUBMITTED",
+                    commercial_status: "INTERNAL",
+                    title: `Maintenance — ${asset.name}`,
+                    description: asset.condition_notes || null,
+                    related_asset_id: asset.id,
+                    related_order_id: order.id,
+                    related_order_item_id: insertedItem.id,
+                    created_by: user.id,
+                })
+                .returning();
+
+            await tx.insert(serviceRequestItems).values({
+                service_request_id: sr.id,
+                asset_id: asset.id,
+                asset_name: asset.name,
+                quantity: insertedItem.quantity,
+                refurb_days_estimate: insertedItem.maintenance_refurb_days_snapshot ?? null,
+            });
+
+            // No SERVICE_REQUEST_SUBMITTED event — ORDER_SUBMITTED covers the notification
+            await tx.insert(serviceRequestStatusHistory).values({
+                service_request_id: sr.id,
+                platform_id: platformId,
+                from_status: null,
+                to_status: "SUBMITTED",
+                note: "Auto-created on order submission",
+                changed_by: user.id,
+            });
+        }
+
+        // Step 6.e: Insert order status history
         await tx.insert(orderStatusHistory).values({
             platform_id: platformId,
             order_id: order.id,
@@ -2543,6 +2617,24 @@ export async function cancelOrder(
 
         // 2. Release all asset bookings
         await tx.delete(assetBookings).where(eq(assetBookings.order_id, orderId));
+
+        // 2b. Cancel all non-terminal INTERNAL_ONLY SRs linked to this order
+        await tx
+            .update(serviceRequests)
+            .set({
+                request_status: "CANCELLED",
+                cancelled_at: new Date(),
+                cancelled_by: user.id,
+                cancellation_reason: `Order cancelled: ${reason}`,
+                updated_at: new Date(),
+            })
+            .where(
+                and(
+                    eq(serviceRequests.related_order_id, orderId),
+                    eq(serviceRequests.billing_mode, "INTERNAL_ONLY"),
+                    notInArray(serviceRequests.request_status, ["COMPLETED", "CANCELLED"])
+                )
+            );
 
         // 3. Log to order status history
         await tx.insert(orderStatusHistory).values({
