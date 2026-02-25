@@ -1,4 +1,5 @@
 import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, sql } from "drizzle-orm";
+import { moveS3Object, s3KeyFromUrl } from "../../services/s3.service";
 import httpStatus from "http-status";
 import QRCode from "qrcode";
 import { db } from "../../../db";
@@ -35,6 +36,23 @@ import {
     assetSortableFields,
 } from "./assets.utils";
 import { RowValidationResult, validateReferences } from "./assets.validators";
+
+// Moves any draft S3 images to permanent {companyId}/assets/ path
+const promoteDraftImages = async (
+    images: { url: string; note?: string }[],
+    companyId: string
+): Promise<{ url: string; note?: string }[]> => {
+    return Promise.all(
+        images.map(async (img) => {
+            if (!img.url.includes("/drafts/")) return img;
+            const fromKey = s3KeyFromUrl(img.url);
+            const filename = fromKey.split("/").pop() ?? fromKey;
+            const toKey = `${companyId}/assets/${Date.now()}-${filename}`;
+            const newUrl = await moveS3Object(fromKey, toKey);
+            return { ...img, url: newUrl };
+        })
+    );
+};
 
 // ----------------------------------- CREATE ASSET ---------------------------------------
 const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
@@ -95,6 +113,13 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
                 );
             }
         }
+
+        // Promote any draft S3 images to permanent paths
+        if (data.images && data.images.length > 0)
+            data.images = await promoteDraftImages(
+                data.images as { url: string; note?: string }[],
+                data.company_id
+            );
 
         // Step 3: Handle INDIVIDUAL tracking with quantity > 1 - Create N separate assets
         if (data.tracking_method === "INDIVIDUAL" && data.total_quantity > 1) {

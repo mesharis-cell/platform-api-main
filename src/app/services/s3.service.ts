@@ -4,6 +4,7 @@ import {
     DeleteObjectCommand,
     GetObjectCommand,
     HeadObjectCommand,
+    CopyObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import config from "../config";
@@ -152,6 +153,32 @@ export const getPDFBufferFromS3 = async (fileUrlOrKey: string): Promise<Buffer> 
         console.error("Error fetching PDF from S3:", error);
         throw new Error("Failed to fetch invoice PDF");
     }
+};
+
+// ------------------------------------ MOVE (COPY + DELETE) ---------------------------------
+export const moveS3Object = async (fromKey: string, toKey: string): Promise<string> => {
+    try {
+        await s3Client.send(
+            new CopyObjectCommand({
+                Bucket: config.aws_s3_bucket,
+                CopySource: `${config.aws_s3_bucket}/${fromKey}`,
+                Key: toKey,
+            })
+        );
+        await s3Client.send(
+            new DeleteObjectCommand({ Bucket: config.aws_s3_bucket, Key: fromKey })
+        );
+        return `https://${config.aws_s3_bucket}.s3.${config.aws_region}.amazonaws.com/${toKey}`;
+    } catch (error) {
+        console.error("Error moving S3 object:", error);
+        throw new Error("Failed to move S3 object");
+    }
+};
+
+// Extract S3 key from a full URL
+export const s3KeyFromUrl = (url: string): string => {
+    const u = new URL(url);
+    return u.pathname.substring(1); // remove leading /
 };
 
 // ------------------------------------ CHECK FILE EXISTS IN S3 ------------------------------
