@@ -30,27 +30,14 @@ import { qrCodeGenerator } from "../../app/utils/qr-code-generator";
 // Config
 // ---------------------------------------------------------------------------
 
-const BUNDLE_DIR_CANDIDATES = [
-    path.resolve(process.cwd(), "seed/preview-latest/preview-latest"),
-    path.resolve(process.cwd(), "seed/preview-latest"),
-];
-
-function hasImportBundle(dir: string): boolean {
-    return (
-        existsSync(path.join(dir, "import/docs-import.ndjson")) &&
-        existsSync(path.join(dir, "import/assets-import.ndjson"))
-    );
-}
-
-const BUNDLE_DIR =
-    BUNDLE_DIR_CANDIDATES.find((candidate) => hasImportBundle(candidate)) ??
-    BUNDLE_DIR_CANDIDATES.find((candidate) => existsSync(candidate)) ??
-    BUNDLE_DIR_CANDIDATES[0];
+const BUNDLE_DIR = path.resolve(process.cwd(), "seed/preview-latest");
 const PHOTOS_DIR = path.join(BUNDLE_DIR, "files/photos");
 const IMPORT_DOCS_FILE = path.join(BUNDLE_DIR, "import/docs-import.ndjson");
 const IMPORT_ASSETS_FILE = path.join(BUNDLE_DIR, "import/assets-import.ndjson");
 const MANIFEST_FILE = path.join(BUNDLE_DIR, "manifest.json");
 const CHECKSUMS_FILE = path.join(BUNDLE_DIR, "checksums.sha256");
+const EXPECTED_DOC_COUNT = 577;
+const EXPECTED_ASSET_COUNT = 1351;
 
 const isDryRun = process.argv.includes("--dry-run");
 const skipPhotos = process.argv.includes("--skip-photos");
@@ -180,15 +167,6 @@ function combineImageNote(imageTitle?: string | null, note?: string | null, cond
     const normalizedCondition = toAssetCondition(condition);
     if (normalizedCondition !== "GREEN") parts.push(`Condition: ${normalizedCondition}`);
     return parts.length ? parts.join(" | ") : undefined;
-}
-
-function rollupCondition(conditions: AssetCondition[]): AssetCondition {
-    if (conditions.includes("RED")) return "RED";
-    if (conditions.includes("ORANGE")) return "ORANGE";
-    if (conditions.includes("GREEN")) return "GREEN";
-    // For docs with no linked assets, default ORANGE per package rule.
-    // Importer must not recompute from text.
-    return "ORANGE";
 }
 
 function buildConditionNotes(photoRows: ImportAssetRow[]): string | null {
@@ -356,6 +334,16 @@ export async function seedPrAssets(opts: SeedPrAssetsOptions) {
             `Manifest/assets count mismatch: manifest=${manifest.counts.assets}, actual=${photoAssets.length}`
         );
     }
+    if (Number(docs.length) !== EXPECTED_DOC_COUNT) {
+        throw new Error(
+            `Unexpected docs count for preview-latest: expected=${EXPECTED_DOC_COUNT}, actual=${docs.length}`
+        );
+    }
+    if (Number(photoAssets.length) !== EXPECTED_ASSET_COUNT) {
+        throw new Error(
+            `Unexpected assets count for preview-latest: expected=${EXPECTED_ASSET_COUNT}, actual=${photoAssets.length}`
+        );
+    }
     if (docs.length === 0) {
         throw new Error("Import package has zero docs; refusing to continue");
     }
@@ -517,9 +505,14 @@ export async function seedPrAssets(opts: SeedPrAssetsOptions) {
             }
 
             const onDisplayImage = images[0]?.url ?? null;
-            const derivedCondition = rollupCondition(
-                linkedPhotoRows.map((row) => toAssetCondition(row.condition))
-            );
+            const linkedConditions = linkedPhotoRows.map((row) => toAssetCondition(row.condition));
+            const distinctConditions = Array.from(new Set(linkedConditions));
+            if (distinctConditions.length > 1) {
+                throw new Error(
+                    `Mixed linked image conditions for ${docExternalKey}: ${distinctConditions.join(", ")}`
+                );
+            }
+            const derivedCondition = distinctConditions[0] ?? "ORANGE";
             const refurbDaysEstimate =
                 derivedCondition === "RED" ? 7 : derivedCondition === "ORANGE" ? 3 : null;
             const derivedConditionNotes = buildConditionNotes(linkedPhotoRows);
