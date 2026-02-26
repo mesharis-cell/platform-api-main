@@ -219,6 +219,15 @@ router.patch(
     OrderControllers.derigCapture
 );
 
+// Recalculate base operations from current asset dimensions
+router.post(
+    "/:id/recalculate-base-ops",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.ORDERS_UPDATE),
+    OrderControllers.recalculateBaseOps
+);
+
 // Submit for approval (Logistics → Admin)
 router.post(
     "/:id/submit-for-approval",

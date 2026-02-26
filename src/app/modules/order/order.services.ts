@@ -2864,6 +2864,102 @@ const saveDerigCapture = async (
     return { order_id: orderId, items_updated: items.length };
 };
 
+// ----------------------------------- RECALCULATE BASE OPS ------------------------------------
+const recalculateBaseOps = async (user: AuthUser, orderId: string, platformId: string) => {
+    const [result] = await db
+        .select({
+            order: orders,
+            company: {
+                warehouse_ops_rate: companies.warehouse_ops_rate,
+                platform_margin_percent: companies.platform_margin_percent,
+            },
+            pricing: prices,
+        })
+        .from(orders)
+        .leftJoin(companies, eq(orders.company_id, companies.id))
+        .leftJoin(prices, eq(orders.order_pricing_id, prices.id))
+        .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)))
+        .limit(1);
+
+    if (!result?.order) throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    if (!result.company) throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found");
+    if (!result.pricing) throw new CustomizedError(httpStatus.NOT_FOUND, "Order pricing not found");
+
+    const items = await db
+        .select({ quantity: orderItems.quantity, asset_id: orderItems.asset_id })
+        .from(orderItems)
+        .where(eq(orderItems.order_id, orderId));
+
+    const assetIds = items.map((i) => i.asset_id);
+    const assetRows =
+        assetIds.length > 0
+            ? await db
+                  .select({ id: assets.id, volume_per_unit: assets.volume_per_unit })
+                  .from(assets)
+                  .where(inArray(assets.id, assetIds))
+            : [];
+    const volumeMap = new Map(assetRows.map((a) => [a.id, parseFloat(a.volume_per_unit)]));
+
+    let totalVolume = 0;
+    for (const item of items) {
+        totalVolume += (volumeMap.get(item.asset_id) || 0) * item.quantity;
+    }
+
+    const baseOpsTotal = Number(result.company.warehouse_ops_rate) * totalVolume;
+    const lineItemsTotals = await LineItemsServices.calculateOrderLineItemsTotals(
+        orderId,
+        platformId
+    );
+    const marginData = result.pricing.margin as any;
+    const marginOverride = !!marginData?.is_override;
+    const marginPercent = marginOverride
+        ? parseFloat(marginData.percent)
+        : parseFloat(result.company.platform_margin_percent);
+
+    const pricingSummary = calculatePricingSummary({
+        base_ops_total: baseOpsTotal,
+        catalog_total: lineItemsTotals.catalog_total,
+        custom_total: lineItemsTotals.custom_total,
+        margin_percent: marginPercent,
+    });
+
+    await db
+        .update(prices)
+        .set({
+            base_ops_total: baseOpsTotal.toFixed(2),
+            logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
+            line_items: {
+                catalog_total: lineItemsTotals.catalog_total,
+                custom_total: lineItemsTotals.custom_total,
+            },
+            margin: {
+                percent: marginPercent,
+                amount: pricingSummary.margin_amount,
+                is_override: marginOverride,
+                override_reason: marginOverride ? marginData.override_reason : null,
+            },
+            final_total: pricingSummary.final_total.toFixed(2),
+            calculated_at: new Date(),
+            calculated_by: user.id,
+        })
+        .where(eq(prices.id, result.pricing.id));
+
+    const existingTotals = (result.order.calculated_totals || {}) as Record<string, any>;
+    await db
+        .update(orders)
+        .set({
+            calculated_totals: { ...existingTotals, volume: totalVolume.toFixed(3) },
+            updated_at: new Date(),
+        })
+        .where(eq(orders.id, orderId));
+
+    return {
+        volume: totalVolume.toFixed(3),
+        base_ops_total: baseOpsTotal.toFixed(2),
+        final_total: pricingSummary.final_total.toFixed(2),
+    };
+};
+
 export const OrderServices = {
     submitOrderFromCart,
     getOrders,
@@ -2888,4 +2984,5 @@ export const OrderServices = {
     downloadGoodsForm,
     updateMaintenanceDecision,
     saveDerigCapture,
+    recalculateBaseOps,
 };

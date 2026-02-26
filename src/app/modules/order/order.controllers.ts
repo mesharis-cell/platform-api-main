@@ -470,6 +470,21 @@ const derigCapture = catchAsync(async (req, res) => {
     });
 });
 
+const recalculateBaseOps = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const { id } = req.params;
+
+    const result = await OrderServices.recalculateBaseOps(user, id as string, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Base operations recalculated from current asset dimensions.",
+        data: result,
+    });
+});
+
 export const OrderControllers = {
     calculateEstimate,
     checkMaintenanceFeasibility,
@@ -495,4 +510,5 @@ export const OrderControllers = {
     cancelOrder,
     updateMaintenanceDecision,
     derigCapture,
+    recalculateBaseOps,
 };
