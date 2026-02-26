@@ -26,8 +26,8 @@ import {
     assertOrderCanGenerateInvoice,
     assertRoleCanReadCommercialInvoice,
     assertServiceRequestCanGenerateInvoice,
-    projectPricingByRole,
 } from "../../utils/commercial-policy";
+import { PricingService } from "../../services/pricing.service";
 import { featureNames } from "../../constants/common";
 
 const assertKadenceInvoicingEnabled = async (platformId: string) => {
@@ -130,7 +130,7 @@ const getInvoiceById = async (invoiceId: string, user: AuthUser, platformId: str
     }
 
     // Step 5: Format and return result
-    const visiblePricing = projectPricingByRole(result.pricing, user.role);
+    const visiblePricing = PricingService.projectForRole(result.pricing, user.role);
     return {
         id: result.invoice.id,
         invoice_id: result.invoice.invoice_id,
@@ -351,7 +351,7 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
     // Step 7: Format results
     const formattedResults = results.map((item) => {
         const { invoice, order, inbound_request, company, pricing } = item;
-        const visiblePricing = projectPricingByRole(pricing, user.role);
+        const visiblePricing = PricingService.projectForRole(pricing, user.role);
         return {
             id: invoice.id,
             invoice_id: invoice.invoice_id,

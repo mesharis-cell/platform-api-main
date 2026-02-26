@@ -7,7 +7,7 @@ import { AuthUser } from "../interface/common";
 import { invoiceNumberGenerator } from "./invoice";
 import { renderInboundRequestInvoicePDF } from "./inbound-request-invoice-pdf";
 import CustomizedError from "../error/customized-error";
-import { applyMarginPerLine, calculatePricingSummary, roundCurrency } from "./pricing-engine";
+import { PricingService } from "../services/pricing.service";
 
 // --------------------------------- INBOUND REQUEST INVOICE GENERATOR ------------------------
 export const inboundRequestInvoiceGenerator = async (
@@ -80,32 +80,25 @@ export const inboundRequestInvoiceGenerator = async (
         );
     }
 
-    const baseOpsTotal = Number(pricing.base_ops_total);
-    const catalogAmount = Number((pricing.line_items as any).catalog_total);
-    const customTotal = Number((pricing.line_items as any).custom_total);
-    const marginPercent = Number((pricing.margin as any).percent);
-    const pricingSummary = calculatePricingSummary({
-        base_ops_total: baseOpsTotal,
-        catalog_total: catalogAmount,
-        custom_total: customTotal,
-        margin_percent: marginPercent,
-    });
+    const marginPercent = Number((pricing.margin as any)?.percent || 0);
+    const clientPricing = PricingService.projectForRole(pricing, "CLIENT") as {
+        logistics_sub_total: string;
+        service_fee: string;
+        final_total: string;
+    };
+    const calculatedLineItems = PricingService.projectLineItemsForRole(
+        requestLineItems as any,
+        marginPercent,
+        "CLIENT"
+    ) as {
+        line_item_id: string;
+        description: string;
+        quantity: number;
+        unit_rate: number;
+        total: number;
+        category?: string;
+    }[];
 
-    const calculatedLineItems = requestLineItems.map((item) => {
-        const quantity = item.quantity ? Number(item.quantity) : 0;
-        const sellTotal = applyMarginPerLine(Number(item.total || 0), marginPercent);
-        const unit_rate = quantity > 0 ? roundCurrency(sellTotal / quantity) : 0;
-
-        return {
-            line_item_id: item.line_item_id,
-            description: item.description,
-            quantity,
-            unit_rate,
-            total: sellTotal,
-        };
-    });
-
-    // Calculate line items subtotal
     const lineItemsSubTotal = calculatedLineItems.reduce(
         (sum, item) => sum + Number(item.total),
         0
@@ -126,11 +119,11 @@ export const inboundRequestInvoiceGenerator = async (
             category: item.category,
         })),
         pricing: {
-            logistics_sub_total: pricingSummary.sell_lines.base_ops_total.toFixed(2),
-            catalog_total: pricingSummary.sell_lines.catalog_total.toFixed(2),
-            custom_total: pricingSummary.sell_lines.custom_total.toFixed(2),
-            service_fee: pricingSummary.service_fee.toFixed(2),
-            final_total: pricingSummary.final_total.toFixed(2),
+            logistics_sub_total: clientPricing.logistics_sub_total,
+            catalog_total: "0.00",
+            custom_total: "0.00",
+            service_fee: clientPricing.service_fee,
+            final_total: clientPricing.final_total,
             show_breakdown: !!pricing,
         },
         line_items: calculatedLineItems,

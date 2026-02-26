@@ -1,15 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import {
-    companies,
-    lineItems,
-    prices,
-    orders,
-    serviceTypes,
-    inboundRequests,
-    serviceRequests,
-} from "../../../db/schema";
+import { companies, lineItems, prices, serviceTypes, serviceRequests } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import {
     CreateCatalogLineItemPayload,
@@ -22,9 +14,10 @@ import { lineItemIdGenerator, lineItemQueryValidationConfig } from "./order-line
 import queryValidator from "../../utils/query-validator";
 import { inboundRequestCostEstimateGenerator } from "../../utils/inbound-request-cost-estimate";
 import { serviceRequestCostEstimateGenerator } from "../../utils/service-request-cost-estimate";
-import { calculatePricingSummary } from "../../utils/pricing-engine";
+import { roundCurrency } from "../../utils/pricing-engine";
 import { eventBus } from "../../events/event-bus";
 import { EVENT_TYPES } from "../../events/event-types";
+import { PricingService } from "../../services/pricing.service";
 
 const LINE_ITEM_ID_UNIQUE_CONSTRAINT = "line_items_platform_line_item_id_unique";
 const MAX_LINE_ITEM_ID_INSERT_RETRIES = 3;
@@ -436,8 +429,8 @@ const calculateOrderLineItemsTotals = async (
     }
 
     return {
-        catalog_total: parseFloat(catalogTotal.toFixed(2)),
-        custom_total: parseFloat(customTotal.toFixed(2)),
+        catalog_total: roundCurrency(catalogTotal),
+        custom_total: roundCurrency(customTotal),
     };
 };
 
@@ -471,8 +464,8 @@ const calculateInboundRequestLineItemsTotals = async (
     }
 
     return {
-        catalog_total: parseFloat(catalogTotal.toFixed(2)),
-        custom_total: parseFloat(customTotal.toFixed(2)),
+        catalog_total: roundCurrency(catalogTotal),
+        custom_total: roundCurrency(customTotal),
     };
 };
 
@@ -505,8 +498,8 @@ const calculateServiceRequestLineItemsTotals = async (
     }
 
     return {
-        catalog_total: parseFloat(catalogTotal.toFixed(2)),
-        custom_total: parseFloat(customTotal.toFixed(2)),
+        catalog_total: roundCurrency(catalogTotal),
+        custom_total: roundCurrency(customTotal),
     };
 };
 
@@ -515,74 +508,12 @@ const updateOrderPricingAfterLineItemChange = async (
     orderId: string,
     platformId: string
 ): Promise<void> => {
-    // Step 1: Get the order with its pricing
-    const [orderResult] = await db
-        .select({
-            order: orders,
-            company: {
-                name: companies.name,
-                platform_margin_percent: companies.platform_margin_percent,
-                warehouse_ops_rate: companies.warehouse_ops_rate,
-            },
-            order_pricing: {
-                id: prices.id,
-                margin: prices.margin,
-                base_ops_total: prices.base_ops_total,
-            },
-        })
-        .from(orders)
-        .leftJoin(companies, eq(orders.company_id, companies.id))
-        .leftJoin(prices, eq(orders.order_pricing_id, prices.id))
-        .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)))
-        .limit(1);
-
-    if (!orderResult || !orderResult.order_pricing || !orderResult.company) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Order or pricing not found");
-    }
-
-    // Step 2: Calculate line items totals
-    const lineItemsTotals = await calculateOrderLineItemsTotals(orderId, platformId);
-
-    // Step 3: Calculate new final pricing
-    const baseOpsTotal = Number(orderResult.order_pricing.base_ops_total);
-    const marginData = orderResult.order_pricing.margin as any;
-    const marginOverride = !!marginData?.is_override;
-    const marginPercent = marginOverride
-        ? parseFloat(marginData.percent)
-        : parseFloat(orderResult.company.platform_margin_percent);
-    const marginOverrideReason = marginOverride ? marginData.override_reason : null;
-
-    // Calculate totals using the formula from order.services.ts
-    const pricingSummary = calculatePricingSummary({
-        base_ops_total: baseOpsTotal,
-        catalog_total: lineItemsTotals.catalog_total,
-        custom_total: lineItemsTotals.custom_total,
-        margin_percent: marginPercent,
+    await PricingService.recalculate({
+        entity_type: "ORDER",
+        entity_id: orderId,
+        platform_id: platformId,
+        calculated_by: "system",
     });
-
-    // Step 4: Update order pricing
-    await db
-        .update(prices)
-        .set({
-            logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
-            transport: {
-                system_rate: 0,
-                final_rate: 0,
-            },
-            line_items: {
-                catalog_total: lineItemsTotals.catalog_total,
-                custom_total: lineItemsTotals.custom_total,
-            },
-            margin: {
-                percent: marginPercent,
-                amount: pricingSummary.margin_amount,
-                is_override: marginOverride,
-                override_reason: marginOverrideReason,
-            },
-            final_total: pricingSummary.final_total.toFixed(2),
-            calculated_at: new Date(),
-        })
-        .where(eq(prices.id, orderResult.order_pricing.id));
 };
 
 // ----------------------------------- UPDATE INBOUND REQUEST PRICING AFTER LINE ITEM CHANGE --
@@ -590,83 +521,12 @@ const updateInboundRequestPricingAfterLineItemChange = async (
     inboundRequestId: string,
     platformId: string
 ): Promise<void> => {
-    // Step 1: Get the inbound request with its pricing
-    const [inboundRequest] = await db
-        .select({
-            inbound_request: inboundRequests,
-            company: {
-                platform_margin_percent: companies.platform_margin_percent,
-                warehouse_ops_rate: companies.warehouse_ops_rate,
-            },
-            pricing: {
-                id: prices.id,
-                margin: prices.margin,
-                base_ops_total: prices.base_ops_total,
-            },
-        })
-        .from(inboundRequests)
-        .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
-        .leftJoin(prices, eq(inboundRequests.request_pricing_id, prices.id))
-        .where(
-            and(
-                eq(inboundRequests.id, inboundRequestId),
-                eq(inboundRequests.platform_id, platformId)
-            )
-        )
-        .limit(1);
-
-    if (!inboundRequest || !inboundRequest.pricing || !inboundRequest.company) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request or pricing not found");
-    }
-
-    // Step 2: Calculate line items totals
-    const lineItemsTotals = await calculateInboundRequestLineItemsTotals(
-        inboundRequestId,
-        platformId
-    );
-
-    // Step 3: Calculate new final pricing
-    const baseOpsTotal = Number(inboundRequest.pricing.base_ops_total);
-    const marginData = inboundRequest.pricing.margin as any;
-    const marginOverride = !!marginData?.is_override;
-    const marginPercent = marginOverride
-        ? parseFloat(marginData.percent)
-        : parseFloat(inboundRequest.company.platform_margin_percent);
-    const marginOverrideReason = marginOverride ? marginData.override_reason : null;
-
-    // Calculate totals using the formula from order.services.ts
-    const pricingSummary = calculatePricingSummary({
-        base_ops_total: baseOpsTotal,
-        catalog_total: lineItemsTotals.catalog_total,
-        custom_total: lineItemsTotals.custom_total,
-        margin_percent: marginPercent,
+    await PricingService.recalculate({
+        entity_type: "INBOUND_REQUEST",
+        entity_id: inboundRequestId,
+        platform_id: platformId,
+        calculated_by: "system",
     });
-
-    // Step 4: Update inbound request pricing
-    await db
-        .update(prices)
-        .set({
-            logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
-            transport: {
-                system_rate: 0,
-                final_rate: 0,
-            },
-            line_items: {
-                catalog_total: lineItemsTotals.catalog_total,
-                custom_total: lineItemsTotals.custom_total,
-            },
-            margin: {
-                percent: marginPercent,
-                amount: pricingSummary.margin_amount,
-                is_override: marginOverride,
-                override_reason: marginOverrideReason,
-            },
-            final_total: pricingSummary.final_total.toFixed(2),
-            calculated_at: new Date(),
-        })
-        .where(eq(prices.id, inboundRequest.pricing.id));
-
-    // Step 5: Regenerate cost estimate PDF
     await inboundRequestCostEstimateGenerator(inboundRequestId, platformId, true);
 };
 
@@ -680,13 +540,10 @@ const updateServiceRequestPricingAfterLineItemChange = async (
             service_request: serviceRequests,
             company: {
                 name: companies.name,
-                platform_margin_percent: companies.platform_margin_percent,
-                warehouse_ops_rate: companies.warehouse_ops_rate,
             },
             pricing: {
                 id: prices.id,
-                margin: prices.margin,
-                base_ops_total: prices.base_ops_total,
+                final_total: prices.final_total,
             },
         })
         .from(serviceRequests)
@@ -704,95 +561,12 @@ const updateServiceRequestPricingAfterLineItemChange = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Service request or company not found");
     }
 
-    let pricingId = serviceRequest.pricing?.id;
-    if (!pricingId) {
-        const defaultMarginPercent = parseFloat(
-            serviceRequest.company.platform_margin_percent || "0"
-        );
-        const [createdPricing] = await db
-            .insert(prices)
-            .values({
-                platform_id: platformId,
-                warehouse_ops_rate: (serviceRequest.company.warehouse_ops_rate || "0").toString(),
-                base_ops_total: "0.00",
-                logistics_sub_total: "0.00",
-                transport: {
-                    system_rate: 0,
-                    final_rate: 0,
-                    is_override: false,
-                    override_reason: null,
-                },
-                line_items: {
-                    catalog_total: 0,
-                    custom_total: 0,
-                },
-                margin: {
-                    percent: defaultMarginPercent,
-                    amount: 0,
-                    is_override: false,
-                    override_reason: null,
-                },
-                final_total: "0.00",
-                calculated_by: serviceRequest.service_request.created_by,
-            })
-            .returning({
-                id: prices.id,
-                margin: prices.margin,
-                base_ops_total: prices.base_ops_total,
-            });
-
-        pricingId = createdPricing.id;
-        serviceRequest.pricing = createdPricing;
-
-        await db
-            .update(serviceRequests)
-            .set({ request_pricing_id: createdPricing.id, updated_at: new Date() })
-            .where(eq(serviceRequests.id, serviceRequestId));
-    }
-
-    const lineItemsTotals = await calculateServiceRequestLineItemsTotals(
-        serviceRequestId,
-        platformId
-    );
-
-    const baseOpsTotal = Number(serviceRequest.pricing?.base_ops_total || 0);
-    const marginData = (serviceRequest.pricing?.margin || {}) as any;
-    const marginOverride = !!marginData?.is_override;
-    const marginPercent = marginOverride
-        ? parseFloat(marginData.percent)
-        : parseFloat(serviceRequest.company.platform_margin_percent || "0");
-    const marginOverrideReason = marginOverride ? marginData.override_reason : null;
-
-    const pricingSummary = calculatePricingSummary({
-        base_ops_total: baseOpsTotal,
-        catalog_total: lineItemsTotals.catalog_total,
-        custom_total: lineItemsTotals.custom_total,
-        margin_percent: marginPercent,
+    const result = await PricingService.recalculate({
+        entity_type: "SERVICE_REQUEST",
+        entity_id: serviceRequestId,
+        platform_id: platformId,
+        calculated_by: "system",
     });
-
-    await db
-        .update(prices)
-        .set({
-            warehouse_ops_rate: (serviceRequest.company.warehouse_ops_rate || "0").toString(),
-            logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
-            transport: {
-                system_rate: 0,
-                final_rate: 0,
-            },
-            line_items: {
-                catalog_total: lineItemsTotals.catalog_total,
-                custom_total: lineItemsTotals.custom_total,
-            },
-            margin: {
-                percent: marginPercent,
-                amount: pricingSummary.margin_amount,
-                is_override: marginOverride,
-                override_reason: marginOverrideReason,
-            },
-            final_total: pricingSummary.final_total.toFixed(2),
-            calculated_at: new Date(),
-        })
-        .where(eq(prices.id, pricingId));
 
     await serviceRequestCostEstimateGenerator(serviceRequestId, platformId, true);
 
@@ -827,7 +601,7 @@ const updateServiceRequestPricingAfterLineItemChange = async (
                 company_id: serviceRequest.service_request.company_id,
                 company_name: serviceRequest.company?.name || "N/A",
                 contact_name: "Client",
-                final_total: pricingSummary.final_total.toFixed(2),
+                final_total: result.final_total,
                 revision_reason: "Line items changed after quote issuance",
                 request_url: "",
             },

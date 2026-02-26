@@ -72,9 +72,8 @@ import { uuidRegex } from "../../constants/common";
 import config from "../../config";
 import { formatDateForEmail } from "../../utils/date-time";
 import { costEstimateGenerator } from "../../utils/cost-estimate";
-import { calculatePricingSummary } from "../../utils/pricing-engine";
 import { GoodsFormType, generateGoodsFormXlsx } from "../../utils/goods-form-xlsx";
-import { getRequestPricingToShowClient } from "../../utils/pricing-calculation";
+import { PricingService } from "../../services/pricing.service";
 import { validateMaintenanceFeasibilityForAssets } from "./order-feasibility.utils";
 
 const FULFILLMENT_READINESS_STATUSES = new Set([
@@ -475,36 +474,13 @@ const submitOrderFromCart = async (
     // Step 5: Create base pricing without transport; transport is now explicit line items.
     const volume = parseFloat(calculatedVolume);
     const baseOpsTotal = Number(company.warehouse_ops_rate) * volume;
-    const pricingSummary = calculatePricingSummary({
-        base_ops_total: baseOpsTotal,
-        catalog_total: 0,
-        custom_total: 0,
-        margin_percent: Number(company.platform_margin_percent || 0),
-    });
-
-    const pricingDetails = {
+    const pricingDetails = PricingService.buildInitialPricing({
         platform_id: platformId,
         warehouse_ops_rate: company.warehouse_ops_rate,
-        base_ops_total: baseOpsTotal.toFixed(2),
-        logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
-        transport: {
-            system_rate: 0,
-            final_rate: 0,
-        },
-        line_items: {
-            catalog_total: 0,
-            custom_total: 0,
-        },
-        margin: {
-            percent: company.platform_margin_percent,
-            amount: pricingSummary.margin_amount,
-            is_override: false,
-            override_reason: null,
-        },
-        final_total: pricingSummary.final_total.toFixed(2),
-        calculated_at: new Date(),
+        base_ops_total: baseOpsTotal,
+        margin_percent: Number(company.platform_margin_percent || 0),
         calculated_by: user.id,
-    };
+    });
 
     // Pre-generate SR codes outside the transaction to avoid READ COMMITTED duplicate-code issue
     // (in-transaction inserts aren't visible to COUNT queries in the same transaction)
@@ -836,16 +812,7 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
         financial_status: r.order.financial_status,
         item_count: itemCounts[r.order.id] || 0,
         item_preview: itemPreviews[r.order.id] || [],
-        order_pricing: isClient
-            ? getRequestPricingToShowClient({
-                  base_ops_total: r.order_pricing?.base_ops_total || "0",
-                  line_items: (r.order_pricing?.line_items as {
-                      catalog_total: string;
-                      custom_total: string;
-                  }) || { catalog_total: "0", custom_total: "0" },
-                  margin: { percent: Number((r.order_pricing?.margin as any)?.percent || 0) },
-              })
-            : r.order_pricing,
+        order_pricing: PricingService.projectForRole(r.order_pricing, user.role),
         created_at: r.order.created_at,
         updated_at: r.order.updated_at,
     }));
@@ -995,14 +962,7 @@ const getMyOrders = async (query: Record<string, any>, user: AuthUser, platformI
         venue_city: r.venue_city?.name || null,
         company: { ...r.company, platform_margin_percent: undefined },
         brand: r.brand,
-        order_pricing: getRequestPricingToShowClient({
-            base_ops_total: r.order_pricing?.base_ops_total || "0",
-            line_items: (r.order_pricing?.line_items as {
-                catalog_total: string;
-                custom_total: string;
-            }) || { catalog_total: "0", custom_total: "0" },
-            margin: { percent: Number((r.order_pricing?.margin as any)?.percent || 0) },
-        }),
+        order_pricing: PricingService.projectForRole(r.order_pricing, "CLIENT"),
     }));
 
     return {
@@ -1216,14 +1176,7 @@ const getOrderById = async (
                 notes: null,
             })),
             venue_city: orderData.venue_city?.name || null,
-            order_pricing: getRequestPricingToShowClient({
-                base_ops_total: orderData.order_pricing?.base_ops_total || "0",
-                line_items: (orderData.order_pricing?.line_items as {
-                    catalog_total: string;
-                    custom_total: string;
-                }) || { catalog_total: "0", custom_total: "0" },
-                margin: { percent: Number((orderData.order_pricing?.margin as any)?.percent || 0) },
-            }),
+            order_pricing: PricingService.projectForRole(orderData.order_pricing, "CLIENT"),
             invoice: invoiceData,
         };
     }
@@ -1239,7 +1192,7 @@ const getOrderById = async (
         financial_status_history: financialHistory,
         order_status_history: orderHistory,
         venue_city: orderData.venue_city?.name || null,
-        order_pricing: orderData.order_pricing,
+        order_pricing: PricingService.projectForRole(orderData.order_pricing, user.role),
         invoice: invoiceData,
     };
 };
@@ -2182,56 +2135,16 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
         );
     }
 
-    // Step 3: Get line items totals
-    const lineItemsTotals = await LineItemsServices.calculateOrderLineItemsTotals(
-        orderId,
-        platformId
-    );
-
-    // Step 4: Calculate final pricing
-    const marginOverride = !!(orderPricing?.margin as any)?.is_override;
-    const marginPercent = marginOverride
-        ? parseFloat((orderPricing.margin as any).percent)
-        : parseFloat(company.platform_margin_percent);
-    const marginOverrideReason = marginOverride
-        ? (orderPricing.margin as any).override_reason
-        : null;
-    const baseOpsTotal = Number(orderPricing.base_ops_total || 0);
-    const pricingSummary = calculatePricingSummary({
-        base_ops_total: baseOpsTotal,
-        catalog_total: lineItemsTotals.catalog_total,
-        custom_total: lineItemsTotals.custom_total,
-        margin_percent: marginPercent,
+    // Step 3: Recalculate pricing
+    await PricingService.recalculate({
+        entity_type: "ORDER",
+        entity_id: orderId,
+        platform_id: platformId,
+        calculated_by: user.id,
     });
 
-    const newPricing = {
-        base_ops_total: baseOpsTotal.toFixed(2),
-        logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
-        transport: {
-            system_rate: 0,
-            final_rate: 0,
-        },
-        line_items: {
-            catalog_total: lineItemsTotals.catalog_total,
-            custom_total: lineItemsTotals.custom_total,
-        },
-        margin: {
-            percent: marginPercent,
-            amount: pricingSummary.margin_amount,
-            is_override: marginOverride,
-            override_reason: marginOverrideReason,
-        },
-        final_total: pricingSummary.final_total.toFixed(2),
-        calculated_at: new Date(),
-        calculated_by: user.id,
-    };
-
-    // Step 5: Update order pricing and status
+    // Step 4: Update order status
     await db.transaction(async (tx) => {
-        // Step 5.1: Update order pricing
-        await tx.update(prices).set(newPricing).where(eq(prices.id, order.order_pricing_id));
-
-        // Step 5.2: Update order status
         await tx
             .update(orders)
             .set({
@@ -2240,7 +2153,6 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
             })
             .where(eq(orders.id, orderId));
 
-        // Step 5.3: Log status change
         await db.insert(orderStatusHistory).values({
             platform_id: platformId,
             order_id: orderId,
@@ -2323,35 +2235,19 @@ const adminApproveQuote = async (
 
     // Step 3: Update order pricing and status
     await db.transaction(async (tx) => {
-        // Step 3.1: Update pricing if margin override is provided
         if (margin_override_percent) {
-            const baseOpsTotal = Number(orderPricing.base_ops_total);
-            const catalogTotal = Number((orderPricing.line_items as any).catalog_total || 0);
-            const customTotal = Number((orderPricing.line_items as any).custom_total || 0);
-            const pricingSummary = calculatePricingSummary({
-                base_ops_total: baseOpsTotal,
-                catalog_total: catalogTotal,
-                custom_total: customTotal,
-                margin_percent: margin_override_percent,
+            const result = await PricingService.recalculate({
+                entity_type: "ORDER",
+                entity_id: orderId,
+                platform_id: platformId,
+                calculated_by: user.id,
+                set_margin_override: {
+                    percent: margin_override_percent,
+                    reason: margin_override_reason || null,
+                },
+                tx,
             });
-
-            finalTotal = pricingSummary.final_total.toFixed(2);
-
-            await tx
-                .update(prices)
-                .set({
-                    logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
-                    margin: {
-                        percent: margin_override_percent,
-                        amount: pricingSummary.margin_amount,
-                        is_override: true,
-                        override_reason: margin_override_reason,
-                    },
-                    final_total: pricingSummary.final_total.toFixed(2),
-                    calculated_at: new Date(),
-                    calculated_by: user.id,
-                })
-                .where(eq(prices.id, order.order_pricing_id));
+            finalTotal = result.final_total.toFixed(2);
         }
 
         // Step 3.2: Update order status
@@ -2378,7 +2274,7 @@ const adminApproveQuote = async (
         });
 
         // Step 3.4: Log financial status history
-        await db.insert(financialStatusHistory).values({
+        await tx.insert(financialStatusHistory).values({
             platform_id: platformId,
             order_id: orderId,
             status: newFinancialStatus,
@@ -2894,24 +2790,18 @@ const saveDerigCapture = async (
 
 // ----------------------------------- RECALCULATE BASE OPS ------------------------------------
 const recalculateBaseOps = async (user: AuthUser, orderId: string, platformId: string) => {
-    const [result] = await db
+    const [orderRow] = await db
         .select({
             order: orders,
-            company: {
-                warehouse_ops_rate: companies.warehouse_ops_rate,
-                platform_margin_percent: companies.platform_margin_percent,
-            },
-            pricing: prices,
+            company: { warehouse_ops_rate: companies.warehouse_ops_rate },
         })
         .from(orders)
         .leftJoin(companies, eq(orders.company_id, companies.id))
-        .leftJoin(prices, eq(orders.order_pricing_id, prices.id))
         .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)))
         .limit(1);
 
-    if (!result?.order) throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
-    if (!result.company) throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found");
-    if (!result.pricing) throw new CustomizedError(httpStatus.NOT_FOUND, "Order pricing not found");
+    if (!orderRow?.order) throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    if (!orderRow.company) throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found");
 
     const items = await db
         .select({ quantity: orderItems.quantity, asset_id: orderItems.asset_id })
@@ -2933,46 +2823,17 @@ const recalculateBaseOps = async (user: AuthUser, orderId: string, platformId: s
         totalVolume += (volumeMap.get(item.asset_id) || 0) * item.quantity;
     }
 
-    const baseOpsTotal = Number(result.company.warehouse_ops_rate) * totalVolume;
-    const lineItemsTotals = await LineItemsServices.calculateOrderLineItemsTotals(
-        orderId,
-        platformId
-    );
-    const marginData = result.pricing.margin as any;
-    const marginOverride = !!marginData?.is_override;
-    const marginPercent = marginOverride
-        ? parseFloat(marginData.percent)
-        : parseFloat(result.company.platform_margin_percent);
+    const baseOpsTotal = Number(orderRow.company.warehouse_ops_rate) * totalVolume;
 
-    const pricingSummary = calculatePricingSummary({
-        base_ops_total: baseOpsTotal,
-        catalog_total: lineItemsTotals.catalog_total,
-        custom_total: lineItemsTotals.custom_total,
-        margin_percent: marginPercent,
+    const result = await PricingService.recalculate({
+        entity_type: "ORDER",
+        entity_id: orderId,
+        platform_id: platformId,
+        calculated_by: user.id,
+        base_ops_total_override: baseOpsTotal,
     });
 
-    await db
-        .update(prices)
-        .set({
-            base_ops_total: baseOpsTotal.toFixed(2),
-            logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
-            line_items: {
-                catalog_total: lineItemsTotals.catalog_total,
-                custom_total: lineItemsTotals.custom_total,
-            },
-            margin: {
-                percent: marginPercent,
-                amount: pricingSummary.margin_amount,
-                is_override: marginOverride,
-                override_reason: marginOverride ? marginData.override_reason : null,
-            },
-            final_total: pricingSummary.final_total.toFixed(2),
-            calculated_at: new Date(),
-            calculated_by: user.id,
-        })
-        .where(eq(prices.id, result.pricing.id));
-
-    const existingTotals = (result.order.calculated_totals || {}) as Record<string, any>;
+    const existingTotals = (orderRow.order.calculated_totals || {}) as Record<string, any>;
     await db
         .update(orders)
         .set({
@@ -2981,11 +2842,7 @@ const recalculateBaseOps = async (user: AuthUser, orderId: string, platformId: s
         })
         .where(eq(orders.id, orderId));
 
-    return {
-        volume: totalVolume.toFixed(3),
-        base_ops_total: baseOpsTotal.toFixed(2),
-        final_total: pricingSummary.final_total.toFixed(2),
-    };
+    return { volume: totalVolume.toFixed(3), ...result };
 };
 
 export const OrderServices = {

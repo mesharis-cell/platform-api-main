@@ -3,7 +3,8 @@ import httpStatus from "http-status";
 import { db } from "../../db";
 import { orders, serviceRequests } from "../../db/schema";
 import CustomizedError from "../error/customized-error";
-import { applyMarginPerLine, calculatePricingSummary, roundCurrency } from "./pricing-engine";
+import { applyMarginPerLine, roundCurrency } from "./pricing-engine";
+import { PricingService } from "../services/pricing.service";
 
 export type CommercialDocumentContextType = "ORDER" | "SERVICE_REQUEST";
 export type CommercialDocumentAudience = "SELL_SIDE" | "BUY_SIDE";
@@ -152,60 +153,49 @@ const mapLineItems = (
     }>,
     marginPercent: number
 ): NormalizedDocumentLineItem[] =>
-    lineItems
-        .filter(
-            (lineItem) =>
-                !lineItem.is_voided && (lineItem.billing_mode || "BILLABLE") === "BILLABLE"
-        )
-        .map((lineItem) => {
-            const quantity = toNumber(lineItem.quantity);
-            const buyTotal = toNumber(lineItem.total);
-            const sellTotal = applyMarginPerLine(buyTotal, marginPercent);
-            return {
-                line_item_id: lineItem.line_item_id,
-                description: lineItem.description || "",
-                quantity,
-                category: lineItem.category || undefined,
-                billing_mode: lineItem.billing_mode || "BILLABLE",
-                buy_total: buyTotal,
-                sell_total: sellTotal,
-                buy_unit_rate: quantity > 0 ? roundCurrency(buyTotal / quantity) : 0,
-                sell_unit_rate: quantity > 0 ? roundCurrency(sellTotal / quantity) : 0,
-            };
-        });
+    PricingService.projectLineItemsForRole(
+        lineItems as any,
+        marginPercent,
+        "ADMIN"
+    ) as NormalizedDocumentLineItem[];
 
 const mapPricing = (pricing: {
     base_ops_total: string | number | null;
     line_items: unknown;
     margin: unknown;
 }): NormalizedPricing => {
-    const baseOpsTotal = toNumber(pricing.base_ops_total);
-    const catalogTotal = toNumber((pricing.line_items as any)?.catalog_total);
-    const customTotal = toNumber((pricing.line_items as any)?.custom_total);
-    const marginPercent = toNumber((pricing.margin as any)?.percent);
-    const summary = calculatePricingSummary({
-        base_ops_total: baseOpsTotal,
-        catalog_total: catalogTotal,
-        custom_total: customTotal,
-        margin_percent: marginPercent,
-    });
+    const projected = PricingService.projectForRole(pricing as any, "ADMIN") as any;
+    if (!projected) {
+        const zero = {
+            base_ops_total: 0,
+            catalog_total: 0,
+            custom_total: 0,
+            service_fee: 0,
+            final_total: 0,
+        };
+        return { margin_percent: 0, buy: zero, sell: { ...zero, margin_amount: 0 } };
+    }
+
+    const catalogTotal = projected.line_items.catalog_total;
+    const customTotal = projected.line_items.custom_total;
+    const marginPercent = projected.margin.percent;
 
     return {
         margin_percent: marginPercent,
         buy: {
-            base_ops_total: baseOpsTotal,
+            base_ops_total: projected.base_ops_total,
             catalog_total: catalogTotal,
             custom_total: customTotal,
             service_fee: roundCurrency(catalogTotal + customTotal),
-            final_total: roundCurrency(baseOpsTotal + catalogTotal + customTotal),
+            final_total: roundCurrency(projected.base_ops_total + catalogTotal + customTotal),
         },
         sell: {
-            base_ops_total: summary.sell_lines.base_ops_total,
-            catalog_total: summary.sell_lines.catalog_total,
-            custom_total: summary.sell_lines.custom_total,
-            service_fee: summary.service_fee,
-            margin_amount: summary.margin_amount,
-            final_total: summary.final_total,
+            base_ops_total: projected.sell.base_ops_total,
+            catalog_total: applyMarginPerLine(catalogTotal, marginPercent),
+            custom_total: applyMarginPerLine(customTotal, marginPercent),
+            service_fee: projected.sell.service_fee,
+            margin_amount: projected.margin.amount,
+            final_total: projected.sell.final_total,
         },
     };
 };

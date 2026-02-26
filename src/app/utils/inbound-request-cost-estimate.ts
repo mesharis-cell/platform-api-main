@@ -5,7 +5,7 @@ import { checkFileExists, deleteFileFromS3, uploadPDFToS3 } from "../services/s3
 import httpStatus from "http-status";
 import CustomizedError from "../error/customized-error";
 import { renderInboundRequestCostEstimatePDF } from "./inbound-request-cost-estimate-pdf";
-import { getRequestPricingToShowClient } from "./pricing-calculation";
+import { PricingService } from "../services/pricing.service";
 
 // --------------------------------- INBOUND REQUEST COST ESTIMATE GENERATOR ------------------------
 export const inboundRequestCostEstimateGenerator = async (
@@ -41,16 +41,12 @@ export const inboundRequestCostEstimateGenerator = async (
         );
     }
 
-    const { logistics_sub_total, service_fee, final_total } = getRequestPricingToShowClient({
-        base_ops_total: pricing.base_ops_total,
-        line_items: {
-            catalog_total: (pricing.line_items as any).catalog_total,
-            custom_total: (pricing.line_items as any).custom_total,
-        },
-        margin: {
-            percent: (pricing.margin as any).percent,
-        },
-    });
+    const clientPricing = PricingService.projectForRole(pricing, "CLIENT") as {
+        logistics_sub_total: string;
+        service_fee: string;
+        final_total: string;
+    };
+    const { logistics_sub_total, service_fee, final_total } = clientPricing;
 
     const estimateData: InboundRequestCostEstimatePayload = {
         inbound_request_id: inboundRequest.inbound_request_id,

@@ -101,21 +101,6 @@ export const isSellSideVisibleToRole = (role: UserRole) => role !== "LOGISTICS";
 export const getCommercialDocumentAudienceForRole = (role: UserRole) =>
     isSellSideVisibleToRole(role) ? "SELL_SIDE" : "BUY_SIDE";
 
-export const projectPricingByRole = <
-    T extends {
-        margin?: unknown;
-        final_total?: unknown;
-        [key: string]: unknown;
-    } | null,
->(
-    pricing: T,
-    role: UserRole
-): T => {
-    if (!pricing || role !== "LOGISTICS") return pricing;
-    const { margin: _margin, final_total: _finalTotal, ...rest } = pricing;
-    return rest as T;
-};
-
 export const assertOrderCanGenerateInvoice = (orderStatus: string) => {
     if (ORDER_INVOICE_ALLOWED_STATUSES.has(orderStatus)) return;
     throw new CustomizedError(
