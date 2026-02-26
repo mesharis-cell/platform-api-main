@@ -12,7 +12,7 @@
  *   - Warehouse + PR zones
  *   - Users (admin, logistics, PR client)
  *   - All PR brands (29)
- *   - Vehicle types, transport rates, service types
+ *   - Service types
  *   - Notification rules
  *   - Assets (from preview-latest import bundle via seedPrAssets)
  *
@@ -23,9 +23,7 @@ import { companyFeatures } from "../app/constants/common";
 import { db } from "./index";
 import * as schema from "./schema";
 import bcrypt from "bcrypt";
-import { sql } from "drizzle-orm";
 import { seedPrAssets } from "./scripts/seed-pr-assets";
-import { eq } from "drizzle-orm";
 
 // ============================================================
 // STATE STORE
@@ -40,7 +38,6 @@ const S = {
     warehouse: null as any,
     brands: [] as any[],
     zones: [] as any[],
-    vehicleTypes: [] as any[],
     serviceTypes: [] as any[],
     teams: [] as any[],
 };
@@ -62,14 +59,6 @@ async function cleanup() {
             console.log(`  ↳ Skipping ${label}: ${(error as Error).message}`);
         }
     };
-
-    try {
-        await db.execute(
-            sql`UPDATE transport_rates SET trip_type = 'ONE_WAY' WHERE trip_type = 'ADDITIONAL'`
-        );
-    } catch (_) {
-        /* ignore */
-    }
 
     await safeDelete("notification_logs", () => db.delete(schema.notificationLogs));
     await safeDelete("system_events", () => db.delete(schema.systemEvents));
@@ -96,7 +85,6 @@ async function cleanup() {
     await safeDelete("collections", () => db.delete(schema.collections));
     await safeDelete("assets", () => db.delete(schema.assets));
     await safeDelete("service_types", () => db.delete(schema.serviceTypes));
-    await safeDelete("transport_rates", () => db.delete(schema.transportRates));
     await safeDelete("self_booking_items", () => db.delete(schema.selfBookingItems));
     await safeDelete("self_bookings", () => db.delete(schema.selfBookings));
     await safeDelete("cities", () => db.delete(schema.cities));
@@ -107,7 +95,6 @@ async function cleanup() {
     await safeDelete("users", () => db.delete(schema.users));
     await safeDelete("companies", () => db.delete(schema.companies));
     await safeDelete("warehouses", () => db.delete(schema.warehouses));
-    await safeDelete("vehicle_types", () => db.delete(schema.vehicleTypes));
     await safeDelete("platforms", () => db.delete(schema.platforms));
     console.log("✓ Cleanup complete\n");
 }
@@ -435,67 +422,6 @@ async function seedZones() {
     console.log(`✓ ${zones.length} zones`);
 }
 
-async function seedVehicleTypes() {
-    console.log("🚛 Seeding vehicle types...");
-    const types = await db
-        .insert(schema.vehicleTypes)
-        .values([
-            {
-                name: "Standard Truck",
-                vehicle_size: "15",
-                platform_id: S.platform.id,
-                description: "Standard delivery truck",
-                is_default: true,
-                display_order: 1,
-            },
-            {
-                name: "7 Ton Truck",
-                vehicle_size: "40",
-                platform_id: S.platform.id,
-                description: "Large truck up to 7 tons",
-                is_default: false,
-                display_order: 2,
-            },
-            {
-                name: "10 Ton Truck",
-                vehicle_size: "60",
-                platform_id: S.platform.id,
-                description: "Extra large truck up to 10 tons",
-                is_default: false,
-                display_order: 3,
-            },
-        ])
-        .returning();
-    S.vehicleTypes = types;
-    console.log(`✓ ${types.length} vehicle types`);
-}
-
-async function seedTransportRates() {
-    console.log("🚚 Seeding transport rates...");
-    const trips: ("ONE_WAY" | "ROUND_TRIP")[] = ["ONE_WAY", "ROUND_TRIP"];
-    const rates: any[] = [];
-    for (const city of S.cities) {
-        for (const trip of trips) {
-            for (const vt of S.vehicleTypes) {
-                const base =
-                    vt.name === "Standard Truck" ? 500 : vt.name === "7 Ton Truck" ? 800 : 1200;
-                rates.push({
-                    platform_id: S.platform.id,
-                    company_id: null,
-                    city_id: city.id,
-                    area: null,
-                    trip_type: trip,
-                    vehicle_type_id: vt.id,
-                    rate: (base * (trip === "ROUND_TRIP" ? 1.8 : 1)).toString(),
-                    is_active: true,
-                });
-            }
-        }
-    }
-    await db.insert(schema.transportRates).values(rates);
-    console.log(`✓ ${rates.length} transport rates`);
-}
-
 async function seedServiceTypes() {
     console.log("🛠️  Seeding service types...");
     const pid = S.platform.id;
@@ -538,58 +464,54 @@ async function seedServiceTypes() {
             unit: "unit",
             default_rate: "35.00",
         },
-    ];
-
-    // Fetch transport rates seeded above and generate TRANSPORT service types
-    const seededRates = await db
-        .select({
-            id: schema.transportRates.id,
-            city_id: schema.transportRates.city_id,
-            vehicle_type_id: schema.transportRates.vehicle_type_id,
-            trip_type: schema.transportRates.trip_type,
-            rate: schema.transportRates.rate,
-        })
-        .from(schema.transportRates)
-        .where(eq(schema.transportRates.platform_id, pid));
-
-    const transportServices = seededRates.map((r, i) => {
-        const city = S.cities.find((c: any) => c.id === r.city_id);
-        const vt = S.vehicleTypes.find((v: any) => v.id === r.vehicle_type_id);
-        const cityName = city?.name ?? "Unknown";
-        const vtName = vt?.name ?? "Truck";
-        const tripLabel = r.trip_type === "ROUND_TRIP" ? "Round-trip" : "One-way";
-        return {
-            platform_id: pid,
-            name: `Transport - ${cityName} · ${vtName} (${tripLabel})`,
+        {
+            name: "Transport - Dubai (One Way)",
             category: "TRANSPORT" as const,
             unit: "trip",
-            default_rate: r.rate,
-            transport_rate_id: r.id,
-            default_metadata: {
-                city_id: r.city_id,
-                vehicle_type_id: r.vehicle_type_id,
-                trip_direction: r.trip_type,
-            },
-            display_order: baseServices.length + i,
-            is_active: true,
-        };
-    });
-
-    const allServices = [
-        ...baseServices.map((s, i) => ({
-            platform_id: pid,
-            ...s,
-            display_order: i,
-            is_active: true,
-        })),
-        ...transportServices,
+            default_rate: "500.00",
+        },
+        {
+            name: "Transport - Dubai (Round Trip)",
+            category: "TRANSPORT" as const,
+            unit: "trip",
+            default_rate: "900.00",
+        },
+        {
+            name: "Transport - Abu Dhabi (One Way)",
+            category: "TRANSPORT" as const,
+            unit: "trip",
+            default_rate: "800.00",
+        },
+        {
+            name: "Transport - Abu Dhabi (Round Trip)",
+            category: "TRANSPORT" as const,
+            unit: "trip",
+            default_rate: "1440.00",
+        },
+        {
+            name: "Transport - Sharjah (One Way)",
+            category: "TRANSPORT" as const,
+            unit: "trip",
+            default_rate: "400.00",
+        },
+        {
+            name: "Transport - Sharjah (Round Trip)",
+            category: "TRANSPORT" as const,
+            unit: "trip",
+            default_rate: "600.00",
+        },
     ];
+
+    const allServices = baseServices.map((s, i) => ({
+        platform_id: pid,
+        ...s,
+        display_order: i,
+        is_active: true,
+    }));
 
     const inserted = await db.insert(schema.serviceTypes).values(allServices).returning();
     S.serviceTypes = inserted;
-    console.log(
-        `✓ ${baseServices.length} base + ${transportServices.length} transport service types`
-    );
+    console.log(`✓ ${inserted.length} service types`);
 }
 
 async function seedNotificationRules() {
@@ -835,8 +757,6 @@ async function main() {
         await seedZones();
 
         // Phase 2: Operational config
-        await seedVehicleTypes();
-        await seedTransportRates();
         await seedServiceTypes();
         await seedNotificationRules();
 

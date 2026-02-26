@@ -106,7 +106,6 @@ export const entityTypeEnum = pgEnum("entity_type", [
 export const recipientTypeEnum = pgEnum("recipient_type", ["ROLE", "ENTITY_OWNER", "EMAIL"]);
 export const scanTypeEnum = pgEnum("scan_type", ["OUTBOUND", "INBOUND"]);
 export const discrepancyReasonEnum = pgEnum("discrepancy_reason", ["BROKEN", "LOST", "OTHER"]);
-export const tripTypeEnum = pgEnum("trip_type", ["ONE_WAY", "ROUND_TRIP"]);
 export const lineItemTypeEnum = pgEnum("line_item_type", ["CATALOG", "CUSTOM"]);
 export const billingModeEnum = pgEnum("billing_mode", [
     "BILLABLE",
@@ -689,52 +688,6 @@ export const collectionItemsRelations = relations(collectionItems, ({ one }) => 
     asset: one(assets, { fields: [collectionItems.asset], references: [assets.id] }),
 }));
 
-// ---------------------------------- TRANSPORT RATES (NEW) ------------------------------------
-export const transportRates = pgTable(
-    "transport_rates",
-    {
-        id: uuid("id").primaryKey().defaultRandom(),
-        platform_id: uuid("platform")
-            .notNull()
-            .references(() => platforms.id, { onDelete: "cascade" }),
-        company_id: uuid("company").references(() => companies.id, { onDelete: "cascade" }), // NULL = platform-wide
-        city_id: uuid("city_id")
-            .notNull()
-            .references(() => cities.id, { onDelete: "cascade" }),
-        area: varchar("area", { length: 100 }), // Optional sub-region
-        trip_type: tripTypeEnum("trip_type").notNull(),
-        vehicle_type_id: uuid("vehicle_type_id")
-            .notNull()
-            .references(() => vehicleTypes.id, { onDelete: "cascade" }),
-        rate: decimal("rate", { precision: 10, scale: 2 }).notNull(), // AED
-        is_active: boolean("is_active").notNull().default(true),
-        created_at: timestamp("created_at").notNull().defaultNow(),
-        updated_at: timestamp("updated_at")
-            .$onUpdate(() => new Date())
-            .notNull(),
-    },
-    (table) => [
-        unique("transport_rates_unique").on(
-            table.platform_id,
-            table.company_id,
-            table.city_id,
-            table.area,
-            table.trip_type
-        ),
-        index("transport_rates_lookup_idx").on(table.platform_id, table.city_id, table.trip_type),
-        index("transport_rates_company_idx").on(table.company_id),
-    ]
-);
-
-export const transportRatesRelations = relations(transportRates, ({ one }) => ({
-    platform: one(platforms, { fields: [transportRates.platform_id], references: [platforms.id] }),
-    company: one(companies, { fields: [transportRates.company_id], references: [companies.id] }),
-    vehicle_type: one(vehicleTypes, {
-        fields: [transportRates.vehicle_type_id],
-        references: [vehicleTypes.id],
-    }),
-}));
-
 // ---------------------------------- SERVICE TYPES (NEW) --------------------------------------
 export const serviceTypes = pgTable(
     "service_types",
@@ -751,7 +704,6 @@ export const serviceTypes = pgTable(
         default_metadata: jsonb("default_metadata")
             .notNull()
             .default(sql`'{}'::jsonb`),
-        transport_rate_id: uuid("transport_rate_id").references(() => transportRates.id),
         description: text("description"),
 
         display_order: integer("display_order").notNull().default(0),
@@ -773,10 +725,6 @@ export const serviceTypes = pgTable(
 
 export const serviceTypesRelations = relations(serviceTypes, ({ one, many }) => ({
     platform: one(platforms, { fields: [serviceTypes.platform_id], references: [platforms.id] }),
-    transport_rate: one(transportRates, {
-        fields: [serviceTypes.transport_rate_id],
-        references: [transportRates.id],
-    }),
     order_line_items: many(lineItems),
 }));
 
@@ -1640,31 +1588,6 @@ export const inboundRequestItems = pgTable("inbound_request_items", {
         .$onUpdate(() => new Date())
         .notNull(),
 });
-
-// ---------------------------------- VEHICLE TYPES ---------------------------------
-export const vehicleTypes = pgTable("vehicle_types", {
-    id: uuid("id").primaryKey().defaultRandom(),
-    name: varchar("name", { length: 100 }).notNull(),
-    vehicle_size: decimal("vehicle_size", { precision: 10, scale: 3 }).notNull(),
-    platform_id: uuid("platform_id").references(() => platforms.id),
-    is_active: boolean("is_active").notNull().default(true),
-    is_default: boolean("is_default").notNull().default(false),
-    display_order: integer("display_order").notNull().default(1),
-    description: text("description"),
-    created_at: timestamp("created_at").notNull().defaultNow(),
-    updated_at: timestamp("updated_at")
-        .$onUpdate(() => new Date())
-        .notNull(),
-});
-
-export const vehicleTypesRelations = relations(vehicleTypes, ({ one, many }) => ({
-    platform: one(platforms, {
-        fields: [vehicleTypes.platform_id],
-        references: [platforms.id],
-    }),
-    orders: many(orders),
-    transport_rates: many(transportRates),
-}));
 
 // ---------------------------------- ASSET VERSIONS -----------------------------------------
 export const assetVersions = pgTable(

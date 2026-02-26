@@ -33,7 +33,6 @@ import {
     serviceRequests,
     scanEvents,
     users,
-    vehicleTypes,
     countries,
     orderItems,
 } from "../../../db/schema";
@@ -72,7 +71,6 @@ import { orderIdGenerator } from "./order.utils";
 import { uuidRegex } from "../../constants/common";
 import config from "../../config";
 import { formatDateForEmail } from "../../utils/date-time";
-import { TransportRatesServices } from "../transport-rates/transport-rates.services";
 import { costEstimateGenerator } from "../../utils/cost-estimate";
 import { calculatePricingSummary } from "../../utils/pricing-engine";
 import { GoodsFormType, generateGoodsFormXlsx } from "../../utils/goods-form-xlsx";
@@ -244,138 +242,11 @@ const autoApproveBundledServiceRequests = async (
 
 // ----------------------------------- CALCULATE ESTIMATE -------------------------------------
 const calculateEstimate = async (
-    platformId: string,
-    companyId: string,
-    payload: CalculateEstimatePayload
+    _platformId: string,
+    _companyId: string,
+    _payload: CalculateEstimatePayload
 ) => {
-    // Step 1: Extract payload data
-    const { items, venue_city, trip_type } = payload;
-    const requestedTripType = trip_type || "ROUND_TRIP";
-
-    // Step 2: Fetch company information
-    const [company] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1);
-    if (!company) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found");
-    }
-
-    // Step 3: Fetch assets from the database
-    const assetIds = items.map((i) => i.asset_id);
-    const foundAssets = await db
-        .select()
-        .from(assets)
-        .where(and(inArray(assets.id, assetIds), eq(assets.platform_id, platformId)));
-
-    // Step 4: Calculate total volume of requested assets
-    let totalVolume = 0;
-    for (const item of items) {
-        const asset = foundAssets.find((a) => a.id === item.asset_id);
-        if (asset) {
-            totalVolume += parseFloat(asset.volume_per_unit) * item.quantity;
-        }
-    }
-
-    console.log("total volume: ", totalVolume);
-
-    // Step 5: Determine margin
-    const marginPercent = parseFloat(company.platform_margin_percent);
-
-    // Find the suitable vehicle type
-    // Find the suitable vehicle type
-    // We want the smallest vehicle that fits the volume (vehicle_size >= totalVolume)
-    let selectedVehicleType = (
-        await db
-            .select()
-            .from(vehicleTypes)
-            .where(
-                and(
-                    eq(vehicleTypes.platform_id, platformId),
-                    eq(vehicleTypes.is_active, true),
-                    gte(vehicleTypes.vehicle_size, totalVolume.toString())
-                )
-            )
-            .orderBy(asc(vehicleTypes.vehicle_size))
-            .limit(1)
-    )[0];
-
-    if (!selectedVehicleType) {
-        // Fallback to default vehicle
-        const defaultVehicle = await db.query.vehicleTypes.findFirst({
-            where: and(eq(vehicleTypes.is_default, true), eq(vehicleTypes.platform_id, platformId)),
-        });
-
-        if (defaultVehicle) {
-            selectedVehicleType = defaultVehicle;
-        } else {
-            // Fallback to check if it's a capacity issue or configuration issue
-            const [largestVehicle] = await db
-                .select()
-                .from(vehicleTypes)
-                .where(
-                    and(eq(vehicleTypes.platform_id, platformId), eq(vehicleTypes.is_active, true))
-                )
-                .orderBy(desc(vehicleTypes.vehicle_size))
-                .limit(1);
-
-            if (!largestVehicle) {
-                throw new CustomizedError(
-                    httpStatus.NOT_FOUND,
-                    "No vehicle types configuration found"
-                );
-            }
-
-            throw new CustomizedError(
-                httpStatus.BAD_REQUEST,
-                `Total volume (${totalVolume} m3) exceeds the capacity of the largest available vehicle (${largestVehicle.vehicle_size} m3)`
-            );
-        }
-    }
-
-    // Step 6: Lookup a suggested transport rate (indicative only)
-    const preferredRate = await TransportRatesServices.lookupTransportRate(
-        platformId,
-        companyId,
-        venue_city,
-        requestedTripType,
-        selectedVehicleType.id
-    );
-    const fallbackTripType = requestedTripType === "ROUND_TRIP" ? "ONE_WAY" : "ROUND_TRIP";
-    const fallbackRate = preferredRate
-        ? null
-        : await TransportRatesServices.lookupTransportRate(
-              platformId,
-              companyId,
-              venue_city,
-              fallbackTripType,
-              selectedVehicleType.id
-          );
-    const suggestedRate = Number(preferredRate?.rate || fallbackRate?.rate || 0);
-
-    // Step 7: Calculate indicative estimate total
-    const warehouseOpsRate = company.warehouse_ops_rate;
-    const baseOpsTotal = totalVolume * Number(warehouseOpsRate);
-    const estimateBaseTotal = baseOpsTotal + suggestedRate;
-    const estimateTotal = estimateBaseTotal * (1 + marginPercent / 100);
-
-    // Step 8: Prepare and return estimate response
-    return {
-        base_operations: {
-            volume: parseFloat(totalVolume.toFixed(3)),
-            rate: parseFloat(warehouseOpsRate),
-            total: parseFloat(baseOpsTotal.toFixed(2)),
-        },
-        suggested_transport: {
-            city: venue_city,
-            vehicle_type: selectedVehicleType.name,
-            estimated_rate: parseFloat(suggestedRate.toFixed(2)),
-            note: "Transport will be confirmed during pricing review",
-        },
-        margin: {
-            percent: parseFloat(marginPercent.toFixed(2)),
-        },
-        estimate_total: parseFloat(estimateTotal.toFixed(2)),
-        disclaimer:
-            "This is a preliminary estimate. Final pricing including transport will be confirmed during review.",
-    };
+    return { available: false, message: "Estimates are not currently available" };
 };
 
 // -------------------------------- CHECK MAINTENANCE FEASIBILITY -----------------------------
