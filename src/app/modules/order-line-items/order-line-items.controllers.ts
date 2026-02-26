@@ -64,12 +64,12 @@ const createCustomLineItem = catchAsync(async (req: Request, res: Response) => {
 
 // ----------------------------------- UPDATE LINE ITEM -----------------------------------
 const updateLineItem = catchAsync(async (req: Request, res: Response) => {
-    // Extract platform ID from middleware
+    const user = (req as any).user;
     const platformId = (req as any).platformId;
     const itemId = getRequiredString(req.params.itemId, "itemId");
     const payload = req.body;
 
-    const lineItem = await LineItemsServices.updateLineItem(itemId, platformId, payload);
+    const lineItem = await LineItemsServices.updateLineItem(itemId, platformId, payload, user.id);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
