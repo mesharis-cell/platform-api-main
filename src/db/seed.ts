@@ -11,6 +11,7 @@
  */
 
 import { companyFeatures } from "../app/constants/common";
+import { PERMISSION_TEMPLATES } from "../app/constants/permissions";
 import { lineItemIdGenerator } from "../app/modules/order-line-items/order-line-items.utils";
 import { db } from "./index";
 import * as schema from "./schema";
@@ -36,6 +37,7 @@ type OrderStatus =
     | "IN_TRANSIT"
     | "DELIVERED"
     | "IN_USE"
+    | "DERIG"
     | "AWAITING_RETURN"
     | "RETURN_IN_TRANSIT"
     | "CLOSED"
@@ -264,74 +266,9 @@ async function seedUsers() {
     const pr = companyByName("Pernod Ricard");
     const dg = companyByName("Diageo");
 
-    const allPerms = [
-        "auth:*",
-        "users:*",
-        "companies:*",
-        "brands:*",
-        "warehouses:*",
-        "zones:*",
-        "pricing_tiers:*",
-        "orders:*",
-        "pricing:*",
-        "invoices:*",
-        "lifecycle:*",
-        "notifications:*",
-        "analytics:*",
-        "system:*",
-        "assets:*",
-        "collections:*",
-        "conditions:*",
-        "inventory:*",
-        "quotes:*",
-        "scanning:*",
-        "self_bookings:*",
-        "service_request:*",
-        "inbound_request:*",
-        "calendar:*",
-        "reports:*",
-    ];
-    const logisticsPerms = [
-        "auth:*",
-        "users:read",
-        "companies:read",
-        "brands:create",
-        "brands:read",
-        "brands:update",
-        "warehouses:create",
-        "warehouses:read",
-        "warehouses:update",
-        "zones:create",
-        "zones:read",
-        "zones:update",
-        "assets:*",
-        "collections:*",
-        "orders:read",
-        "orders:update",
-        "orders:add_time_windows",
-        "pricing:review",
-        "pricing:adjust",
-        "lifecycle:progress_status",
-        "lifecycle:receive_notifications",
-        "scanning:*",
-        "inventory:*",
-        "conditions:*",
-    ];
-    const clientPerms = [
-        "auth:*",
-        "companies:read",
-        "brands:read",
-        "assets:read",
-        "collections:read",
-        "orders:create",
-        "orders:read",
-        "orders:update",
-        "quotes:approve",
-        "quotes:decline",
-        "invoices:read",
-        "invoices:download",
-        "lifecycle:receive_notifications",
-    ];
+    const allPerms = PERMISSION_TEMPLATES.PLATFORM_ADMIN;
+    const logisticsPerms = PERMISSION_TEMPLATES.LOGISTICS_STAFF;
+    const clientPerms = PERMISSION_TEMPLATES.CLIENT_USER;
 
     const users = await db
         .insert(schema.users)
@@ -1375,6 +1312,23 @@ async function seedOrders() {
             instructions: "Return convoy includes 1 extra site-access vehicle.",
             label: "Return in transit",
         },
+        {
+            orderId: "ORD-20260224-010",
+            company: pr,
+            user: prClient,
+            brand: brandByName("Jameson"),
+            status: "DERIG" as OrderStatus,
+            financial: "INVOICED" as FinancialStatus,
+            venue: "Coca-Cola Arena",
+            cityId: dubai.id,
+            eventStart: daysFromNow(-2),
+            eventEnd: daysFromNow(0),
+            jobNumber: "JOB-2026-0010",
+            volume: 8.4,
+            marginPercent: 25,
+            instructions: "Logistics team on site for derig capture before loading.",
+            label: "Scenario: DERIG — active derig capture on site",
+        },
     ];
 
     for (const def of orderDefs) {
@@ -1939,6 +1893,12 @@ async function seedServiceRequests() {
             cancelled_at: null,
             cancelled_by: null,
             cancellation_reason: null,
+            photos: [
+                "https://kadence-assets-dev.s3.amazonaws.com/demo/sr-refurb-before.jpg",
+                "https://kadence-assets-dev.s3.amazonaws.com/demo/sr-refurb-after.jpg",
+            ],
+            work_notes:
+                "Frame straightened, worn upholstery panels replaced with matching fabric. Hardware (bolts, brackets) fully replaced. Surface sanded and refinished. Final QC passed — item back to GREEN condition.",
             status_path: [
                 "SUBMITTED",
                 "IN_REVIEW",
@@ -2064,6 +2024,8 @@ async function seedServiceRequests() {
                 cancelled_at: def.cancelled_at,
                 cancelled_by: def.cancelled_by,
                 cancellation_reason: def.cancellation_reason,
+                photos: (def as any).photos ?? [],
+                work_notes: (def as any).work_notes ?? null,
                 created_at: def.created_at,
                 updated_at: def.updated_at,
             })
@@ -2234,6 +2196,7 @@ async function seedScanEvents() {
                 "IN_TRANSIT",
                 "DELIVERED",
                 "IN_USE",
+                "DERIG",
                 "AWAITING_RETURN",
                 "RETURN_IN_TRANSIT",
                 "CLOSED",
@@ -2371,6 +2334,19 @@ function getStatusProgression(finalStatus: string): string[] {
             "DELIVERED",
             "IN_USE",
         ],
+        DERIG: [
+            "DRAFT",
+            "PRICING_REVIEW",
+            "PENDING_APPROVAL",
+            "QUOTED",
+            "CONFIRMED",
+            "IN_PREPARATION",
+            "READY_FOR_DELIVERY",
+            "IN_TRANSIT",
+            "DELIVERED",
+            "IN_USE",
+            "DERIG",
+        ],
         AWAITING_RETURN: [
             "DRAFT",
             "PRICING_REVIEW",
@@ -2381,6 +2357,8 @@ function getStatusProgression(finalStatus: string): string[] {
             "READY_FOR_DELIVERY",
             "IN_TRANSIT",
             "DELIVERED",
+            "IN_USE",
+            "DERIG",
             "AWAITING_RETURN",
         ],
         RETURN_IN_TRANSIT: [
@@ -2393,6 +2371,8 @@ function getStatusProgression(finalStatus: string): string[] {
             "READY_FOR_DELIVERY",
             "IN_TRANSIT",
             "DELIVERED",
+            "IN_USE",
+            "DERIG",
             "AWAITING_RETURN",
             "RETURN_IN_TRANSIT",
         ],
@@ -2406,6 +2386,8 @@ function getStatusProgression(finalStatus: string): string[] {
             "READY_FOR_DELIVERY",
             "IN_TRANSIT",
             "DELIVERED",
+            "IN_USE",
+            "DERIG",
             "AWAITING_RETURN",
             "CLOSED",
         ],
@@ -2488,6 +2470,8 @@ async function seedOrderHistory() {
                 "READY_FOR_DELIVERY",
                 "IN_TRANSIT",
                 "DELIVERED",
+                "IN_USE",
+                "DERIG",
                 "AWAITING_RETURN",
                 "RETURN_IN_TRANSIT",
                 "CLOSED",
