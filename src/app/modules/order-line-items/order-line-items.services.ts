@@ -183,13 +183,21 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
 
     // Update order pricing after adding new line item
     if (order_id) {
-        await updateOrderPricingAfterLineItemChange(order_id, platform_id);
+        await updateOrderPricingAfterLineItemChange(order_id, platform_id, added_by);
     }
     if (inbound_request_id) {
-        await updateInboundRequestPricingAfterLineItemChange(inbound_request_id, platform_id);
+        await updateInboundRequestPricingAfterLineItemChange(
+            inbound_request_id,
+            platform_id,
+            added_by
+        );
     }
     if (service_request_id) {
-        await updateServiceRequestPricingAfterLineItemChange(service_request_id, platform_id);
+        await updateServiceRequestPricingAfterLineItemChange(
+            service_request_id,
+            platform_id,
+            added_by
+        );
     }
 
     return {
@@ -254,13 +262,21 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
 
     // Update order pricing after adding new line item
     if (order_id) {
-        await updateOrderPricingAfterLineItemChange(order_id, platform_id);
+        await updateOrderPricingAfterLineItemChange(order_id, platform_id, added_by);
     }
     if (inbound_request_id) {
-        await updateInboundRequestPricingAfterLineItemChange(inbound_request_id, platform_id);
+        await updateInboundRequestPricingAfterLineItemChange(
+            inbound_request_id,
+            platform_id,
+            added_by
+        );
     }
     if (service_request_id) {
-        await updateServiceRequestPricingAfterLineItemChange(service_request_id, platform_id);
+        await updateServiceRequestPricingAfterLineItemChange(
+            service_request_id,
+            platform_id,
+            added_by
+        );
     }
 
     return {
@@ -272,7 +288,12 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
 };
 
 // ----------------------------------- UPDATE LINE ITEM ---------------------------------------
-const updateLineItem = async (id: string, platformId: string, data: UpdateLineItemPayload) => {
+const updateLineItem = async (
+    id: string,
+    platformId: string,
+    data: UpdateLineItemPayload,
+    userId: string
+) => {
     const [existing] = await db
         .select()
         .from(lineItems)
@@ -332,15 +353,23 @@ const updateLineItem = async (id: string, platformId: string, data: UpdateLineIt
 
     const [result] = await db.update(lineItems).set(dbData).where(eq(lineItems.id, id)).returning();
 
-    // Update order pricing after adding new line item
+    // Update order pricing after line item change
     if (result.order_id) {
-        await updateOrderPricingAfterLineItemChange(result.order_id, platformId);
+        await updateOrderPricingAfterLineItemChange(result.order_id, platformId, userId);
     }
     if (result.inbound_request_id) {
-        await updateInboundRequestPricingAfterLineItemChange(result.inbound_request_id, platformId);
+        await updateInboundRequestPricingAfterLineItemChange(
+            result.inbound_request_id,
+            platformId,
+            userId
+        );
     }
     if (result.service_request_id) {
-        await updateServiceRequestPricingAfterLineItemChange(result.service_request_id, platformId);
+        await updateServiceRequestPricingAfterLineItemChange(
+            result.service_request_id,
+            platformId,
+            userId
+        );
     }
 
     return {
@@ -380,15 +409,23 @@ const voidLineItem = async (id: string, platformId: string, data: VoidLineItemPa
         .where(eq(lineItems.id, id))
         .returning();
 
-    // Update order pricing after adding new line item
+    // Update order pricing after line item void
     if (result.order_id) {
-        await updateOrderPricingAfterLineItemChange(result.order_id, platformId);
+        await updateOrderPricingAfterLineItemChange(result.order_id, platformId, voided_by);
     }
     if (result.inbound_request_id) {
-        await updateInboundRequestPricingAfterLineItemChange(result.inbound_request_id, platformId);
+        await updateInboundRequestPricingAfterLineItemChange(
+            result.inbound_request_id,
+            platformId,
+            voided_by
+        );
     }
     if (result.service_request_id) {
-        await updateServiceRequestPricingAfterLineItemChange(result.service_request_id, platformId);
+        await updateServiceRequestPricingAfterLineItemChange(
+            result.service_request_id,
+            platformId,
+            voided_by
+        );
     }
 
     return {
@@ -506,26 +543,28 @@ const calculateServiceRequestLineItemsTotals = async (
 // ----------------------------------- UPDATE ORDER PRICING AFTER LINE ITEM CHANGE ------------
 const updateOrderPricingAfterLineItemChange = async (
     orderId: string,
-    platformId: string
+    platformId: string,
+    userId: string
 ): Promise<void> => {
     await PricingService.recalculate({
         entity_type: "ORDER",
         entity_id: orderId,
         platform_id: platformId,
-        calculated_by: "system",
+        calculated_by: userId,
     });
 };
 
 // ----------------------------------- UPDATE INBOUND REQUEST PRICING AFTER LINE ITEM CHANGE --
 const updateInboundRequestPricingAfterLineItemChange = async (
     inboundRequestId: string,
-    platformId: string
+    platformId: string,
+    userId: string
 ): Promise<void> => {
     await PricingService.recalculate({
         entity_type: "INBOUND_REQUEST",
         entity_id: inboundRequestId,
         platform_id: platformId,
-        calculated_by: "system",
+        calculated_by: userId,
     });
     await inboundRequestCostEstimateGenerator(inboundRequestId, platformId, true);
 };
@@ -533,7 +572,8 @@ const updateInboundRequestPricingAfterLineItemChange = async (
 // ----------------------------------- UPDATE SERVICE REQUEST PRICING AFTER LINE ITEM CHANGE --
 const updateServiceRequestPricingAfterLineItemChange = async (
     serviceRequestId: string,
-    platformId: string
+    platformId: string,
+    userId: string
 ): Promise<void> => {
     const [serviceRequest] = await db
         .select({
@@ -565,7 +605,7 @@ const updateServiceRequestPricingAfterLineItemChange = async (
         entity_type: "SERVICE_REQUEST",
         entity_id: serviceRequestId,
         platform_id: platformId,
-        calculated_by: "system",
+        calculated_by: userId,
     });
 
     await serviceRequestCostEstimateGenerator(serviceRequestId, platformId, true);
