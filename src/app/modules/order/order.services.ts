@@ -74,6 +74,7 @@ import { formatDateForEmail } from "../../utils/date-time";
 import { costEstimateGenerator } from "../../utils/cost-estimate";
 import { calculatePricingSummary } from "../../utils/pricing-engine";
 import { GoodsFormType, generateGoodsFormXlsx } from "../../utils/goods-form-xlsx";
+import { getRequestPricingToShowClient } from "../../utils/pricing-calculation";
 import { validateMaintenanceFeasibilityForAssets } from "./order-feasibility.utils";
 
 const FULFILLMENT_READINESS_STATUSES = new Set([
@@ -814,10 +815,11 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
     }
 
     // Step 8: Map results
+    const isClient = user.role === "CLIENT";
     const ordersData = results.map((r) => ({
         id: r.order.id,
         order_id: r.order.order_id,
-        company: r.company,
+        company: isClient ? { ...r.company, platform_margin_percent: undefined } : r.company,
         brand: r.brand,
         created_by: r.order.created_by,
         job_number: r.order.job_number,
@@ -834,7 +836,16 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
         financial_status: r.order.financial_status,
         item_count: itemCounts[r.order.id] || 0,
         item_preview: itemPreviews[r.order.id] || [],
-        order_pricing: r.order_pricing,
+        order_pricing: isClient
+            ? getRequestPricingToShowClient({
+                  base_ops_total: r.order_pricing?.base_ops_total || "0",
+                  line_items: (r.order_pricing?.line_items as {
+                      catalog_total: string;
+                      custom_total: string;
+                  }) || { catalog_total: "0", custom_total: "0" },
+                  margin: { percent: Number((r.order_pricing?.margin as any)?.percent || 0) },
+              })
+            : r.order_pricing,
         created_at: r.order.created_at,
         updated_at: r.order.updated_at,
     }));
@@ -982,9 +993,16 @@ const getMyOrders = async (query: Record<string, any>, user: AuthUser, platformI
     const formattedData = results.map((r) => ({
         ...r.order,
         venue_city: r.venue_city?.name || null,
-        company: r.company,
+        company: { ...r.company, platform_margin_percent: undefined },
         brand: r.brand,
-        order_pricing: r.order_pricing,
+        order_pricing: getRequestPricingToShowClient({
+            base_ops_total: r.order_pricing?.base_ops_total || "0",
+            line_items: (r.order_pricing?.line_items as {
+                catalog_total: string;
+                custom_total: string;
+            }) || { catalog_total: "0", custom_total: "0" },
+            margin: { percent: Number((r.order_pricing?.margin as any)?.percent || 0) },
+        }),
     }));
 
     return {
@@ -1183,7 +1201,10 @@ const getOrderById = async (
 
         return {
             ...orderData.order,
-            company: orderData.company,
+            company: {
+                ...orderData.company,
+                platform_margin_percent: undefined,
+            },
             brand: orderData.brand,
             user: orderData.user,
             items: itemResults,
@@ -1195,7 +1216,14 @@ const getOrderById = async (
                 notes: null,
             })),
             venue_city: orderData.venue_city?.name || null,
-            order_pricing: orderData.order_pricing,
+            order_pricing: getRequestPricingToShowClient({
+                base_ops_total: orderData.order_pricing?.base_ops_total || "0",
+                line_items: (orderData.order_pricing?.line_items as {
+                    catalog_total: string;
+                    custom_total: string;
+                }) || { catalog_total: "0", custom_total: "0" },
+                margin: { percent: Number((orderData.order_pricing?.margin as any)?.percent || 0) },
+            }),
             invoice: invoiceData,
         };
     }
