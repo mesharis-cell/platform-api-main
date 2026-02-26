@@ -260,6 +260,20 @@ const getAssetVersions = catchAsync(async (req, res) => {
     });
 });
 
+const getAssetOrderHistory = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const { id } = req.params;
+
+    const result = await AssetServices.getAssetOrderHistory(id, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Asset order history fetched successfully",
+        data: result,
+    });
+});
+
 export const AssetControllers = {
     createAsset,
     getAssets,
@@ -276,4 +290,5 @@ export const AssetControllers = {
     completeMaintenance,
     sentAssetToMaintenance,
     getAssetVersions,
+    getAssetOrderHistory,
 };

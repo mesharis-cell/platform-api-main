@@ -33,14 +33,13 @@ import {
     serviceRequests,
     scanEvents,
     users,
-    vehicleTypes,
     countries,
     orderItems,
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import paginationMaker from "../../utils/pagination-maker";
-import { buildServiceRequestCode } from "../../utils/service-request-code";
+import { buildServiceRequestCodes } from "../../utils/service-request-code";
 import queryValidator from "../../utils/query-validator";
 import {
     SubmitOrderPayload,
@@ -72,10 +71,9 @@ import { orderIdGenerator } from "./order.utils";
 import { uuidRegex } from "../../constants/common";
 import config from "../../config";
 import { formatDateForEmail } from "../../utils/date-time";
-import { TransportRatesServices } from "../transport-rates/transport-rates.services";
 import { costEstimateGenerator } from "../../utils/cost-estimate";
-import { calculatePricingSummary } from "../../utils/pricing-engine";
 import { GoodsFormType, generateGoodsFormXlsx } from "../../utils/goods-form-xlsx";
+import { PricingService } from "../../services/pricing.service";
 import { validateMaintenanceFeasibilityForAssets } from "./order-feasibility.utils";
 
 const FULFILLMENT_READINESS_STATUSES = new Set([
@@ -84,6 +82,7 @@ const FULFILLMENT_READINESS_STATUSES = new Set([
     "IN_TRANSIT",
     "DELIVERED",
     "IN_USE",
+    "DERIG",
     "AWAITING_RETURN",
     "RETURN_IN_TRANSIT",
     "CLOSED",
@@ -243,138 +242,11 @@ const autoApproveBundledServiceRequests = async (
 
 // ----------------------------------- CALCULATE ESTIMATE -------------------------------------
 const calculateEstimate = async (
-    platformId: string,
-    companyId: string,
-    payload: CalculateEstimatePayload
+    _platformId: string,
+    _companyId: string,
+    _payload: CalculateEstimatePayload
 ) => {
-    // Step 1: Extract payload data
-    const { items, venue_city, trip_type } = payload;
-    const requestedTripType = trip_type || "ROUND_TRIP";
-
-    // Step 2: Fetch company information
-    const [company] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1);
-    if (!company) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found");
-    }
-
-    // Step 3: Fetch assets from the database
-    const assetIds = items.map((i) => i.asset_id);
-    const foundAssets = await db
-        .select()
-        .from(assets)
-        .where(and(inArray(assets.id, assetIds), eq(assets.platform_id, platformId)));
-
-    // Step 4: Calculate total volume of requested assets
-    let totalVolume = 0;
-    for (const item of items) {
-        const asset = foundAssets.find((a) => a.id === item.asset_id);
-        if (asset) {
-            totalVolume += parseFloat(asset.volume_per_unit) * item.quantity;
-        }
-    }
-
-    console.log("total volume: ", totalVolume);
-
-    // Step 5: Determine margin
-    const marginPercent = parseFloat(company.platform_margin_percent);
-
-    // Find the suitable vehicle type
-    // Find the suitable vehicle type
-    // We want the smallest vehicle that fits the volume (vehicle_size >= totalVolume)
-    let selectedVehicleType = (
-        await db
-            .select()
-            .from(vehicleTypes)
-            .where(
-                and(
-                    eq(vehicleTypes.platform_id, platformId),
-                    eq(vehicleTypes.is_active, true),
-                    gte(vehicleTypes.vehicle_size, totalVolume.toString())
-                )
-            )
-            .orderBy(asc(vehicleTypes.vehicle_size))
-            .limit(1)
-    )[0];
-
-    if (!selectedVehicleType) {
-        // Fallback to default vehicle
-        const defaultVehicle = await db.query.vehicleTypes.findFirst({
-            where: and(eq(vehicleTypes.is_default, true), eq(vehicleTypes.platform_id, platformId)),
-        });
-
-        if (defaultVehicle) {
-            selectedVehicleType = defaultVehicle;
-        } else {
-            // Fallback to check if it's a capacity issue or configuration issue
-            const [largestVehicle] = await db
-                .select()
-                .from(vehicleTypes)
-                .where(
-                    and(eq(vehicleTypes.platform_id, platformId), eq(vehicleTypes.is_active, true))
-                )
-                .orderBy(desc(vehicleTypes.vehicle_size))
-                .limit(1);
-
-            if (!largestVehicle) {
-                throw new CustomizedError(
-                    httpStatus.NOT_FOUND,
-                    "No vehicle types configuration found"
-                );
-            }
-
-            throw new CustomizedError(
-                httpStatus.BAD_REQUEST,
-                `Total volume (${totalVolume} m3) exceeds the capacity of the largest available vehicle (${largestVehicle.vehicle_size} m3)`
-            );
-        }
-    }
-
-    // Step 6: Lookup a suggested transport rate (indicative only)
-    const preferredRate = await TransportRatesServices.lookupTransportRate(
-        platformId,
-        companyId,
-        venue_city,
-        requestedTripType,
-        selectedVehicleType.id
-    );
-    const fallbackTripType = requestedTripType === "ROUND_TRIP" ? "ONE_WAY" : "ROUND_TRIP";
-    const fallbackRate = preferredRate
-        ? null
-        : await TransportRatesServices.lookupTransportRate(
-              platformId,
-              companyId,
-              venue_city,
-              fallbackTripType,
-              selectedVehicleType.id
-          );
-    const suggestedRate = Number(preferredRate?.rate || fallbackRate?.rate || 0);
-
-    // Step 7: Calculate indicative estimate total
-    const warehouseOpsRate = company.warehouse_ops_rate;
-    const baseOpsTotal = totalVolume * Number(warehouseOpsRate);
-    const estimateBaseTotal = baseOpsTotal + suggestedRate;
-    const estimateTotal = estimateBaseTotal * (1 + marginPercent / 100);
-
-    // Step 8: Prepare and return estimate response
-    return {
-        base_operations: {
-            volume: parseFloat(totalVolume.toFixed(3)),
-            rate: parseFloat(warehouseOpsRate),
-            total: parseFloat(baseOpsTotal.toFixed(2)),
-        },
-        suggested_transport: {
-            city: venue_city,
-            vehicle_type: selectedVehicleType.name,
-            estimated_rate: parseFloat(suggestedRate.toFixed(2)),
-            note: "Transport will be confirmed during pricing review",
-        },
-        margin: {
-            percent: parseFloat(marginPercent.toFixed(2)),
-        },
-        estimate_total: parseFloat(estimateTotal.toFixed(2)),
-        disclaimer:
-            "This is a preliminary estimate. Final pricing including transport will be confirmed during review.",
-    };
+    return { available: false, message: "Estimates are not currently available" };
 };
 
 // -------------------------------- CHECK MAINTENANCE FEASIBILITY -----------------------------
@@ -602,44 +474,21 @@ const submitOrderFromCart = async (
     // Step 5: Create base pricing without transport; transport is now explicit line items.
     const volume = parseFloat(calculatedVolume);
     const baseOpsTotal = Number(company.warehouse_ops_rate) * volume;
-    const pricingSummary = calculatePricingSummary({
-        base_ops_total: baseOpsTotal,
-        catalog_total: 0,
-        custom_total: 0,
-        margin_percent: Number(company.platform_margin_percent || 0),
-    });
-
-    const pricingDetails = {
+    const pricingDetails = PricingService.buildInitialPricing({
         platform_id: platformId,
         warehouse_ops_rate: company.warehouse_ops_rate,
-        base_ops_total: baseOpsTotal.toFixed(2),
-        logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
-        transport: {
-            system_rate: 0,
-            final_rate: 0,
-        },
-        line_items: {
-            catalog_total: 0,
-            custom_total: 0,
-        },
-        margin: {
-            percent: company.platform_margin_percent,
-            amount: pricingSummary.margin_amount,
-            is_override: false,
-            override_reason: null,
-        },
-        final_total: pricingSummary.final_total.toFixed(2),
-        calculated_at: new Date(),
+        base_ops_total: baseOpsTotal,
+        margin_percent: Number(company.platform_margin_percent || 0),
         calculated_by: user.id,
-    };
+    });
 
     // Pre-generate SR codes outside the transaction to avoid READ COMMITTED duplicate-code issue
     // (in-transaction inserts aren't visible to COUNT queries in the same transaction)
     const maintenanceItems = orderItemsData.filter((item) => item.requires_maintenance);
-    const srCodes: string[] = [];
-    for (const _ of maintenanceItems) {
-        srCodes.push(await buildServiceRequestCode(platformId));
-    }
+    const srCodes =
+        maintenanceItems.length > 0
+            ? await buildServiceRequestCodes(platformId, maintenanceItems.length)
+            : [];
 
     // Step 6: Create the order record
     const orderId = await orderIdGenerator(platformId);
@@ -942,10 +791,11 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
     }
 
     // Step 8: Map results
+    const isClient = user.role === "CLIENT";
     const ordersData = results.map((r) => ({
         id: r.order.id,
         order_id: r.order.order_id,
-        company: r.company,
+        company: isClient ? { ...r.company, platform_margin_percent: undefined } : r.company,
         brand: r.brand,
         created_by: r.order.created_by,
         job_number: r.order.job_number,
@@ -962,7 +812,7 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
         financial_status: r.order.financial_status,
         item_count: itemCounts[r.order.id] || 0,
         item_preview: itemPreviews[r.order.id] || [],
-        order_pricing: r.order_pricing,
+        order_pricing: PricingService.projectForRole(r.order_pricing, user.role),
         created_at: r.order.created_at,
         updated_at: r.order.updated_at,
     }));
@@ -1110,9 +960,9 @@ const getMyOrders = async (query: Record<string, any>, user: AuthUser, platformI
     const formattedData = results.map((r) => ({
         ...r.order,
         venue_city: r.venue_city?.name || null,
-        company: r.company,
+        company: { ...r.company, platform_margin_percent: undefined },
         brand: r.brand,
-        order_pricing: r.order_pricing,
+        order_pricing: PricingService.projectForRole(r.order_pricing, "CLIENT"),
     }));
 
     return {
@@ -1297,11 +1147,12 @@ const getOrderById = async (
             QUOTED: "Quote Ready",
             DECLINED: "Quote Declined",
             CONFIRMED: "Order Confirmed",
-            AWAITING_FABRICATION: "Custom Work In Progress",
             IN_PREPARATION: "Preparing Items",
             READY_FOR_DELIVERY: "Ready for Delivery",
             IN_TRANSIT: "In Transit",
             DELIVERED: "Delivered",
+            IN_USE: "In Use",
+            DERIG: "Derigging",
             AWAITING_RETURN: "Awaiting Pickup",
             RETURN_IN_TRANSIT: "Return In Transit",
             CLOSED: "Complete",
@@ -1310,7 +1161,10 @@ const getOrderById = async (
 
         return {
             ...orderData.order,
-            company: orderData.company,
+            company: {
+                ...orderData.company,
+                platform_margin_percent: undefined,
+            },
             brand: orderData.brand,
             user: orderData.user,
             items: itemResults,
@@ -1322,7 +1176,7 @@ const getOrderById = async (
                 notes: null,
             })),
             venue_city: orderData.venue_city?.name || null,
-            order_pricing: orderData.order_pricing,
+            order_pricing: PricingService.projectForRole(orderData.order_pricing, "CLIENT"),
             invoice: invoiceData,
         };
     }
@@ -1338,7 +1192,7 @@ const getOrderById = async (
         financial_status_history: financialHistory,
         order_status_history: orderHistory,
         venue_city: orderData.venue_city?.name || null,
-        order_pricing: orderData.order_pricing,
+        order_pricing: PricingService.projectForRole(orderData.order_pricing, user.role),
         invoice: invoiceData,
     };
 };
@@ -1541,15 +1395,14 @@ const progressOrderStatus = async (
     // Step 4.5: Validate date-based transitions
     const today = dayjs().startOf("day");
 
-    if (currentStatus === "AWAITING_FABRICATION" || currentStatus === "CONFIRMED") {
-        // fetch all assets item and check if all assets condition is GREEN
+    if (currentStatus === "CONFIRMED") {
+        // Verify all assets are GREEN before logistics can start preparation
         const assetsList = await db
             .select()
             .from(orderItems)
             .innerJoin(assets, eq(orderItems.asset_id, assets.id))
             .where(eq(orderItems.order_id, order.id));
 
-        // check if all assets condition is GREEN
         const allAssetsConditionGreen = assetsList.every(
             (asset) => asset.assets.condition === "GREEN"
         );
@@ -1557,7 +1410,7 @@ const progressOrderStatus = async (
         if (!allAssetsConditionGreen) {
             throw new CustomizedError(
                 httpStatus.BAD_REQUEST,
-                "All assets condition must be GREEN before transitioning to AWAITING_FABRICATION or CONFIRMED"
+                "All assets condition must be GREEN before transitioning from CONFIRMED to IN_PREPARATION"
             );
         }
     }
@@ -1730,11 +1583,12 @@ const getOrderStatusHistory = async (orderId: string, user: AuthUser, platformId
             QUOTED: "Quote Ready",
             DECLINED: "Quote Declined",
             CONFIRMED: "Order Confirmed",
-            AWAITING_FABRICATION: "Custom Work In Progress",
             IN_PREPARATION: "Preparing Items",
             READY_FOR_DELIVERY: "Ready for Delivery",
             IN_TRANSIT: "In Transit",
             DELIVERED: "Delivered",
+            IN_USE: "In Use",
+            DERIG: "Derigging",
             AWAITING_RETURN: "Awaiting Pickup",
             RETURN_IN_TRANSIT: "Return In Transit",
             CLOSED: "Complete",
@@ -2114,16 +1968,16 @@ const getClientOrderStatistics = async (companyId: string, platformId: string) =
     // Define status categories
     const activeOrderStatuses = [
         "CONFIRMED",
-        "AWAITING_FABRICATION",
         "IN_PREPARATION",
         "READY_FOR_DELIVERY",
         "IN_TRANSIT",
         "DELIVERED",
         "IN_USE",
+        "DERIG",
         "AWAITING_RETURN",
         "RETURN_IN_TRANSIT",
     ];
-    const upcomingEventStatuses = ["CONFIRMED", "AWAITING_FABRICATION", "IN_PREPARATION"];
+    const upcomingEventStatuses = ["CONFIRMED", "IN_PREPARATION"];
 
     // Process counts in memory
     let activeOrdersCount = 0;
@@ -2281,56 +2135,16 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
         );
     }
 
-    // Step 3: Get line items totals
-    const lineItemsTotals = await LineItemsServices.calculateOrderLineItemsTotals(
-        orderId,
-        platformId
-    );
-
-    // Step 4: Calculate final pricing
-    const marginOverride = !!(orderPricing?.margin as any)?.is_override;
-    const marginPercent = marginOverride
-        ? parseFloat((orderPricing.margin as any).percent)
-        : parseFloat(company.platform_margin_percent);
-    const marginOverrideReason = marginOverride
-        ? (orderPricing.margin as any).override_reason
-        : null;
-    const baseOpsTotal = Number(orderPricing.base_ops_total || 0);
-    const pricingSummary = calculatePricingSummary({
-        base_ops_total: baseOpsTotal,
-        catalog_total: lineItemsTotals.catalog_total,
-        custom_total: lineItemsTotals.custom_total,
-        margin_percent: marginPercent,
+    // Step 3: Recalculate pricing
+    await PricingService.recalculate({
+        entity_type: "ORDER",
+        entity_id: orderId,
+        platform_id: platformId,
+        calculated_by: user.id,
     });
 
-    const newPricing = {
-        base_ops_total: baseOpsTotal.toFixed(2),
-        logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
-        transport: {
-            system_rate: 0,
-            final_rate: 0,
-        },
-        line_items: {
-            catalog_total: lineItemsTotals.catalog_total,
-            custom_total: lineItemsTotals.custom_total,
-        },
-        margin: {
-            percent: marginPercent,
-            amount: pricingSummary.margin_amount,
-            is_override: marginOverride,
-            override_reason: marginOverrideReason,
-        },
-        final_total: pricingSummary.final_total.toFixed(2),
-        calculated_at: new Date(),
-        calculated_by: user.id,
-    };
-
-    // Step 5: Update order pricing and status
+    // Step 4: Update order status
     await db.transaction(async (tx) => {
-        // Step 5.1: Update order pricing
-        await tx.update(prices).set(newPricing).where(eq(prices.id, order.order_pricing_id));
-
-        // Step 5.2: Update order status
         await tx
             .update(orders)
             .set({
@@ -2339,7 +2153,6 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
             })
             .where(eq(orders.id, orderId));
 
-        // Step 5.3: Log status change
         await db.insert(orderStatusHistory).values({
             platform_id: platformId,
             order_id: orderId,
@@ -2422,35 +2235,19 @@ const adminApproveQuote = async (
 
     // Step 3: Update order pricing and status
     await db.transaction(async (tx) => {
-        // Step 3.1: Update pricing if margin override is provided
         if (margin_override_percent) {
-            const baseOpsTotal = Number(orderPricing.base_ops_total);
-            const catalogTotal = Number((orderPricing.line_items as any).catalog_total || 0);
-            const customTotal = Number((orderPricing.line_items as any).custom_total || 0);
-            const pricingSummary = calculatePricingSummary({
-                base_ops_total: baseOpsTotal,
-                catalog_total: catalogTotal,
-                custom_total: customTotal,
-                margin_percent: margin_override_percent,
+            const result = await PricingService.recalculate({
+                entity_type: "ORDER",
+                entity_id: orderId,
+                platform_id: platformId,
+                calculated_by: user.id,
+                set_margin_override: {
+                    percent: margin_override_percent,
+                    reason: margin_override_reason || null,
+                },
+                tx,
             });
-
-            finalTotal = pricingSummary.final_total.toFixed(2);
-
-            await tx
-                .update(prices)
-                .set({
-                    logistics_sub_total: pricingSummary.logistics_sub_total.toFixed(2),
-                    margin: {
-                        percent: margin_override_percent,
-                        amount: pricingSummary.margin_amount,
-                        is_override: true,
-                        override_reason: margin_override_reason,
-                    },
-                    final_total: pricingSummary.final_total.toFixed(2),
-                    calculated_at: new Date(),
-                    calculated_by: user.id,
-                })
-                .where(eq(prices.id, order.order_pricing_id));
+            finalTotal = result.final_total.toFixed(2);
         }
 
         // Step 3.2: Update order status
@@ -2477,7 +2274,7 @@ const adminApproveQuote = async (
         });
 
         // Step 3.4: Log financial status history
-        await db.insert(financialStatusHistory).values({
+        await tx.insert(financialStatusHistory).values({
             platform_id: platformId,
             order_id: orderId,
             status: newFinancialStatus,
@@ -2942,6 +2739,112 @@ const downloadGoodsForm = async (
     };
 };
 
+// ----------------------------------- SAVE DERIG CAPTURE ------------------------------------
+const saveDerigCapture = async (
+    orderId: string,
+    platformId: string,
+    items: { order_item_id: string; photos: string[]; notes?: string }[],
+    user: AuthUser
+) => {
+    const [order] = await db
+        .select({
+            id: orders.id,
+            order_status: orders.order_status,
+            platform_id: orders.platform_id,
+        })
+        .from(orders)
+        .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)));
+
+    if (!order) throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+
+    if (order.order_status !== "DERIG")
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Derig captures can only be saved when order is in DERIG status"
+        );
+
+    await Promise.all(
+        items.map(async (item) => {
+            const [existingItem] = await db
+                .select({ id: orderItems.id })
+                .from(orderItems)
+                .where(
+                    and(eq(orderItems.id, item.order_item_id), eq(orderItems.order_id, orderId))
+                );
+
+            if (!existingItem)
+                throw new CustomizedError(
+                    httpStatus.BAD_REQUEST,
+                    `Order item ${item.order_item_id} does not belong to this order`
+                );
+
+            await db
+                .update(orderItems)
+                .set({ derig_photos: item.photos, derig_notes: item.notes ?? null })
+                .where(eq(orderItems.id, item.order_item_id));
+        })
+    );
+
+    return { order_id: orderId, items_updated: items.length };
+};
+
+// ----------------------------------- RECALCULATE BASE OPS ------------------------------------
+const recalculateBaseOps = async (user: AuthUser, orderId: string, platformId: string) => {
+    const [orderRow] = await db
+        .select({
+            order: orders,
+            company: { warehouse_ops_rate: companies.warehouse_ops_rate },
+        })
+        .from(orders)
+        .leftJoin(companies, eq(orders.company_id, companies.id))
+        .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)))
+        .limit(1);
+
+    if (!orderRow?.order) throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    if (!orderRow.company) throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found");
+
+    const items = await db
+        .select({ quantity: orderItems.quantity, asset_id: orderItems.asset_id })
+        .from(orderItems)
+        .where(eq(orderItems.order_id, orderId));
+
+    const assetIds = items.map((i) => i.asset_id);
+    const assetRows =
+        assetIds.length > 0
+            ? await db
+                  .select({ id: assets.id, volume_per_unit: assets.volume_per_unit })
+                  .from(assets)
+                  .where(inArray(assets.id, assetIds))
+            : [];
+    const volumeMap = new Map(assetRows.map((a) => [a.id, parseFloat(a.volume_per_unit)]));
+
+    let totalVolume = 0;
+    for (const item of items) {
+        totalVolume += (volumeMap.get(item.asset_id) || 0) * item.quantity;
+    }
+
+    const baseOpsTotal = Number(orderRow.company.warehouse_ops_rate) * totalVolume;
+
+    const result = await PricingService.recalculate({
+        entity_type: "ORDER",
+        entity_id: orderId,
+        platform_id: platformId,
+        calculated_by: user.id,
+        base_ops_total_override: baseOpsTotal,
+    });
+
+    const existingTotals = (orderRow.order.calculated_totals || {}) as Record<string, any>;
+    await db
+        .update(orders)
+        .set({
+            calculated_totals: { ...existingTotals, volume: totalVolume.toFixed(3) },
+            updated_at: new Date(),
+        })
+        .where(eq(orders.id, orderId));
+
+    return { volume: totalVolume.toFixed(3), ...result };
+};
+
 export const OrderServices = {
     submitOrderFromCart,
     getOrders,
@@ -2965,4 +2868,6 @@ export const OrderServices = {
     checkMaintenanceFeasibility,
     downloadGoodsForm,
     updateMaintenanceDecision,
+    saveDerigCapture,
+    recalculateBaseOps,
 };

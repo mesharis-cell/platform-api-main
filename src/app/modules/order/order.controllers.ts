@@ -455,6 +455,36 @@ const getPendingApprovalOrders = catchAsync(async (req, res) => {
     });
 });
 
+const derigCapture = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const { id: orderId } = req.params;
+
+    const result = await OrderServices.saveDerigCapture(orderId, platformId, req.body.items, user);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Derig capture saved successfully",
+        data: result,
+    });
+});
+
+const recalculateBaseOps = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const { id } = req.params;
+
+    const result = await OrderServices.recalculateBaseOps(user, id as string, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Base operations recalculated from current asset dimensions.",
+        data: result,
+    });
+});
+
 export const OrderControllers = {
     calculateEstimate,
     checkMaintenanceFeasibility,
@@ -473,17 +503,12 @@ export const OrderControllers = {
     declineQuote,
     getOrderStatistics,
     sendInvoice,
-    // NEW CONTROLLERS
     getPendingApprovalOrders,
     submitForApproval,
     adminApproveQuote,
     returnToLogistics,
     cancelOrder,
     updateMaintenanceDecision,
-    // addOrderItem,
-    // removeOrderItem,
-    // updateOrderItemQuantity,
-    // adjustLogisticsPricing,
-    // getPricingReviewOrders,
-    // getOrderPricingDetails,
+    derigCapture,
+    recalculateBaseOps,
 };

@@ -11,11 +11,11 @@
  */
 
 import { companyFeatures } from "../app/constants/common";
+import { PERMISSION_TEMPLATES } from "../app/constants/permissions";
 import { lineItemIdGenerator } from "../app/modules/order-line-items/order-line-items.utils";
 import { db } from "./index";
 import * as schema from "./schema";
 import bcrypt from "bcrypt";
-import { sql } from "drizzle-orm";
 
 // ============================================================
 // TYPE ALIASES
@@ -31,12 +31,12 @@ type OrderStatus =
     | "QUOTED"
     | "DECLINED"
     | "CONFIRMED"
-    | "AWAITING_FABRICATION"
     | "IN_PREPARATION"
     | "READY_FOR_DELIVERY"
     | "IN_TRANSIT"
     | "DELIVERED"
     | "IN_USE"
+    | "DERIG"
     | "AWAITING_RETURN"
     | "RETURN_IN_TRANSIT"
     | "CLOSED"
@@ -95,8 +95,6 @@ const S = {
     warehouses: [] as any[],
     brands: [] as any[],
     zones: [] as any[],
-    vehicleTypes: [] as any[],
-    transportRates: [] as any[],
     serviceTypes: [] as any[],
     teams: [] as any[],
     assets: [] as any[],
@@ -265,74 +263,9 @@ async function seedUsers() {
     const pr = companyByName("Pernod Ricard");
     const dg = companyByName("Diageo");
 
-    const allPerms = [
-        "auth:*",
-        "users:*",
-        "companies:*",
-        "brands:*",
-        "warehouses:*",
-        "zones:*",
-        "pricing_tiers:*",
-        "orders:*",
-        "pricing:*",
-        "invoices:*",
-        "lifecycle:*",
-        "notifications:*",
-        "analytics:*",
-        "system:*",
-        "assets:*",
-        "collections:*",
-        "conditions:*",
-        "inventory:*",
-        "quotes:*",
-        "scanning:*",
-        "self_bookings:*",
-        "service_request:*",
-        "inbound_request:*",
-        "calendar:*",
-        "reports:*",
-    ];
-    const logisticsPerms = [
-        "auth:*",
-        "users:read",
-        "companies:read",
-        "brands:create",
-        "brands:read",
-        "brands:update",
-        "warehouses:create",
-        "warehouses:read",
-        "warehouses:update",
-        "zones:create",
-        "zones:read",
-        "zones:update",
-        "assets:*",
-        "collections:*",
-        "orders:read",
-        "orders:update",
-        "orders:add_time_windows",
-        "pricing:review",
-        "pricing:adjust",
-        "lifecycle:progress_status",
-        "lifecycle:receive_notifications",
-        "scanning:*",
-        "inventory:*",
-        "conditions:*",
-    ];
-    const clientPerms = [
-        "auth:*",
-        "companies:read",
-        "brands:read",
-        "assets:read",
-        "collections:read",
-        "orders:create",
-        "orders:read",
-        "orders:update",
-        "quotes:approve",
-        "quotes:decline",
-        "invoices:read",
-        "invoices:download",
-        "lifecycle:receive_notifications",
-    ];
+    const allPerms = PERMISSION_TEMPLATES.PLATFORM_ADMIN;
+    const logisticsPerms = PERMISSION_TEMPLATES.LOGISTICS_STAFF;
+    const clientPerms = PERMISSION_TEMPLATES.CLIENT_USER;
 
     const users = await db
         .insert(schema.users)
@@ -507,73 +440,6 @@ async function seedZones() {
     console.log(`✓ ${zones.length} zones`);
 }
 
-async function seedVehicleTypes() {
-    console.log("🚛 Seeding vehicle types...");
-    const pid = S.platform.id;
-    const types = await db
-        .insert(schema.vehicleTypes)
-        .values([
-            {
-                name: "Standard Truck",
-                vehicle_size: "15",
-                platform_id: pid,
-                description: "Standard delivery truck",
-                is_default: true,
-                display_order: 1,
-            },
-            {
-                name: "7 Ton Truck",
-                vehicle_size: "40",
-                platform_id: pid,
-                description: "Large truck up to 7 tons",
-                is_default: false,
-                display_order: 2,
-            },
-            {
-                name: "10 Ton Truck",
-                vehicle_size: "60",
-                platform_id: pid,
-                description: "Extra large truck up to 10 tons",
-                is_default: false,
-                display_order: 3,
-            },
-        ])
-        .returning();
-    S.vehicleTypes = types;
-    console.log(`✓ ${types.length} vehicle types`);
-}
-
-async function seedTransportRates() {
-    console.log("🚚 Seeding transport rates...");
-    const pid = S.platform.id;
-    const trips: ("ONE_WAY" | "ROUND_TRIP")[] = ["ONE_WAY", "ROUND_TRIP"];
-    const rates: any[] = [];
-
-    for (const city of S.cities) {
-        for (const trip of trips) {
-            for (const vt of S.vehicleTypes) {
-                const base =
-                    vt.name === "Standard Truck" ? 500 : vt.name === "7 Ton Truck" ? 800 : 1200;
-                const mult = trip === "ROUND_TRIP" ? 1.8 : 1;
-                rates.push({
-                    platform_id: pid,
-                    company_id: null,
-                    city_id: city.id,
-                    area: null,
-                    trip_type: trip,
-                    vehicle_type_id: vt.id,
-                    rate: (base * mult).toString(),
-                    is_active: true,
-                });
-            }
-        }
-    }
-
-    const inserted = await db.insert(schema.transportRates).values(rates).returning();
-    S.transportRates = inserted;
-    console.log(`✓ ${inserted.length} transport rates`);
-}
-
 async function seedServiceTypes() {
     console.log("🛠️  Seeding service types...");
     const pid = S.platform.id;
@@ -662,6 +528,34 @@ async function seedServiceTypes() {
             default_rate: "35.00",
             description: "Deep cleaning of returned items",
         },
+        {
+            name: "Transport - Dubai (One Way)",
+            category: "TRANSPORT" as const,
+            unit: "trip",
+            default_rate: "500.00",
+            description: "Standard transport to Dubai",
+        },
+        {
+            name: "Transport - Dubai (Round Trip)",
+            category: "TRANSPORT" as const,
+            unit: "trip",
+            default_rate: "900.00",
+            description: "Round trip transport to Dubai",
+        },
+        {
+            name: "Transport - Abu Dhabi (One Way)",
+            category: "TRANSPORT" as const,
+            unit: "trip",
+            default_rate: "800.00",
+            description: "Standard transport to Abu Dhabi",
+        },
+        {
+            name: "Transport - Abu Dhabi (Round Trip)",
+            category: "TRANSPORT" as const,
+            unit: "trip",
+            default_rate: "1440.00",
+            description: "Round trip transport to Abu Dhabi",
+        },
     ];
     const baseServices = await db
         .insert(schema.serviceTypes)
@@ -675,44 +569,8 @@ async function seedServiceTypes() {
         )
         .returning();
 
-    const defaultVehicle = S.vehicleTypes.find((v: any) => v.is_default) || S.vehicleTypes[0];
-    const cityNameById = new Map(S.cities.map((city: any) => [city.id, city.name]));
-    const transportServiceRows = S.transportRates
-        .filter(
-            (rate: any) => rate.company_id === null && rate.vehicle_type_id === defaultVehicle?.id
-        )
-        .map((rate: any, idx: number) => {
-            const cityName = cityNameById.get(rate.city_id) || "Unknown City";
-            const tripLabel = rate.trip_type === "ROUND_TRIP" ? "Round Trip" : "One Way";
-            return {
-                platform_id: pid,
-                name: `Transport - ${cityName} (${tripLabel})`,
-                category: "TRANSPORT" as const,
-                unit: "trip",
-                default_rate: rate.rate,
-                default_metadata: {
-                    city_id: rate.city_id,
-                    city_name: cityName,
-                    trip_direction: rate.trip_type,
-                    vehicle_type_id: rate.vehicle_type_id,
-                    vehicle_type_name: defaultVehicle?.name || null,
-                },
-                transport_rate_id: rate.id,
-                description: `Transport service synced from ${cityName} ${tripLabel} rate card`,
-                display_order: services.length + idx,
-                is_active: true,
-            };
-        });
-
-    const transportServices =
-        transportServiceRows.length > 0
-            ? await db.insert(schema.serviceTypes).values(transportServiceRows).returning()
-            : [];
-
-    S.serviceTypes = [...baseServices, ...transportServices];
-    console.log(
-        `✓ ${S.serviceTypes.length} service types (${baseServices.length} base + ${transportServices.length} transport)`
-    );
+    S.serviceTypes = baseServices;
+    console.log(`✓ ${baseServices.length} service types`);
 }
 
 // ============================================================
@@ -1206,18 +1064,6 @@ async function seedOrders() {
     const dgClient = userByEmail("client@diageo.com");
     const dubai = cityByName("Dubai");
     const abuDhabi = cityByName("Abu Dhabi");
-    const defaultVehicle = S.vehicleTypes.find((v: any) => v.is_default) || S.vehicleTypes[0];
-    const transportRateByCity = new Map(
-        S.transportRates
-            .filter(
-                (rate: any) =>
-                    rate.company_id === null &&
-                    rate.vehicle_type_id === defaultVehicle?.id &&
-                    rate.trip_type === "ROUND_TRIP"
-            )
-            .map((rate: any) => [rate.city_id, parseFloat(rate.rate)])
-    );
-
     // -------- ORDER DEFINITIONS --------
     const orderDefs = [
         // --- Pernod Ricard Orders ---
@@ -1347,7 +1193,7 @@ async function seedOrders() {
             company: dg,
             user: dgClient,
             brand: brandByName("Baileys"),
-            status: "AWAITING_FABRICATION" as OrderStatus,
+            status: "CONFIRMED" as OrderStatus,
             financial: "QUOTE_ACCEPTED" as FinancialStatus,
             venue: "Atlantis The Palm",
             cityId: dubai.id,
@@ -1376,11 +1222,28 @@ async function seedOrders() {
             instructions: "Return convoy includes 1 extra site-access vehicle.",
             label: "Return in transit",
         },
+        {
+            orderId: "ORD-20260224-010",
+            company: pr,
+            user: prClient,
+            brand: brandByName("Jameson"),
+            status: "DERIG" as OrderStatus,
+            financial: "INVOICED" as FinancialStatus,
+            venue: "Coca-Cola Arena",
+            cityId: dubai.id,
+            eventStart: daysFromNow(-2),
+            eventEnd: daysFromNow(0),
+            jobNumber: "JOB-2026-0010",
+            volume: 8.4,
+            marginPercent: 25,
+            instructions: "Logistics team on site for derig capture before loading.",
+            label: "Scenario: DERIG — active derig capture on site",
+        },
     ];
 
     for (const def of orderDefs) {
         const warehouseOpsRate = parseFloat(def.company.warehouse_ops_rate);
-        const transportRate = transportRateByCity.get(def.cityId) || 500;
+        const transportRate = 500;
         const catalogTotal = ["PRICING_REVIEW", "DRAFT"].includes(def.status)
             ? 0
             : Number((150 + transportRate).toFixed(2));
@@ -1940,6 +1803,12 @@ async function seedServiceRequests() {
             cancelled_at: null,
             cancelled_by: null,
             cancellation_reason: null,
+            photos: [
+                "https://kadence-assets-dev.s3.amazonaws.com/demo/sr-refurb-before.jpg",
+                "https://kadence-assets-dev.s3.amazonaws.com/demo/sr-refurb-after.jpg",
+            ],
+            work_notes:
+                "Frame straightened, worn upholstery panels replaced with matching fabric. Hardware (bolts, brackets) fully replaced. Surface sanded and refinished. Final QC passed — item back to GREEN condition.",
             status_path: [
                 "SUBMITTED",
                 "IN_REVIEW",
@@ -2065,6 +1934,8 @@ async function seedServiceRequests() {
                 cancelled_at: def.cancelled_at,
                 cancelled_by: def.cancelled_by,
                 cancellation_reason: def.cancellation_reason,
+                photos: (def as any).photos ?? [],
+                work_notes: (def as any).work_notes ?? null,
                 created_at: def.created_at,
                 updated_at: def.updated_at,
             })
@@ -2194,7 +2065,7 @@ async function seedAssetBookings() {
         "DELIVERED",
         "AWAITING_RETURN",
         "RETURN_IN_TRANSIT",
-        "AWAITING_FABRICATION",
+        "DERIG",
     ];
     let count = 0;
 
@@ -2235,6 +2106,7 @@ async function seedScanEvents() {
                 "IN_TRANSIT",
                 "DELIVERED",
                 "IN_USE",
+                "DERIG",
                 "AWAITING_RETURN",
                 "RETURN_IN_TRANSIT",
                 "CLOSED",
@@ -2322,14 +2194,6 @@ function getStatusProgression(finalStatus: string): string[] {
         PENDING_APPROVAL: ["DRAFT", "PRICING_REVIEW", "PENDING_APPROVAL"],
         QUOTED: ["DRAFT", "PRICING_REVIEW", "PENDING_APPROVAL", "QUOTED"],
         CONFIRMED: ["DRAFT", "PRICING_REVIEW", "PENDING_APPROVAL", "QUOTED", "CONFIRMED"],
-        AWAITING_FABRICATION: [
-            "DRAFT",
-            "PRICING_REVIEW",
-            "PENDING_APPROVAL",
-            "QUOTED",
-            "CONFIRMED",
-            "AWAITING_FABRICATION",
-        ],
         IN_PREPARATION: [
             "DRAFT",
             "PRICING_REVIEW",
@@ -2380,6 +2244,19 @@ function getStatusProgression(finalStatus: string): string[] {
             "DELIVERED",
             "IN_USE",
         ],
+        DERIG: [
+            "DRAFT",
+            "PRICING_REVIEW",
+            "PENDING_APPROVAL",
+            "QUOTED",
+            "CONFIRMED",
+            "IN_PREPARATION",
+            "READY_FOR_DELIVERY",
+            "IN_TRANSIT",
+            "DELIVERED",
+            "IN_USE",
+            "DERIG",
+        ],
         AWAITING_RETURN: [
             "DRAFT",
             "PRICING_REVIEW",
@@ -2390,6 +2267,8 @@ function getStatusProgression(finalStatus: string): string[] {
             "READY_FOR_DELIVERY",
             "IN_TRANSIT",
             "DELIVERED",
+            "IN_USE",
+            "DERIG",
             "AWAITING_RETURN",
         ],
         RETURN_IN_TRANSIT: [
@@ -2402,6 +2281,8 @@ function getStatusProgression(finalStatus: string): string[] {
             "READY_FOR_DELIVERY",
             "IN_TRANSIT",
             "DELIVERED",
+            "IN_USE",
+            "DERIG",
             "AWAITING_RETURN",
             "RETURN_IN_TRANSIT",
         ],
@@ -2415,6 +2296,8 @@ function getStatusProgression(finalStatus: string): string[] {
             "READY_FOR_DELIVERY",
             "IN_TRANSIT",
             "DELIVERED",
+            "IN_USE",
+            "DERIG",
             "AWAITING_RETURN",
             "CLOSED",
         ],
@@ -2451,7 +2334,7 @@ const statusNotes: Record<string, string> = {
     PENDING_APPROVAL: "Awaiting admin approval",
     QUOTED: "Quote sent to client",
     CONFIRMED: "Client approved quote",
-    AWAITING_FABRICATION: "Awaiting fabrication completion",
+    DERIG: "Derigging on site",
     IN_PREPARATION: "Items being prepared",
     READY_FOR_DELIVERY: "Ready for pickup",
     IN_TRANSIT: "En route to venue",
@@ -2497,6 +2380,8 @@ async function seedOrderHistory() {
                 "READY_FOR_DELIVERY",
                 "IN_TRANSIT",
                 "DELIVERED",
+                "IN_USE",
+                "DERIG",
                 "AWAITING_RETURN",
                 "RETURN_IN_TRANSIT",
                 "CLOSED",
@@ -3425,14 +3310,6 @@ async function seedInboundRequests() {
 async function cleanup() {
     console.log("🧹 Cleaning up existing data...");
     try {
-        try {
-            await db.execute(
-                sql`UPDATE transport_rates SET trip_type = 'ONE_WAY' WHERE trip_type = 'ADDITIONAL'`
-            );
-        } catch (_) {
-            /* ignore */
-        }
-
         const safeDelete = async (label: string, fn: () => Promise<unknown>) => {
             try {
                 await fn();
@@ -3469,7 +3346,6 @@ async function cleanup() {
         await safeDelete("collections", () => db.delete(schema.collections));
         await safeDelete("assets", () => db.delete(schema.assets));
         await safeDelete("service_types", () => db.delete(schema.serviceTypes));
-        await safeDelete("transport_rates", () => db.delete(schema.transportRates));
         await safeDelete("self_booking_items", () => db.delete(schema.selfBookingItems));
         await safeDelete("self_bookings", () => db.delete(schema.selfBookings));
         await safeDelete("cities", () => db.delete(schema.cities));
@@ -3480,7 +3356,6 @@ async function cleanup() {
         await safeDelete("users", () => db.delete(schema.users));
         await safeDelete("companies", () => db.delete(schema.companies));
         await safeDelete("warehouses", () => db.delete(schema.warehouses));
-        await safeDelete("vehicle_types", () => db.delete(schema.vehicleTypes));
         await safeDelete("platforms", () => db.delete(schema.platforms));
         console.log("✓ Cleanup complete\n");
     } catch (error) {
@@ -3512,10 +3387,8 @@ async function main() {
         await seedUsers();
         await seedBrands();
         await seedZones();
-        await seedVehicleTypes();
 
         // Phase 2: Pricing config
-        await seedTransportRates();
         await seedServiceTypes();
 
         // Phase 3: Assets & collections

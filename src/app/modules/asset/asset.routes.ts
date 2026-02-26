@@ -114,6 +114,15 @@ router.get(
     AssetControllers.getAssetVersions
 );
 
+// Get asset order history (bookings + scan events + derig captures)
+router.get(
+    "/:id/order-history",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.ASSETS_READ),
+    AssetControllers.getAssetOrderHistory
+);
+
 // Update asset
 router.patch(
     "/:id",

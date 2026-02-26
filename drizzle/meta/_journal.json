@@ -99,6 +99,13 @@
             "when": 1771170416590,
             "tag": "0013_worried_nomad",
             "breakpoints": true
+        },
+        {
+            "idx": 14,
+            "version": "7",
+            "when": 1772095107780,
+            "tag": "0014_remove_transport_vehicle",
+            "breakpoints": true
         }
     ]
 }

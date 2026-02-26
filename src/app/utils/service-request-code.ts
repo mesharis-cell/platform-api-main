@@ -1,18 +1,18 @@
-import { and, count, eq, gte, lt } from "drizzle-orm";
+import { and, count, eq, ilike } from "drizzle-orm";
 import { db } from "../../db";
 import { serviceRequests } from "../../db/schema";
 
 /**
- * Generates a unique service request code in the format SR-YYYYMMDD-NNNN.
- * Must be called outside of a transaction — Postgres READ COMMITTED isolation means
- * in-transaction inserts are not visible to COUNT queries in the same transaction,
- * which would produce duplicate codes for multi-item batches.
+ * Generates N unique service request codes in the format SR-YYYYMMDD-NNNN.
+ * Queries the DB once and returns sequential codes for the entire batch.
  */
-export const buildServiceRequestCode = async (platformId: string): Promise<string> => {
+export const buildServiceRequestCodes = async (
+    platformId: string,
+    quantity: number = 1
+): Promise<string[]> => {
     const now = new Date();
     const dateCode = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    const prefix = `SR-${dateCode}-`;
 
     const [row] = await db
         .select({ count: count() })
@@ -20,11 +20,19 @@ export const buildServiceRequestCode = async (platformId: string): Promise<strin
         .where(
             and(
                 eq(serviceRequests.platform_id, platformId),
-                gte(serviceRequests.created_at, start),
-                lt(serviceRequests.created_at, end)
+                ilike(serviceRequests.service_request_id, `${prefix}%`)
             )
         );
 
-    const sequence = String(Number(row?.count || 0) + 1).padStart(4, "0");
-    return `SR-${dateCode}-${sequence}`;
+    const start = Number(row?.count || 0) + 1;
+    return Array.from(
+        { length: quantity },
+        (_, i) => `${prefix}${String(start + i).padStart(4, "0")}`
+    );
+};
+
+/** Convenience wrapper when only one code is needed. */
+export const buildServiceRequestCode = async (platformId: string): Promise<string> => {
+    const [code] = await buildServiceRequestCodes(platformId, 1);
+    return code;
 };
