@@ -33,8 +33,7 @@ import {
     inboundRequestQueryValidationConfig,
     inboundRequestSortableFields,
 } from "./inbound-request.utils";
-import { inboundRequestInvoiceGenerator } from "../../utils/inbound-request-invoice";
-import { inboundRequestCostEstimateGenerator } from "../../utils/inbound-request-cost-estimate";
+import { DocumentService } from "../../services/document.service";
 import config from "../../config";
 import { eventBus, EVENT_TYPES } from "../../events";
 import { PricingService } from "../../services/pricing.service";
@@ -266,13 +265,9 @@ const getInboundRequests = async (
                 email: users.email,
             },
             request_pricing: {
-                warehouse_ops_rate: prices.warehouse_ops_rate,
                 base_ops_total: prices.base_ops_total,
-                logistics_sub_total: prices.logistics_sub_total,
+                margin_percent: prices.margin_percent,
                 final_total: prices.final_total,
-                line_items: prices.line_items,
-                margin: prices.margin,
-                calculated_by: prices.calculated_by,
                 calculated_at: prices.calculated_at,
             },
         })
@@ -289,7 +284,7 @@ const getInboundRequests = async (
     const [countResult] = await db
         .select({ count: count() })
         .from(inboundRequests)
-        .leftJoin(companies, eq(inboundRequests.company_id, companies.id)) // Join needed for search filtering
+        .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
         .where(and(...conditions));
 
     const total = countResult?.count || 0;
@@ -304,7 +299,7 @@ const getInboundRequests = async (
         financial_status: result.request.financial_status,
         company: result.company,
         requester: result.requester,
-        request_pricing: PricingService.projectForRole(result.request_pricing, user.role),
+        request_pricing: PricingService.projectSummaryForRole(result.request_pricing, user.role),
         created_at: result.request.created_at,
         updated_at: result.request.updated_at,
     }));
@@ -353,11 +348,10 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
             request_pricing: {
                 warehouse_ops_rate: prices.warehouse_ops_rate,
                 base_ops_total: prices.base_ops_total,
-                logistics_sub_total: prices.logistics_sub_total,
+                margin_percent: prices.margin_percent,
+                margin_is_override: prices.margin_is_override,
+                margin_override_reason: prices.margin_override_reason,
                 final_total: prices.final_total,
-                line_items: prices.line_items,
-                margin: prices.margin,
-                calculated_by: prices.calculated_by,
                 calculated_at: prices.calculated_at,
             },
         })
@@ -413,7 +407,11 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
         financial_status: result.request.financial_status,
         company: result.company,
         requester: result.requester,
-        request_pricing: PricingService.projectForRole(result.request_pricing, user.role),
+        request_pricing: PricingService.projectForRole(
+            result.request_pricing,
+            lineItemsData,
+            user.role
+        ),
         items: items.map((item) => ({
             ...item.item,
             asset: item.asset,
@@ -440,10 +438,9 @@ const submitForApproval = async (requestId: string, user: AuthUser, platformId: 
             request_pricing: {
                 warehouse_ops_rate: prices.warehouse_ops_rate,
                 base_ops_total: prices.base_ops_total,
-                logistics_sub_total: prices.logistics_sub_total,
-                transport: prices.transport,
-                line_items: prices.line_items,
-                margin: prices.margin,
+                margin_percent: prices.margin_percent,
+                margin_is_override: prices.margin_is_override,
+                margin_override_reason: prices.margin_override_reason,
                 final_total: prices.final_total,
                 calculated_at: prices.calculated_at,
             },
@@ -557,10 +554,9 @@ const approveInboundRequestByAdmin = async (
             request_pricing: {
                 warehouse_ops_rate: prices.warehouse_ops_rate,
                 base_ops_total: prices.base_ops_total,
-                logistics_sub_total: prices.logistics_sub_total,
-                transport: prices.transport,
-                line_items: prices.line_items,
-                margin: prices.margin,
+                margin_percent: prices.margin_percent,
+                margin_is_override: prices.margin_is_override,
+                margin_override_reason: prices.margin_override_reason,
                 final_total: prices.final_total,
                 calculated_at: prices.calculated_at,
             },
@@ -774,10 +770,10 @@ const updateInboundRequestItem = async (
                 id: prices.id,
                 warehouse_ops_rate: prices.warehouse_ops_rate,
                 base_ops_total: prices.base_ops_total,
-                logistics_sub_total: prices.logistics_sub_total,
+                margin_percent: prices.margin_percent,
+                margin_is_override: prices.margin_is_override,
+                margin_override_reason: prices.margin_override_reason,
                 final_total: prices.final_total,
-                line_items: prices.line_items,
-                margin: prices.margin,
                 calculated_by: prices.calculated_by,
                 calculated_at: prices.calculated_at,
             },
@@ -901,7 +897,7 @@ const updateInboundRequestItem = async (
     });
 
     // Step 7.5: Regenerate cost estimate PDF
-    await inboundRequestCostEstimateGenerator(requestId, platformId, true);
+    await DocumentService.regenerateEstimate("INBOUND_REQUEST", requestId, platformId);
 
     return updatedItem;
 };
@@ -977,10 +973,10 @@ const completeInboundRequest = async (
             request_pricing: {
                 warehouse_ops_rate: prices.warehouse_ops_rate,
                 base_ops_total: prices.base_ops_total,
-                logistics_sub_total: prices.logistics_sub_total,
+                margin_percent: prices.margin_percent,
+                margin_is_override: prices.margin_is_override,
+                margin_override_reason: prices.margin_override_reason,
                 final_total: prices.final_total,
-                line_items: prices.line_items,
-                margin: prices.margin,
                 calculated_by: prices.calculated_by,
                 calculated_at: prices.calculated_at,
             },
@@ -1196,7 +1192,12 @@ const completeInboundRequest = async (
     });
 
     // Step 7: Generate invoice
-    const { invoice_id } = await inboundRequestInvoiceGenerator(requestId, platformId, user);
+    const { invoice_id } = await DocumentService.generateInvoice(
+        "INBOUND_REQUEST",
+        requestId,
+        platformId,
+        { user }
+    );
 
     // Step 8: Emit inbound_request.completed and inbound_request.invoice_generated events
     await eventBus.emit({
@@ -1271,10 +1272,10 @@ const updateInboundRequest = async (
                 id: prices.id,
                 warehouse_ops_rate: prices.warehouse_ops_rate,
                 base_ops_total: prices.base_ops_total,
-                logistics_sub_total: prices.logistics_sub_total,
+                margin_percent: prices.margin_percent,
+                margin_is_override: prices.margin_is_override,
+                margin_override_reason: prices.margin_override_reason,
                 final_total: prices.final_total,
-                line_items: prices.line_items,
-                margin: prices.margin,
                 calculated_by: prices.calculated_by,
                 calculated_at: prices.calculated_at,
             },

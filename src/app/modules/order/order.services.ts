@@ -71,7 +71,7 @@ import { orderIdGenerator } from "./order.utils";
 import { uuidRegex } from "../../constants/common";
 import config from "../../config";
 import { formatDateForEmail } from "../../utils/date-time";
-import { costEstimateGenerator } from "../../utils/cost-estimate";
+import { DocumentService } from "../../services/document.service";
 import { GoodsFormType, generateGoodsFormXlsx } from "../../utils/goods-form-xlsx";
 import { PricingService } from "../../services/pricing.service";
 import { validateMaintenanceFeasibilityForAssets } from "./order-feasibility.utils";
@@ -737,12 +737,8 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
                 name: cities.name,
             },
             order_pricing: {
-                warehouse_ops_rate: prices.warehouse_ops_rate,
                 base_ops_total: prices.base_ops_total,
-                logistics_sub_total: prices.logistics_sub_total,
-                transport: prices.transport,
-                line_items: prices.line_items,
-                margin: prices.margin,
+                margin_percent: prices.margin_percent,
                 final_total: prices.final_total,
                 calculated_at: prices.calculated_at,
             },
@@ -812,7 +808,7 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
         financial_status: r.order.financial_status,
         item_count: itemCounts[r.order.id] || 0,
         item_preview: itemPreviews[r.order.id] || [],
-        order_pricing: PricingService.projectForRole(r.order_pricing, user.role),
+        order_pricing: PricingService.projectSummaryForRole(r.order_pricing, user.role),
         created_at: r.order.created_at,
         updated_at: r.order.updated_at,
     }));
@@ -931,12 +927,8 @@ const getMyOrders = async (query: Record<string, any>, user: AuthUser, platformI
                 name: cities.name,
             },
             order_pricing: {
-                warehouse_ops_rate: prices.warehouse_ops_rate,
                 base_ops_total: prices.base_ops_total,
-                logistics_sub_total: prices.logistics_sub_total,
-                transport: prices.transport,
-                line_items: prices.line_items,
-                margin: prices.margin,
+                margin_percent: prices.margin_percent,
                 final_total: prices.final_total,
                 calculated_at: prices.calculated_at,
             },
@@ -962,7 +954,7 @@ const getMyOrders = async (query: Record<string, any>, user: AuthUser, platformI
         venue_city: r.venue_city?.name || null,
         company: { ...r.company, platform_margin_percent: undefined },
         brand: r.brand,
-        order_pricing: PricingService.projectForRole(r.order_pricing, "CLIENT"),
+        order_pricing: PricingService.projectSummaryForRole(r.order_pricing, "CLIENT"),
     }));
 
     return {
@@ -1019,10 +1011,9 @@ const getOrderById = async (
             order_pricing: {
                 warehouse_ops_rate: prices.warehouse_ops_rate,
                 base_ops_total: prices.base_ops_total,
-                logistics_sub_total: prices.logistics_sub_total,
-                transport: prices.transport,
-                line_items: prices.line_items,
-                margin: prices.margin,
+                margin_percent: prices.margin_percent,
+                margin_is_override: prices.margin_is_override,
+                margin_override_reason: prices.margin_override_reason,
                 final_total: prices.final_total,
                 calculated_at: prices.calculated_at,
             },
@@ -1176,7 +1167,11 @@ const getOrderById = async (
                 notes: null,
             })),
             venue_city: orderData.venue_city?.name || null,
-            order_pricing: PricingService.projectForRole(orderData.order_pricing, "CLIENT"),
+            order_pricing: PricingService.projectForRole(
+                orderData.order_pricing,
+                lineItems,
+                "CLIENT"
+            ),
             invoice: invoiceData,
         };
     }
@@ -1192,7 +1187,7 @@ const getOrderById = async (
         financial_status_history: financialHistory,
         order_status_history: orderHistory,
         venue_city: orderData.venue_city?.name || null,
-        order_pricing: PricingService.projectForRole(orderData.order_pricing, user.role),
+        order_pricing: PricingService.projectForRole(orderData.order_pricing, lineItems, user.role),
         invoice: invoiceData,
     };
 };
@@ -2101,9 +2096,9 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
             order_pricing: {
                 warehouse_ops_rate: prices.warehouse_ops_rate,
                 base_ops_total: prices.base_ops_total,
-                logistics_sub_total: prices.logistics_sub_total,
-                line_items: prices.line_items,
-                margin: prices.margin,
+                margin_percent: prices.margin_percent,
+                margin_is_override: prices.margin_is_override,
+                margin_override_reason: prices.margin_override_reason,
                 final_total: prices.final_total,
                 calculated_at: prices.calculated_at,
             },
@@ -2193,9 +2188,9 @@ const adminApproveQuote = async (
             order_pricing: {
                 warehouse_ops_rate: prices.warehouse_ops_rate,
                 base_ops_total: prices.base_ops_total,
-                logistics_sub_total: prices.logistics_sub_total,
-                line_items: prices.line_items,
-                margin: prices.margin,
+                margin_percent: prices.margin_percent,
+                margin_is_override: prices.margin_is_override,
+                margin_override_reason: prices.margin_override_reason,
                 final_total: prices.final_total,
                 calculated_at: prices.calculated_at,
             },
@@ -2284,7 +2279,10 @@ const adminApproveQuote = async (
     });
 
     // Generate/update cost estimate PDF after approval.
-    await costEstimateGenerator(orderId, platformId, user, true);
+    await DocumentService.generateEstimate("ORDER", orderId, platformId, {
+        regenerate: true,
+        generatedByUserId: user.id,
+    });
 
     // Step 4: Emit quote.sent event
     await eventBus.emit({
@@ -2300,13 +2298,13 @@ const adminApproveQuote = async (
             company_name: company?.name || "N/A",
             contact_name: order.contact_name,
             contact_email: order.contact_email,
-            final_total: String(orderPricing?.final_total || "0"),
-            line_items: (orderPricing?.line_items as any)?.items || [],
+            final_total: finalTotal || String(orderPricing?.final_total || "0"),
+            line_items: [],
             pricing: {
                 base_ops_total: String(orderPricing?.base_ops_total || "0"),
-                logistics_sub_total: String(orderPricing?.logistics_sub_total || "0"),
-                margin_amount: String((orderPricing?.margin as any)?.amount || "0"),
-                final_total: String(orderPricing?.final_total || "0"),
+                logistics_sub_total: String(orderPricing?.base_ops_total || "0"),
+                margin_amount: "0",
+                final_total: finalTotal || String(orderPricing?.final_total || "0"),
             },
             cost_estimate_url: `${config.server_url}/client/v1/invoice/download-cost-estimate-pdf/${order.order_id}?pid=${platformId}`,
             order_url: "",

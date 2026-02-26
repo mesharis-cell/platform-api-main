@@ -20,7 +20,7 @@ import {
     OutboundScanPayload,
     OutboundScanResponse,
 } from "./scanning.interfaces";
-import { invoiceGenerator } from "../../utils/invoice";
+import { DocumentService } from "../../services/document.service";
 import { eventBus, EVENT_TYPES } from "../../events";
 import config from "../../config";
 
@@ -448,7 +448,9 @@ const completeInboundScan = async (
         },
     });
 
-    const { invoice_id } = await invoiceGenerator(orderId, platformId, false, user);
+    const { invoice_id } = await DocumentService.generateInvoice("ORDER", orderId, platformId, {
+        user,
+    });
 
     if (invoice_id) {
         await eventBus.emit({

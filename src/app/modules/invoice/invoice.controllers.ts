@@ -8,7 +8,7 @@ import { companies, inboundRequests, orders, serviceRequests } from "../../../db
 import { and, eq } from "drizzle-orm";
 import CustomizedError from "../../error/customized-error";
 import { getRequiredString } from "../../utils/request";
-import { serviceRequestCostEstimateGenerator } from "../../utils/service-request-cost-estimate";
+import { DocumentService } from "../../services/document.service";
 
 const resolvePlatformId = (req: any) =>
     getRequiredString(
@@ -237,7 +237,7 @@ const downloadServiceRequestCostEstimatePDF = catchAsync(async (req, res) => {
     try {
         buffer = await getPDFBufferFromS3(s3Key);
     } catch (_) {
-        await serviceRequestCostEstimateGenerator(serviceRequest.id, platformId, true);
+        await DocumentService.regenerateEstimate("SERVICE_REQUEST", serviceRequest.id, platformId);
         buffer = await getPDFBufferFromS3(s3Key);
     }
 

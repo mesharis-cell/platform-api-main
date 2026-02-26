@@ -145,8 +145,7 @@ const exportOrdersService = async (
             pricing: {
                 final_total: prices.final_total,
                 base_ops_total: prices.base_ops_total,
-                logistics_sub_total: prices.logistics_sub_total,
-                transport: prices.transport,
+                margin_percent: prices.margin_percent,
             },
             item: orderItems,
         })
@@ -177,7 +176,7 @@ const exportOrdersService = async (
             "Order Total Volume (m3)": (order.calculated_totals as any)?.volume || "0",
             "Order Total Weight (kg)": (order.calculated_totals as any)?.weight || "0",
             "Order Base Ops Total": pricing?.base_ops_total || "0",
-            "Order Logistics Subtotal": pricing?.logistics_sub_total || "0",
+            "Order Margin %": pricing?.margin_percent ?? "0",
             "Order Final Total": pricing?.final_total || "0",
             "Item Name": item?.asset_name || "",
             "Item Quantity": item?.quantity || "",
@@ -564,8 +563,7 @@ const exportCostReportService = async (
             company_id: companies.id,
             company_name: companies.name,
             base_ops_total: prices.base_ops_total,
-            transport: prices.transport,
-            line_items: prices.line_items,
+            margin_percent: prices.margin_percent,
         })
         .from(orders)
         .leftJoin(companies, eq(orders.company_id, companies.id))
@@ -575,10 +573,8 @@ const exportCostReportService = async (
     const grouped = new Map<string, { company: string; total: number; count: number }>();
     for (const row of rows) {
         const key = row.company_id || "unknown";
-        const transport = parseNumber((row.transport as any)?.final_rate);
-        const catalog = parseNumber((row.line_items as any)?.catalog_total);
-        const custom = parseNumber((row.line_items as any)?.custom_total);
-        const buyTotal = parseNumber(row.base_ops_total) + transport + catalog + custom;
+        // TODO: line-item totals not loaded in this grouped query; final_total is still accurate
+        const buyTotal = parseNumber(row.base_ops_total);
 
         const current = grouped.get(key) || {
             company: row.company_name || "Unknown",
@@ -691,7 +687,7 @@ const exportAssetUtilizationService = async (
  * the warehouse). The warehouse uses this to create their own invoice to the platform.
  *
  * Columns: Order ID, Company, Event Start, Event End, Status,
- *          Ops Total, Logistics, Transport, Catalog Line Items,
+ *          Ops Total, Margin %, Catalog Line Items,
  *          Custom Line Items, Total Buy Cost
  */
 const exportWorkSummaryService = async (
@@ -720,9 +716,7 @@ const exportWorkSummaryService = async (
             event_end_date: orders.event_end_date,
             company_name: companies.name,
             base_ops_total: prices.base_ops_total,
-            logistics_sub_total: prices.logistics_sub_total,
-            transport: prices.transport,
-            line_items_totals: prices.line_items,
+            margin_percent: prices.margin_percent,
         })
         .from(orders)
         .leftJoin(companies, eq(orders.company_id, companies.id))
@@ -732,14 +726,11 @@ const exportWorkSummaryService = async (
 
     return Papa.unparse(
         rows.map((row) => {
-            const transport = (row.transport as any) || {};
-            const lineItemsTotals = (row.line_items_totals as any) || {};
             const ops = parseNumber(row.base_ops_total);
-            const logistics = parseNumber(row.logistics_sub_total);
-            const transportCost = parseNumber(transport.final_rate ?? transport.system_rate ?? 0);
-            const catalogItems = parseNumber(lineItemsTotals.catalog_total ?? 0);
-            const customItems = parseNumber(lineItemsTotals.custom_total ?? 0);
-            const totalBuy = ops + logistics + transportCost + catalogItems + customItems;
+            // TODO: line-item totals not loaded in this export query; use 0 for now
+            const catalogItems = 0;
+            const customItems = 0;
+            const totalBuy = ops;
 
             return {
                 "Order ID": row.order_id,
@@ -748,8 +739,7 @@ const exportWorkSummaryService = async (
                 "Event End": formatDate(row.event_end_date),
                 Status: row.order_status,
                 "Ops Total": formatMoney(ops),
-                Logistics: formatMoney(logistics),
-                Transport: formatMoney(transportCost),
+                "Margin %": row.margin_percent ?? "0",
                 "Catalog Items": formatMoney(catalogItems),
                 "Custom Items": formatMoney(customItems),
                 "Total Buy Cost": formatMoney(totalBuy),

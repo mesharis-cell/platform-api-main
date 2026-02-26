@@ -19,7 +19,7 @@ import paginationMaker from "../../utils/pagination-maker";
 import { invoiceQueryValidationConfig, invoiceSortableFields } from "./invoice.utils";
 import { uuidRegex } from "../../constants/common";
 import { ConfirmPaymentPayload, GenerateInvoicePayload } from "./invoice.interfaces";
-import { invoiceGenerator, serviceRequestInvoiceGenerator } from "../../utils/invoice";
+import { DocumentService } from "../../services/document.service";
 import config from "../../config";
 import { eventBus, EVENT_TYPES } from "../../events";
 import {
@@ -85,12 +85,8 @@ const getInvoiceById = async (invoiceId: string, user: AuthUser, platformId: str
                 name: companies.name,
             },
             pricing: {
-                warehouse_ops_rate: prices.warehouse_ops_rate,
                 base_ops_total: prices.base_ops_total,
-                logistics_sub_total: prices.logistics_sub_total,
-                transport: prices.transport,
-                line_items: prices.line_items,
-                margin: prices.margin,
+                margin_percent: prices.margin_percent,
                 final_total: prices.final_total,
                 calculated_at: prices.calculated_at,
             },
@@ -130,7 +126,7 @@ const getInvoiceById = async (invoiceId: string, user: AuthUser, platformId: str
     }
 
     // Step 5: Format and return result
-    const visiblePricing = PricingService.projectForRole(result.pricing, user.role);
+    const visiblePricing = PricingService.projectSummaryForRole(result.pricing, user.role);
     return {
         id: result.invoice.id,
         invoice_id: result.invoice.invoice_id,
@@ -308,12 +304,8 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
                 name: companies.name,
             },
             pricing: {
-                warehouse_ops_rate: prices.warehouse_ops_rate,
                 base_ops_total: prices.base_ops_total,
-                logistics_sub_total: prices.logistics_sub_total,
-                transport: prices.transport,
-                line_items: prices.line_items,
-                margin: prices.margin,
+                margin_percent: prices.margin_percent,
                 final_total: prices.final_total,
                 calculated_at: prices.calculated_at,
             },
@@ -351,7 +343,7 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
     // Step 7: Format results
     const formattedResults = results.map((item) => {
         const { invoice, order, inbound_request, company, pricing } = item;
-        const visiblePricing = PricingService.projectForRole(pricing, user.role);
+        const visiblePricing = PricingService.projectSummaryForRole(pricing, user.role);
         return {
             id: invoice.id,
             invoice_id: invoice.invoice_id,
@@ -552,11 +544,11 @@ const generateInvoice = async (
 
         const company = serviceRequest.company as typeof companies.$inferSelect | null;
         const pricing = serviceRequest.request_pricing;
-        const { invoice_id, invoice_pdf_url } = await serviceRequestInvoiceGenerator(
+        const { invoice_id, invoice_pdf_url } = await DocumentService.generateInvoice(
+            "SERVICE_REQUEST",
             service_request_id,
             platformId,
-            regenerate || false,
-            user
+            { user, regenerate: regenerate || false }
         );
 
         if (serviceRequest.commercial_status !== "INVOICED") {
@@ -657,11 +649,11 @@ const generateInvoice = async (
     });
 
     // Step 6: Generate invoice //
-    const { invoice_id, invoice_pdf_url } = await invoiceGenerator(
+    const { invoice_id, invoice_pdf_url } = await DocumentService.generateInvoice(
+        "ORDER",
         order.id,
         platformId,
-        regenerate,
-        user
+        { user, regenerate }
     );
 
     if (invoice_id) {

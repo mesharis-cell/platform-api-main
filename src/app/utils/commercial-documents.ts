@@ -1,12 +1,12 @@
 import { and, asc, eq, gte, lte } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../db";
-import { orders, serviceRequests } from "../../db/schema";
+import { orders, serviceRequests, inboundRequests } from "../../db/schema";
 import CustomizedError from "../error/customized-error";
-import { applyMarginPerLine, roundCurrency } from "./pricing-engine";
+import { roundCurrency, calculatePricingSummary } from "./pricing-engine";
 import { PricingService } from "../services/pricing.service";
 
-export type CommercialDocumentContextType = "ORDER" | "SERVICE_REQUEST";
+export type CommercialDocumentContextType = "ORDER" | "SERVICE_REQUEST" | "INBOUND_REQUEST";
 export type CommercialDocumentAudience = "SELL_SIDE" | "BUY_SIDE";
 
 type NormalizedCompany = {
@@ -159,43 +159,61 @@ const mapLineItems = (
         "ADMIN"
     ) as NormalizedDocumentLineItem[];
 
-const mapPricing = (pricing: {
-    base_ops_total: string | number | null;
-    line_items: unknown;
-    margin: unknown;
-}): NormalizedPricing => {
-    const projected = PricingService.projectForRole(pricing as any, "ADMIN") as any;
-    if (!projected) {
-        const zero = {
-            base_ops_total: 0,
-            catalog_total: 0,
-            custom_total: 0,
-            service_fee: 0,
-            final_total: 0,
-        };
-        return { margin_percent: 0, buy: zero, sell: { ...zero, margin_amount: 0 } };
-    }
+/**
+ * Build NormalizedPricing from a pricing record + relational line items.
+ * Reads margin from new proper columns with JSONB fallback.
+ */
+const mapPricing = (
+    pricing: {
+        base_ops_total: string | number | null;
+        margin_percent?: string | number | null;
+        margin_is_override?: boolean | null;
+        margin_override_reason?: string | null;
+        margin?: any;
+        line_items?: any;
+    },
+    lineItems: Array<{
+        total?: string | number | null;
+        line_item_type?: string | null;
+        is_voided?: boolean | null;
+        billing_mode?: string | null;
+        [key: string]: unknown;
+    }>
+): NormalizedPricing => {
+    const baseOpsTotal = toNumber(pricing.base_ops_total);
 
-    const catalogTotal = projected.line_items.catalog_total;
-    const customTotal = projected.line_items.custom_total;
-    const marginPercent = projected.margin.percent;
+    const marginPercent =
+        pricing.margin_percent !== undefined && pricing.margin_percent !== null
+            ? toNumber(pricing.margin_percent)
+            : toNumber(pricing.margin?.percent);
+
+    const { catalog_total: catalogTotal, custom_total: customTotal } = PricingService.sumLineItems(
+        lineItems as any
+    );
+
+    const summary = calculatePricingSummary({
+        base_ops_total: baseOpsTotal,
+        catalog_total: catalogTotal,
+        custom_total: customTotal,
+        margin_percent: marginPercent,
+    });
 
     return {
         margin_percent: marginPercent,
         buy: {
-            base_ops_total: projected.base_ops_total,
+            base_ops_total: baseOpsTotal,
             catalog_total: catalogTotal,
             custom_total: customTotal,
             service_fee: roundCurrency(catalogTotal + customTotal),
-            final_total: roundCurrency(projected.base_ops_total + catalogTotal + customTotal),
+            final_total: roundCurrency(baseOpsTotal + catalogTotal + customTotal),
         },
         sell: {
-            base_ops_total: projected.sell.base_ops_total,
-            catalog_total: applyMarginPerLine(catalogTotal, marginPercent),
-            custom_total: applyMarginPerLine(customTotal, marginPercent),
-            service_fee: projected.sell.service_fee,
-            margin_amount: projected.margin.amount,
-            final_total: projected.sell.final_total,
+            base_ops_total: summary.sell_lines.base_ops_total,
+            catalog_total: summary.sell_lines.catalog_total,
+            custom_total: summary.sell_lines.custom_total,
+            service_fee: summary.service_fee,
+            margin_amount: summary.margin_amount,
+            final_total: summary.final_total,
         },
     };
 };
@@ -222,7 +240,7 @@ const getOrderCommercialContext = async (
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Order pricing is missing");
 
     const venueLocation = (order.venue_location as any) || {};
-    const pricing = mapPricing(order.order_pricing);
+    const pricing = mapPricing(order.order_pricing, order.line_items as any);
     const lineItems = mapLineItems(order.line_items as any, pricing.margin_percent);
 
     return {
@@ -293,7 +311,7 @@ const getServiceRequestCommercialContext = async (
     if (!serviceRequest.request_pricing)
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Service request pricing is missing");
 
-    const pricing = mapPricing(serviceRequest.request_pricing);
+    const pricing = mapPricing(serviceRequest.request_pricing, serviceRequest.line_items as any);
     const lineItems = mapLineItems(serviceRequest.line_items as any, pricing.margin_percent);
 
     return {
@@ -341,6 +359,74 @@ const getServiceRequestCommercialContext = async (
     };
 };
 
+const getInboundRequestCommercialContext = async (
+    requestId: string,
+    platformId: string
+): Promise<NormalizedCommercialDocumentContext> => {
+    const request = await db.query.inboundRequests.findFirst({
+        where: and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)),
+        with: {
+            company: true,
+            request_pricing: true,
+            items: true,
+            line_items: true,
+            created_by_user: true,
+        },
+    });
+
+    if (!request) throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found");
+    if (!request.company)
+        throw new CustomizedError(
+            httpStatus.NOT_FOUND,
+            "Company not found for this inbound request"
+        );
+    if (!request.request_pricing)
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Inbound request pricing is missing");
+
+    const pricing = mapPricing(request.request_pricing, request.line_items as any);
+    const lineItems = mapLineItems(request.line_items as any, pricing.margin_percent);
+
+    return {
+        context_type: "INBOUND_REQUEST",
+        context_id: request.id,
+        reference_id: request.inbound_request_id,
+        platform_id: request.platform_id,
+        created_by: request.created_by,
+        company: {
+            id: request.company.id,
+            name: request.company.name || "Unknown Company",
+            contact_email: request.company.contact_email || "N/A",
+            contact_phone: request.company.contact_phone || "N/A",
+        },
+        contact: {
+            name: request.created_by_user?.name || request.company.name || "N/A",
+            email: request.created_by_user?.email || request.company.contact_email || "N/A",
+            phone: request.company.contact_phone || "N/A",
+        },
+        timeline: {
+            start: toDateOrNow(request.incoming_at),
+            end: toDateOrNow(request.incoming_at),
+        },
+        venue: {
+            name: "Inbound Request",
+            country: "N/A",
+            city: "N/A",
+            address: "N/A",
+        },
+        operational_status: request.request_status,
+        commercial_status: request.financial_status,
+        billing_mode: null,
+        pricing,
+        items: request.items.map((item) => ({
+            asset_name: item.name,
+            quantity: toNumber(item.quantity),
+            handling_tags: [],
+            from_collection_name: "INBOUND_REQUEST",
+        })),
+        line_items: lineItems,
+    };
+};
+
 export type CommercialContextListFilters = {
     company_id?: string;
     date_from?: Date | null;
@@ -372,7 +458,7 @@ export const listOrderCommercialContexts = async (
         .filter((o) => o.company && o.order_pricing)
         .map((order) => {
             const venueLocation = (order.venue_location as any) || {};
-            const pricing = mapPricing(order.order_pricing!);
+            const pricing = mapPricing(order.order_pricing!, order.line_items as any);
             const lineItems = mapLineItems(order.line_items as any, pricing.margin_percent);
             return {
                 context_type: "ORDER" as const,
@@ -436,7 +522,7 @@ export const listServiceRequestCommercialContexts = async (
     return rows
         .filter((sr) => sr.company && sr.request_pricing)
         .map((sr) => {
-            const pricing = mapPricing(sr.request_pricing!);
+            const pricing = mapPricing(sr.request_pricing!, sr.line_items as any);
             const lineItems = mapLineItems(sr.line_items as any, pricing.margin_percent);
             return {
                 context_type: "SERVICE_REQUEST" as const,
@@ -499,6 +585,8 @@ export const getCommercialDocumentContext = async (
     platformId: string
 ) => {
     if (contextType === "ORDER") return getOrderCommercialContext(contextId, platformId);
+    if (contextType === "INBOUND_REQUEST")
+        return getInboundRequestCommercialContext(contextId, platformId);
     return getServiceRequestCommercialContext(contextId, platformId);
 };
 
@@ -569,6 +657,8 @@ export const buildInvoiceS3Key = (
 ) => {
     const slug = companySlug(context.company.name);
     if (context.context_type === "ORDER") return `invoices/${slug}/${invoiceNumber}.pdf`;
+    if (context.context_type === "INBOUND_REQUEST")
+        return `invoices/inbound-request/${slug}/${invoiceNumber}.pdf`;
     return `invoices/service-request/${slug}/${invoiceNumber}.pdf`;
 };
 
@@ -576,5 +666,7 @@ export const buildCostEstimateS3Key = (context: NormalizedCommercialDocumentCont
     const slug = companySlug(context.company.name);
     if (context.context_type === "ORDER")
         return `cost-estimates/${slug}/${context.reference_id}.pdf`;
+    if (context.context_type === "INBOUND_REQUEST")
+        return `cost-estimates/inbound-request/${slug}/${context.reference_id}.pdf`;
     return `cost-estimates/service-request/${slug}/${context.reference_id}.pdf`;
 };

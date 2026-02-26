@@ -1491,8 +1491,13 @@ export const prices = pgTable(
         logistics_sub_total: decimal("logistics_sub_total", { precision: 10, scale: 2 }),
         transport: jsonb("transport").notNull(), // { "system_rate": 10, "final_rate": 20 }
         line_items: jsonb("line_items").notNull(), // { "catalog_total": 10, "custom_total": 20 }
-        margin: jsonb("margin").notNull(), // { "percent": 10, "amount": 20, is_override: false, override_reason: "" }
+        margin: jsonb("margin").notNull(), // LEGACY — dual-write only, reads from new columns below
         final_total: decimal("final_total", { precision: 10, scale: 2 }),
+        margin_percent: decimal("margin_percent", { precision: 5, scale: 2 })
+            .notNull()
+            .default("0"),
+        margin_is_override: boolean("margin_is_override").notNull().default(false),
+        margin_override_reason: text("margin_override_reason"),
         calculated_at: timestamp("calculated_at").notNull().defaultNow(),
         calculated_by: uuid("calculated_by")
             .notNull()

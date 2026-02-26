@@ -9,6 +9,8 @@ import {
 import { LineItemsServices } from "../modules/order-line-items/order-line-items.services";
 import CustomizedError from "../error/customized-error";
 import httpStatus from "http-status";
+import { eventBus } from "../events/event-bus";
+import { EVENT_TYPES } from "../events/event-types";
 
 type PricedEntityType = "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST";
 
@@ -48,12 +50,16 @@ type RecalculateResult = {
 type RawPricingRecord = {
     warehouse_ops_rate?: string | number | null;
     base_ops_total?: string | number | null;
+    final_total?: string | number | null;
+    margin_percent?: string | number | null;
+    margin_is_override?: boolean | null;
+    margin_override_reason?: string | null;
+    calculated_at?: Date | string | null;
+    // Legacy fields (read during transition, ignored when new columns present)
     logistics_sub_total?: string | number | null;
     line_items?: any;
     transport?: any;
     margin?: any;
-    final_total?: string | number | null;
-    calculated_at?: Date | string | null;
     [key: string]: unknown;
 };
 
@@ -70,12 +76,50 @@ type RawLineItem = {
     billingMode?: string | null;
     is_voided?: boolean | null;
     isVoided?: boolean | null;
+    line_item_type?: string | null;
+    lineItemType?: string | null;
     [key: string]: unknown;
 };
 
 const toNum = (v: unknown): number => {
     const n = Number(v);
     return Number.isFinite(n) ? n : 0;
+};
+
+/**
+ * Sum line item totals from relational records, filtering out voided/non-billable.
+ */
+const sumLineItems = (items: RawLineItem[]) => {
+    let catalog = 0;
+    let custom = 0;
+    for (const item of items) {
+        const voided = item.is_voided ?? item.isVoided ?? false;
+        const billing = item.billing_mode ?? item.billingMode ?? "BILLABLE";
+        if (voided || billing !== "BILLABLE") continue;
+        const total = toNum(item.total);
+        const type = item.line_item_type ?? item.lineItemType ?? "CATALOG";
+        if (type === "CUSTOM") custom += total;
+        else catalog += total;
+    }
+    return { catalog_total: roundCurrency(catalog), custom_total: roundCurrency(custom) };
+};
+
+/**
+ * Read margin from new proper columns, falling back to JSONB for pre-migration records.
+ */
+const readMargin = (pricing: RawPricingRecord) => {
+    if (pricing.margin_percent !== undefined && pricing.margin_percent !== null) {
+        return {
+            percent: toNum(pricing.margin_percent),
+            is_override: !!pricing.margin_is_override,
+            override_reason: pricing.margin_override_reason ?? null,
+        };
+    }
+    return {
+        percent: toNum(pricing.margin?.percent),
+        is_override: !!pricing.margin?.is_override,
+        override_reason: pricing.margin?.override_reason ?? null,
+    };
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -94,6 +138,13 @@ const buildInitialPricing = (params: BuildInitialPricingParams) => {
         platform_id: params.platform_id,
         warehouse_ops_rate: params.warehouse_ops_rate,
         base_ops_total: baseOps.toFixed(2),
+        final_total: summary.final_total.toFixed(2),
+        margin_percent: params.margin_percent.toFixed(2),
+        margin_is_override: false,
+        margin_override_reason: null,
+        calculated_at: new Date(),
+        calculated_by: params.calculated_by,
+        // Legacy dual-write for rollback safety
         logistics_sub_total: summary.logistics_sub_total.toFixed(2),
         transport: { system_rate: 0, final_rate: 0 },
         line_items: { catalog_total: 0, custom_total: 0 },
@@ -103,9 +154,6 @@ const buildInitialPricing = (params: BuildInitialPricingParams) => {
             is_override: false,
             override_reason: null,
         },
-        final_total: summary.final_total.toFixed(2),
-        calculated_at: new Date(),
-        calculated_by: params.calculated_by,
     };
 };
 
@@ -117,7 +165,9 @@ const recalculate = async (params: RecalculateParams): Promise<RecalculateResult
     const { entity_type, entity_id, platform_id, calculated_by } = params;
 
     let pricingId: string;
-    let existingMargin: any;
+    let existingMarginPercent: number;
+    let existingMarginIsOverride: boolean;
+    let existingMarginOverrideReason: string | null;
     let existingBaseOps: number;
     let companyMarginPercent: number;
     let companyOpsRate: string;
@@ -126,7 +176,9 @@ const recalculate = async (params: RecalculateParams): Promise<RecalculateResult
         const [row] = await executor
             .select({
                 pricing_id: prices.id,
-                margin: prices.margin,
+                margin_percent: prices.margin_percent,
+                margin_is_override: prices.margin_is_override,
+                margin_override_reason: prices.margin_override_reason,
                 base_ops_total: prices.base_ops_total,
                 company_margin: companies.platform_margin_percent,
                 company_ops_rate: companies.warehouse_ops_rate,
@@ -140,7 +192,9 @@ const recalculate = async (params: RecalculateParams): Promise<RecalculateResult
         if (!row?.pricing_id)
             throw new CustomizedError(httpStatus.NOT_FOUND, "Order or pricing not found");
         pricingId = row.pricing_id;
-        existingMargin = row.margin;
+        existingMarginPercent = toNum(row.margin_percent);
+        existingMarginIsOverride = row.margin_is_override;
+        existingMarginOverrideReason = row.margin_override_reason;
         existingBaseOps = toNum(row.base_ops_total);
         companyMarginPercent = toNum(row.company_margin);
         companyOpsRate = row.company_ops_rate || "0";
@@ -148,7 +202,9 @@ const recalculate = async (params: RecalculateParams): Promise<RecalculateResult
         const [row] = await executor
             .select({
                 pricing_id: prices.id,
-                margin: prices.margin,
+                margin_percent: prices.margin_percent,
+                margin_is_override: prices.margin_is_override,
+                margin_override_reason: prices.margin_override_reason,
                 base_ops_total: prices.base_ops_total,
                 company_margin: companies.platform_margin_percent,
                 company_ops_rate: companies.warehouse_ops_rate,
@@ -164,7 +220,9 @@ const recalculate = async (params: RecalculateParams): Promise<RecalculateResult
         if (!row?.pricing_id)
             throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request or pricing not found");
         pricingId = row.pricing_id;
-        existingMargin = row.margin;
+        existingMarginPercent = toNum(row.margin_percent);
+        existingMarginIsOverride = row.margin_is_override;
+        existingMarginOverrideReason = row.margin_override_reason;
         existingBaseOps = toNum(row.base_ops_total);
         companyMarginPercent = toNum(row.company_margin);
         companyOpsRate = row.company_ops_rate || "0";
@@ -196,6 +254,12 @@ const recalculate = async (params: RecalculateParams): Promise<RecalculateResult
                     platform_id,
                     warehouse_ops_rate: companyOpsRate,
                     base_ops_total: "0.00",
+                    final_total: "0.00",
+                    margin_percent: defaultMargin.toFixed(2),
+                    margin_is_override: false,
+                    margin_override_reason: null,
+                    calculated_by: row.created_by,
+                    // Legacy dual-write
                     logistics_sub_total: "0.00",
                     transport: { system_rate: 0, final_rate: 0 },
                     line_items: { catalog_total: 0, custom_total: 0 },
@@ -205,17 +269,19 @@ const recalculate = async (params: RecalculateParams): Promise<RecalculateResult
                         is_override: false,
                         override_reason: null,
                     },
-                    final_total: "0.00",
-                    calculated_by: row.created_by,
                 })
                 .returning({
                     id: prices.id,
-                    margin: prices.margin,
                     base_ops_total: prices.base_ops_total,
+                    margin_percent: prices.margin_percent,
+                    margin_is_override: prices.margin_is_override,
+                    margin_override_reason: prices.margin_override_reason,
                 });
 
             pricingId = created.id;
-            existingMargin = created.margin;
+            existingMarginPercent = toNum(created.margin_percent);
+            existingMarginIsOverride = created.margin_is_override;
+            existingMarginOverrideReason = created.margin_override_reason;
             existingBaseOps = 0;
 
             await executor
@@ -224,13 +290,20 @@ const recalculate = async (params: RecalculateParams): Promise<RecalculateResult
                 .where(eq(serviceRequests.id, entity_id));
         } else {
             const [pricingRow] = await executor
-                .select({ margin: prices.margin, base_ops_total: prices.base_ops_total })
+                .select({
+                    base_ops_total: prices.base_ops_total,
+                    margin_percent: prices.margin_percent,
+                    margin_is_override: prices.margin_is_override,
+                    margin_override_reason: prices.margin_override_reason,
+                })
                 .from(prices)
                 .where(eq(prices.id, row.pricing_id))
                 .limit(1);
 
             pricingId = row.pricing_id;
-            existingMargin = pricingRow?.margin;
+            existingMarginPercent = toNum(pricingRow?.margin_percent);
+            existingMarginIsOverride = pricingRow?.margin_is_override ?? false;
+            existingMarginOverrideReason = pricingRow?.margin_override_reason ?? null;
             existingBaseOps = toNum(pricingRow?.base_ops_total);
         }
     }
@@ -248,10 +321,10 @@ const recalculate = async (params: RecalculateParams): Promise<RecalculateResult
         marginPercent = params.set_margin_override.percent;
         isOverride = true;
         overrideReason = params.set_margin_override.reason;
-    } else if (existingMargin?.is_override) {
-        marginPercent = toNum(existingMargin.percent);
+    } else if (existingMarginIsOverride) {
+        marginPercent = existingMarginPercent;
         isOverride = true;
-        overrideReason = existingMargin.override_reason || null;
+        overrideReason = existingMarginOverrideReason;
     } else {
         marginPercent = companyMarginPercent;
         isOverride = false;
@@ -289,6 +362,13 @@ const recalculate = async (params: RecalculateParams): Promise<RecalculateResult
         .set({
             warehouse_ops_rate: companyOpsRate,
             base_ops_total: roundCurrency(baseOpsTotal).toFixed(2),
+            final_total: summary.final_total.toFixed(2),
+            margin_percent: marginPercent.toFixed(2),
+            margin_is_override: isOverride,
+            margin_override_reason: overrideReason,
+            calculated_at: now,
+            calculated_by,
+            // Legacy dual-write for rollback safety
             logistics_sub_total: summary.logistics_sub_total.toFixed(2),
             transport: { system_rate: 0, final_rate: 0 },
             line_items: {
@@ -301,11 +381,39 @@ const recalculate = async (params: RecalculateParams): Promise<RecalculateResult
                 is_override: isOverride,
                 override_reason: overrideReason,
             },
-            final_total: summary.final_total.toFixed(2),
-            calculated_at: now,
-            calculated_by,
         })
         .where(eq(prices.id, pricingId));
+
+    await eventBus.emit({
+        platform_id,
+        event_type: EVENT_TYPES.PRICING_RECALCULATED,
+        entity_type:
+            entity_type === "ORDER"
+                ? "ORDER"
+                : entity_type === "INBOUND_REQUEST"
+                  ? "INBOUND_REQUEST"
+                  : "SERVICE_REQUEST",
+        entity_id: entity_id,
+        actor_id: calculated_by,
+        actor_role: null,
+        payload: {
+            entity_id_readable: entity_id,
+            company_id: "",
+            company_name: "",
+            pricing_id: pricingId,
+            base_ops_total: roundCurrency(baseOpsTotal),
+            catalog_total: roundCurrency(lineItemsTotals.catalog_total),
+            custom_total: roundCurrency(lineItemsTotals.custom_total),
+            margin_percent: marginPercent,
+            final_total: summary.final_total,
+            trigger:
+                params.base_ops_total_override !== undefined
+                    ? "base_ops_recalc"
+                    : params.set_margin_override
+                      ? "margin_override"
+                      : "line_item_change",
+        },
+    });
 
     return {
         pricing_id: pricingId,
@@ -327,21 +435,25 @@ const recalculate = async (params: RecalculateParams): Promise<RecalculateResult
 };
 
 // ─────────────────────────────────────────────────────────────
-//  projectForRole — pure pricing projection
+//  projectForRole — FULL projection for detail views
+//  Computes line item totals from relational data
 // ─────────────────────────────────────────────────────────────
-const projectForRole = (pricing: RawPricingRecord | null | undefined, role: string) => {
+const projectForRole = (
+    pricing: RawPricingRecord | null | undefined,
+    lineItems: RawLineItem[],
+    role: string
+) => {
     if (!pricing) return null;
 
     const baseOpsTotal = toNum(pricing.base_ops_total);
-    const catalogTotal = toNum(pricing.line_items?.catalog_total);
-    const customTotal = toNum(pricing.line_items?.custom_total);
-    const marginPercent = toNum(pricing.margin?.percent);
+    const { catalog_total: catalogTotal, custom_total: customTotal } = sumLineItems(lineItems);
+    const m = readMargin(pricing);
 
     const summary = calculatePricingSummary({
         base_ops_total: baseOpsTotal,
         catalog_total: catalogTotal,
         custom_total: customTotal,
-        margin_percent: marginPercent,
+        margin_percent: m.percent,
     });
 
     if (role === "CLIENT") {
@@ -355,31 +467,28 @@ const projectForRole = (pricing: RawPricingRecord | null | undefined, role: stri
     if (role === "LOGISTICS") {
         return {
             base_ops_total: roundCurrency(baseOpsTotal),
-            logistics_sub_total: roundCurrency(baseOpsTotal),
             line_items: {
-                catalog_total: roundCurrency(catalogTotal),
-                custom_total: roundCurrency(customTotal),
+                catalog_total: catalogTotal,
+                custom_total: customTotal,
             },
-            transport: pricing.transport || { system_rate: 0, final_rate: 0 },
             final_total: summary.final_total.toFixed(2),
             calculated_at: pricing.calculated_at,
         };
     }
 
+    // ADMIN — full visibility
     return {
         warehouse_ops_rate: toNum(pricing.warehouse_ops_rate),
         base_ops_total: roundCurrency(baseOpsTotal),
-        logistics_sub_total: roundCurrency(baseOpsTotal),
         line_items: {
-            catalog_total: roundCurrency(catalogTotal),
-            custom_total: roundCurrency(customTotal),
+            catalog_total: catalogTotal,
+            custom_total: customTotal,
         },
-        transport: pricing.transport || { system_rate: 0, final_rate: 0 },
         margin: {
-            percent: marginPercent,
+            percent: m.percent,
             amount: summary.margin_amount,
-            is_override: !!pricing.margin?.is_override,
-            override_reason: pricing.margin?.override_reason || null,
+            is_override: m.is_override,
+            override_reason: m.override_reason,
         },
         final_total: summary.final_total.toFixed(2),
         calculated_at: pricing.calculated_at,
@@ -388,6 +497,33 @@ const projectForRole = (pricing: RawPricingRecord | null | undefined, role: stri
             service_fee: summary.service_fee,
             final_total: summary.final_total,
         },
+    };
+};
+
+// ─────────────────────────────────────────────────────────────
+//  projectSummaryForRole — lightweight projection for list views
+//  Uses only stored columns, no line items needed
+// ─────────────────────────────────────────────────────────────
+const projectSummaryForRole = (pricing: RawPricingRecord | null | undefined, role: string) => {
+    if (!pricing) return null;
+
+    if (role === "CLIENT") {
+        return { final_total: pricing.final_total };
+    }
+
+    if (role === "LOGISTICS") {
+        return {
+            final_total: pricing.final_total,
+            calculated_at: pricing.calculated_at,
+        };
+    }
+
+    // ADMIN
+    return {
+        base_ops_total: toNum(pricing.base_ops_total),
+        margin_percent: toNum(pricing.margin_percent ?? pricing.margin?.percent),
+        final_total: pricing.final_total,
+        calculated_at: pricing.calculated_at,
     };
 };
 
@@ -452,5 +588,7 @@ export const PricingService = {
     buildInitialPricing,
     recalculate,
     projectForRole,
+    projectSummaryForRole,
     projectLineItemsForRole,
+    sumLineItems,
 };
