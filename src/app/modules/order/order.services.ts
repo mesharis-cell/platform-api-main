@@ -2801,6 +2801,13 @@ const recalculateBaseOps = async (user: AuthUser, orderId: string, platformId: s
         .limit(1);
 
     if (!orderRow?.order) throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    const RECALCULATE_ALLOWED_STATUSES = ["PRICING_REVIEW", "PENDING_APPROVAL"];
+    if (!RECALCULATE_ALLOWED_STATUSES.includes(orderRow.order.order_status)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Pricing can only be recalculated during pricing review. Current status: ${orderRow.order.order_status}`
+        );
+    }
     if (!orderRow.company) throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found");
 
     const items = await db
