@@ -39,7 +39,7 @@ import {
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import paginationMaker from "../../utils/pagination-maker";
-import { buildServiceRequestCode } from "../../utils/service-request-code";
+import { buildServiceRequestCodes } from "../../utils/service-request-code";
 import queryValidator from "../../utils/query-validator";
 import {
     SubmitOrderPayload,
@@ -508,10 +508,10 @@ const submitOrderFromCart = async (
     // Pre-generate SR codes outside the transaction to avoid READ COMMITTED duplicate-code issue
     // (in-transaction inserts aren't visible to COUNT queries in the same transaction)
     const maintenanceItems = orderItemsData.filter((item) => item.requires_maintenance);
-    const srCodes: string[] = [];
-    for (const _ of maintenanceItems) {
-        srCodes.push(await buildServiceRequestCode(platformId));
-    }
+    const srCodes =
+        maintenanceItems.length > 0
+            ? await buildServiceRequestCodes(platformId, maintenanceItems.length)
+            : [];
 
     // Step 6: Create the order record
     const orderId = await orderIdGenerator(platformId);
