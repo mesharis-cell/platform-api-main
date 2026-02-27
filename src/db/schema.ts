@@ -1486,13 +1486,16 @@ export const prices = pgTable(
         platform_id: uuid("platform_id")
             .notNull()
             .references(() => platforms.id, { onDelete: "cascade" }),
-        warehouse_ops_rate: decimal("warehouse_ops_rate", { precision: 10, scale: 2 }).notNull(),
-        base_ops_total: decimal("base_ops_total", { precision: 10, scale: 2 }).notNull(),
-        logistics_sub_total: decimal("logistics_sub_total", { precision: 10, scale: 2 }),
-        transport: jsonb("transport").notNull(), // { "system_rate": 10, "final_rate": 20 }
-        line_items: jsonb("line_items").notNull(), // { "catalog_total": 10, "custom_total": 20 }
-        margin: jsonb("margin").notNull(), // { "percent": 10, "amount": 20, is_override: false, override_reason: "" }
-        final_total: decimal("final_total", { precision: 10, scale: 2 }),
+        entity_type: invoiceTypeEnum("entity_type").notNull(),
+        entity_id: uuid("entity_id").notNull(),
+        breakdown_lines: jsonb("breakdown_lines")
+            .notNull()
+            .default(sql`'[]'::jsonb`),
+        margin_percent: decimal("margin_percent", { precision: 5, scale: 2 })
+            .notNull()
+            .default("0"),
+        margin_is_override: boolean("margin_is_override").notNull().default(false),
+        margin_override_reason: text("margin_override_reason"),
         calculated_at: timestamp("calculated_at").notNull().defaultNow(),
         calculated_by: uuid("calculated_by")
             .notNull()
@@ -1502,7 +1505,15 @@ export const prices = pgTable(
             .$onUpdate(() => new Date())
             .notNull(),
     },
-    (table) => [index("order_prices_platform_idx").on(table.platform_id)]
+    (table) => [
+        index("order_prices_platform_idx").on(table.platform_id),
+        index("prices_entity_lookup_idx").on(table.platform_id, table.entity_type, table.entity_id),
+        unique("prices_platform_entity_unique").on(
+            table.platform_id,
+            table.entity_type,
+            table.entity_id
+        ),
+    ]
 );
 
 export const orderPricesRelations = relations(prices, ({ one }) => ({

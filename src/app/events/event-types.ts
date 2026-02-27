@@ -43,6 +43,14 @@ export const EVENT_TYPES = {
     SERVICE_REQUEST_COMPLETED: "service_request.completed",
     SERVICE_REQUEST_INVOICE_GENERATED: "service_request.invoice_generated",
 
+    // Line item lifecycle (vacant — no listeners yet)
+    LINE_ITEM_ADDED: "line_item.added",
+    LINE_ITEM_UPDATED: "line_item.updated",
+    LINE_ITEM_VOIDED: "line_item.voided",
+
+    // Pricing lifecycle (vacant — no listeners yet)
+    PRICING_RECALCULATED: "pricing.recalculated",
+
     // Self-booking lifecycle
     SELF_BOOKING_CREATED: "self_booking.created",
     SELF_BOOKING_COMPLETED: "self_booking.completed",
@@ -323,6 +331,58 @@ export interface SelfBookingCancelledPayload {
 export interface AuthPasswordResetRequestedPayload {
     email: string;
     otp: string;
+}
+
+// ============================================================
+// Line Item Event Payloads (vacant)
+// ============================================================
+
+export interface LineItemAddedPayload extends BaseEventPayload {
+    line_item_id: string;
+    line_item_type: "CATALOG" | "CUSTOM";
+    category: string;
+    description: string;
+    quantity: number;
+    unit_rate: number;
+    total: number;
+    purpose_type: "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST";
+}
+
+export interface LineItemUpdatedPayload extends BaseEventPayload {
+    line_item_id: string;
+    line_item_type: "CATALOG" | "CUSTOM";
+    category: string;
+    description: string;
+    quantity: number;
+    unit_rate: number;
+    total: number;
+    previous_total: number;
+    purpose_type: "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST";
+}
+
+export interface LineItemVoidedPayload extends BaseEventPayload {
+    line_item_id: string;
+    void_reason: string;
+    purpose_type: "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST";
+}
+
+// ============================================================
+// Pricing Event Payloads (vacant)
+// ============================================================
+
+export interface PricingRecalculatedPayload extends BaseEventPayload {
+    pricing_id: string;
+    base_ops_total: number;
+    catalog_total: number;
+    custom_total: number;
+    margin_percent: number;
+    final_total: number;
+    trigger:
+        | "line_item_change"
+        | "manual_recalc"
+        | "base_ops_recalc"
+        | "margin_override"
+        | "submission";
 }
 
 // ============================================================

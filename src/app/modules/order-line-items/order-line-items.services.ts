@@ -12,8 +12,7 @@ import {
 } from "./order-line-items.interfaces";
 import { lineItemIdGenerator, lineItemQueryValidationConfig } from "./order-line-items.utils";
 import queryValidator from "../../utils/query-validator";
-import { inboundRequestCostEstimateGenerator } from "../../utils/inbound-request-cost-estimate";
-import { serviceRequestCostEstimateGenerator } from "../../utils/service-request-cost-estimate";
+import { DocumentService } from "../../services/document.service";
 import { roundCurrency } from "../../utils/pricing-engine";
 import { eventBus } from "../../events/event-bus";
 import { EVENT_TYPES } from "../../events/event-types";
@@ -141,6 +140,12 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
     if (!serviceType) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Service type not found");
     }
+    if (serviceType.default_rate === null || serviceType.default_rate === undefined) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Selected catalog service has no default rate configured"
+        );
+    }
 
     const effectiveMetadata = {
         ...(((serviceType as any).default_metadata || {}) as Record<string, unknown>),
@@ -199,6 +204,33 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
             added_by
         );
     }
+
+    const parentEntityId = order_id || inbound_request_id || service_request_id || "";
+    await eventBus.emit({
+        platform_id,
+        event_type: EVENT_TYPES.LINE_ITEM_ADDED,
+        entity_type: (result.purpose_type === "ORDER"
+            ? "ORDER"
+            : result.purpose_type === "INBOUND_REQUEST"
+              ? "INBOUND_REQUEST"
+              : "SERVICE_REQUEST") as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST",
+        entity_id: parentEntityId,
+        actor_id: added_by,
+        actor_role: null,
+        payload: {
+            entity_id_readable: result.line_item_id,
+            company_id: parentEntityId,
+            company_name: "",
+            line_item_id: result.line_item_id,
+            line_item_type: result.line_item_type,
+            category: result.category || "",
+            description: result.description || "",
+            quantity: Number(result.quantity),
+            unit_rate: Number(result.unit_rate),
+            total: Number(result.total),
+            purpose_type: result.purpose_type,
+        },
+    });
 
     return {
         ...result,
@@ -278,6 +310,33 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
             added_by
         );
     }
+
+    const customParentEntityId = order_id || inbound_request_id || service_request_id || "";
+    await eventBus.emit({
+        platform_id,
+        event_type: EVENT_TYPES.LINE_ITEM_ADDED,
+        entity_type: (result.purpose_type === "ORDER"
+            ? "ORDER"
+            : result.purpose_type === "INBOUND_REQUEST"
+              ? "INBOUND_REQUEST"
+              : "SERVICE_REQUEST") as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST",
+        entity_id: customParentEntityId,
+        actor_id: added_by,
+        actor_role: null,
+        payload: {
+            entity_id_readable: result.line_item_id,
+            company_id: customParentEntityId,
+            company_name: "",
+            line_item_id: result.line_item_id,
+            line_item_type: result.line_item_type,
+            category: result.category || "",
+            description: result.description || "",
+            quantity: Number(result.quantity),
+            unit_rate: Number(result.unit_rate),
+            total: Number(result.total),
+            purpose_type: result.purpose_type,
+        },
+    });
 
     return {
         ...result,
@@ -372,6 +431,35 @@ const updateLineItem = async (
         );
     }
 
+    const updateParentId =
+        result.order_id || result.inbound_request_id || result.service_request_id || "";
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: EVENT_TYPES.LINE_ITEM_UPDATED,
+        entity_type: (result.purpose_type === "ORDER"
+            ? "ORDER"
+            : result.purpose_type === "INBOUND_REQUEST"
+              ? "INBOUND_REQUEST"
+              : "SERVICE_REQUEST") as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST",
+        entity_id: updateParentId,
+        actor_id: userId,
+        actor_role: null,
+        payload: {
+            entity_id_readable: result.line_item_id,
+            company_id: updateParentId,
+            company_name: "",
+            line_item_id: result.line_item_id,
+            line_item_type: result.line_item_type,
+            category: result.category || "",
+            description: result.description || "",
+            quantity: Number(result.quantity),
+            unit_rate: Number(result.unit_rate),
+            total: Number(result.total),
+            previous_total: Number(existing.total),
+            purpose_type: result.purpose_type,
+        },
+    });
+
     return {
         ...result,
         quantity: result.quantity ? parseFloat(result.quantity) : null,
@@ -427,6 +515,29 @@ const voidLineItem = async (id: string, platformId: string, data: VoidLineItemPa
             voided_by
         );
     }
+
+    const voidParentId =
+        result.order_id || result.inbound_request_id || result.service_request_id || "";
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: EVENT_TYPES.LINE_ITEM_VOIDED,
+        entity_type: (result.purpose_type === "ORDER"
+            ? "ORDER"
+            : result.purpose_type === "INBOUND_REQUEST"
+              ? "INBOUND_REQUEST"
+              : "SERVICE_REQUEST") as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST",
+        entity_id: voidParentId,
+        actor_id: voided_by,
+        actor_role: null,
+        payload: {
+            entity_id_readable: result.line_item_id,
+            company_id: voidParentId,
+            company_name: "",
+            line_item_id: result.line_item_id,
+            void_reason: void_reason || "",
+            purpose_type: result.purpose_type,
+        },
+    });
 
     return {
         ...result,
@@ -546,7 +657,7 @@ const updateOrderPricingAfterLineItemChange = async (
     platformId: string,
     userId: string
 ): Promise<void> => {
-    await PricingService.recalculate({
+    await PricingService.rebuildBreakdown({
         entity_type: "ORDER",
         entity_id: orderId,
         platform_id: platformId,
@@ -560,13 +671,13 @@ const updateInboundRequestPricingAfterLineItemChange = async (
     platformId: string,
     userId: string
 ): Promise<void> => {
-    await PricingService.recalculate({
+    await PricingService.rebuildBreakdown({
         entity_type: "INBOUND_REQUEST",
         entity_id: inboundRequestId,
         platform_id: platformId,
         calculated_by: userId,
     });
-    await inboundRequestCostEstimateGenerator(inboundRequestId, platformId, true);
+    await DocumentService.regenerateEstimate("INBOUND_REQUEST", inboundRequestId, platformId);
 };
 
 // ----------------------------------- UPDATE SERVICE REQUEST PRICING AFTER LINE ITEM CHANGE --
@@ -583,7 +694,11 @@ const updateServiceRequestPricingAfterLineItemChange = async (
             },
             pricing: {
                 id: prices.id,
-                final_total: prices.final_total,
+                breakdown_lines: prices.breakdown_lines,
+                margin_percent: prices.margin_percent,
+                margin_is_override: prices.margin_is_override,
+                margin_override_reason: prices.margin_override_reason,
+                calculated_at: prices.calculated_at,
             },
         })
         .from(serviceRequests)
@@ -601,14 +716,14 @@ const updateServiceRequestPricingAfterLineItemChange = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Service request or company not found");
     }
 
-    const result = await PricingService.recalculate({
+    const result = await PricingService.rebuildBreakdown({
         entity_type: "SERVICE_REQUEST",
         entity_id: serviceRequestId,
         platform_id: platformId,
         calculated_by: userId,
     });
 
-    await serviceRequestCostEstimateGenerator(serviceRequestId, platformId, true);
+    await DocumentService.regenerateEstimate("SERVICE_REQUEST", serviceRequestId, platformId);
 
     const requiresRevision =
         serviceRequest.service_request.billing_mode === "CLIENT_BILLABLE" &&

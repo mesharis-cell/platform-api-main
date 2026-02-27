@@ -1,7 +1,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../../../db";
 import { financialStatusEnum, inboundRequests, inboundRequestStatusEnum } from "../../../db/schema";
-import { inboundRequestCostEstimateGenerator } from "../../utils/inbound-request-cost-estimate";
+import { DocumentService } from "../../services/document.service";
 
 // ------------------------------------- INBOUND REQUEST ID GENERATOR ---------------------------
 // FORMAT: IR-YYYYMMDD-XXX
@@ -65,5 +65,7 @@ export const generateCostEstimateAndSendEmail = async (
     const { request_id, platform_id, regenarate = false } = payload;
 
     // Generate cost estimate PDF (email is now sent via event bus in the calling service)
-    await inboundRequestCostEstimateGenerator(request_id, platform_id, regenarate);
+    await DocumentService.generateEstimate("INBOUND_REQUEST", request_id, platform_id, {
+        regenerate: regenarate || false,
+    });
 };

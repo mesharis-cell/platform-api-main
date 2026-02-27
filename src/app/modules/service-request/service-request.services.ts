@@ -33,6 +33,7 @@ import {
 } from "../../utils/commercial-policy";
 import { eventBus } from "../../events/event-bus";
 import { EVENT_TYPES } from "../../events/event-types";
+import { PricingService } from "../../services/pricing.service";
 
 const getServiceRequestInternal = async (id: string, platformId: string) => {
     const [serviceRequest] = await db
@@ -99,11 +100,19 @@ const getServiceRequestClientTotal = async (serviceRequest: {
     }
     if (!serviceRequest.request_pricing_id) return "0";
     const [pricing] = await db
-        .select({ final_total: prices.final_total })
+        .select({
+            breakdown_lines: prices.breakdown_lines,
+            margin_percent: prices.margin_percent,
+            margin_is_override: prices.margin_is_override,
+            margin_override_reason: prices.margin_override_reason,
+            calculated_at: prices.calculated_at,
+        })
         .from(prices)
         .where(eq(prices.id, serviceRequest.request_pricing_id))
         .limit(1);
-    return String(pricing?.final_total || "0");
+    return String(
+        PricingService.projectSummaryForRole(pricing as any, "CLIENT")?.final_total || "0"
+    );
 };
 
 const getServiceRequestEventContext = async (serviceRequest: {
@@ -233,8 +242,18 @@ const listServiceRequests = async (
 
     const [rows, total] = await Promise.all([
         db
-            .select()
+            .select({
+                service_request: serviceRequests,
+                request_pricing: {
+                    breakdown_lines: prices.breakdown_lines,
+                    margin_percent: prices.margin_percent,
+                    margin_is_override: prices.margin_is_override,
+                    margin_override_reason: prices.margin_override_reason,
+                    calculated_at: prices.calculated_at,
+                },
+            })
             .from(serviceRequests)
+            .leftJoin(prices, eq(serviceRequests.request_pricing_id, prices.id))
             .where(and(...conditions))
             .orderBy(desc(serviceRequests.created_at))
             .limit(limitNumber)
@@ -251,14 +270,38 @@ const listServiceRequests = async (
             limit: limitNumber,
             total: Number(total[0]?.count || 0),
         },
-        data: rows,
+        data: rows.map((row) => ({
+            ...row.service_request,
+            request_pricing: PricingService.projectSummaryForRole(
+                row.request_pricing as any,
+                user.role as any
+            ),
+        })),
     };
 };
 
 const getServiceRequestById = async (id: string, platformId: string, user: AuthUser) => {
     const serviceRequest = await getServiceRequestInternal(id, platformId);
     assertServiceRequestAccess(serviceRequest, user);
-    return serviceRequest;
+    const pricingRow = serviceRequest.request_pricing_id
+        ? await db
+              .select({
+                  breakdown_lines: prices.breakdown_lines,
+                  margin_percent: prices.margin_percent,
+                  margin_is_override: prices.margin_is_override,
+                  margin_override_reason: prices.margin_override_reason,
+                  calculated_at: prices.calculated_at,
+              })
+              .from(prices)
+              .where(eq(prices.id, serviceRequest.request_pricing_id))
+              .limit(1)
+              .then((rows) => rows[0] || null)
+        : null;
+
+    return {
+        ...serviceRequest,
+        request_pricing: PricingService.projectByRole(pricingRow as any, user.role as any),
+    };
 };
 
 const createServiceRequest = async (
