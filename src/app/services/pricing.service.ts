@@ -471,7 +471,7 @@ const projectForRole = (
                 catalog_total: catalogTotal,
                 custom_total: customTotal,
             },
-            final_total: summary.final_total.toFixed(2),
+            final_total: summary.base_sub_total.toFixed(2),
             calculated_at: pricing.calculated_at,
         };
     }
@@ -512,8 +512,11 @@ const projectSummaryForRole = (pricing: RawPricingRecord | null | undefined, rol
     }
 
     if (role === "LOGISTICS") {
+        const storedTotal = toNum(pricing.final_total);
+        const mPct = toNum(pricing.margin_percent ?? (pricing as any).margin?.percent);
+        const buyTotal = mPct > 0 ? roundCurrency(storedTotal / (1 + mPct / 100)) : storedTotal;
         return {
-            final_total: pricing.final_total,
+            final_total: buyTotal.toFixed(2),
             calculated_at: pricing.calculated_at,
         };
     }
