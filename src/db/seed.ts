@@ -16,6 +16,7 @@ import { lineItemIdGenerator } from "../app/modules/order-line-items/order-line-
 import { db } from "./index";
 import * as schema from "./schema";
 import bcrypt from "bcrypt";
+import { randomUUID } from "node:crypto";
 
 // ============================================================
 // TYPE ALIASES
@@ -983,6 +984,8 @@ async function seedCollections() {
 // ============================================================
 
 async function createPricing(opts: {
+    entityType: "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST";
+    entityId: string;
     volume: number;
     warehouseOpsRate: number;
     marginPercent: number;
@@ -993,29 +996,109 @@ async function createPricing(opts: {
     const baseOps = opts.volume * opts.warehouseOpsRate;
     const catTotal = opts.catalogTotal || 0;
     const custTotal = opts.customTotal || 0;
-    const logSub = baseOps + catTotal + custTotal;
-    const marginAmt = logSub * (opts.marginPercent / 100);
-    const finalTotal = logSub + marginAmt;
+    const marginMultiplier = 1 + opts.marginPercent / 100;
+    const nowIso = new Date().toISOString();
+    const breakdownLines: any[] = [
+        {
+            line_id: "BASE_OPS",
+            line_kind: "BASE_OPS",
+            category: "BASE_OPS",
+            label: `Base Operations (${opts.volume.toFixed(3)} m³)`,
+            quantity: 1,
+            unit: "service",
+            buy_unit_price: Number(baseOps.toFixed(2)),
+            buy_total: Number(baseOps.toFixed(2)),
+            sell_unit_price: Number((baseOps * marginMultiplier).toFixed(2)),
+            sell_total: Number((baseOps * marginMultiplier).toFixed(2)),
+            billing_mode: "BILLABLE",
+            source: {
+                mode: "WAREHOUSE_OPS_RATE",
+                service_type_id: null,
+                service_type_name_snapshot: null,
+                service_type_rate_snapshot: Number(opts.warehouseOpsRate.toFixed(2)),
+            },
+            is_voided: false,
+            notes: null,
+            created_by: opts.userId,
+            created_at: nowIso,
+            updated_by: opts.userId,
+            updated_at: nowIso,
+            voided_by: null,
+            voided_at: null,
+            void_reason: null,
+        },
+    ];
+    if (catTotal > 0) {
+        breakdownLines.push({
+            line_id: "SEED_RATE_CARD",
+            line_kind: "RATE_CARD",
+            category: "OTHER",
+            label: "Seed Catalog Services",
+            quantity: 1,
+            unit: "service",
+            buy_unit_price: Number(catTotal.toFixed(2)),
+            buy_total: Number(catTotal.toFixed(2)),
+            sell_unit_price: Number((catTotal * marginMultiplier).toFixed(2)),
+            sell_total: Number((catTotal * marginMultiplier).toFixed(2)),
+            billing_mode: "BILLABLE",
+            source: {
+                mode: "MANUAL",
+                service_type_id: null,
+                service_type_name_snapshot: "Seed Catalog Services",
+                service_type_rate_snapshot: Number(catTotal.toFixed(2)),
+            },
+            is_voided: false,
+            notes: null,
+            created_by: opts.userId,
+            created_at: nowIso,
+            updated_by: opts.userId,
+            updated_at: nowIso,
+            voided_by: null,
+            voided_at: null,
+            void_reason: null,
+        });
+    }
+    if (custTotal > 0) {
+        breakdownLines.push({
+            line_id: "SEED_CUSTOM",
+            line_kind: "CUSTOM",
+            category: "OTHER",
+            label: "Seed Custom Services",
+            quantity: 1,
+            unit: "service",
+            buy_unit_price: Number(custTotal.toFixed(2)),
+            buy_total: Number(custTotal.toFixed(2)),
+            sell_unit_price: Number((custTotal * marginMultiplier).toFixed(2)),
+            sell_total: Number((custTotal * marginMultiplier).toFixed(2)),
+            billing_mode: "BILLABLE",
+            source: {
+                mode: "MANUAL",
+                service_type_id: null,
+                service_type_name_snapshot: null,
+                service_type_rate_snapshot: null,
+            },
+            is_voided: false,
+            notes: null,
+            created_by: opts.userId,
+            created_at: nowIso,
+            updated_by: opts.userId,
+            updated_at: nowIso,
+            voided_by: null,
+            voided_at: null,
+            void_reason: null,
+        });
+    }
 
     const [price] = await db
         .insert(schema.prices)
         .values({
             platform_id: S.platform.id,
-            warehouse_ops_rate: opts.warehouseOpsRate.toFixed(2),
-            base_ops_total: baseOps.toFixed(2),
-            logistics_sub_total: logSub.toFixed(2),
-            transport: { system_rate: 0, final_rate: 0 },
-            line_items: { catalog_total: catTotal, custom_total: custTotal },
-            margin: {
-                percent: opts.marginPercent,
-                amount: marginAmt,
-                is_override: false,
-                override_reason: null,
-            },
+            entity_type: opts.entityType,
+            entity_id: opts.entityId,
+            breakdown_lines: breakdownLines,
             margin_percent: opts.marginPercent.toFixed(2),
             margin_is_override: false,
             margin_override_reason: null,
-            final_total: finalTotal.toFixed(2),
             calculated_at: new Date(),
             calculated_by: opts.userId,
         })
@@ -1024,41 +1107,22 @@ async function createPricing(opts: {
 }
 
 async function createServiceRequestPricing(opts: {
+    entityId: string;
     company: any;
     catalogTotal: number;
     customTotal: number;
     userId: string;
 }) {
-    const marginPercent = parseFloat(opts.company.platform_margin_percent || "0");
-    const logisticsSubTotal = opts.catalogTotal + opts.customTotal;
-    const marginAmount = logisticsSubTotal * (marginPercent / 100);
-    const finalTotal = logisticsSubTotal + marginAmount;
-
-    const [price] = await db
-        .insert(schema.prices)
-        .values({
-            platform_id: S.platform.id,
-            warehouse_ops_rate: "0.00",
-            base_ops_total: "0.00",
-            logistics_sub_total: logisticsSubTotal.toFixed(2),
-            transport: { system_rate: 0, final_rate: 0 },
-            line_items: { catalog_total: opts.catalogTotal, custom_total: opts.customTotal },
-            margin: {
-                percent: marginPercent,
-                amount: marginAmount,
-                is_override: false,
-                override_reason: null,
-            },
-            margin_percent: marginPercent.toFixed(2),
-            margin_is_override: false,
-            margin_override_reason: null,
-            final_total: finalTotal.toFixed(2),
-            calculated_at: new Date(),
-            calculated_by: opts.userId,
-        })
-        .returning();
-
-    return price;
+    return createPricing({
+        entityType: "SERVICE_REQUEST",
+        entityId: opts.entityId,
+        volume: 0,
+        warehouseOpsRate: 0,
+        marginPercent: parseFloat(opts.company.platform_margin_percent || "0"),
+        catalogTotal: opts.catalogTotal,
+        customTotal: opts.customTotal,
+        userId: opts.userId,
+    });
 }
 
 async function seedOrders() {
@@ -1254,8 +1318,11 @@ async function seedOrders() {
             ? 0
             : Number((150 + transportRate).toFixed(2));
         const customTotal = def.orderId === "ORD-20260209-008" ? 1500 : 0;
+        const orderDbId = randomUUID();
 
         const pricing = await createPricing({
+            entityType: "ORDER",
+            entityId: orderDbId,
             volume: def.volume,
             warehouseOpsRate,
             marginPercent: def.marginPercent,
@@ -1267,6 +1334,7 @@ async function seedOrders() {
         const [order] = await db
             .insert(schema.orders)
             .values({
+                id: orderDbId,
                 platform_id: pid,
                 order_id: def.orderId,
                 company_id: def.company.id,
@@ -1900,6 +1968,7 @@ async function seedServiceRequests() {
     ];
 
     for (const def of defs) {
+        const serviceRequestDbId = randomUUID();
         const catalogTotal = def.catalog_items.reduce((sum, item) => {
             const svc = getServiceTypeByName(item.service_name);
             return sum + Number(svc.default_rate || 0) * item.quantity;
@@ -1908,6 +1977,7 @@ async function seedServiceRequests() {
         const pricing =
             def.billing_mode === "CLIENT_BILLABLE"
                 ? await createServiceRequestPricing({
+                      entityId: serviceRequestDbId,
                       company: def.company,
                       catalogTotal,
                       customTotal,
@@ -1918,6 +1988,7 @@ async function seedServiceRequests() {
         const [serviceRequest] = await db
             .insert(schema.serviceRequests)
             .values({
+                id: serviceRequestDbId,
                 service_request_id: def.service_request_id,
                 platform_id: pid,
                 company_id: def.company.id,
@@ -3218,41 +3289,25 @@ async function seedInboundRequests() {
     ];
 
     for (const def of irDefs) {
+        const inboundRequestDbId = randomUUID();
         const warehouseOpsRate = parseFloat(def.company.warehouse_ops_rate);
         const totalVolume = def.items.reduce((sum, i) => sum + i.qty * i.volume, 0);
-        const baseOps = warehouseOpsRate * totalVolume;
         const marginPercent = parseFloat(def.company.platform_margin_percent);
-        const logSub = baseOps;
-        const marginAmt = logSub * (marginPercent / 100);
-        const finalTotal = logSub + marginAmt;
-
-        const [price] = await db
-            .insert(schema.prices)
-            .values({
-                platform_id: pid,
-                warehouse_ops_rate: warehouseOpsRate.toFixed(2),
-                base_ops_total: baseOps.toFixed(2),
-                logistics_sub_total: logSub.toFixed(2),
-                transport: { system_rate: 0, final_rate: 0 },
-                line_items: { catalog_total: 0, custom_total: 0 },
-                margin: {
-                    percent: marginPercent,
-                    amount: marginAmt,
-                    is_override: false,
-                    override_reason: null,
-                },
-                margin_percent: marginPercent.toFixed(2),
-                margin_is_override: false,
-                margin_override_reason: null,
-                final_total: finalTotal.toFixed(2),
-                calculated_at: new Date(),
-                calculated_by: def.requester.id,
-            })
-            .returning();
+        const price = await createPricing({
+            entityType: "INBOUND_REQUEST",
+            entityId: inboundRequestDbId,
+            volume: totalVolume,
+            warehouseOpsRate,
+            marginPercent,
+            catalogTotal: 0,
+            customTotal: 0,
+            userId: def.requester.id,
+        });
 
         const [ir] = await db
             .insert(schema.inboundRequests)
             .values({
+                id: inboundRequestDbId,
                 platform_id: pid,
                 inbound_request_id: def.id,
                 company_id: def.company.id,

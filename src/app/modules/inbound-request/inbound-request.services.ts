@@ -1,4 +1,5 @@
 import httpStatus from "http-status";
+import { randomUUID } from "crypto";
 import { db } from "../../../db";
 import {
     assets,
@@ -86,10 +87,15 @@ const createInboundRequest = async (
             0
         );
 
+        const requestDbId = randomUUID();
+        const requestId = await inboundRequestIdGenerator(platformId);
+
         // Step 2.2: Calculate logistics costs and margin
         const baseOpsTotal = Number(company.warehouse_ops_rate) * totalVolume;
         const pricingDetails = PricingService.buildInitialPricing({
             platform_id: platformId,
+            entity_type: "INBOUND_REQUEST",
+            entity_id: requestDbId,
             warehouse_ops_rate: company.warehouse_ops_rate,
             base_ops_total: baseOpsTotal,
             margin_percent: Number(company.platform_margin_percent || 0),
@@ -97,14 +103,16 @@ const createInboundRequest = async (
         });
 
         // Step 2.4: Insert pricing record
-        const [price] = await tx.insert(prices).values(pricingDetails).returning();
-
-        const requestId = await inboundRequestIdGenerator(platformId);
+        const [price] = await tx
+            .insert(prices)
+            .values(pricingDetails as any)
+            .returning();
 
         // Step 2.5: Insert inbound request record linked to pricing
         const [request] = await tx
             .insert(inboundRequests)
             .values({
+                id: requestDbId,
                 platform_id: platformId,
                 inbound_request_id: requestId,
                 company_id: companyId,
@@ -265,9 +273,10 @@ const getInboundRequests = async (
                 email: users.email,
             },
             request_pricing: {
-                base_ops_total: prices.base_ops_total,
+                breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
-                final_total: prices.final_total,
+                margin_is_override: prices.margin_is_override,
+                margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
             },
         })
@@ -346,12 +355,10 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
                 email: users.email,
             },
             request_pricing: {
-                warehouse_ops_rate: prices.warehouse_ops_rate,
-                base_ops_total: prices.base_ops_total,
+                breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
-                final_total: prices.final_total,
                 calculated_at: prices.calculated_at,
             },
         })
@@ -436,12 +443,10 @@ const submitForApproval = async (requestId: string, user: AuthUser, platformId: 
                 warehouse_ops_rate: companies.warehouse_ops_rate,
             },
             request_pricing: {
-                warehouse_ops_rate: prices.warehouse_ops_rate,
-                base_ops_total: prices.base_ops_total,
+                breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
-                final_total: prices.final_total,
                 calculated_at: prices.calculated_at,
             },
         })
@@ -552,12 +557,10 @@ const approveInboundRequestByAdmin = async (
                 name: users.name,
             },
             request_pricing: {
-                warehouse_ops_rate: prices.warehouse_ops_rate,
-                base_ops_total: prices.base_ops_total,
+                breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
-                final_total: prices.final_total,
                 calculated_at: prices.calculated_at,
             },
         })
@@ -608,7 +611,9 @@ const approveInboundRequestByAdmin = async (
     );
     const newFinancialStatus = isRevisedQuote ? "QUOTE_REVISED" : "QUOTE_SENT";
 
-    let finalTotal = requestPricing.final_total;
+    let finalTotal = String(
+        PricingService.projectSummaryForRole(requestPricing as any, "CLIENT")?.final_total || "0"
+    );
 
     // Step 3: Update order pricing and status
     await db.transaction(async (tx) => {
@@ -766,24 +771,27 @@ const updateInboundRequestItem = async (
     const [result] = await db
         .select({
             request: inboundRequests,
+            company: {
+                warehouse_ops_rate: companies.warehouse_ops_rate,
+            },
             request_pricing: {
                 id: prices.id,
-                warehouse_ops_rate: prices.warehouse_ops_rate,
-                base_ops_total: prices.base_ops_total,
+                breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
-                final_total: prices.final_total,
                 calculated_by: prices.calculated_by,
                 calculated_at: prices.calculated_at,
             },
         })
         .from(inboundRequests)
+        .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
         .leftJoin(prices, eq(inboundRequests.request_pricing_id, prices.id))
         .where(and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)));
 
     const inboundRequest = result.request;
     const requestPricing = result.request_pricing;
+    const companyRate = Number(result.company?.warehouse_ops_rate || 0);
 
     if (!inboundRequest || !requestPricing) {
         throw new CustomizedError(
@@ -887,7 +895,7 @@ const updateInboundRequestItem = async (
     );
 
     // Step 7.2: Recalculate pricing
-    const baseOpsTotal = Number(requestPricing.warehouse_ops_rate) * totalVolume;
+    const baseOpsTotal = companyRate * totalVolume;
     await PricingService.recalculate({
         entity_type: "INBOUND_REQUEST",
         entity_id: requestId,
@@ -971,12 +979,10 @@ const completeInboundRequest = async (
                 email: users.email,
             },
             request_pricing: {
-                warehouse_ops_rate: prices.warehouse_ops_rate,
-                base_ops_total: prices.base_ops_total,
+                breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
-                final_total: prices.final_total,
                 calculated_by: prices.calculated_by,
                 calculated_at: prices.calculated_at,
             },
@@ -1229,7 +1235,10 @@ const completeInboundRequest = async (
                 company_id: inboundRequest.company_id,
                 company_name: company?.name || "N/A",
                 invoice_number: invoice_id,
-                final_total: String(requestPricing?.final_total || "0"),
+                final_total: String(
+                    PricingService.projectSummaryForRole(requestPricing as any, "CLIENT")
+                        ?.final_total || "0"
+                ),
                 download_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
                 request_url: "",
             },
@@ -1268,24 +1277,27 @@ const updateInboundRequest = async (
     const [result] = await db
         .select({
             request: inboundRequests,
+            company: {
+                warehouse_ops_rate: companies.warehouse_ops_rate,
+            },
             request_pricing: {
                 id: prices.id,
-                warehouse_ops_rate: prices.warehouse_ops_rate,
-                base_ops_total: prices.base_ops_total,
+                breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
-                final_total: prices.final_total,
                 calculated_by: prices.calculated_by,
                 calculated_at: prices.calculated_at,
             },
         })
         .from(inboundRequests)
+        .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
         .leftJoin(prices, eq(inboundRequests.request_pricing_id, prices.id))
         .where(and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)));
 
     const inboundRequest = result?.request;
     const requestPricing = result?.request_pricing;
+    const companyRate = Number(result?.company?.warehouse_ops_rate || 0);
 
     if (!inboundRequest || !requestPricing) {
         throw new CustomizedError(
@@ -1434,7 +1446,7 @@ const updateInboundRequest = async (
             );
 
             // Recalculate pricing
-            const baseOpsTotal = Number(requestPricing.warehouse_ops_rate) * totalVolume;
+            const baseOpsTotal = companyRate * totalVolume;
             await PricingService.recalculate({
                 entity_type: "INBOUND_REQUEST",
                 entity_id: requestId,

@@ -5,6 +5,7 @@ import {
     companies,
     financialStatusHistory,
     invoices,
+    lineItems,
     prices,
     orders,
     inboundRequests,
@@ -85,9 +86,10 @@ const getInvoiceById = async (invoiceId: string, user: AuthUser, platformId: str
                 name: companies.name,
             },
             pricing: {
-                base_ops_total: prices.base_ops_total,
+                breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
-                final_total: prices.final_total,
+                margin_is_override: prices.margin_is_override,
+                margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
             },
         })
@@ -125,8 +127,45 @@ const getInvoiceById = async (invoiceId: string, user: AuthUser, platformId: str
         }
     }
 
-    // Step 5: Format and return result
-    const visiblePricing = PricingService.projectSummaryForRole(result.pricing, user.role);
+    // Step 5: Load line items for detail-level pricing projection
+    const pricingLineItems = result.order?.id
+        ? await db
+              .select()
+              .from(lineItems)
+              .where(
+                  and(
+                      eq(lineItems.platform_id, platformId),
+                      eq(lineItems.order_id, result.order.id)
+                  )
+              )
+        : result.inbound_request?.id
+          ? await db
+                .select()
+                .from(lineItems)
+                .where(
+                    and(
+                        eq(lineItems.platform_id, platformId),
+                        eq(lineItems.inbound_request_id, result.inbound_request.id)
+                    )
+                )
+          : result.service_request?.id
+            ? await db
+                  .select()
+                  .from(lineItems)
+                  .where(
+                      and(
+                          eq(lineItems.platform_id, platformId),
+                          eq(lineItems.service_request_id, result.service_request.id)
+                      )
+                  )
+            : [];
+
+    // Step 6: Format and return result
+    const visiblePricing = PricingService.projectForRole(
+        result.pricing,
+        pricingLineItems,
+        user.role
+    );
     return {
         id: result.invoice.id,
         invoice_id: result.invoice.invoice_id,
@@ -304,9 +343,10 @@ const getInvoices = async (query: Record<string, any>, user: AuthUser, platformI
                 name: companies.name,
             },
             pricing: {
-                base_ops_total: prices.base_ops_total,
+                breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
-                final_total: prices.final_total,
+                margin_is_override: prices.margin_is_override,
+                margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
             },
         })
@@ -562,6 +602,7 @@ const generateInvoice = async (
         }
 
         if (invoice_id) {
+            const pricingSummary = PricingService.projectSummaryForRole(pricing as any, "ADMIN");
             await eventBus.emit({
                 platform_id: platformId,
                 event_type: EVENT_TYPES.SERVICE_REQUEST_INVOICE_GENERATED,
@@ -574,7 +615,7 @@ const generateInvoice = async (
                     company_id: serviceRequest.company_id,
                     company_name: company?.name || "N/A",
                     invoice_number: invoice_id,
-                    final_total: String(pricing?.final_total || "0"),
+                    final_total: String(pricingSummary?.final_total || "0"),
                     download_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
                     request_url: "",
                 },
@@ -657,6 +698,7 @@ const generateInvoice = async (
     );
 
     if (invoice_id) {
+        const pricingSummary = PricingService.projectSummaryForRole(pricing as any, "ADMIN");
         await eventBus.emit({
             platform_id: platformId,
             event_type: EVENT_TYPES.INVOICE_GENERATED,
@@ -669,7 +711,7 @@ const generateInvoice = async (
                 company_id: order.company_id,
                 company_name: company?.name || "N/A",
                 invoice_number: invoice_id,
-                final_total: String(pricing?.final_total || "0"),
+                final_total: String(pricingSummary?.final_total || "0"),
                 download_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
                 order_url: "",
             },

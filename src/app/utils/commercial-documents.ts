@@ -3,7 +3,7 @@ import httpStatus from "http-status";
 import { db } from "../../db";
 import { orders, serviceRequests, inboundRequests } from "../../db/schema";
 import CustomizedError from "../error/customized-error";
-import { roundCurrency, calculatePricingSummary } from "./pricing-engine";
+import { roundCurrency } from "./pricing-engine";
 import { PricingService } from "../services/pricing.service";
 
 export type CommercialDocumentContextType = "ORDER" | "SERVICE_REQUEST" | "INBOUND_REQUEST";
@@ -141,79 +141,53 @@ const toDateOrNow = (value: Date | string | null | undefined) => {
 const companySlug = (companyName: string) =>
     companyName.trim().replace(/\s+/g, "-").toLowerCase() || "unknown-company";
 
-const mapLineItems = (
-    lineItems: Array<{
-        line_item_id: string;
-        description: string | null;
-        quantity: string | number | null;
-        total: string | number | null;
-        category?: string | null;
-        billing_mode?: string | null;
-        is_voided?: boolean | null;
-    }>,
-    marginPercent: number
-): NormalizedDocumentLineItem[] =>
-    PricingService.projectLineItemsForRole(
-        lineItems as any,
-        marginPercent,
-        "ADMIN"
-    ) as NormalizedDocumentLineItem[];
+const toAdminProjection = (pricingRecord: unknown) =>
+    (PricingService.projectByRole(pricingRecord as any, "ADMIN") || null) as any;
 
-/**
- * Build NormalizedPricing from a pricing record + relational line items.
- * Reads margin from new proper columns with JSONB fallback.
- */
-const mapPricing = (
-    pricing: {
-        base_ops_total: string | number | null;
-        margin_percent?: string | number | null;
-        margin_is_override?: boolean | null;
-        margin_override_reason?: string | null;
-        margin?: any;
-        line_items?: any;
-    },
-    lineItems: Array<{
-        total?: string | number | null;
-        line_item_type?: string | null;
-        is_voided?: boolean | null;
-        billing_mode?: string | null;
-        [key: string]: unknown;
-    }>
-): NormalizedPricing => {
-    const baseOpsTotal = toNumber(pricing.base_ops_total);
+const mapLineItems = (projected: any): NormalizedDocumentLineItem[] => {
+    const lines = Array.isArray(projected?.breakdown_lines) ? projected.breakdown_lines : [];
+    return lines
+        .filter(
+            (line: any) =>
+                !line?.is_voided && String(line?.billing_mode || "BILLABLE") === "BILLABLE"
+        )
+        .map((line: any) => ({
+            line_item_id: String(line?.line_id || ""),
+            description: String(line?.label || ""),
+            quantity: toNumber(line?.quantity),
+            category: line?.category ? String(line.category) : undefined,
+            billing_mode: line?.billing_mode ? String(line.billing_mode) : undefined,
+            buy_total: toNumber(line?.buy_total),
+            sell_total: toNumber(line?.sell_total),
+            buy_unit_rate: toNumber(line?.buy_unit_price),
+            sell_unit_rate: toNumber(line?.sell_unit_price),
+        }));
+};
 
-    const marginPercent =
-        pricing.margin_percent !== undefined && pricing.margin_percent !== null
-            ? toNumber(pricing.margin_percent)
-            : toNumber(pricing.margin?.percent);
-
-    const { catalog_total: catalogTotal, custom_total: customTotal } = PricingService.sumLineItems(
-        lineItems as any
-    );
-
-    const summary = calculatePricingSummary({
-        base_ops_total: baseOpsTotal,
-        catalog_total: catalogTotal,
-        custom_total: customTotal,
-        margin_percent: marginPercent,
-    });
+const mapPricing = (projected: any): NormalizedPricing => {
+    const totals = projected?.totals || {};
+    const margin = projected?.margin || {};
+    const buyCatalog = toNumber(projected?.line_items?.catalog_total ?? totals.buy_rate_card_total);
+    const buyCustom = toNumber(projected?.line_items?.custom_total ?? totals.buy_custom_total);
+    const buyBaseOps = toNumber(projected?.base_ops_total ?? totals.buy_base_ops_total);
+    const buyFinal = toNumber(totals.buy_total);
 
     return {
-        margin_percent: marginPercent,
+        margin_percent: toNumber(margin.percent ?? projected?.margin_policy?.percent),
         buy: {
-            base_ops_total: baseOpsTotal,
-            catalog_total: catalogTotal,
-            custom_total: customTotal,
-            service_fee: roundCurrency(catalogTotal + customTotal),
-            final_total: roundCurrency(baseOpsTotal + catalogTotal + customTotal),
+            base_ops_total: buyBaseOps,
+            catalog_total: buyCatalog,
+            custom_total: buyCustom,
+            service_fee: roundCurrency(buyCatalog + buyCustom),
+            final_total: buyFinal,
         },
         sell: {
-            base_ops_total: summary.sell_lines.base_ops_total,
-            catalog_total: summary.sell_lines.catalog_total,
-            custom_total: summary.sell_lines.custom_total,
-            service_fee: summary.service_fee,
-            margin_amount: summary.margin_amount,
-            final_total: summary.final_total,
+            base_ops_total: toNumber(projected?.sell?.base_ops_total ?? totals.sell_base_ops_total),
+            catalog_total: toNumber(totals.sell_rate_card_total),
+            custom_total: toNumber(totals.sell_custom_total),
+            service_fee: toNumber(projected?.sell?.service_fee),
+            margin_amount: toNumber(margin.amount),
+            final_total: toNumber(projected?.final_total ?? totals.sell_total),
         },
     };
 };
@@ -240,8 +214,11 @@ const getOrderCommercialContext = async (
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Order pricing is missing");
 
     const venueLocation = (order.venue_location as any) || {};
-    const pricing = mapPricing(order.order_pricing, order.line_items as any);
-    const lineItems = mapLineItems(order.line_items as any, pricing.margin_percent);
+    const projectedPricing = toAdminProjection(order.order_pricing);
+    if (!projectedPricing)
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Order pricing projection is missing");
+    const pricing = mapPricing(projectedPricing);
+    const lineItems = mapLineItems(projectedPricing);
 
     return {
         context_type: "ORDER",
@@ -311,8 +288,14 @@ const getServiceRequestCommercialContext = async (
     if (!serviceRequest.request_pricing)
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Service request pricing is missing");
 
-    const pricing = mapPricing(serviceRequest.request_pricing, serviceRequest.line_items as any);
-    const lineItems = mapLineItems(serviceRequest.line_items as any, pricing.margin_percent);
+    const projectedPricing = toAdminProjection(serviceRequest.request_pricing);
+    if (!projectedPricing)
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Service request pricing projection is missing"
+        );
+    const pricing = mapPricing(projectedPricing);
+    const lineItems = mapLineItems(projectedPricing);
 
     return {
         context_type: "SERVICE_REQUEST",
@@ -383,8 +366,14 @@ const getInboundRequestCommercialContext = async (
     if (!request.request_pricing)
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Inbound request pricing is missing");
 
-    const pricing = mapPricing(request.request_pricing, request.line_items as any);
-    const lineItems = mapLineItems(request.line_items as any, pricing.margin_percent);
+    const projectedPricing = toAdminProjection(request.request_pricing);
+    if (!projectedPricing)
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Inbound request pricing projection is missing"
+        );
+    const pricing = mapPricing(projectedPricing);
+    const lineItems = mapLineItems(projectedPricing);
 
     return {
         context_type: "INBOUND_REQUEST",
@@ -458,8 +447,11 @@ export const listOrderCommercialContexts = async (
         .filter((o) => o.company && o.order_pricing)
         .map((order) => {
             const venueLocation = (order.venue_location as any) || {};
-            const pricing = mapPricing(order.order_pricing!, order.line_items as any);
-            const lineItems = mapLineItems(order.line_items as any, pricing.margin_percent);
+            const projectedPricing = toAdminProjection(order.order_pricing!);
+            if (!projectedPricing)
+                throw new CustomizedError(httpStatus.BAD_REQUEST, "Order pricing missing");
+            const pricing = mapPricing(projectedPricing);
+            const lineItems = mapLineItems(projectedPricing);
             return {
                 context_type: "ORDER" as const,
                 context_id: order.id,
@@ -522,8 +514,14 @@ export const listServiceRequestCommercialContexts = async (
     return rows
         .filter((sr) => sr.company && sr.request_pricing)
         .map((sr) => {
-            const pricing = mapPricing(sr.request_pricing!, sr.line_items as any);
-            const lineItems = mapLineItems(sr.line_items as any, pricing.margin_percent);
+            const projectedPricing = toAdminProjection(sr.request_pricing!);
+            if (!projectedPricing)
+                throw new CustomizedError(
+                    httpStatus.BAD_REQUEST,
+                    "Service request pricing missing"
+                );
+            const pricing = mapPricing(projectedPricing);
+            const lineItems = mapLineItems(projectedPricing);
             return {
                 context_type: "SERVICE_REQUEST" as const,
                 context_id: sr.id,

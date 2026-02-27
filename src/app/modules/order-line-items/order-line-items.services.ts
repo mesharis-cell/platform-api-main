@@ -140,6 +140,12 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
     if (!serviceType) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Service type not found");
     }
+    if (serviceType.default_rate === null || serviceType.default_rate === undefined) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Selected catalog service has no default rate configured"
+        );
+    }
 
     const effectiveMetadata = {
         ...(((serviceType as any).default_metadata || {}) as Record<string, unknown>),
@@ -651,7 +657,7 @@ const updateOrderPricingAfterLineItemChange = async (
     platformId: string,
     userId: string
 ): Promise<void> => {
-    await PricingService.recalculate({
+    await PricingService.rebuildBreakdown({
         entity_type: "ORDER",
         entity_id: orderId,
         platform_id: platformId,
@@ -665,7 +671,7 @@ const updateInboundRequestPricingAfterLineItemChange = async (
     platformId: string,
     userId: string
 ): Promise<void> => {
-    await PricingService.recalculate({
+    await PricingService.rebuildBreakdown({
         entity_type: "INBOUND_REQUEST",
         entity_id: inboundRequestId,
         platform_id: platformId,
@@ -688,7 +694,11 @@ const updateServiceRequestPricingAfterLineItemChange = async (
             },
             pricing: {
                 id: prices.id,
-                final_total: prices.final_total,
+                breakdown_lines: prices.breakdown_lines,
+                margin_percent: prices.margin_percent,
+                margin_is_override: prices.margin_is_override,
+                margin_override_reason: prices.margin_override_reason,
+                calculated_at: prices.calculated_at,
             },
         })
         .from(serviceRequests)
@@ -706,7 +716,7 @@ const updateServiceRequestPricingAfterLineItemChange = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Service request or company not found");
     }
 
-    const result = await PricingService.recalculate({
+    const result = await PricingService.rebuildBreakdown({
         entity_type: "SERVICE_REQUEST",
         entity_id: serviceRequestId,
         platform_id: platformId,
