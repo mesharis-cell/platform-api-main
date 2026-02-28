@@ -45,6 +45,33 @@ router.put(
     LineItemsControllers.updateLineItem
 );
 
+// Patch line item metadata (allowed after pricing lock)
+router.patch(
+    "/:itemId/metadata",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    payloadValidator(LineItemsSchemas.patchLineItemMetadataSchema),
+    LineItemsControllers.patchLineItemMetadata
+);
+
+// Patch client price visibility for one line item
+router.patch(
+    "/:itemId/client-visibility",
+    platformValidator,
+    auth("ADMIN"),
+    payloadValidator(LineItemsSchemas.patchLineItemClientVisibilitySchema),
+    LineItemsControllers.patchLineItemClientVisibility
+);
+
+// Bulk patch client price visibility for an entity
+router.patch(
+    "/client-visibility",
+    platformValidator,
+    auth("ADMIN"),
+    payloadValidator(LineItemsSchemas.patchEntityLineItemsClientVisibilitySchema),
+    LineItemsControllers.patchEntityLineItemsClientVisibility
+);
+
 // Void (soft delete) line item
 router.delete(
     "/:itemId",

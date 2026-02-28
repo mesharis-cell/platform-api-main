@@ -42,6 +42,7 @@ const createCatalogLineItemSchema = z.object({
             notes: z.string().optional(),
             billing_mode: billingModeSchema.optional().default("BILLABLE"),
             metadata: z.record(z.string(), z.unknown()).optional().default({}),
+            client_price_visible: z.boolean().optional().default(false),
         })
         .refine((data) => {
             if (data.purpose_type === "ORDER" && !data.order_id) {
@@ -91,6 +92,7 @@ const createCustomLineItemSchema = z.object({
             notes: z.string().optional(),
             billing_mode: billingModeSchema.optional().default("BILLABLE"),
             metadata: z.record(z.string(), z.unknown()).optional().default({}),
+            client_price_visible: z.boolean().optional().default(false),
         })
         .refine((data) => {
             if (data.purpose_type === "ORDER" && !data.order_id) return false;
@@ -122,7 +124,51 @@ const updateLineItemSchema = z.object({
             notes: z.string().optional(),
             billing_mode: billingModeSchema.optional(),
             metadata: z.record(z.string(), z.unknown()).optional(),
+            client_price_visible: z.boolean().optional(),
         })
+        .strict(),
+});
+
+const patchLineItemMetadataSchema = z.object({
+    body: z
+        .object({
+            notes: z.string().optional(),
+            metadata: z.record(z.string(), z.unknown()).optional().default({}),
+        })
+        .strict(),
+});
+
+const patchLineItemClientVisibilitySchema = z.object({
+    body: z
+        .object({
+            client_price_visible: z.boolean({
+                message: "client_price_visible must be a boolean",
+            }),
+        })
+        .strict(),
+});
+
+const patchEntityLineItemsClientVisibilitySchema = z.object({
+    body: z
+        .object({
+            purpose_type: z.enum(
+                invoiceTypeEnum.enumValues,
+                enumMessageGenerator("Purpose type", invoiceTypeEnum.enumValues)
+            ),
+            order_id: z.uuid("Invalid order ID").optional(),
+            inbound_request_id: z.uuid("Invalid inbound request ID").optional(),
+            service_request_id: z.uuid("Invalid service request ID").optional(),
+            client_price_visible: z.boolean({
+                message: "client_price_visible must be a boolean",
+            }),
+            line_item_ids: z.array(z.uuid("Invalid line item id")).optional(),
+        })
+        .refine((data) => {
+            if (data.purpose_type === "ORDER" && !data.order_id) return false;
+            if (data.purpose_type === "INBOUND_REQUEST" && !data.inbound_request_id) return false;
+            if (data.purpose_type === "SERVICE_REQUEST" && !data.service_request_id) return false;
+            return true;
+        }, "order_id, inbound_request_id, or service_request_id is required based on purpose_type")
         .strict(),
 });
 
@@ -140,5 +186,8 @@ export const LineItemsSchemas = {
     createCatalogLineItemSchema,
     createCustomLineItemSchema,
     updateLineItemSchema,
+    patchLineItemMetadataSchema,
+    patchLineItemClientVisibilitySchema,
+    patchEntityLineItemsClientVisibilitySchema,
     voidLineItemSchema,
 };

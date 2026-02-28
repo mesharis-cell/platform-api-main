@@ -572,11 +572,20 @@ const updateServiceRequestStatus = async (
 
         // Auto-restore asset condition to GREEN when maintenance SR is completed
         if (payload.to_status === "COMPLETED" && existing.related_asset_id) {
+            const conditionPhotos = Array.isArray(existing.photos) ? existing.photos : [];
+            const conditionNotes = [
+                `Restored to GREEN — SR ${existing.service_request_id} completed`,
+                existing.work_notes ? `Work notes: ${existing.work_notes}` : null,
+                payload.completion_notes ? `Completion: ${payload.completion_notes}` : null,
+            ]
+                .filter(Boolean)
+                .join(". ");
+
             await tx
                 .update(assets)
                 .set({
                     condition: "GREEN",
-                    condition_notes: null,
+                    condition_notes: existing.work_notes || null,
                     refurb_days_estimate: null,
                     updated_at: new Date(),
                 })
@@ -586,10 +595,8 @@ const updateServiceRequestStatus = async (
                 platform_id: platformId,
                 asset_id: existing.related_asset_id,
                 condition: "GREEN",
-                notes: `Restored to GREEN — SR ${existing.service_request_id} completed${
-                    payload.completion_notes ? `: ${payload.completion_notes}` : ""
-                }`,
-                photos: [],
+                notes: conditionNotes,
+                photos: conditionPhotos,
                 damage_report_entries: [],
                 updated_by: user.id,
             });

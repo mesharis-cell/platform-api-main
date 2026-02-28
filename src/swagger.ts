@@ -11,9 +11,12 @@ import "./app/modules/collection/collection.swagger";
 import "./app/modules/company/company.swagger";
 import "./app/modules/inbound-request/inbound-request.swagger";
 import "./app/modules/invoice/invoice.swagger";
+import "./app/modules/order-line-items/order-line-items.swagger";
 import "./app/modules/order/order.swagger";
+import "./app/modules/order/order-extra.swagger";
 import "./app/modules/platform/platform.swagger";
 import "./app/modules/scanning/scanning.swagger";
+import "./app/modules/scanning/scanning-extra.swagger";
 import "./app/modules/upload/upload.swagger";
 import "./app/modules/user/user.swagger";
 import "./app/modules/warehouse/warehouse.swagger";
@@ -22,13 +25,13 @@ import "./app/modules/zone/zone.swagger";
 const swaggerDefinition = {
     openapi: "3.0.0",
     info: {
-        title: "PMG Asset Fulfillment Platform API",
+        title: "Platform Asset Fulfillment API",
         version: "1.0.0",
         description:
             "Multi-tenant asset management and order fulfillment platform API documentation",
         contact: {
-            name: "PMG Platform",
-            email: "support@pmg-platform.com",
+            name: "Platform",
+            email: "support@platform.example",
         },
     },
     servers: [
@@ -37,12 +40,8 @@ const swaggerDefinition = {
             description: "Local Development Server",
         },
         {
-            url: "http://52.64.200.190",
-            description: "Remote Server",
-        },
-        {
-            url: "https://pmg-backend.vercel.app",
-            description: "Vercel Deployment",
+            url: "https://api.platform.example",
+            description: "Production API",
         },
     ],
     components: {
@@ -167,17 +166,16 @@ const swaggerDefinition = {
             description: "Invoice generation and management operations",
         },
         {
+            name: "Line Items",
+            description: "Line item operations for orders, inbound requests, and service requests",
+        },
+        {
             name: "Order Management",
             description: "Order CRUD operations for asset orders and fulfillment",
         },
         {
             name: "Platform Management",
             description: "Platform configuration and feature flags (Platform Admin only)",
-        },
-        {
-            name: "Pricing Tier Management",
-            description:
-                "Pricing tier CRUD operations for managing location-based and volume-based pricing",
         },
         {
             name: "Scanning",

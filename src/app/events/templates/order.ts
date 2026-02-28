@@ -95,7 +95,7 @@ export const quoteSentClient: EmailTemplate = {
                 ${infoRow("Order ID", d.entity_id_readable)}
                 ${infoRow("Company", d.company_name)}
                 <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 12px 0;">
-                <p style="margin: 6px 0;"><strong>Logistics & Handling:</strong> ${formatAmount(pricing.base_ops_total)} AED</p>
+                <p style="margin: 6px 0;"><strong>Picking & Handling:</strong> ${formatAmount(pricing.base_ops_total)} AED</p>
                 ${lineItemsHtml}
                 <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 12px 0;">
                 <p style="margin: 6px 0;"><strong>Subtotal:</strong> ${formatAmount(pricing.base_ops_total)} AED</p>

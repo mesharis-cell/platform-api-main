@@ -99,7 +99,8 @@ export const DocumentService = {
         const payload = buildCommercialDocumentPdfPayload(
             context,
             "SELL_SIDE",
-            options?.generatedByUserId
+            options?.generatedByUserId,
+            { respectClientLineVisibility: true }
         );
         const pdfBuffer = await renderCostEstimatePDF({ ...payload, estimate_date: new Date() });
         const pdfUrl = await uploadPDFToS3(pdfBuffer, context.reference_id, key);
@@ -153,7 +154,9 @@ export const DocumentService = {
         }
 
         const context = await getCommercialDocumentContext(entityType, entityId, platformId);
-        const invoiceData = buildCommercialDocumentPdfPayload(context, "SELL_SIDE", user.id);
+        const invoiceData = buildCommercialDocumentPdfPayload(context, "SELL_SIDE", user.id, {
+            respectClientLineVisibility: false,
+        });
         const pdfBuffer = await renderInvoicePDF({
             ...invoiceData,
             invoice_number: invoiceNumber,

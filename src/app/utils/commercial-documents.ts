@@ -42,6 +42,7 @@ type NormalizedDocumentLineItem = {
     quantity: number;
     category?: string;
     billing_mode?: string;
+    client_price_visible: boolean;
     buy_total: number;
     sell_total: number;
     buy_unit_rate: number;
@@ -121,8 +122,9 @@ export type CommercialDocumentPdfPayload = {
         line_item_id: string;
         description: string;
         quantity: number;
-        unit_rate: number;
-        total: number;
+        unit_rate: number | null;
+        total: number | null;
+        client_price_visible: boolean;
     }>;
     line_items_sub_total: number;
 };
@@ -157,6 +159,7 @@ const mapLineItems = (projected: any): NormalizedDocumentLineItem[] => {
             quantity: toNumber(line?.quantity),
             category: line?.category ? String(line.category) : undefined,
             billing_mode: line?.billing_mode ? String(line.billing_mode) : undefined,
+            client_price_visible: Boolean(line?.client_price_visible),
             buy_total: toNumber(line?.buy_total),
             sell_total: toNumber(line?.sell_total),
             buy_unit_rate: toNumber(line?.buy_unit_price),
@@ -591,18 +594,37 @@ export const getCommercialDocumentContext = async (
 export const buildCommercialDocumentPdfPayload = (
     context: NormalizedCommercialDocumentContext,
     audience: CommercialDocumentAudience,
-    generatedByUserId?: string
+    generatedByUserId?: string,
+    options?: { respectClientLineVisibility?: boolean }
 ): CommercialDocumentPdfPayload => {
     const sellSide = audience === "SELL_SIDE";
+    const respectClientLineVisibility = sellSide && options?.respectClientLineVisibility === true;
+    const sourceLineTotalsById = new Map(
+        context.line_items.map((lineItem) => [
+            lineItem.line_item_id,
+            sellSide ? lineItem.sell_total : lineItem.buy_total,
+        ])
+    );
     const lineItems = context.line_items.map((lineItem) => ({
         line_item_id: lineItem.line_item_id,
         description: lineItem.description,
         quantity: lineItem.quantity,
-        unit_rate: sellSide ? lineItem.sell_unit_rate : lineItem.buy_unit_rate,
-        total: sellSide ? lineItem.sell_total : lineItem.buy_total,
+        unit_rate:
+            respectClientLineVisibility && !lineItem.client_price_visible
+                ? null
+                : sellSide
+                  ? lineItem.sell_unit_rate
+                  : lineItem.buy_unit_rate,
+        total:
+            respectClientLineVisibility && !lineItem.client_price_visible
+                ? null
+                : sellSide
+                  ? lineItem.sell_total
+                  : lineItem.buy_total,
+        client_price_visible: lineItem.client_price_visible,
     }));
     const lineItemsSubTotal = lineItems.reduce(
-        (sum, lineItem) => sum + toNumber(lineItem.total),
+        (sum, lineItem) => sum + toNumber(sourceLineTotalsById.get(lineItem.line_item_id)),
         0
     );
     const serviceFee = sellSide

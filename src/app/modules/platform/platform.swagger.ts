@@ -21,7 +21,7 @@
  *                 minLength: 1
  *                 maxLength: 100
  *                 description: Platform name
- *                 example: "Diageo Events Platform"
+ *                 example: "Platform"
  *               domain:
  *                 type: string
  *                 minLength: 1
@@ -103,7 +103,7 @@
  *                       example: "550e8400-e29b-41d4-a716-446655440000"
  *                     name:
  *                       type: string
- *                       example: "Diageo Events Platform"
+ *                       example: "Platform"
  *                     domain:
  *                       type: string
  *                       example: "https://diageo.com"

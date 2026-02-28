@@ -79,6 +79,67 @@ const updateLineItem = catchAsync(async (req: Request, res: Response) => {
     });
 });
 
+// ----------------------------------- PATCH LINE ITEM METADATA -----------------------------------
+const patchLineItemMetadata = catchAsync(async (req: Request, res: Response) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const itemId = getRequiredString(req.params.itemId, "itemId");
+
+    const lineItem = await LineItemsServices.patchLineItemMetadata(
+        itemId,
+        platformId,
+        req.body,
+        user.id
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Line item metadata updated successfully",
+        data: lineItem,
+    });
+});
+
+// ----------------------------------- PATCH LINE ITEM CLIENT VISIBILITY --------------------------
+const patchLineItemClientVisibility = catchAsync(async (req: Request, res: Response) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const itemId = getRequiredString(req.params.itemId, "itemId");
+
+    const result = await LineItemsServices.patchLineItemClientVisibility(
+        itemId,
+        platformId,
+        req.body,
+        user.id
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Line item client visibility updated successfully",
+        data: result,
+    });
+});
+
+// ----------------------------------- BULK PATCH ENTITY CLIENT VISIBILITY ------------------------
+const patchEntityLineItemsClientVisibility = catchAsync(async (req: Request, res: Response) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+
+    const result = await LineItemsServices.patchEntityLineItemsClientVisibility(
+        platformId,
+        req.body,
+        user.id
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Entity line items client visibility updated successfully",
+        data: result,
+    });
+});
+
 // ----------------------------------- VOID LINE ITEM -----------------------------------
 const voidLineItem = catchAsync(async (req: Request, res: Response) => {
     // Extract user and platform ID from middleware
@@ -105,5 +166,8 @@ export const LineItemsControllers = {
     createCatalogLineItem,
     createCustomLineItem,
     updateLineItem,
+    patchLineItemMetadata,
+    patchLineItemClientVisibility,
+    patchEntityLineItemsClientVisibility,
     voidLineItem,
 };

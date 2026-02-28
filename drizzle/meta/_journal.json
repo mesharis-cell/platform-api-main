@@ -120,6 +120,13 @@
             "when": 1772190000000,
             "tag": "0016_pricing_breakdown_cutover",
             "breakpoints": true
+        },
+        {
+            "idx": 17,
+            "version": "7",
+            "when": 1772301935495,
+            "tag": "0017_order_photos_line_visibility",
+            "breakpoints": true
         }
     ]
 }

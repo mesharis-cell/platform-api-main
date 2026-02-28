@@ -788,6 +788,12 @@ export const orders = pgTable(
         truck_photos: text("truck_photos")
             .array()
             .default(sql`ARRAY[]::text[]`), // Outbound truck loading photos
+        return_truck_photos: text("return_truck_photos")
+            .array()
+            .default(sql`ARRAY[]::text[]`), // Return pickup truck photos
+        on_site_photos: text("on_site_photos")
+            .array()
+            .default(sql`ARRAY[]::text[]`), // Captured while assets are IN_USE (On Site)
 
         // Timestamps
         created_at: timestamp("created_at").notNull().defaultNow(),
@@ -928,6 +934,7 @@ export const lineItems = pgTable(
         metadata: jsonb("metadata")
             .notNull()
             .default(sql`'{}'::jsonb`),
+        client_price_visible: boolean("client_price_visible").notNull().default(false),
 
         // Voiding (for cancellations, reskin cancellations)
         is_voided: boolean("is_voided").notNull().default(false),

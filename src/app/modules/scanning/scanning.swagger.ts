@@ -525,10 +525,10 @@
  *                   type: string
  *             examples:
  *               wrongStatus:
- *                 summary: Order not in AWAITING_RETURN status
+ *                 summary: Order not in an inbound-eligible status
  *                 value:
  *                   success: false
- *                   message: "Cannot complete inbound scan. Order status must be AWAITING_RETURN, current: IN_USE"
+ *                   message: "Cannot complete inbound scan. Order status must be AWAITING_RETURN or RETURN_IN_TRANSIT, current: IN_USE"
  *               missingItems:
  *                 summary: Not all items have been scanned
  *                 value:

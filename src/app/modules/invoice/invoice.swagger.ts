@@ -189,7 +189,7 @@
  *                             example: "c3d4e5f6-a7b8-9012-cdef-123456789012"
  *                           name:
  *                             type: string
- *                             example: "Diageo"
+ *                             example: "Client"
  *                       created_at:
  *                         type: string
  *                         format: date-time
@@ -228,7 +228,7 @@
  *                           quote_sent_at: "2026-01-03T14:00:00.000Z"
  *                       company:
  *                         id: "c3d4e5f6-a7b8-9012-cdef-123456789012"
- *                         name: "Diageo"
+ *                         name: "Client"
  *                       created_at: "2026-01-03T12:00:00.000Z"
  *                       updated_at: "2026-01-05T10:00:00.000Z"
  *       400:
@@ -446,7 +446,7 @@
  *                           example: "c3d4e5f6-a7b8-9012-cdef-123456789012"
  *                         name:
  *                           type: string
- *                           example: "Diageo"
+ *                           example: "Client"
  *                     created_at:
  *                       type: string
  *                       format: date-time
@@ -484,7 +484,7 @@
  *                       financial_status: "INVOICED"
  *                     company:
  *                       id: "c3d4e5f6-a7b8-9012-cdef-123456789012"
- *                       name: "Diageo"
+ *                       name: "Client"
  *                     created_at: "2026-01-03T12:00:00.000Z"
  *                     updated_at: "2026-01-05T10:00:00.000Z"
  *               unpaidInvoice:
@@ -779,7 +779,7 @@
  *               notes:
  *                 type: string
  *                 description: Optional notes about the payment
- *                 example: "Payment received via wire transfer from Diageo Finance Department"
+ *                 example: "Payment received via wire transfer from Client Finance Department"
  *           examples:
  *             bankTransfer:
  *               summary: Bank transfer payment
