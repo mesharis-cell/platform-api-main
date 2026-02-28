@@ -88,7 +88,7 @@ export interface OrderPricingDetails {
 }
 
 export interface StandardPricing {
-    pricing_tier_id: string | null;
+    legacy_pricing_reference_id: string | null;
     logistics_base_price: number | null;
     platform_margin_percent: number | null;
     platform_margin_amount: number | null;

@@ -45,7 +45,7 @@
  *         description: Filter by order status
  *         schema:
  *           type: string
- *           enum: [DRAFT, SUBMITTED, PRICING_REVIEW, PENDING_APPROVAL, QUOTED, DECLINED, CONFIRMED, IN_PREPARATION, READY_FOR_DELIVERY, IN_TRANSIT, DELIVERED, IN_USE, AWAITING_RETURN, CLOSED]
+ *           enum: [DRAFT, SUBMITTED, PRICING_REVIEW, PENDING_APPROVAL, QUOTED, DECLINED, CONFIRMED, IN_PREPARATION, READY_FOR_DELIVERY, IN_TRANSIT, DELIVERED, IN_USE, DERIG, AWAITING_RETURN, RETURN_IN_TRANSIT, CLOSED, CANCELLED]
  *       - name: financial_status
  *         in: query
  *         description: Filter by financial status
@@ -242,7 +242,7 @@
  *         description: Filter by order status
  *         schema:
  *           type: string
- *           enum: [DRAFT, SUBMITTED, PRICING_REVIEW, PENDING_APPROVAL, QUOTED, DECLINED, CONFIRMED, IN_PREPARATION, READY_FOR_DELIVERY, IN_TRANSIT, DELIVERED, IN_USE, AWAITING_RETURN, CLOSED]
+ *           enum: [DRAFT, SUBMITTED, PRICING_REVIEW, PENDING_APPROVAL, QUOTED, DECLINED, CONFIRMED, IN_PREPARATION, READY_FOR_DELIVERY, IN_TRANSIT, DELIVERED, IN_USE, DERIG, AWAITING_RETURN, RETURN_IN_TRANSIT, CLOSED, CANCELLED]
  *       - name: financial_status
  *         in: query
  *         description: Filter by financial status
@@ -419,7 +419,7 @@
  *         description: Filter by order status
  *         schema:
  *           type: string
- *           enum: [DRAFT, SUBMITTED, PRICING_REVIEW, PENDING_APPROVAL, QUOTED, DECLINED, CONFIRMED, IN_PREPARATION, READY_FOR_DELIVERY, IN_TRANSIT, DELIVERED, IN_USE, AWAITING_RETURN, CLOSED]
+ *           enum: [DRAFT, SUBMITTED, PRICING_REVIEW, PENDING_APPROVAL, QUOTED, DECLINED, CONFIRMED, IN_PREPARATION, READY_FOR_DELIVERY, IN_TRANSIT, DELIVERED, IN_USE, DERIG, AWAITING_RETURN, RETURN_IN_TRANSIT, CLOSED, CANCELLED]
  *       - name: financial_status
  *         in: query
  *         description: Filter by financial status
@@ -471,7 +471,7 @@
  *     summary: Get orders pending pricing review (ADMIN only)
  *     description: |
  *       Retrieves a list of orders that are in the PRICING_REVIEW status.
- *       Includes suggested pricing information based on volume and location matching with pricing tiers.
+ *       Includes pricing summary derived from active line items and base operations configuration.
  *
  *       **Access Control:**
  *       - ADMIN users only
@@ -578,7 +578,7 @@
  *                             format: uuid
  *                           name:
  *                             type: string
- *                             example: "Diageo"
+ *                             example: "Client"
  *                       contact_name:
  *                         type: string
  *                         example: "John Doe"
@@ -627,13 +627,13 @@
  *                       standard_pricing:
  *                         type: object
  *                         nullable: true
- *                         description: Suggested pricing based on matching tier (null if no tier found)
+ *                         description: Suggested pricing summary for the current order context
  *                         properties:
  *                           basePrice:
  *                             type: number
  *                             format: float
  *                             example: 5000.00
- *                             description: Flat rate from pricing tier (NOT per-m³ multiplication)
+ *                             description: Suggested baseline amount before manual adjustments
  *                           tierInfo:
  *                             type: object
  *                             properties:
@@ -932,7 +932,7 @@
  *                             format: uuid
  *                           status:
  *                             type: string
- *                             enum: [DRAFT, SUBMITTED, PRICING_REVIEW, PENDING_APPROVAL, QUOTED, DECLINED, CONFIRMED, IN_PREPARATION, READY_FOR_DELIVERY, IN_TRANSIT, DELIVERED, IN_USE, AWAITING_RETURN, CLOSED]
+ *                             enum: [DRAFT, SUBMITTED, PRICING_REVIEW, PENDING_APPROVAL, QUOTED, DECLINED, CONFIRMED, IN_PREPARATION, READY_FOR_DELIVERY, IN_TRANSIT, DELIVERED, IN_USE, DERIG, AWAITING_RETURN, RETURN_IN_TRANSIT, CLOSED, CANCELLED]
  *                             example: "CONFIRMED"
  *                           notes:
  *                             type: string
@@ -1022,11 +1022,8 @@
  *       - Order Management
  *     summary: Get order pricing details (ADMIN/LOGISTICS only)
  *     description: |
- *       Retrieves comprehensive pricing information for a specific order including:
- *       - Order basic information (ID, volume, location, company)
- *       - Matched pricing tier details
- *       - Standard pricing calculation based on tier
- *       - Current pricing details (logistics pricing, platform margin, final price)
+ *       Legacy pricing-details endpoint retained for compatibility.
+ *       Prefer line-item and price-breakdown endpoints for current pricing workflows.
  *
  *       **Access Control:**
  *       - ADMIN and LOGISTICS users can access all orders
@@ -1096,15 +1093,15 @@
  *                               format: uuid
  *                             name:
  *                               type: string
- *                               example: "Diageo"
+ *                               example: "Client Company"
  *                             platform_margin_percent:
  *                               type: string
  *                               example: "25.00"
  *                               description: Platform margin percentage for this company
- *                     pricing_tier:
+ *                     legacy_pricing_reference:
  *                       type: object
  *                       nullable: true
- *                       description: Matched pricing tier for this order (null if no tier matched)
+ *                       description: Legacy matched-tier payload (may be null in current line-item pricing flows)
  *                       properties:
  *                         id:
  *                           type: string
@@ -1133,16 +1130,16 @@
  *                       nullable: true
  *                       description: Calculated standard pricing based on matched tier
  *                       properties:
- *                         pricing_tier_id:
+ *                         legacy_pricing_reference_id:
  *                           type: string
  *                           format: uuid
  *                           nullable: true
- *                           description: ID of the matched pricing tier
+ *                           description: Legacy tier identifier (deprecated)
  *                         logistics_base_price:
  *                           type: number
  *                           nullable: true
  *                           example: 5000.00
- *                           description: Base price from pricing tier (logistics base price)
+ *                           description: Legacy baseline logistics amount
  *                         platform_margin_percent:
  *                           type: number
  *                           nullable: true
@@ -1161,7 +1158,7 @@
  *                         tier_found:
  *                           type: boolean
  *                           example: true
- *                           description: Whether a matching pricing tier was found
+ *                           description: Legacy flag for old tier-matching behavior
  *                     current_pricing:
  *                       type: object
  *                       description: Current pricing details (JSONB objects from database)
@@ -1312,7 +1309,7 @@
  *                           format: uuid
  *                         name:
  *                           type: string
- *                           example: "Diageo"
+ *                           example: "Client"
  *       400:
  *         description: Bad request - Invalid input or order not in PRICING_REVIEW status
  *         content:
@@ -1373,7 +1370,7 @@
  *             properties:
  *               new_status:
  *                 type: string
- *                 enum: [DRAFT, SUBMITTED, PRICING_REVIEW, PENDING_APPROVAL, QUOTED, DECLINED, CONFIRMED, IN_PREPARATION, READY_FOR_DELIVERY, IN_TRANSIT, DELIVERED, IN_USE, AWAITING_RETURN, CLOSED]
+ *                 enum: [DRAFT, SUBMITTED, PRICING_REVIEW, PENDING_APPROVAL, QUOTED, DECLINED, CONFIRMED, IN_PREPARATION, READY_FOR_DELIVERY, IN_TRANSIT, DELIVERED, IN_USE, DERIG, AWAITING_RETURN, RETURN_IN_TRANSIT, CLOSED, CANCELLED]
  *                 description: The new status to transition to
  *                 example: "CONFIRMED"
  *               notes:
@@ -1821,7 +1818,7 @@
  *                       type: number
  *                       format: float
  *                       nullable: true
- *                       description: Original base price from pricing tier (null if no tier matched)
+ *                       description: Original baseline amount before adjustment (legacy field)
  *                       example: 5000.00
  *                     adjusted_price:
  *                       type: number
@@ -1858,7 +1855,7 @@
  *                           example: "c3d4e5f6-a7b8-9012-cdef-123456789abc"
  *                         name:
  *                           type: string
- *                           example: "Diageo Events"
+ *                           example: "Client Company"
  *       400:
  *         description: Bad Request - Validation errors or order not in PRICING_REVIEW status
  *         content:
@@ -2060,11 +2057,11 @@
  *       - Asset ownership verification
  *       - Date validation (no past dates, end >= start)
  *       - Venue and contact information validation
- *       - Automatic pricing tier matching based on location and volume
+ *       - Automatic line-item pricing initialization based on order context
  *       - Asset booking creation to reserve items for the event period
  *
  *       The order is created with status 'PRICING_REVIEW' and financial status 'PENDING_QUOTE'.
- *       Email notifications are sent to PMG admins, A2 staff, and the client.
+ *       Email notifications are sent to Platform Admin, Logistics, and Client recipients.
  *
  *       **Permissions Required**: `orders:create`
  *     parameters:
@@ -2137,13 +2134,13 @@
  *                 type: string
  *                 minLength: 1
  *                 maxLength: 50
- *                 description: Venue country (used for pricing tier matching)
+ *                 description: Venue country (used for logistics and pricing calculations)
  *                 example: "UAE"
  *               venueCity:
  *                 type: string
  *                 minLength: 1
  *                 maxLength: 50
- *                 description: Venue city (used for pricing tier matching)
+ *                 description: Venue city (used for logistics and pricing calculations)
  *                 example: "Dubai"
  *               venueAddress:
  *                 type: string
@@ -2241,7 +2238,7 @@
  *                     company_name:
  *                       type: string
  *                       description: Name of the company that placed the order
- *                       example: "Diageo Events"
+ *                       example: "Client Company"
  *                     calculated_volume:
  *                       type: string
  *                       description: Total calculated volume in cubic meters (m³)
@@ -3125,7 +3122,7 @@
  *                           order_status:
  *                             type: string
  *                             description: Current order status
- *                             enum: [DRAFT, SUBMITTED, PRICING_REVIEW, PENDING_APPROVAL, QUOTED, DECLINED, CONFIRMED, IN_PREPARATION, READY_FOR_DELIVERY, IN_TRANSIT, DELIVERED, IN_USE, AWAITING_RETURN, CLOSED]
+ *                             enum: [DRAFT, SUBMITTED, PRICING_REVIEW, PENDING_APPROVAL, QUOTED, DECLINED, CONFIRMED, IN_PREPARATION, READY_FOR_DELIVERY, IN_TRANSIT, DELIVERED, IN_USE, DERIG, AWAITING_RETURN, RETURN_IN_TRANSIT, CLOSED, CANCELLED]
  *                             example: "CONFIRMED"
  *                           created_at:
  *                             type: string

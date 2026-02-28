@@ -321,7 +321,7 @@
  *                             example: "e9f0041c-84c0-4396-8b7e-72b804a4695d"
  *                           name:
  *                             type: string
- *                             example: "Diageo Events"
+ *                             example: "Client Company"
  *                           domain:
  *                             type: string
  *                             example: "diageo"
@@ -447,7 +447,7 @@
  *                           example: "e9f0041c-84c0-4396-8b7e-72b804a4695d"
  *                         name:
  *                           type: string
- *                           example: "Diageo Events"
+ *                           example: "Client Company"
  *                         domain:
  *                           type: string
  *                           example: "diageo"

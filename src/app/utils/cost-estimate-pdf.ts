@@ -257,62 +257,75 @@ export async function renderCostEstimatePDF(
             doc.y = currentY + 20;
 
             // ============================================================
-            // PRICING SUMMARY
+            // LINE ITEMS SUMMARY (CLIENT-SAFE)
             // ============================================================
-            const summaryX = pageWidth - margin - 260;
-            const summaryWidth = 260;
+            const summaryX = pageWidth - margin - 300;
+            const summaryWidth = 300;
+            const lineRows = Array.isArray(data.line_items) ? data.line_items : [];
 
-            if (data.pricing.show_breakdown) {
-                doc.fontSize(10)
+            doc.fontSize(8)
+                .font("Helvetica-Bold")
+                .fillColor("#000")
+                .text("COST BREAKDOWN", summaryX, doc.y);
+            doc.rect(summaryX, doc.y + 2, 95, 1).fill("#000");
+            doc.moveDown(0.9);
+
+            if (lineRows.length === 0) {
+                doc.fontSize(9)
                     .font("Helvetica")
                     .fillColor("#555")
-                    .text("Logistics Base Cost", summaryX, doc.y);
-
-                doc.fontSize(10)
-                    .font("Helvetica")
-                    .fillColor("#000")
-                    .text(formatCurrency(data.pricing.logistics_base_price), summaryX, doc.y - 12, {
-                        align: "right",
-                        width: summaryWidth,
-                    });
-
-                doc.moveDown(0.6);
-
-                doc.fontSize(10)
-                    .font("Helvetica")
-                    .fillColor("#555")
-                    .text(`Service Fee (Including Reskin)`, summaryX, doc.y);
-
-                doc.fontSize(10)
-                    .font("Helvetica")
-                    .fillColor("#555")
-                    .fillColor("#000")
-                    .text(formatCurrency(data.pricing.service_fee), summaryX, doc.y - 12, {
-                        align: "right",
-                        width: summaryWidth,
-                    });
-
+                    .text("No billable lines added yet.", summaryX, doc.y);
                 doc.moveDown(0.8);
+            } else {
+                lineRows.forEach((line, index) => {
+                    const label = `${index + 1}. ${line.description}`;
+                    const amountLabel =
+                        line.total === null
+                            ? "Included in total"
+                            : formatCurrency(String(line.total));
 
-                // Dashed separator
-                doc.moveTo(summaryX, doc.y)
-                    .lineTo(summaryX + summaryWidth, doc.y)
+                    const rowY = doc.y;
+                    doc.fontSize(9)
+                        .font("Helvetica")
+                        .fillColor("#444")
+                        .text(label, summaryX, rowY, { width: summaryWidth - 120 });
+                    doc.fontSize(9)
+                        .font("Helvetica-Bold")
+                        .fillColor("#000")
+                        .text(amountLabel, summaryX, rowY, {
+                            align: "right",
+                            width: summaryWidth,
+                        });
+                    doc.moveDown(0.55);
+                });
+
+                doc.moveTo(summaryX, doc.y + 3)
+                    .lineTo(summaryX + summaryWidth, doc.y + 3)
                     .dash(4, { space: 4 })
                     .lineWidth(1)
                     .stroke("#999")
                     .undash();
-
-                doc.moveDown(0.5);
+                doc.moveDown(0.8);
             }
+
+            doc.fontSize(10)
+                .font("Helvetica-Bold")
+                .fillColor("#000")
+                .text("TOTAL OF LINES", summaryX, doc.y);
+            doc.fontSize(12)
+                .font("Helvetica-Bold")
+                .fillColor("#000")
+                .text(formatCurrency(String(data.line_items_sub_total)), summaryX, doc.y - 14, {
+                    align: "right",
+                    width: summaryWidth,
+                });
+            doc.moveDown(0.9);
 
             // Total with diagonal stripes background
             const totalY = doc.y;
             const totalHeight = 45;
 
-            // Background box
             doc.rect(summaryX, totalY, summaryWidth, totalHeight).lineWidth(2).stroke("#000");
-
-            // Diagonal pattern
             for (let i = 0; i < 20; i++) {
                 doc.moveTo(summaryX + i * 20, totalY + totalHeight)
                     .lineTo(summaryX + i * 20 + totalHeight, totalY)

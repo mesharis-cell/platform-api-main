@@ -207,7 +207,6 @@ async function seedUsers() {
         "brands:*",
         "warehouses:*",
         "zones:*",
-        "pricing_tiers:*",
         "orders:*",
         "pricing:*",
         "invoices:*",

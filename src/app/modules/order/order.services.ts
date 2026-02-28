@@ -1248,10 +1248,18 @@ const updateJobNumber = async (orderId: string, jobNumber: string | null, platfo
 };
 
 // ----------------------------------- GET ORDER SCAN EVENTS ----------------------------------
-const getOrderScanEvents = async (orderId: string, platformId: string) => {
+const getOrderScanEvents = async (orderId: string, platformId: string, user: AuthUser) => {
     // Step 1: Verify order exists and user has access
     const [order] = await db
-        .select()
+        .select({
+            id: orders.id,
+            order_id: orders.order_id,
+            company_id: orders.company_id,
+            truck_photos: orders.truck_photos,
+            return_truck_photos: orders.return_truck_photos,
+            on_site_photos: orders.on_site_photos,
+            updated_at: orders.updated_at,
+        })
         .from(orders)
         .where(and(eq(orders.order_id, orderId), eq(orders.platform_id, platformId)));
 
@@ -1259,7 +1267,11 @@ const getOrderScanEvents = async (orderId: string, platformId: string) => {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
     }
 
-    // Step 3: Fetch scan events with asset and user details
+    if (user.role === "CLIENT" && user.company_id !== order.company_id) {
+        throw new CustomizedError(httpStatus.FORBIDDEN, "You don't have access to this order");
+    }
+
+    // Step 2: Fetch scan events with asset and user details
     const events = await db
         .select({
             scanEvent: scanEvents,
@@ -1279,6 +1291,29 @@ const getOrderScanEvents = async (orderId: string, platformId: string) => {
         .leftJoin(users, eq(scanEvents.scanned_by, users.id))
         .where(eq(scanEvents.order_id, order.id))
         .orderBy(desc(scanEvents.scanned_at));
+
+    // Step 3: Fetch derig captures saved on order items
+    const derigCaptures = await db
+        .select({
+            id: orderItems.id,
+            asset_id: orderItems.asset_id,
+            derig_photos: orderItems.derig_photos,
+            derig_notes: orderItems.derig_notes,
+            asset: {
+                id: assets.id,
+                name: assets.name,
+                qr_code: assets.qr_code,
+                tracking_method: assets.tracking_method,
+            },
+        })
+        .from(orderItems)
+        .leftJoin(assets, eq(orderItems.asset_id, assets.id))
+        .where(
+            and(
+                eq(orderItems.order_id, order.id),
+                sql<boolean>`cardinality(${orderItems.derig_photos}) > 0 OR ${orderItems.derig_notes} IS NOT NULL`
+            )
+        );
 
     const normalizeDamageEntries = (
         rawEntries: unknown,
@@ -1307,8 +1342,8 @@ const getOrderScanEvents = async (orderId: string, platformId: string) => {
             .map((url) => ({ url: url.trim() }));
     };
 
-    // Step 4: Format results
-    const formattedResult = events.map((event) => {
+    // Step 4: Format scan events
+    const formattedScanEvents = events.map((event) => {
         const damageEntries = normalizeDamageEntries(
             (event.scanEvent as any).damage_report_entries,
             (event.scanEvent as any).damage_report_photos || (event.scanEvent as any).photos
@@ -1329,8 +1364,103 @@ const getOrderScanEvents = async (orderId: string, platformId: string) => {
         };
     });
 
-    // Step 5: Return results
-    return formattedResult;
+    const syntheticDerigEvents = derigCaptures.map((entry) => ({
+        id: `derig-${entry.id}`,
+        order_id: order.id,
+        asset_id: entry.asset_id,
+        scan_type: "DERIG_CAPTURE",
+        quantity: 0,
+        condition: "GREEN",
+        notes: entry.derig_notes || null,
+        photos: entry.derig_photos || [],
+        latest_return_images: [],
+        damage_report_photos: [],
+        damage_report_entries: [],
+        discrepancy_reason: null,
+        scanned_by: null,
+        scanned_at: order.updated_at,
+        asset: entry.asset,
+        scanned_by_user: null,
+        order: { id: order.id, order_id: order.order_id },
+    }));
+
+    const syntheticTripPhotoEvents = [
+        ...(Array.isArray(order.truck_photos) && order.truck_photos.length > 0
+            ? [
+                  {
+                      id: `truck-outbound-${order.id}`,
+                      order_id: order.id,
+                      asset_id: null,
+                      scan_type: "OUTBOUND_TRUCK_PHOTOS",
+                      quantity: 0,
+                      condition: "GREEN",
+                      notes: "Outbound truck loading photos",
+                      photos: order.truck_photos,
+                      latest_return_images: [],
+                      damage_report_photos: [],
+                      damage_report_entries: [],
+                      discrepancy_reason: null,
+                      scanned_by: null,
+                      scanned_at: order.updated_at,
+                      asset: null,
+                      scanned_by_user: null,
+                      order: { id: order.id, order_id: order.order_id },
+                  },
+              ]
+            : []),
+        ...(Array.isArray(order.return_truck_photos) && order.return_truck_photos.length > 0
+            ? [
+                  {
+                      id: `truck-return-${order.id}`,
+                      order_id: order.id,
+                      asset_id: null,
+                      scan_type: "RETURN_TRUCK_PHOTOS",
+                      quantity: 0,
+                      condition: "GREEN",
+                      notes: "Return truck pickup photos",
+                      photos: order.return_truck_photos,
+                      latest_return_images: [],
+                      damage_report_photos: [],
+                      damage_report_entries: [],
+                      discrepancy_reason: null,
+                      scanned_by: null,
+                      scanned_at: order.updated_at,
+                      asset: null,
+                      scanned_by_user: null,
+                      order: { id: order.id, order_id: order.order_id },
+                  },
+              ]
+            : []),
+        ...(Array.isArray(order.on_site_photos) && order.on_site_photos.length > 0
+            ? [
+                  {
+                      id: `on-site-${order.id}`,
+                      order_id: order.id,
+                      asset_id: null,
+                      scan_type: "ON_SITE_CAPTURE",
+                      quantity: 0,
+                      condition: "GREEN",
+                      notes: "On Site captures",
+                      photos: order.on_site_photos,
+                      latest_return_images: [],
+                      damage_report_photos: [],
+                      damage_report_entries: [],
+                      discrepancy_reason: null,
+                      scanned_by: null,
+                      scanned_at: order.updated_at,
+                      asset: null,
+                      scanned_by_user: null,
+                      order: { id: order.id, order_id: order.order_id },
+                  },
+              ]
+            : []),
+    ];
+
+    return [...formattedScanEvents, ...syntheticDerigEvents, ...syntheticTripPhotoEvents].sort(
+        (a, b) =>
+            new Date((b as any).scanned_at || 0).getTime() -
+            new Date((a as any).scanned_at || 0).getTime()
+    );
 };
 
 // ----------------------------------- PROGRESS ORDER STATUS ----------------------------------
@@ -2815,6 +2945,42 @@ const saveDerigCapture = async (
     return { order_id: orderId, items_updated: items.length };
 };
 
+// ----------------------------------- SAVE ON-SITE PHOTOS --------------------------------------
+const saveOnSitePhotos = async (
+    orderId: string,
+    platformId: string,
+    photos: string[],
+    user: AuthUser
+) => {
+    const [order] = await db
+        .select({
+            id: orders.id,
+            order_status: orders.order_status,
+            platform_id: orders.platform_id,
+        })
+        .from(orders)
+        .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)));
+
+    if (!order) throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+
+    if (order.order_status !== "IN_USE") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "On Site photos can only be captured when order is IN_USE"
+        );
+    }
+
+    await db
+        .update(orders)
+        .set({
+            on_site_photos: photos,
+            updated_at: new Date(),
+        })
+        .where(eq(orders.id, orderId));
+
+    return { order_id: orderId, photos_count: photos.length, captured_by: user.id };
+};
+
 // ----------------------------------- RECALCULATE BASE OPS ------------------------------------
 const recalculateBaseOps = async (user: AuthUser, orderId: string, platformId: string) => {
     const [orderRow] = await db
@@ -2838,7 +3004,7 @@ const recalculateBaseOps = async (user: AuthUser, orderId: string, platformId: s
     if (!orderRow.company) throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found");
 
     const items = await db
-        .select({ quantity: orderItems.quantity, asset_id: orderItems.asset_id })
+        .select({ id: orderItems.id, quantity: orderItems.quantity, asset_id: orderItems.asset_id })
         .from(orderItems)
         .where(eq(orderItems.order_id, orderId));
 
@@ -2846,15 +3012,42 @@ const recalculateBaseOps = async (user: AuthUser, orderId: string, platformId: s
     const assetRows =
         assetIds.length > 0
             ? await db
-                  .select({ id: assets.id, volume_per_unit: assets.volume_per_unit })
+                  .select({
+                      id: assets.id,
+                      volume_per_unit: assets.volume_per_unit,
+                      weight_per_unit: assets.weight_per_unit,
+                  })
                   .from(assets)
                   .where(inArray(assets.id, assetIds))
             : [];
-    const volumeMap = new Map(assetRows.map((a) => [a.id, parseFloat(a.volume_per_unit)]));
+    const assetMap = new Map(
+        assetRows.map((a) => [
+            a.id,
+            {
+                volume_per_unit: parseFloat(a.volume_per_unit),
+                weight_per_unit: parseFloat(a.weight_per_unit),
+            },
+        ])
+    );
 
     let totalVolume = 0;
+    let totalWeight = 0;
     for (const item of items) {
-        totalVolume += (volumeMap.get(item.asset_id) || 0) * item.quantity;
+        const asset = assetMap.get(item.asset_id);
+        const volumePerUnit = asset?.volume_per_unit || 0;
+        const weightPerUnit = asset?.weight_per_unit || 0;
+        totalVolume += volumePerUnit * item.quantity;
+        totalWeight += weightPerUnit * item.quantity;
+
+        await db
+            .update(orderItems)
+            .set({
+                volume_per_unit: volumePerUnit.toFixed(3),
+                weight_per_unit: weightPerUnit.toFixed(2),
+                total_volume: (volumePerUnit * item.quantity).toFixed(3),
+                total_weight: (weightPerUnit * item.quantity).toFixed(2),
+            })
+            .where(eq(orderItems.id, item.id));
     }
 
     const baseOpsTotal = Number(orderRow.company.warehouse_ops_rate) * totalVolume;
@@ -2871,12 +3064,16 @@ const recalculateBaseOps = async (user: AuthUser, orderId: string, platformId: s
     await db
         .update(orders)
         .set({
-            calculated_totals: { ...existingTotals, volume: totalVolume.toFixed(3) },
+            calculated_totals: {
+                ...existingTotals,
+                volume: totalVolume.toFixed(3),
+                weight: totalWeight.toFixed(2),
+            },
             updated_at: new Date(),
         })
         .where(eq(orders.id, orderId));
 
-    return { volume: totalVolume.toFixed(3), ...result };
+    return { volume: totalVolume.toFixed(3), weight: totalWeight.toFixed(2), ...result };
 };
 
 export const OrderServices = {
@@ -2903,5 +3100,6 @@ export const OrderServices = {
     downloadGoodsForm,
     updateMaintenanceDecision,
     saveDerigCapture,
+    saveOnSitePhotos,
     recalculateBaseOps,
 };

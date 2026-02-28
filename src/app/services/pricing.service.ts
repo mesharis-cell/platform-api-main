@@ -48,6 +48,7 @@ type BreakdownLine = {
     voided_by: string | null;
     voided_at: string | null;
     void_reason: string | null;
+    client_price_visible: boolean;
 };
 
 type BuildInitialPricingParams = {
@@ -59,6 +60,7 @@ type BuildInitialPricingParams = {
     margin_percent: number;
     calculated_by: string;
     volume?: number;
+    enable_base_operations?: boolean;
 };
 
 type RebuildBreakdownParams = {
@@ -100,6 +102,8 @@ type RawLineItem = {
     isVoided?: boolean | null;
     line_item_type?: string | null;
     lineItemType?: string | null;
+    client_price_visible?: boolean | null;
+    clientPriceVisible?: boolean | null;
     [key: string]: unknown;
 };
 
@@ -175,6 +179,7 @@ const toBreakdownLine = (line: unknown): BreakdownLine | null => {
         voided_by: row.voided_by ? String(row.voided_by) : null,
         voided_at: toIso(row.voided_at as Date | string | null | undefined),
         void_reason: row.void_reason ? String(row.void_reason) : null,
+        client_price_visible: !!row.client_price_visible,
     };
 };
 
@@ -262,7 +267,7 @@ const buildBaseOpsLine = ({
         qty > 0 ? roundCurrency(baseOpsTotal / qty) : roundCurrency(warehouseOpsRate);
     const sellUnitPrice =
         qty > 0 ? roundCurrency(sellTotal / qty) : applyMarginPerLine(buyUnitPrice, marginPercent);
-    const label = qty > 0 ? `Base Operations (${qty.toFixed(3)} m³)` : "Base Operations";
+    const label = qty > 0 ? `Picking & Handling (${qty.toFixed(3)} m³)` : "Picking & Handling";
 
     return {
         line_id: "BASE_OPS",
@@ -291,6 +296,7 @@ const buildBaseOpsLine = ({
         voided_by: null,
         voided_at: null,
         void_reason: null,
+        client_price_visible: false,
     };
 };
 
@@ -328,6 +334,7 @@ const loadEntityLineItems = async (
             service_type_id: lineItems.service_type_id,
             service_type_name: serviceTypes.name,
             service_type_rate: serviceTypes.default_rate,
+            client_price_visible: lineItems.client_price_visible,
         })
         .from(lineItems)
         .leftJoin(serviceTypes, eq(lineItems.service_type_id, serviceTypes.id))
@@ -389,6 +396,7 @@ const buildBreakdownLinesFromLineItems = (
             voided_by: item.voided_by ? String(item.voided_by) : null,
             voided_at: toIso(item.voided_at as Date | string | null | undefined),
             void_reason: item.void_reason ? String(item.void_reason) : null,
+            client_price_visible: !!item.client_price_visible,
         };
     });
 
@@ -405,6 +413,7 @@ const resolveEntityContext = async (
                 pricing_id: orders.order_pricing_id,
                 company_margin: companies.platform_margin_percent,
                 company_ops_rate: companies.warehouse_ops_rate,
+                company_features: companies.features,
                 created_by: orders.created_by,
                 calculated_totals: orders.calculated_totals,
             })
@@ -420,6 +429,9 @@ const resolveEntityContext = async (
             company_ops_rate: toNum(row.company_ops_rate),
             created_by: String(row.created_by),
             volume: toNum((row.calculated_totals as Record<string, unknown> | null)?.volume),
+            enable_base_operations:
+                ((row.company_features as Record<string, unknown> | null)
+                    ?.enable_base_operations as boolean | undefined) ?? true,
         };
     }
 
@@ -430,6 +442,7 @@ const resolveEntityContext = async (
                 pricing_id: inboundRequests.request_pricing_id,
                 company_margin: companies.platform_margin_percent,
                 company_ops_rate: companies.warehouse_ops_rate,
+                company_features: companies.features,
                 created_by: inboundRequests.created_by,
             })
             .from(inboundRequests)
@@ -446,6 +459,9 @@ const resolveEntityContext = async (
             company_ops_rate: toNum(row.company_ops_rate),
             created_by: String(row.created_by),
             volume: undefined,
+            enable_base_operations:
+                ((row.company_features as Record<string, unknown> | null)
+                    ?.enable_base_operations as boolean | undefined) ?? true,
         };
     }
 
@@ -455,6 +471,7 @@ const resolveEntityContext = async (
             pricing_id: serviceRequests.request_pricing_id,
             company_margin: companies.platform_margin_percent,
             company_ops_rate: companies.warehouse_ops_rate,
+            company_features: companies.features,
             created_by: serviceRequests.created_by,
         })
         .from(serviceRequests)
@@ -469,6 +486,10 @@ const resolveEntityContext = async (
         company_ops_rate: toNum(row.company_ops_rate),
         created_by: String(row.created_by),
         volume: undefined,
+        enable_base_operations:
+            ((row.company_features as Record<string, unknown> | null)?.enable_base_operations as
+                | boolean
+                | undefined) ?? true,
     };
 };
 
@@ -535,20 +556,23 @@ const buildInitialPricing = (params: BuildInitialPricingParams) => {
     const baseOpsTotal = roundCurrency(params.base_ops_total);
     const marginPercent = roundCurrency(params.margin_percent);
     const opsRate = roundCurrency(toNum(params.warehouse_ops_rate));
-    const baseLine = buildBaseOpsLine({
-        baseOpsTotal,
-        warehouseOpsRate: opsRate,
-        marginPercent,
-        actorId: params.calculated_by,
-        volume: params.volume,
-        now,
-    });
+    const baseLine =
+        params.enable_base_operations === false
+            ? null
+            : buildBaseOpsLine({
+                  baseOpsTotal,
+                  warehouseOpsRate: opsRate,
+                  marginPercent,
+                  actorId: params.calculated_by,
+                  volume: params.volume,
+                  now,
+              });
 
     return {
         platform_id: params.platform_id,
         entity_type: params.entity_type,
         entity_id: params.entity_id,
-        breakdown_lines: [baseLine],
+        breakdown_lines: baseLine ? [baseLine] : [],
         margin_percent: marginPercent.toFixed(2),
         margin_is_override: false,
         margin_override_reason: null,
@@ -613,14 +637,17 @@ const rebuildBreakdown = async (params: RebuildBreakdownParams) => {
     }
 
     const now = new Date();
-    const baseLine = buildBaseOpsLine({
-        baseOpsTotal,
-        warehouseOpsRate: context.company_ops_rate,
-        marginPercent,
-        actorId: params.calculated_by,
-        volume: context.volume,
-        now,
-    });
+    const baseLine =
+        context.enable_base_operations === false
+            ? null
+            : buildBaseOpsLine({
+                  baseOpsTotal,
+                  warehouseOpsRate: context.company_ops_rate,
+                  marginPercent,
+                  actorId: params.calculated_by,
+                  volume: context.volume,
+                  now,
+              });
     const rawLineItems = await loadEntityLineItems(
         executor,
         params.entity_type,
@@ -628,7 +655,7 @@ const rebuildBreakdown = async (params: RebuildBreakdownParams) => {
         params.platform_id
     );
     const pricingLines = buildBreakdownLinesFromLineItems(rawLineItems as any, marginPercent);
-    const breakdownLines = [baseLine, ...pricingLines];
+    const breakdownLines = [...(baseLine ? [baseLine] : []), ...pricingLines];
 
     await executor
         .update(prices)
@@ -773,8 +800,9 @@ const projectByRole = (pricing: RawPricingRecord | null | undefined, role: Prici
         label: line.label,
         quantity: line.quantity,
         unit: line.unit,
-        unit_price: line.sell_unit_price,
-        total: line.sell_total,
+        unit_price: line.client_price_visible ? line.sell_unit_price : null,
+        total: line.client_price_visible ? line.sell_total : null,
+        client_price_visible: line.client_price_visible,
     }));
     return {
         breakdown_lines: clientLines,
@@ -855,13 +883,16 @@ const projectLineItemsForRole = (
         const itemId = item.line_item_id || item.id || "";
 
         if (role === "CLIENT") {
+            const clientPriceVisible =
+                (item.client_price_visible ?? item.clientPriceVisible ?? false) === true;
             return {
                 line_item_id: itemId,
                 description: item.description || "",
                 quantity: qty,
                 category: item.category || undefined,
-                unit_rate: sellUnitRate,
-                total: sellTotal,
+                unit_rate: clientPriceVisible ? sellUnitRate : null,
+                total: clientPriceVisible ? sellTotal : null,
+                client_price_visible: clientPriceVisible,
             };
         }
 

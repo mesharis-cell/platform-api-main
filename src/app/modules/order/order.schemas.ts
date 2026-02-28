@@ -318,6 +318,16 @@ const derigCaptureSchema = z.object({
     }),
 });
 
+const onSitePhotosSchema = z.object({
+    body: z
+        .object({
+            photos: z
+                .array(z.string().url("Invalid photo URL"))
+                .min(1, "At least one photo is required"),
+        })
+        .strict(),
+});
+
 export const orderSchemas = {
     calculateEstimateSchema,
     checkMaintenanceFeasibilitySchema,
@@ -334,5 +344,6 @@ export const orderSchemas = {
     updateOrderItemQuantitySchema,
     updateMaintenanceDecisionSchema,
     derigCaptureSchema,
+    onSitePhotosSchema,
     adminApproveQuoteSchema,
 };

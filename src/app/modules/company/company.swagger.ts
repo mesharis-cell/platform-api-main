@@ -23,7 +23,7 @@
  *                 minLength: 2
  *                 maxLength: 100
  *                 description: Company name
- *                 example: "Diageo Events"
+ *                 example: "Client Company"
  *               domain:
  *                 type: string
  *                 minLength: 1
@@ -41,7 +41,7 @@
  *                       title:
  *                         type: string
  *                         description: Company display title
- *                         example: "Diageo"
+ *                         example: "Client"
  *                       logo_url:
  *                         type: string
  *                         format: uri
@@ -113,7 +113,7 @@
  *                       example: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
  *                     name:
  *                       type: string
- *                       example: "Diageo Events"
+ *                       example: "Client Company"
  *                     domain:
  *                       type: string
  *                       description: Company subdomain
@@ -126,7 +126,7 @@
  *                           properties:
  *                             title:
  *                               type: string
- *                               example: "Diageo"
+ *                               example: "Client"
  *                             logo_url:
  *                               type: string
  *                               example: "https://cdn.example.com/logos/diageo.png"
@@ -390,7 +390,7 @@
  *                             example: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
  *                           name:
  *                             type: string
- *                             example: "Diageo Events"
+ *                             example: "Client Company"
  *                           domain:
  *                             type: string
  *                             description: Company subdomain
@@ -403,7 +403,7 @@
  *                                 properties:
  *                                   title:
  *                                     type: string
- *                                     example: "Diageo"
+ *                                     example: "Client"
  *                                   logo_url:
  *                                     type: string
  *                                     example: "https://cdn.example.com/logos/diageo.png"
@@ -580,7 +580,7 @@
  *                       example: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
  *                     name:
  *                       type: string
- *                       example: "Diageo Events"
+ *                       example: "Client Company"
  *                     domain:
  *                       type: string
  *                       example: "diageo"
@@ -592,7 +592,7 @@
  *                           properties:
  *                             title:
  *                               type: string
- *                               example: "Diageo"
+ *                               example: "Client"
  *                             logo_url:
  *                               type: string
  *                               example: "https://cdn.example.com/logos/diageo.png"
@@ -708,7 +708,7 @@
  *                 minLength: 2
  *                 maxLength: 100
  *                 description: Company name
- *                 example: "Diageo Events Updated"
+ *                 example: "Client Company Updated"
  *               domain:
  *                 type: string
  *                 minLength: 1
@@ -725,7 +725,7 @@
  *                     properties:
  *                       title:
  *                         type: string
- *                         example: "Diageo Updated"
+ *                         example: "Client Updated"
  *                       logo_url:
  *                         type: string
  *                         format: uri
@@ -791,7 +791,7 @@
  *                       example: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
  *                     name:
  *                       type: string
- *                       example: "Diageo Events Updated"
+ *                       example: "Client Company Updated"
  *                     domain:
  *                       type: string
  *                       example: "diageo-updated"
@@ -803,7 +803,7 @@
  *                           properties:
  *                             title:
  *                               type: string
- *                               example: "Diageo Updated"
+ *                               example: "Client Updated"
  *                             logo_url:
  *                               type: string
  *                               example: "https://cdn.example.com/logos/diageo-new.png"

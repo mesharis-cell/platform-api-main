@@ -16,6 +16,15 @@ export type CreateCustomLineItemPayload = z.infer<
 };
 
 export type UpdateLineItemPayload = z.infer<typeof LineItemsSchemas.updateLineItemSchema>["body"];
+export type PatchLineItemMetadataPayload = z.infer<
+    typeof LineItemsSchemas.patchLineItemMetadataSchema
+>["body"];
+export type PatchLineItemClientVisibilityPayload = z.infer<
+    typeof LineItemsSchemas.patchLineItemClientVisibilitySchema
+>["body"];
+export type PatchEntityLineItemsClientVisibilityPayload = z.infer<
+    typeof LineItemsSchemas.patchEntityLineItemsClientVisibilitySchema
+>["body"];
 
 export type VoidLineItemPayload = z.infer<typeof LineItemsSchemas.voidLineItemSchema>["body"] & {
     voided_by: string;
@@ -40,6 +49,7 @@ export interface OrderLineItem {
     added_at: Date;
     notes: string | null;
     metadata: Record<string, unknown>;
+    client_price_visible: boolean;
     is_voided: boolean;
     voided_at: Date | null;
     voided_by: string | null;
@@ -51,4 +61,10 @@ export interface OrderLineItem {
 export interface LineItemsTotals {
     catalog_total: number;
     custom_total: number;
+}
+
+export interface LineItemEditability {
+    can_edit_pricing_fields: boolean;
+    can_edit_metadata_fields: boolean;
+    lock_reason: string | null;
 }

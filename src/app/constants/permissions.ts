@@ -73,14 +73,6 @@ export const PERMISSIONS = {
     COLLECTIONS_ASSIGN_ASSETS: "collections:assign_assets", // ✅
     COLLECTIONS_ALL: "collections:*",
 
-    // ==================== PRICING CONFIGURATION (DEPRECATED) ====================
-    PRICING_TIERS_CREATE: "pricing_tiers:create", // ✅ DEPRECATED
-    PRICING_TIERS_READ: "pricing_tiers:read", // ✅ DEPRECATED
-    PRICING_TIERS_UPDATE: "pricing_tiers:update", // ✅ DEPRECATED
-    PRICING_TIERS_ACTIVATE: "pricing_tiers:activate", // ✅ DEPRECATED
-    PRICING_TIERS_DEACTIVATE: "pricing_tiers:deactivate", // ✅ DEPRECATED
-    PRICING_TIERS_ALL: "pricing_tiers:*", // DEPRECATED
-
     // ==================== PRICING CONFIGURATION (NEW) ====================
     PRICING_CONFIG_READ: "pricing_config:read",
     PRICING_CONFIG_UPDATE: "pricing_config:update",
@@ -171,7 +163,6 @@ export const PERMISSION_TEMPLATES = {
         PERMISSIONS.ZONES_ALL,
         PERMISSIONS.ASSETS_ALL,
         PERMISSIONS.COLLECTIONS_ALL,
-        PERMISSIONS.PRICING_TIERS_ALL,
         PERMISSIONS.PRICING_ALL,
         PERMISSIONS.ORDERS_ALL,
         PERMISSIONS.INVOICES_ALL,

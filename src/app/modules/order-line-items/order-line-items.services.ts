@@ -1,12 +1,24 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { companies, lineItems, prices, serviceTypes, serviceRequests } from "../../../db/schema";
+import {
+    companies,
+    inboundRequests,
+    lineItems,
+    orders,
+    prices,
+    serviceRequests,
+    serviceTypes,
+} from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import {
     CreateCatalogLineItemPayload,
     CreateCustomLineItemPayload,
+    LineItemEditability,
     LineItemsTotals,
+    PatchEntityLineItemsClientVisibilityPayload,
+    PatchLineItemClientVisibilityPayload,
+    PatchLineItemMetadataPayload,
     UpdateLineItemPayload,
     VoidLineItemPayload,
 } from "./order-line-items.interfaces";
@@ -77,6 +89,77 @@ const runWithLineItemIdRetry = async <T>(operation: () => Promise<T>): Promise<T
     );
 };
 
+const ORDER_FINANCIAL_LOCKED_STATUSES = ["QUOTE_ACCEPTED", "PENDING_INVOICE", "INVOICED", "PAID"];
+const SERVICE_REQUEST_LOCKED_STATUSES = ["QUOTE_APPROVED", "INVOICED", "PAID"];
+
+const buildEditability = (isLocked: boolean, lockStatus: string | null): LineItemEditability => ({
+    can_edit_pricing_fields: !isLocked,
+    can_edit_metadata_fields: true,
+    lock_reason: isLocked
+        ? `Pricing fields are locked after quote acceptance (current status: ${lockStatus || "LOCKED"}).`
+        : null,
+});
+
+const getLineItemEditability = async (
+    item: {
+        order_id: string | null;
+        inbound_request_id: string | null;
+        service_request_id: string | null;
+    },
+    platformId: string
+): Promise<LineItemEditability> => {
+    if (item.order_id) {
+        const [order] = await db
+            .select({ financial_status: orders.financial_status })
+            .from(orders)
+            .where(and(eq(orders.id, item.order_id), eq(orders.platform_id, platformId)))
+            .limit(1);
+        const status = order?.financial_status || null;
+        return buildEditability(
+            !!status && ORDER_FINANCIAL_LOCKED_STATUSES.includes(String(status)),
+            status
+        );
+    }
+
+    if (item.inbound_request_id) {
+        const [request] = await db
+            .select({ financial_status: inboundRequests.financial_status })
+            .from(inboundRequests)
+            .where(
+                and(
+                    eq(inboundRequests.id, item.inbound_request_id),
+                    eq(inboundRequests.platform_id, platformId)
+                )
+            )
+            .limit(1);
+        const status = request?.financial_status || null;
+        return buildEditability(
+            !!status && ORDER_FINANCIAL_LOCKED_STATUSES.includes(String(status)),
+            status
+        );
+    }
+
+    if (item.service_request_id) {
+        const [request] = await db
+            .select({ commercial_status: serviceRequests.commercial_status })
+            .from(serviceRequests)
+            .where(
+                and(
+                    eq(serviceRequests.id, item.service_request_id),
+                    eq(serviceRequests.platform_id, platformId)
+                )
+            )
+            .limit(1);
+        const status = request?.commercial_status || null;
+        return buildEditability(
+            !!status && SERVICE_REQUEST_LOCKED_STATUSES.includes(String(status)),
+            status
+        );
+    }
+
+    return buildEditability(false, null);
+};
+
 // ----------------------------------- GET LINE ITEMS -----------------------------------------
 const getLineItems = async (platformId: string, query: Record<string, any>) => {
     const { order_id, inbound_request_id, service_request_id, purpose_type } = query;
@@ -104,12 +187,15 @@ const getLineItems = async (platformId: string, query: Record<string, any>) => {
         .from(lineItems)
         .where(and(...conditions));
 
-    const formattedResults = results.map((item) => ({
-        ...item,
-        quantity: item.quantity ? parseFloat(item.quantity) : null,
-        unit_rate: item.unit_rate ? parseFloat(item.unit_rate) : null,
-        total: parseFloat(item.total),
-    }));
+    const formattedResults = await Promise.all(
+        results.map(async (item) => ({
+            ...item,
+            quantity: item.quantity ? parseFloat(item.quantity) : null,
+            unit_rate: item.unit_rate ? parseFloat(item.unit_rate) : null,
+            total: parseFloat(item.total),
+            ...(await getLineItemEditability(item, platformId)),
+        }))
+    );
 
     return formattedResults;
 };
@@ -140,6 +226,22 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
     if (!serviceType) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Service type not found");
     }
+
+    const createEditability = await getLineItemEditability(
+        {
+            order_id: order_id || null,
+            inbound_request_id: inbound_request_id || null,
+            service_request_id: service_request_id || null,
+        },
+        platform_id
+    );
+    if (!createEditability.can_edit_pricing_fields) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            createEditability.lock_reason || "Pricing fields are locked"
+        );
+    }
+
     if (serviceType.default_rate === null || serviceType.default_rate === undefined) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
@@ -180,6 +282,7 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
                     added_by,
                     notes: notes || null,
                     metadata: effectiveMetadata,
+                    client_price_visible: data.client_price_visible ?? false,
                 })
                 .returning();
             return inserted;
@@ -237,6 +340,7 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
         quantity: result.quantity ? parseFloat(result.quantity) : null,
         unit_rate: result.unit_rate ? parseFloat(result.unit_rate) : null,
         total: parseFloat(result.total),
+        ...(await getLineItemEditability(result, platform_id)),
     };
 };
 
@@ -259,6 +363,21 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
         added_by,
     } = data;
     const total = quantity * unit_rate;
+    const createEditability = await getLineItemEditability(
+        {
+            order_id: order_id || null,
+            inbound_request_id: inbound_request_id || null,
+            service_request_id: service_request_id || null,
+        },
+        platform_id
+    );
+    if (!createEditability.can_edit_pricing_fields) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            createEditability.lock_reason || "Pricing fields are locked"
+        );
+    }
+
     const parsedMetadata = (metadata || {}) as Record<string, unknown>;
     if (category === "TRANSPORT") validateTransportMetadata(parsedMetadata);
 
@@ -286,6 +405,7 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
                     added_by,
                     notes: notes || null,
                     metadata: parsedMetadata,
+                    client_price_visible: data.client_price_visible ?? false,
                 })
                 .returning();
             return inserted;
@@ -343,6 +463,7 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
         quantity: result.quantity ? parseFloat(result.quantity) : null,
         unit_rate: result.unit_rate ? parseFloat(result.unit_rate) : null,
         total: parseFloat(result.total),
+        ...(await getLineItemEditability(result, platform_id)),
     };
 };
 
@@ -367,18 +488,37 @@ const updateLineItem = async (
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Cannot update voided line item");
     }
 
+    const editability = await getLineItemEditability(existing, platformId);
+    const pricingFieldRequested =
+        data.quantity !== undefined ||
+        data.unit !== undefined ||
+        data.unit_rate !== undefined ||
+        data.billing_mode !== undefined;
+    if (!editability.can_edit_pricing_fields && pricingFieldRequested) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            editability.lock_reason || "Line is locked"
+        );
+    }
+
     const dbData: any = {
         ...(data.notes !== undefined && { notes: data.notes }),
         ...(data.billing_mode !== undefined && { billing_mode: data.billing_mode }),
         ...(data.metadata !== undefined && { metadata: data.metadata }),
+        ...(data.client_price_visible !== undefined && {
+            client_price_visible: data.client_price_visible,
+        }),
     };
 
     if (data.metadata !== undefined && existing.category === "TRANSPORT") {
         validateTransportMetadata((data.metadata || {}) as Record<string, unknown>);
     }
 
+    const shouldRecalculateTotal =
+        data.quantity !== undefined || data.unit !== undefined || data.unit_rate !== undefined;
+
     // For catalog items, recalculate total if quantity or unit_rate changed
-    if (existing.line_item_type === "CATALOG") {
+    if (existing.line_item_type === "CATALOG" && shouldRecalculateTotal) {
         const newQuantity =
             data.quantity !== undefined ? data.quantity : parseFloat(existing.quantity!);
         const newUnitRate =
@@ -397,7 +537,7 @@ const updateLineItem = async (
         // Recalculate total
         const calculatedTotal = newQuantity * newUnitRate;
         dbData.total = calculatedTotal.toString();
-    } else {
+    } else if (existing.line_item_type === "CUSTOM" && shouldRecalculateTotal) {
         const existingQuantity = existing.quantity ? parseFloat(existing.quantity) : 0;
         const existingUnitRate = existing.unit_rate ? parseFloat(existing.unit_rate) : 0;
         const nextQuantity = data.quantity !== undefined ? data.quantity : existingQuantity;
@@ -412,23 +552,25 @@ const updateLineItem = async (
 
     const [result] = await db.update(lineItems).set(dbData).where(eq(lineItems.id, id)).returning();
 
-    // Update order pricing after line item change
-    if (result.order_id) {
-        await updateOrderPricingAfterLineItemChange(result.order_id, platformId, userId);
-    }
-    if (result.inbound_request_id) {
-        await updateInboundRequestPricingAfterLineItemChange(
-            result.inbound_request_id,
-            platformId,
-            userId
-        );
-    }
-    if (result.service_request_id) {
-        await updateServiceRequestPricingAfterLineItemChange(
-            result.service_request_id,
-            platformId,
-            userId
-        );
+    if (pricingFieldRequested) {
+        // Update order pricing after line item change
+        if (result.order_id) {
+            await updateOrderPricingAfterLineItemChange(result.order_id, platformId, userId);
+        }
+        if (result.inbound_request_id) {
+            await updateInboundRequestPricingAfterLineItemChange(
+                result.inbound_request_id,
+                platformId,
+                userId
+            );
+        }
+        if (result.service_request_id) {
+            await updateServiceRequestPricingAfterLineItemChange(
+                result.service_request_id,
+                platformId,
+                userId
+            );
+        }
     }
 
     const updateParentId =
@@ -457,6 +599,7 @@ const updateLineItem = async (
             total: Number(result.total),
             previous_total: Number(existing.total),
             purpose_type: result.purpose_type,
+            client_price_visible: result.client_price_visible,
         },
     });
 
@@ -465,6 +608,190 @@ const updateLineItem = async (
         quantity: result.quantity ? parseFloat(result.quantity) : null,
         unit_rate: result.unit_rate ? parseFloat(result.unit_rate) : null,
         total: parseFloat(result.total),
+        ...editability,
+    };
+};
+
+// ----------------------------------- PATCH LINE ITEM METADATA ---------------------------------
+const patchLineItemMetadata = async (
+    id: string,
+    platformId: string,
+    data: PatchLineItemMetadataPayload,
+    userId: string
+) => {
+    const [existing] = await db
+        .select()
+        .from(lineItems)
+        .where(and(eq(lineItems.id, id), eq(lineItems.platform_id, platformId)))
+        .limit(1);
+
+    if (!existing) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Line item not found");
+    }
+    if (existing.is_voided) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Cannot update voided line item");
+    }
+
+    if (data.metadata !== undefined && existing.category === "TRANSPORT") {
+        validateTransportMetadata((data.metadata || {}) as Record<string, unknown>);
+    }
+
+    const [result] = await db
+        .update(lineItems)
+        .set({
+            ...(data.metadata !== undefined && { metadata: data.metadata }),
+            ...(data.notes !== undefined && { notes: data.notes }),
+        })
+        .where(eq(lineItems.id, id))
+        .returning();
+
+    const editability = await getLineItemEditability(result, platformId);
+
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: EVENT_TYPES.LINE_ITEM_UPDATED,
+        entity_type: (result.purpose_type === "ORDER"
+            ? "ORDER"
+            : result.purpose_type === "INBOUND_REQUEST"
+              ? "INBOUND_REQUEST"
+              : "SERVICE_REQUEST") as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST",
+        entity_id: result.order_id || result.inbound_request_id || result.service_request_id || "",
+        actor_id: userId,
+        actor_role: null,
+        payload: {
+            entity_id_readable: result.line_item_id,
+            line_item_id: result.line_item_id,
+            purpose_type: result.purpose_type,
+            metadata_updated: data.metadata !== undefined,
+            notes_updated: data.notes !== undefined,
+        },
+    });
+
+    return {
+        ...result,
+        quantity: result.quantity ? parseFloat(result.quantity) : null,
+        unit_rate: result.unit_rate ? parseFloat(result.unit_rate) : null,
+        total: parseFloat(result.total),
+        ...editability,
+    };
+};
+
+// ----------------------------------- PATCH LINE ITEM CLIENT VISIBILITY ------------------------
+const patchLineItemClientVisibility = async (
+    id: string,
+    platformId: string,
+    data: PatchLineItemClientVisibilityPayload,
+    userId: string
+) => {
+    const [existing] = await db
+        .select()
+        .from(lineItems)
+        .where(and(eq(lineItems.id, id), eq(lineItems.platform_id, platformId)))
+        .limit(1);
+
+    if (!existing) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Line item not found");
+    }
+
+    const [result] = await db
+        .update(lineItems)
+        .set({
+            client_price_visible: data.client_price_visible,
+            updated_at: new Date(),
+        })
+        .where(eq(lineItems.id, id))
+        .returning();
+
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: EVENT_TYPES.LINE_ITEM_UPDATED,
+        entity_type: (result.purpose_type === "ORDER"
+            ? "ORDER"
+            : result.purpose_type === "INBOUND_REQUEST"
+              ? "INBOUND_REQUEST"
+              : "SERVICE_REQUEST") as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST",
+        entity_id: result.order_id || result.inbound_request_id || result.service_request_id || "",
+        actor_id: userId,
+        actor_role: null,
+        payload: {
+            entity_id_readable: result.line_item_id,
+            line_item_id: result.line_item_id,
+            purpose_type: result.purpose_type,
+            client_price_visible: data.client_price_visible,
+        },
+    });
+
+    return {
+        id: result.id,
+        line_item_id: result.line_item_id,
+        client_price_visible: result.client_price_visible,
+    };
+};
+
+// ----------------------------------- BULK PATCH ENTITY CLIENT VISIBILITY ---------------------
+const patchEntityLineItemsClientVisibility = async (
+    platformId: string,
+    data: PatchEntityLineItemsClientVisibilityPayload,
+    userId: string
+) => {
+    const targetId =
+        data.purpose_type === "ORDER"
+            ? data.order_id
+            : data.purpose_type === "INBOUND_REQUEST"
+              ? data.inbound_request_id
+              : data.service_request_id;
+
+    if (!targetId) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Target entity id is required");
+    }
+
+    const conditions = [
+        eq(lineItems.platform_id, platformId),
+        eq(lineItems.purpose_type, data.purpose_type),
+        data.purpose_type === "ORDER"
+            ? eq(lineItems.order_id, targetId)
+            : data.purpose_type === "INBOUND_REQUEST"
+              ? eq(lineItems.inbound_request_id, targetId)
+              : eq(lineItems.service_request_id, targetId),
+    ];
+
+    if (data.line_item_ids && data.line_item_ids.length > 0) {
+        conditions.push(inArray(lineItems.id, data.line_item_ids));
+    }
+
+    const updated = await db
+        .update(lineItems)
+        .set({
+            client_price_visible: data.client_price_visible,
+            updated_at: new Date(),
+        })
+        .where(and(...conditions))
+        .returning({ id: lineItems.id });
+
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: EVENT_TYPES.LINE_ITEM_UPDATED,
+        entity_type: (data.purpose_type === "ORDER"
+            ? "ORDER"
+            : data.purpose_type === "INBOUND_REQUEST"
+              ? "INBOUND_REQUEST"
+              : "SERVICE_REQUEST") as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST",
+        entity_id: targetId,
+        actor_id: userId,
+        actor_role: null,
+        payload: {
+            entity_id_readable: targetId,
+            purpose_type: data.purpose_type,
+            client_price_visible: data.client_price_visible,
+            updated_count: updated.length,
+        },
+    });
+
+    return {
+        purpose_type: data.purpose_type,
+        target_id: targetId,
+        client_price_visible: data.client_price_visible,
+        updated_count: updated.length,
     };
 };
 
@@ -484,6 +811,14 @@ const voidLineItem = async (id: string, platformId: string, data: VoidLineItemPa
 
     if (existing.is_voided) {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Line item is already voided");
+    }
+
+    const editability = await getLineItemEditability(existing, platformId);
+    if (!editability.can_edit_pricing_fields) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            editability.lock_reason || "Line is locked"
+        );
     }
 
     const [result] = await db
@@ -769,6 +1104,9 @@ export const LineItemsServices = {
     createCatalogLineItem,
     createCustomLineItem,
     updateLineItem,
+    patchLineItemMetadata,
+    patchLineItemClientVisibility,
+    patchEntityLineItemsClientVisibility,
     voidLineItem,
     calculateOrderLineItemsTotals,
     calculateInboundRequestLineItemsTotals,

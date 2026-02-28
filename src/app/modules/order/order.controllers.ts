@@ -131,14 +131,30 @@ const updateJobNumber = catchAsync(async (req, res) => {
 // ----------------------------------- GET ORDER SCAN EVENTS ------------------------------
 const getOrderScanEvents = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
+    const user = (req as any).user;
     const orderId = getRequiredString(req.params.orderId, "orderId");
 
-    const result = await OrderServices.getOrderScanEvents(orderId as string, platformId);
+    const result = await OrderServices.getOrderScanEvents(orderId as string, platformId, user);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
         success: true,
         message: "Scan events fetched successfully",
+        data: result,
+    });
+});
+
+const saveOnSitePhotos = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const { id: orderId } = req.params;
+
+    const result = await OrderServices.saveOnSitePhotos(orderId, platformId, req.body.photos, user);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "On Site photos saved successfully",
         data: result,
     });
 });
@@ -510,5 +526,6 @@ export const OrderControllers = {
     cancelOrder,
     updateMaintenanceDecision,
     derigCapture,
+    saveOnSitePhotos,
     recalculateBaseOps,
 };

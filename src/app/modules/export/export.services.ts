@@ -276,7 +276,7 @@ const contextToReconciliationRows = (ctx: NormalizedCommercialDocumentContext) =
     rows.push({
         ...shared,
         "K-Number": baseOpsKNumber,
-        Description: "Base Operations",
+        Description: "Picking & Handling",
         "Buy Price": formatMoney(ctx.pricing.buy.base_ops_total),
         "Sell Price": formatMoney(ctx.pricing.sell.base_ops_total),
         Margin: formatMoney(ctx.pricing.sell.base_ops_total - ctx.pricing.buy.base_ops_total),

@@ -144,7 +144,8 @@ const uploadTruckPhotos = catchAsync(async (req, res) => {
         orderId,
         req.body.photos,
         user,
-        platformId
+        platformId,
+        req.body.trip_phase
     );
 
     sendResponse(res, {

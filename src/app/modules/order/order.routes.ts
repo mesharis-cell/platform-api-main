@@ -193,7 +193,7 @@ router.get(
 router.get(
     "/:orderId/scan-events",
     platformValidator,
-    auth("ADMIN", "LOGISTICS"),
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
     OrderControllers.getOrderScanEvents
 );
 
@@ -217,6 +217,16 @@ router.patch(
     requirePermission(PERMISSIONS.ORDERS_UPDATE),
     payloadValidator(orderSchemas.derigCaptureSchema),
     OrderControllers.derigCapture
+);
+
+// Save On Site photos while order is IN_USE
+router.patch(
+    "/:id/on-site-photos",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.ORDERS_UPDATE),
+    payloadValidator(orderSchemas.onSitePhotosSchema),
+    OrderControllers.saveOnSitePhotos
 );
 
 // Recalculate base operations from current asset dimensions

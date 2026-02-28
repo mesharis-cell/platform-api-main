@@ -344,7 +344,7 @@
  *                             example: "e9f0041c-84c0-4396-8b7e-72b804a4695d"
  *                           name:
  *                             type: string
- *                             example: "Diageo Events"
+ *                             example: "Client Company"
  *                           domain:
  *                             type: string
  *                             example: "diageo"
@@ -492,7 +492,7 @@
  *                           example: "e9f0041c-84c0-4396-8b7e-72b804a4695d"
  *                         name:
  *                           type: string
- *                           example: "Diageo Events"
+ *                           example: "Client Company"
  *                         domain:
  *                           type: string
  *                           example: "diageo"
@@ -574,7 +574,7 @@
  *                 minLength: 1
  *                 maxLength: 50
  *                 description: Zone name (must be unique within warehouse and company)
- *                 example: "Zone A2"
+ *                 example: "Zone B"
  *               description:
  *                 type: string
  *                 description: Zone description
@@ -623,7 +623,7 @@
  *                       example: "e9f0041c-84c0-4396-8b7e-72b804a4695d"
  *                     name:
  *                       type: string
- *                       example: "Zone A2"
+ *                       example: "Zone B"
  *                     description:
  *                       type: string
  *                       nullable: true
@@ -707,7 +707,7 @@
  *                   example: false
  *                 message:
  *                   type: string
- *                   example: "Zone with name \"Zone A2\" already exists for this warehouse and company"
+ *                   example: "Zone with name \"Zone B\" already exists for this warehouse and company"
  *       500:
  *         description: Internal server error
  *         content:

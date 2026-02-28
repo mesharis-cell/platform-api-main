@@ -810,7 +810,8 @@ const uploadTruckPhotos = async (
     orderId: string,
     photos: string[],
     user: AuthUser,
-    platformId: string
+    platformId: string,
+    tripPhase: "OUTBOUND" | "RETURN" = "OUTBOUND"
 ) => {
     // Step 1: Get order
     const order = await db.query.orders.findFirst({
@@ -821,20 +822,33 @@ const uploadTruckPhotos = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
     }
 
-    // Step 2: Validate order status (should be during outbound scanning)
-    if (!["IN_PREPARATION", "READY_FOR_DELIVERY"].includes(order.order_status)) {
+    if (
+        tripPhase === "OUTBOUND" &&
+        !["IN_PREPARATION", "READY_FOR_DELIVERY"].includes(order.order_status)
+    ) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            "Truck photos can only be uploaded during outbound scanning"
+            "Outbound truck photos are not allowed in the current order status"
         );
     }
 
-    // Step 3: Store photos in order metadata or create a separate record
-    // For now, we'll update the order with truck_photos field
+    if (
+        tripPhase === "RETURN" &&
+        !["AWAITING_RETURN", "RETURN_IN_TRANSIT"].includes(order.order_status)
+    ) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Return truck photos are not allowed in the current order status"
+        );
+    }
+
+    // Step 3: Persist photos in the phase-specific order field
     await db
         .update(orders)
         .set({
-            truck_photos: photos,
+            ...(tripPhase === "OUTBOUND"
+                ? { truck_photos: photos }
+                : { return_truck_photos: photos }),
             updated_at: new Date(),
         })
         .where(eq(orders.id, orderId));
@@ -842,6 +856,7 @@ const uploadTruckPhotos = async (
     return {
         order_id: order.order_id,
         photos_count: photos.length,
+        trip_phase: tripPhase,
     };
 };
 

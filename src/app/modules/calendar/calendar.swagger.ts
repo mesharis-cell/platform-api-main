@@ -202,7 +202,7 @@
  *             name:
  *               type: string
  *               description: Company name
- *               example: "Diageo"
+ *               example: "Client"
  *         brand:
  *           type: object
  *           nullable: true
