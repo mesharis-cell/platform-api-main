@@ -9,6 +9,7 @@ import {
     invoices,
     lineItems,
     prices,
+    platforms,
     users,
     warehouses,
     zones,
@@ -67,6 +68,12 @@ const createInboundRequest = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found or is archived");
     }
 
+    const [platform] = await db
+        .select({ vat_percent: platforms.vat_percent })
+        .from(platforms)
+        .where(eq(platforms.id, platformId))
+        .limit(1);
+
     const incomingAt = new Date(data.incoming_at);
 
     // Step 1b: Validate incoming date is at least 24 hours in the future
@@ -92,6 +99,13 @@ const createInboundRequest = async (
 
         // Step 2.2: Calculate logistics costs and margin
         const baseOpsTotal = Number(company.warehouse_ops_rate) * totalVolume;
+        const companyFeatureFlags = (company.features as Record<string, unknown> | null) || {};
+        const enableBaseOperations =
+            (companyFeatureFlags.enable_base_operations as boolean | undefined) ?? true;
+        const vatPercent =
+            company.vat_percent_override !== null && company.vat_percent_override !== undefined
+                ? Number(company.vat_percent_override)
+                : Number(platform?.vat_percent || 0);
         const pricingDetails = PricingService.buildInitialPricing({
             platform_id: platformId,
             entity_type: "INBOUND_REQUEST",
@@ -99,7 +113,9 @@ const createInboundRequest = async (
             warehouse_ops_rate: company.warehouse_ops_rate,
             base_ops_total: baseOpsTotal,
             margin_percent: Number(company.platform_margin_percent || 0),
+            vat_percent: vatPercent,
             calculated_by: user.id,
+            enable_base_operations: enableBaseOperations,
         });
 
         // Step 2.4: Insert pricing record
@@ -275,6 +291,7 @@ const getInboundRequests = async (
             request_pricing: {
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
+                vat_percent: prices.vat_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
@@ -357,6 +374,7 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
             request_pricing: {
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
+                vat_percent: prices.vat_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
@@ -445,6 +463,7 @@ const submitForApproval = async (requestId: string, user: AuthUser, platformId: 
             request_pricing: {
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
+                vat_percent: prices.vat_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
@@ -559,6 +578,7 @@ const approveInboundRequestByAdmin = async (
             request_pricing: {
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
+                vat_percent: prices.vat_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
@@ -778,6 +798,7 @@ const updateInboundRequestItem = async (
                 id: prices.id,
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
+                vat_percent: prices.vat_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
                 calculated_by: prices.calculated_by,
@@ -981,6 +1002,7 @@ const completeInboundRequest = async (
             request_pricing: {
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
+                vat_percent: prices.vat_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
                 calculated_by: prices.calculated_by,
@@ -996,7 +1018,6 @@ const completeInboundRequest = async (
     const inboundRequest = result?.request;
     const company = result?.company;
     const requester = result?.requester;
-    const requestPricing = result?.request_pricing;
 
     if (!inboundRequest) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found");
@@ -1189,7 +1210,7 @@ const completeInboundRequest = async (
             .update(inboundRequests)
             .set({
                 request_status: "COMPLETED",
-                financial_status: "INVOICED",
+                financial_status: "PENDING_INVOICE",
                 updated_at: new Date(),
             })
             .where(eq(inboundRequests.id, requestId));
@@ -1197,15 +1218,7 @@ const completeInboundRequest = async (
         return resultAssets;
     });
 
-    // Step 7: Generate invoice
-    const { invoice_id } = await DocumentService.generateInvoice(
-        "INBOUND_REQUEST",
-        requestId,
-        platformId,
-        { user }
-    );
-
-    // Step 8: Emit inbound_request.completed and inbound_request.invoice_generated events
+    // Step 8: Emit inbound_request.completed event
     await eventBus.emit({
         platform_id: platformId,
         event_type: EVENT_TYPES.INBOUND_REQUEST_COMPLETED,
@@ -1221,29 +1234,6 @@ const completeInboundRequest = async (
             request_url: "",
         },
     });
-
-    if (invoice_id) {
-        await eventBus.emit({
-            platform_id: platformId,
-            event_type: EVENT_TYPES.INBOUND_REQUEST_INVOICE_GENERATED,
-            entity_type: "INBOUND_REQUEST",
-            entity_id: inboundRequest.id,
-            actor_id: user.id,
-            actor_role: user.role,
-            payload: {
-                entity_id_readable: inboundRequest.inbound_request_id,
-                company_id: inboundRequest.company_id,
-                company_name: company?.name || "N/A",
-                invoice_number: invoice_id,
-                final_total: String(
-                    PricingService.projectSummaryForRole(requestPricing as any, "CLIENT")
-                        ?.final_total || "0"
-                ),
-                download_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
-                request_url: "",
-            },
-        });
-    }
 
     const createdCount = processedAssets.filter((a) => a.action === "created").length;
     const updatedCount = processedAssets.filter((a) => a.action === "updated").length;
@@ -1284,6 +1274,7 @@ const updateInboundRequest = async (
                 id: prices.id,
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
+                vat_percent: prices.vat_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
                 calculated_by: prices.calculated_by,

@@ -6,7 +6,7 @@ import * as path from "path";
 // Sample test data matching InvoicePayload type
 const sampleEstimateData: InvoicePayload & { estimate_number: string; estimate_date: Date } = {
     id: "test-order-id",
-    user_id: "test-user-id",
+    created_by: "test-user-id",
     platform_id: "test-platform-id",
     estimate_number: "EST-20260119-001",
     estimate_date: new Date(),
@@ -50,13 +50,31 @@ const sampleEstimateData: InvoicePayload & { estimate_number: string; estimate_d
     ],
     pricing: {
         show_breakdown: true,
-        logistics_base_price: "12500.00",
-        transport_rate: "250.00",
-        service_fee: "125.00",
-        final_total_price: "12875.00",
+        picking_handling_price: "12500.00",
+        subtotal_price: "13875.00",
+        vat_percent: "5.00",
+        vat_amount: "693.75",
+        final_total_price: "14568.75",
     },
-    line_items: [],
-    line_items_sub_total: 0,
+    line_items: [
+        {
+            line_item_id: "LI-001",
+            description: "Custom Setup Service",
+            quantity: 1,
+            unit_rate: 500.0,
+            total: 500.0,
+            client_price_visible: true,
+        },
+        {
+            line_item_id: "LI-002",
+            description: "Overtime Charge",
+            quantity: 5,
+            unit_rate: 175.0,
+            total: 875.0,
+            client_price_visible: true,
+        },
+    ],
+    line_items_sub_total: 1375.0,
 };
 
 async function main() {

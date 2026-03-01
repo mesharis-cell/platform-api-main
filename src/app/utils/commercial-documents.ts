@@ -55,15 +55,16 @@ type NormalizedPricing = {
         base_ops_total: number;
         catalog_total: number;
         custom_total: number;
-        service_fee: number;
         final_total: number;
     };
     sell: {
         base_ops_total: number;
         catalog_total: number;
         custom_total: number;
-        service_fee: number;
         margin_amount: number;
+        subtotal: number;
+        vat_percent: number;
+        vat_amount: number;
         final_total: number;
     };
 };
@@ -113,8 +114,10 @@ export type CommercialDocumentPdfPayload = {
         from_collection_name?: string;
     }>;
     pricing: {
-        service_fee: string;
-        logistics_base_price: string;
+        subtotal_price: string;
+        vat_percent: string;
+        vat_amount: string;
+        picking_handling_price: string;
         final_total_price: string;
         show_breakdown: boolean;
     };
@@ -174,6 +177,14 @@ const mapPricing = (projected: any): NormalizedPricing => {
     const buyCustom = toNumber(projected?.line_items?.custom_total ?? totals.buy_custom_total);
     const buyBaseOps = toNumber(projected?.base_ops_total ?? totals.buy_base_ops_total);
     const buyFinal = toNumber(totals.buy_total);
+    const sellSubtotal = toNumber(
+        projected?.subtotal ?? totals.subtotal ?? totals.sell_total ?? projected?.final_total
+    );
+    const sellVatPercent = toNumber(projected?.vat?.percent ?? totals.vat_percent);
+    const sellVatAmount = toNumber(projected?.vat?.amount ?? totals.vat_amount);
+    const sellFinalTotal = toNumber(
+        projected?.final_total ?? totals.total ?? totals.sell_total_with_vat ?? sellSubtotal
+    );
 
     return {
         margin_percent: toNumber(margin.percent ?? projected?.margin_policy?.percent),
@@ -181,16 +192,17 @@ const mapPricing = (projected: any): NormalizedPricing => {
             base_ops_total: buyBaseOps,
             catalog_total: buyCatalog,
             custom_total: buyCustom,
-            service_fee: roundCurrency(buyCatalog + buyCustom),
             final_total: buyFinal,
         },
         sell: {
             base_ops_total: toNumber(projected?.sell?.base_ops_total ?? totals.sell_base_ops_total),
             catalog_total: toNumber(totals.sell_rate_card_total),
             custom_total: toNumber(totals.sell_custom_total),
-            service_fee: toNumber(projected?.sell?.service_fee),
             margin_amount: toNumber(margin.amount),
-            final_total: toNumber(projected?.final_total ?? totals.sell_total),
+            subtotal: sellSubtotal,
+            vat_percent: sellVatPercent,
+            vat_amount: sellVatAmount,
+            final_total: sellFinalTotal,
         },
     };
 };
@@ -627,9 +639,6 @@ export const buildCommercialDocumentPdfPayload = (
         (sum, lineItem) => sum + toNumber(sourceLineTotalsById.get(lineItem.line_item_id)),
         0
     );
-    const serviceFee = sellSide
-        ? context.pricing.sell.service_fee
-        : context.pricing.buy.service_fee;
 
     return {
         id: context.context_id,
@@ -655,11 +664,16 @@ export const buildCommercialDocumentPdfPayload = (
             from_collection_name: item.from_collection_name,
         })),
         pricing: {
-            logistics_base_price: (sellSide
+            picking_handling_price: (sellSide
                 ? context.pricing.sell.base_ops_total
                 : context.pricing.buy.base_ops_total
             ).toFixed(2),
-            service_fee: serviceFee.toFixed(2),
+            subtotal_price: (sellSide
+                ? context.pricing.sell.subtotal
+                : context.pricing.buy.final_total
+            ).toFixed(2),
+            vat_percent: (sellSide ? context.pricing.sell.vat_percent : 0).toFixed(2),
+            vat_amount: (sellSide ? context.pricing.sell.vat_amount : 0).toFixed(2),
             final_total_price: (sellSide
                 ? context.pricing.sell.final_total
                 : context.pricing.buy.final_total

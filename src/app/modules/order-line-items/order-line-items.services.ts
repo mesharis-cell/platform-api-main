@@ -1031,6 +1031,7 @@ const updateServiceRequestPricingAfterLineItemChange = async (
                 id: prices.id,
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
+                vat_percent: prices.vat_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,

@@ -1,8 +1,7 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
 import {
-    assetBookings,
     assetConditionHistory,
     assets,
     orderStatusHistory,
@@ -23,9 +22,8 @@ import {
     OutboundScanResponse,
     ScanMediaPayload,
 } from "./scanning.interfaces";
-import { DocumentService } from "../../services/document.service";
 import { eventBus, EVENT_TYPES } from "../../events";
-import config from "../../config";
+import { releaseOrderBookingsAndRestoreAvailability } from "../order/order.utils";
 
 type NormalizedMediaEntry = {
     url: string;
@@ -283,13 +281,13 @@ const inboundScan = async (
             .where(eq(assets.id, asset.id));
     }
 
-    // Step 9: Update inventory counts and latest return imagery.
+    // Step 9: Update latest return imagery and status.
+    // NOTE: available_quantity is booking-driven and is not mutated by scans.
     const newStatus: "AVAILABLE" | "BOOKED" | "OUT" | "MAINTENANCE" = "AVAILABLE";
 
     await db
         .update(assets)
         .set({
-            available_quantity: sql`${assets.available_quantity} + ${scanQuantity}`,
             status: newStatus,
             images: normalizedReturnMedia.map((entry) => ({
                 url: entry.url,
@@ -451,8 +449,8 @@ const completeInboundScan = async (
     }
 
     await db.transaction(async (tx) => {
-        // Step 5: Release asset bookings (delete bookings to free up assets)
-        await tx.delete(assetBookings).where(eq(assetBookings.order_id, orderId));
+        // Step 5: Release bookings and restore available quantities.
+        await releaseOrderBookingsAndRestoreAvailability(tx, orderId, platformId);
 
         // Step 6: Update order status to CLOSED
         await tx
@@ -472,8 +470,7 @@ const completeInboundScan = async (
             updated_by: user.id,
         });
 
-        // Note: available_quantity is already incremented per-scan in inboundScan
-        // We only need to ensure status is AVAILABLE (already set during inbound scans)
+        // Availability restored when bookings were released above.
     });
 
     // Step 9: Emit order.closed event
@@ -494,30 +491,6 @@ const completeInboundScan = async (
             order_url: "",
         },
     });
-
-    const { invoice_id } = await DocumentService.generateInvoice("ORDER", orderId, platformId, {
-        user,
-    });
-
-    if (invoice_id) {
-        await eventBus.emit({
-            platform_id: platformId,
-            event_type: EVENT_TYPES.INVOICE_GENERATED,
-            entity_type: "ORDER",
-            entity_id: order.id,
-            actor_id: user.id,
-            actor_role: user.role,
-            payload: {
-                entity_id_readable: order.order_id,
-                company_id: order.company_id,
-                company_name: (order.company as any)?.name || "N/A",
-                invoice_number: invoice_id,
-                final_total: "0",
-                download_url: `${config.server_url}/client/v1/invoice/download-pdf/${invoice_id}?pid=${platformId}`,
-                order_url: "",
-            },
-        });
-    }
 
     return {
         message: "Inbound scan completed successfully",
@@ -659,12 +632,11 @@ const outboundScan = async (
 
     await insertScanEventAssets(scanEvent.id, [{ asset_id: asset.id, quantity: scanQuantity }]);
 
-    // Step 9: Update asset quantities
-    // When items go out: decrease available_quantity
+    // Step 9: Mark asset as physically out.
+    // NOTE: available_quantity is booking-driven and is not mutated by scans.
     await db
         .update(assets)
         .set({
-            available_quantity: sql`${assets.available_quantity} - ${scanQuantity}`,
             status: "OUT",
             last_scanned_at: new Date(),
             last_scanned_by: user.id,

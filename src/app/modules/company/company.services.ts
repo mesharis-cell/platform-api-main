@@ -9,7 +9,37 @@ import queryValidator from "../../utils/query-validator";
 import { CreateCompanyPayload } from "./company.interfaces";
 import { companyQueryValidationConfig, companySortableFields } from "./company.utils";
 import { PERMISSIONS } from "../../constants/permissions";
-import { companyFeatures } from "../../constants/common";
+import { companyFeatures, featureNames } from "../../constants/common";
+
+const sanitizeFeatureOverrides = (features: unknown) => {
+    const raw = (features || {}) as Record<string, unknown>;
+    return {
+        [featureNames.enable_inbound_requests]:
+            raw[featureNames.enable_inbound_requests] === undefined
+                ? companyFeatures[featureNames.enable_inbound_requests]
+                : Boolean(raw[featureNames.enable_inbound_requests]),
+        [featureNames.show_estimate_on_order_creation]:
+            raw[featureNames.show_estimate_on_order_creation] === undefined
+                ? companyFeatures[featureNames.show_estimate_on_order_creation]
+                : Boolean(raw[featureNames.show_estimate_on_order_creation]),
+        [featureNames.enable_kadence_invoicing]:
+            raw[featureNames.enable_kadence_invoicing] === undefined
+                ? companyFeatures[featureNames.enable_kadence_invoicing]
+                : Boolean(raw[featureNames.enable_kadence_invoicing]),
+        [featureNames.enable_base_operations]:
+            raw[featureNames.enable_base_operations] === undefined
+                ? companyFeatures[featureNames.enable_base_operations]
+                : Boolean(raw[featureNames.enable_base_operations]),
+    };
+};
+
+const toVatOverrideDbValue = (value: unknown) => {
+    if (value === null) return null;
+    if (value === undefined || value === "") return undefined;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return undefined;
+    return Math.min(100, Math.max(0, parsed)).toFixed(2);
+};
 
 // ----------------------------------- CREATE COMPANY -----------------------------------
 const createCompany = async (data: CreateCompanyPayload) => {
@@ -59,12 +89,16 @@ const createCompany = async (data: CreateCompanyPayload) => {
             const dbData: any = {
                 ...data,
                 domain: companyDomain,
-                features: companyFeatures,
+                features: sanitizeFeatureOverrides((data as any).features),
             };
 
             // Convert platform_margin_percent to string if provided
             if (data.platform_margin_percent !== undefined) {
                 dbData.platform_margin_percent = data.platform_margin_percent.toString();
+            }
+            const vatOverride = toVatOverrideDbValue(data.vat_percent_override);
+            if (vatOverride !== undefined) {
+                dbData.vat_percent_override = vatOverride;
             }
 
             const [company] = await tx.insert(companies).values(dbData).returning();
@@ -87,6 +121,7 @@ const createCompany = async (data: CreateCompanyPayload) => {
             // Step 3: Return company with domain information
             return {
                 ...company,
+                features: sanitizeFeatureOverrides(company.features),
                 domains: createdDomains,
             };
         });
@@ -190,7 +225,10 @@ const getCompanies = async (query: Record<string, any>, platformId: string) => {
             limit: limitNumber,
             total: total[0].count,
         },
-        data: result,
+        data: result.map((company) => ({
+            ...company,
+            features: sanitizeFeatureOverrides(company.features),
+        })),
     };
 };
 
@@ -224,7 +262,10 @@ const getCompanyById = async (id: string, platformId: string, user: AuthUser) =>
         throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found");
     }
 
-    return company;
+    return {
+        ...company,
+        features: sanitizeFeatureOverrides(company.features),
+    };
 };
 
 // ----------------------------------- UPDATE COMPANY -----------------------------------
@@ -267,6 +308,12 @@ const updateCompany = async (id: string, data: any, platformId: string, user: Au
         if (data.platform_margin_percent !== undefined) {
             dbData.platform_margin_percent = data.platform_margin_percent.toString();
         }
+        if (data.features !== undefined) {
+            dbData.features = sanitizeFeatureOverrides(data.features);
+        }
+        if (data.vat_percent_override !== undefined) {
+            dbData.vat_percent_override = toVatOverrideDbValue(data.vat_percent_override);
+        }
 
         const [result] = await db
             .update(companies)
@@ -274,7 +321,10 @@ const updateCompany = async (id: string, data: any, platformId: string, user: Au
             .where(eq(companies.id, id))
             .returning();
 
-        return result;
+        return {
+            ...result,
+            features: sanitizeFeatureOverrides(result.features),
+        };
     } catch (error: any) {
         // Step 3: Handle database errors
         const pgError = error.cause || error;

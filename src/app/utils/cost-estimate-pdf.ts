@@ -311,15 +311,37 @@ export async function renderCostEstimatePDF(
             doc.fontSize(10)
                 .font("Helvetica-Bold")
                 .fillColor("#000")
-                .text("TOTAL OF LINES", summaryX, doc.y);
+                .text("SUBTOTAL", summaryX, doc.y);
             doc.fontSize(12)
                 .font("Helvetica-Bold")
                 .fillColor("#000")
-                .text(formatCurrency(String(data.line_items_sub_total)), summaryX, doc.y - 14, {
-                    align: "right",
-                    width: summaryWidth,
-                });
-            doc.moveDown(0.9);
+                .text(
+                    formatCurrency(
+                        String(data.pricing.subtotal_price || data.line_items_sub_total)
+                    ),
+                    summaryX,
+                    doc.y - 14,
+                    {
+                        align: "right",
+                        width: summaryWidth,
+                    }
+                );
+            doc.moveDown(0.7);
+
+            if (Number(data.pricing.vat_amount || 0) > 0) {
+                doc.fontSize(10)
+                    .font("Helvetica-Bold")
+                    .fillColor("#000")
+                    .text(`VAT (${data.pricing.vat_percent}%)`, summaryX, doc.y);
+                doc.fontSize(11)
+                    .font("Helvetica-Bold")
+                    .fillColor("#000")
+                    .text(formatCurrency(String(data.pricing.vat_amount)), summaryX, doc.y - 12, {
+                        align: "right",
+                        width: summaryWidth,
+                    });
+            }
+            doc.moveDown(0.6);
 
             // Total with diagonal stripes background
             const totalY = doc.y;

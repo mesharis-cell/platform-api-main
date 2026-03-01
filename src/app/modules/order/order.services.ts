@@ -29,6 +29,7 @@ import {
     prices,
     orders,
     orderStatusHistory,
+    platforms,
     serviceRequestItems,
     serviceRequestStatusHistory,
     serviceRequests,
@@ -65,6 +66,7 @@ import {
     orderSortableFields,
     PREP_BUFFER_DAYS,
     RETURN_BUFFER_DAYS,
+    releaseOrderBookingsAndRestoreAvailability,
     validateInboundScanningComplete,
     validateRoleBasedTransition,
 } from "./order.utils";
@@ -114,6 +116,7 @@ const getLinkedServiceRequestSummaries = async (
             pricing: {
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
+                vat_percent: prices.vat_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
@@ -195,6 +198,7 @@ const autoApproveBundledServiceRequests = async (
             pricing: {
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
+                vat_percent: prices.vat_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
@@ -346,6 +350,12 @@ const submitOrderFromCart = async (
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Company not found");
     }
 
+    const [platform] = await db
+        .select({ vat_percent: platforms.vat_percent })
+        .from(platforms)
+        .where(eq(platforms.id, platformId))
+        .limit(1);
+
     const companyFeatures = (company.features as Record<string, unknown>) || {};
     if (companyFeatures.enable_ordering === false) {
         throw new CustomizedError(
@@ -493,6 +503,13 @@ const submitOrderFromCart = async (
     // Step 5: Create base pricing without transport; transport is now explicit line items.
     const volume = parseFloat(calculatedVolume);
     const baseOpsTotal = Number(company.warehouse_ops_rate) * volume;
+    const companyFeatureFlags = (company.features as Record<string, unknown> | null) || {};
+    const enableBaseOperations =
+        (companyFeatureFlags.enable_base_operations as boolean | undefined) ?? true;
+    const vatPercent =
+        company.vat_percent_override !== null && company.vat_percent_override !== undefined
+            ? Number(company.vat_percent_override)
+            : Number(platform?.vat_percent || 0);
     const pricingDetails = PricingService.buildInitialPricing({
         platform_id: platformId,
         entity_type: "ORDER",
@@ -500,8 +517,10 @@ const submitOrderFromCart = async (
         warehouse_ops_rate: company.warehouse_ops_rate,
         base_ops_total: baseOpsTotal,
         margin_percent: Number(company.platform_margin_percent || 0),
+        vat_percent: vatPercent,
         calculated_by: user.id,
         volume,
+        enable_base_operations: enableBaseOperations,
     });
 
     // Pre-generate SR codes outside the transaction to avoid READ COMMITTED duplicate-code issue
@@ -766,6 +785,7 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
             order_pricing: {
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
+                vat_percent: prices.vat_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
@@ -957,6 +977,7 @@ const getMyOrders = async (query: Record<string, any>, user: AuthUser, platformI
             order_pricing: {
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
+                vat_percent: prices.vat_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
@@ -1040,6 +1061,7 @@ const getOrderById = async (
             order_pricing: {
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
+                vat_percent: prices.vat_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
@@ -1499,8 +1521,8 @@ const progressOrderStatus = async (
             );
         }
 
-        // Release assets
-        await db.delete(assetBookings).where(eq(assetBookings.order_id, orderId));
+        // Release bookings and restore availability.
+        await releaseOrderBookingsAndRestoreAvailability(db, orderId, platformId);
     }
 
     // Step 5: Update order status
@@ -2087,55 +2109,13 @@ const getClientOrderStatistics = async (companyId: string, platformId: string) =
 
 // ----------------------------------- SEND INVOICE -------------------------------------------
 const sendInvoice = async (user: AuthUser, platformId: string, orderId: string) => {
-    // Step 1: Fetch order with company details
-    const order = await db.query.orders.findFirst({
-        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
-        with: {
-            company: true,
-        },
-    });
-
-    // Step 2: Verify order exists
-    if (!order) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
-    }
-
-    // Step 3: Verify order is in QUOTED status
-    if (order.financial_status === "INVOICED") {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "Order is already invoiced");
-    }
-
-    // Step 4: Verify order is in CLOSED status
-    if (order.order_status !== "CLOSED") {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "Order is not in CLOSED status");
-    }
-
-    // Step 5: Update order financial status to INVOICED and log the status change
-    await db.transaction(async (tx) => {
-        await db
-            .update(orders)
-            .set({
-                financial_status: "INVOICED",
-                updated_at: new Date(),
-            })
-            .where(eq(orders.id, orderId));
-
-        await db.insert(financialStatusHistory).values({
-            platform_id: platformId,
-            order_id: orderId,
-            status: "INVOICED",
-            notes: `Order invoiced by ${user.name}`,
-            updated_by: user.id,
-        });
-    });
-
-    // Step 6: Return updated order details
-    return {
-        id: order.id,
-        order_id: order.order_id,
-        financial_status: "INVOICED",
-        updated_at: new Date(),
-    };
+    void user;
+    void platformId;
+    void orderId;
+    throw new CustomizedError(
+        httpStatus.NOT_IMPLEMENTED,
+        "Invoicing is disabled in this pre-alpha branch. Endpoint is reserved as a stub."
+    );
 };
 
 // ----------------------------------- SUBMIT FOR APPROVAL ------------------------------------
@@ -2153,6 +2133,7 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
             order_pricing: {
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
+                vat_percent: prices.vat_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
@@ -2243,6 +2224,7 @@ const adminApproveQuote = async (
             order_pricing: {
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
+                vat_percent: prices.vat_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
@@ -2468,8 +2450,8 @@ export async function cancelOrder(
             })
             .where(eq(orders.id, orderId));
 
-        // 2. Release all asset bookings
-        await tx.delete(assetBookings).where(eq(assetBookings.order_id, orderId));
+        // 2. Release all bookings and restore availability
+        await releaseOrderBookingsAndRestoreAvailability(tx, orderId, platformId);
 
         // 2b. Cancel all non-terminal INTERNAL_ONLY SRs linked to this order
         await tx

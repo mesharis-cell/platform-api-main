@@ -245,7 +245,7 @@ export async function renderInvoicePDF(
                 .lineWidth(1.5)
                 .stroke("#000");
 
-            // Logistics Base Cost Row
+            // Subtotal Row
             const logisticsCostY = currentY + 10;
             doc.fontSize(10)
                 .font("Helvetica-Bold")
@@ -259,7 +259,7 @@ export async function renderInvoicePDF(
                 .font("Helvetica-Bold")
                 .fillColor("#000")
                 .text(
-                    formatCurrency(data.pricing.logistics_base_price),
+                    formatCurrency(data.pricing.subtotal_price),
                     margin + contentWidth * 0.8,
                     logisticsCostY,
                     {
@@ -431,12 +431,31 @@ export async function renderInvoicePDF(
                 doc.fontSize(10)
                     .font("Helvetica")
                     .fillColor("#555")
-                    .text("Logistics Base Cost", summaryX, doc.y);
+                    .text("Picking & Handling", summaryX, doc.y);
 
                 doc.fontSize(10)
                     .font("Helvetica")
                     .fillColor("#000")
-                    .text(formatCurrency(data.pricing.logistics_base_price), summaryX, doc.y - 12, {
+                    .text(
+                        formatCurrency(data.pricing.picking_handling_price),
+                        summaryX,
+                        doc.y - 12,
+                        {
+                            align: "right",
+                            width: summaryWidth,
+                        }
+                    );
+
+                doc.moveDown(0.6);
+
+                doc.fontSize(10)
+                    .font("Helvetica")
+                    .fillColor("#555")
+                    .text("Subtotal", summaryX, doc.y);
+
+                doc.fontSize(10)
+                    .fillColor("#000")
+                    .text(formatCurrency(data.pricing.subtotal_price), summaryX, doc.y - 12, {
                         align: "right",
                         width: summaryWidth,
                     });
@@ -446,11 +465,11 @@ export async function renderInvoicePDF(
                 doc.fontSize(10)
                     .font("Helvetica")
                     .fillColor("#555")
-                    .text("Service Fee (Including Reskin)", summaryX, doc.y);
+                    .text(`VAT (${data.pricing.vat_percent}%)`, summaryX, doc.y);
 
                 doc.fontSize(10)
                     .fillColor("#000")
-                    .text(formatCurrency(data.pricing.service_fee), summaryX, doc.y - 12, {
+                    .text(formatCurrency(data.pricing.vat_amount), summaryX, doc.y - 12, {
                         align: "right",
                         width: summaryWidth,
                     });

@@ -32,6 +32,8 @@ const sanitizePlatformFeatures = (features: unknown): Record<string, boolean> =>
             raw.enable_kadence_invoicing === undefined
                 ? false
                 : Boolean(raw.enable_kadence_invoicing),
+        enable_base_operations:
+            raw.enable_base_operations === undefined ? true : Boolean(raw.enable_base_operations),
     };
 };
 
@@ -47,6 +49,9 @@ const sanitizeCompanyFeatureOverrides = (features: unknown): Partial<Record<stri
     }
     if (raw.enable_kadence_invoicing !== undefined) {
         overrides.enable_kadence_invoicing = Boolean(raw.enable_kadence_invoicing);
+    }
+    if (raw.enable_base_operations !== undefined) {
+        overrides.enable_base_operations = Boolean(raw.enable_base_operations);
     }
 
     return overrides;

@@ -206,6 +206,7 @@ export const platforms = pgTable(
         domain: varchar("domain", { length: 100 }).notNull().unique(),
         config: jsonb("config").default({}).notNull(),
         features: jsonb("features").default({}).notNull(),
+        vat_percent: decimal("vat_percent", { precision: 5, scale: 2 }).notNull().default("0.00"),
         is_active: boolean("is_active").default(true).notNull(),
         created_at: timestamp("created_at").notNull().defaultNow(),
         updated_at: timestamp("updated_at")
@@ -251,6 +252,7 @@ export const companies = pgTable(
         warehouse_ops_rate: decimal("warehouse_ops_rate", { precision: 10, scale: 2 })
             .notNull()
             .default("25.20"), // AED per m³
+        vat_percent_override: decimal("vat_percent_override", { precision: 5, scale: 2 }),
         contact_email: varchar("contact_email", { length: 255 }),
         contact_phone: varchar("contact_phone", { length: 50 }),
         features: jsonb("features").default({}).notNull(), // {show_estimate_on_order_creation: false  // This company's overrid }
@@ -1535,6 +1537,7 @@ export const prices = pgTable(
         margin_percent: decimal("margin_percent", { precision: 5, scale: 2 })
             .notNull()
             .default("0"),
+        vat_percent: decimal("vat_percent", { precision: 5, scale: 2 }).notNull().default("0"),
         margin_is_override: boolean("margin_is_override").notNull().default(false),
         margin_override_reason: text("margin_override_reason"),
         calculated_at: timestamp("calculated_at").notNull().defaultNow(),

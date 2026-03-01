@@ -18,6 +18,12 @@ const sanitizePlatformConfig = (value: unknown) => {
     };
 };
 
+const sanitizeVatPercent = (value: unknown) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return 0;
+    return Math.min(100, Math.max(0, parsed));
+};
+
 const sanitizePlatformConfigPatch = (value: unknown) => {
     const raw = (value || {}) as Record<string, unknown>;
     const patch: Record<string, unknown> = {};
@@ -44,6 +50,8 @@ const sanitizePlatformFeatures = (value: unknown) => {
             raw.enable_kadence_invoicing === undefined
                 ? false
                 : Boolean(raw.enable_kadence_invoicing),
+        enable_base_operations:
+            raw.enable_base_operations === undefined ? true : Boolean(raw.enable_base_operations),
     };
 };
 
@@ -60,14 +68,28 @@ const sanitizePlatformFeaturesPatch = (value: unknown) => {
     if (raw.enable_kadence_invoicing !== undefined) {
         patch.enable_kadence_invoicing = Boolean(raw.enable_kadence_invoicing);
     }
+    if (raw.enable_base_operations !== undefined) {
+        patch.enable_base_operations = Boolean(raw.enable_base_operations);
+    }
 
     return patch;
 };
 
 // ----------------------------------- CREATE PLATFORM --------------------------------
 const createPlatform = async (data: CreatePlatformPayload) => {
+    const vatPercent = sanitizeVatPercent(
+        (data.config as Record<string, unknown> | undefined)?.vat_percent
+    );
+    const configWithoutVat = sanitizePlatformConfig(data.config);
     const result = await db.transaction(async (tx) => {
-        const [platform] = await tx.insert(platforms).values(data).returning();
+        const [platform] = await tx
+            .insert(platforms)
+            .values({
+                ...data,
+                config: configWithoutVat,
+                vat_percent: vatPercent.toFixed(2),
+            })
+            .returning();
 
         if (platform?.id) {
             const hashedPassword = await bcrypt.hash(
@@ -91,7 +113,12 @@ const createPlatform = async (data: CreatePlatformPayload) => {
         return platform;
     });
 
-    return result;
+    return {
+        ...result,
+        config: sanitizePlatformConfig(result.config),
+        features: sanitizePlatformFeatures(result.features),
+        vat_percent: sanitizeVatPercent(result.vat_percent),
+    };
 };
 
 const getPlatform = async (platformId: string) => {
@@ -101,27 +128,36 @@ const getPlatform = async (platformId: string) => {
         ...platform,
         config: sanitizePlatformConfig(platform.config),
         features: sanitizePlatformFeatures(platform.features),
+        vat_percent: sanitizeVatPercent(platform.vat_percent),
     };
 };
 
 const updatePlatformConfig = async (platformId: string, patch: Record<string, unknown>) => {
     const [existing] = await db
-        .select({ config: platforms.config })
+        .select({ config: platforms.config, vat_percent: platforms.vat_percent })
         .from(platforms)
         .where(eq(platforms.id, platformId));
     const merged = {
         ...sanitizePlatformConfig(existing?.config),
         ...sanitizePlatformConfigPatch(patch),
     };
+    const vatPercent =
+        patch.vat_percent === undefined
+            ? sanitizeVatPercent(existing?.vat_percent)
+            : sanitizeVatPercent(patch.vat_percent);
     const [updated] = await db
         .update(platforms)
-        .set({ config: merged })
+        .set({
+            config: merged,
+            vat_percent: vatPercent.toFixed(2),
+        })
         .where(eq(platforms.id, platformId))
         .returning();
     return {
         ...updated,
         config: sanitizePlatformConfig(updated.config),
         features: sanitizePlatformFeatures(updated.features),
+        vat_percent: sanitizeVatPercent(updated.vat_percent),
     };
 };
 
@@ -143,6 +179,7 @@ const updatePlatformFeatures = async (platformId: string, patch: Record<string, 
         ...updated,
         config: sanitizePlatformConfig(updated.config),
         features: sanitizePlatformFeatures(updated.features),
+        vat_percent: sanitizeVatPercent(updated.vat_percent),
     };
 };
 
