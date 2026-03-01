@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "../../../db";
 import {
     assetBookings,
@@ -177,6 +177,84 @@ export async function validateInboundScanningComplete(orderId: string): Promise<
 
     console.log(`✅ All items scanned in for order ${orderId}`);
     return true;
+}
+
+/**
+ * Releases all bookings for an order and restores affected asset availability.
+ *
+ * Inventory rule:
+ * - `available_quantity` is adjusted at booking lifecycle boundaries:
+ *   - decrease on booking creation (quote approval)
+ *   - increase on booking release (close/cancel)
+ * - scan events should not mutate `available_quantity`.
+ */
+export async function releaseOrderBookingsAndRestoreAvailability(
+    tx: any,
+    orderId: string,
+    platformId: string
+): Promise<void> {
+    const bookedByAsset = await tx
+        .select({
+            asset_id: assetBookings.asset_id,
+            booked_quantity: sql<number>`COALESCE(SUM(${assetBookings.quantity}), 0)`,
+        })
+        .from(assetBookings)
+        .where(eq(assetBookings.order_id, orderId))
+        .groupBy(assetBookings.asset_id);
+
+    if (bookedByAsset.length === 0) {
+        await tx.delete(assetBookings).where(eq(assetBookings.order_id, orderId));
+        return;
+    }
+
+    await tx.delete(assetBookings).where(eq(assetBookings.order_id, orderId));
+
+    const affectedAssetIds = bookedByAsset.map((row: any) => row.asset_id);
+
+    for (const row of bookedByAsset) {
+        const restoreQty = Number(row.booked_quantity || 0);
+        if (restoreQty <= 0) continue;
+
+        await tx
+            .update(assets)
+            .set({
+                available_quantity: sql`LEAST(${assets.total_quantity}, GREATEST(0, ${assets.available_quantity} + ${restoreQty}))`,
+                updated_at: new Date(),
+            })
+            .where(and(eq(assets.id, row.asset_id), eq(assets.platform_id, platformId)));
+    }
+
+    // Sync statuses for affected assets based on whether they still have active bookings.
+    const remainingBookings = await tx
+        .select({
+            asset_id: assetBookings.asset_id,
+            count: count(),
+        })
+        .from(assetBookings)
+        .where(inArray(assetBookings.asset_id, affectedAssetIds))
+        .groupBy(assetBookings.asset_id);
+
+    const hasRemainingBookings = new Set(
+        remainingBookings
+            .filter((row: any) => Number(row.count || 0) > 0)
+            .map((row: any) => row.asset_id)
+    );
+
+    for (const assetId of affectedAssetIds) {
+        const nextStatus = hasRemainingBookings.has(assetId) ? "BOOKED" : "AVAILABLE";
+
+        await tx
+            .update(assets)
+            .set({
+                // Avoid clobbering maintenance/transformed statuses.
+                status: sql`CASE
+                    WHEN ${assets.status} IN ('BOOKED', 'OUT', 'AVAILABLE') THEN ${nextStatus}
+                    ELSE ${assets.status}
+                END`,
+                updated_at: new Date(),
+            })
+            .where(and(eq(assets.id, assetId), eq(assets.platform_id, platformId)));
+    }
 }
 
 export type UnavailableItem = {

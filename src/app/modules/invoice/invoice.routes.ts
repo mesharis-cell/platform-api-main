@@ -6,8 +6,6 @@ import { invoiceSchemas } from "./invoice.schemas";
 import payloadValidator from "../../middleware/payload-validator";
 import requirePermission from "../../middleware/permission";
 import { PERMISSIONS } from "../../constants/permissions";
-import featureValidator from "../../middleware/feature-validator";
-import { featureNames } from "../../constants/common";
 
 const router = Router();
 
@@ -16,7 +14,6 @@ router.get(
     "/",
     platformValidator,
     auth("ADMIN", "CLIENT"),
-    featureValidator(featureNames.enable_kadence_invoicing),
     requirePermission(PERMISSIONS.INVOICES_READ),
     InvoiceControllers.getInvoices
 );
@@ -26,7 +23,6 @@ router.post(
     "/generate",
     platformValidator,
     auth("ADMIN"),
-    featureValidator(featureNames.enable_kadence_invoicing),
     requirePermission(PERMISSIONS.INVOICES_GENERATE),
     payloadValidator(invoiceSchemas.generateInvoice),
     InvoiceControllers.generateInvoice
@@ -37,7 +33,6 @@ router.get(
     "/:invoiceId",
     platformValidator,
     auth("ADMIN", "CLIENT"),
-    featureValidator(featureNames.enable_kadence_invoicing),
     requirePermission(PERMISSIONS.INVOICES_READ),
     InvoiceControllers.getInvoiceById
 );
@@ -46,7 +41,6 @@ router.get(
     "/download/:invoiceId",
     platformValidator,
     auth("ADMIN", "CLIENT"),
-    featureValidator(featureNames.enable_kadence_invoicing),
     requirePermission(PERMISSIONS.INVOICES_DOWNLOAD),
     InvoiceControllers.downloadInvoice
 );
@@ -56,7 +50,6 @@ router.get(
     "/download-pdf/:invoiceId",
     platformValidator,
     auth("ADMIN", "CLIENT"),
-    featureValidator(featureNames.enable_kadence_invoicing),
     requirePermission(PERMISSIONS.INVOICES_DOWNLOAD),
     InvoiceControllers.downloadInvoicePDF
 );
@@ -66,7 +59,6 @@ router.patch(
     "/:orderId/confirm-payment",
     platformValidator,
     auth("ADMIN"),
-    featureValidator(featureNames.enable_kadence_invoicing),
     requirePermission(PERMISSIONS.INVOICES_CONFIRM_PAYMENT),
     payloadValidator(invoiceSchemas.confirmPayment),
     InvoiceControllers.confirmPayment

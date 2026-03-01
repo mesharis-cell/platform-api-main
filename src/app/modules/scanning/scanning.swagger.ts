@@ -38,6 +38,7 @@
  *             required:
  *               - qr_code
  *               - condition
+ *               - return_media
  *             properties:
  *               qr_code:
  *                 type: string
@@ -57,12 +58,29 @@
  *                 type: string
  *                 description: Optional notes about the condition or return
  *                 example: "Minor scratches on the surface, but fully functional"
- *               photos:
+ *               return_media:
+ *                 type: array
+ *                 minItems: 2
+ *                 items:
+ *                   type: object
+ *                   required: [url]
+ *                   properties:
+ *                     url:
+ *                       type: string
+ *                     note:
+ *                       type: string
+ *                 description: Wide return photos captured during inbound scanning
+ *               damage_media:
  *                 type: array
  *                 items:
- *                   type: string
- *                 description: Array of photo URLs documenting the condition
- *                 example: ["https://storage.example.com/damage-photo-1.jpg"]
+ *                   type: object
+ *                   required: [url]
+ *                   properties:
+ *                     url:
+ *                       type: string
+ *                     note:
+ *                       type: string
+ *                 description: Damage-focused evidence photos (required for ORANGE/RED)
  *               refurb_days_estimate:
  *                 type: integer
  *                 minimum: 1
@@ -91,9 +109,13 @@
  *                 qr_code: "ASSET-002-2025"
  *                 condition: "RED"
  *                 notes: "Severe damage to frame, needs replacement parts"
- *                 photos:
- *                   - "https://storage.example.com/damage-photo-1.jpg"
- *                   - "https://storage.example.com/damage-photo-2.jpg"
+ *                 return_media:
+ *                   - url: "https://storage.example.com/return-wide-1.jpg"
+ *                   - url: "https://storage.example.com/return-wide-2.jpg"
+ *                 damage_media:
+ *                   - url: "https://storage.example.com/damage-photo-1.jpg"
+ *                     note: "Frame bent on left side"
+ *                   - url: "https://storage.example.com/damage-photo-2.jpg"
  *                 refurb_days_estimate: 7
  *                 discrepancy_reason: "BROKEN"
  *             batchScan:
@@ -102,6 +124,12 @@
  *                 qr_code: "BATCH-CHAIRS-001"
  *                 condition: "ORANGE"
  *                 quantity: 15
+ *                 return_media:
+ *                   - url: "https://storage.example.com/chairs-return-1.jpg"
+ *                   - url: "https://storage.example.com/chairs-return-2.jpg"
+ *                 damage_media:
+ *                   - url: "https://storage.example.com/chairs-damage-1.jpg"
+ *                     note: "Loose screw on chair leg"
  *                 notes: "Some chairs have loose screws, need tightening"
  *                 refurb_days_estimate: 2
  *     responses:

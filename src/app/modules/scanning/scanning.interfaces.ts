@@ -1,15 +1,19 @@
 export interface DamageReportEntryPayload {
     url: string;
-    description?: string;
+    note?: string;
+}
+
+export interface ScanMediaPayload {
+    url: string;
+    note?: string;
 }
 
 export interface InboundScanPayload {
     qr_code: string;
     condition: "GREEN" | "ORANGE" | "RED";
     notes?: string;
-    latest_return_images: string[];
-    damage_report_entries?: DamageReportEntryPayload[];
-    damage_report_photos?: string[];
+    return_media: ScanMediaPayload[];
+    damage_media?: DamageReportEntryPayload[];
     refurb_days_estimate?: number;
     discrepancy_reason?: "BROKEN" | "LOST" | "OTHER";
     quantity?: number; // For BATCH assets
@@ -61,6 +65,7 @@ export interface CompleteInboundScanResponse {
 
 export interface OutboundScanPayload {
     qr_code: string;
+    note?: string;
     quantity?: number; // Required for BATCH assets
 }
 

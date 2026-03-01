@@ -1651,6 +1651,117 @@
 
 /**
  * @swagger
+ * /api/operations/v1/asset/{id}/usage-report:
+ *   get:
+ *     tags:
+ *       - Asset Management
+ *     summary: Get consolidated asset usage report
+ *     description: Returns a cross-entity timeline for an asset, including order usage windows, scan events with media, condition updates, and linked service requests.
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Usage report fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Asset usage report fetched successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     asset:
+ *                       type: object
+ *                     summary:
+ *                       type: object
+ *                       properties:
+ *                         total_order_usages:
+ *                           type: integer
+ *                         total_scan_events:
+ *                           type: integer
+ *                         total_service_requests:
+ *                           type: integer
+ *                         total_condition_updates:
+ *                           type: integer
+ *                         latest_activity_at:
+ *                           type: string
+ *                           format: date-time
+ *                           nullable: true
+ *                     timeline:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           event_type:
+ *                             type: string
+ *                             enum: [ORDER_USAGE, SCAN_EVENT, SERVICE_REQUEST, CONDITION_UPDATE]
+ *                           occurred_at:
+ *                             type: string
+ *                             format: date-time
+ *                           title:
+ *                             type: string
+ *                           subtitle:
+ *                             type: string
+ *                             nullable: true
+ *                           note:
+ *                             type: string
+ *                             nullable: true
+ *                           actor_name:
+ *                             type: string
+ *                             nullable: true
+ *                           condition:
+ *                             type: string
+ *                             nullable: true
+ *                           scan_type:
+ *                             type: string
+ *                             nullable: true
+ *                           order_id:
+ *                             type: string
+ *                             format: uuid
+ *                             nullable: true
+ *                           order_readable_id:
+ *                             type: string
+ *                             nullable: true
+ *                           service_request_id:
+ *                             type: string
+ *                             nullable: true
+ *                           photos:
+ *                             type: array
+ *                             items:
+ *                               type: object
+ *                               properties:
+ *                                 url:
+ *                                   type: string
+ *                                 note:
+ *                                   type: string
+ *                                   nullable: true
+ *                                 kind:
+ *                                   type: string
+ *                                   nullable: true
+ *       404:
+ *         description: Asset not found
+ *       500:
+ *         description: Internal Server Error
+ *     security:
+ *       - BearerAuth: []
+ */
+
+/**
+ * @swagger
  * /api/operations/v1/asset/{id}:
  *   patch:
  *     tags:

@@ -142,7 +142,9 @@ const uploadTruckPhotos = catchAsync(async (req, res) => {
 
     const result = await ScanningServices.uploadTruckPhotos(
         orderId,
-        req.body.photos,
+        req.body.media,
+        req.body.asset_ids,
+        req.body.note,
         user,
         platformId,
         req.body.trip_phase

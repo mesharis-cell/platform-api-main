@@ -5,10 +5,12 @@ export const featureNames = {
     enable_inbound_requests: "enable_inbound_requests",
     show_estimate_on_order_creation: "show_estimate_on_order_creation",
     enable_kadence_invoicing: "enable_kadence_invoicing",
+    enable_base_operations: "enable_base_operations",
 };
 
 export const companyFeatures = {
     [featureNames.enable_inbound_requests]: true,
     [featureNames.show_estimate_on_order_creation]: true,
     [featureNames.enable_kadence_invoicing]: false,
+    [featureNames.enable_base_operations]: true,
 };

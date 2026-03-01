@@ -11,7 +11,7 @@ type PricingSummary = {
         catalog_total: number;
         custom_total: number;
     };
-    service_fee: number;
+    line_items_total: number;
     logistics_sub_total: number;
     base_sub_total: number;
     margin_amount: number;
@@ -39,7 +39,7 @@ export const calculatePricingSummary = (input: PricingSummaryInput): PricingSumm
     const sellCatalog = applyMarginPerLine(catalogTotal, marginPercent);
     const sellCustom = applyMarginPerLine(customTotal, marginPercent);
 
-    const serviceFee = roundCurrency(sellCatalog + sellCustom);
+    const lineItemsTotal = roundCurrency(sellCatalog + sellCustom);
     const logisticsSubTotal = roundCurrency(baseOpsTotal);
     const baseSubTotal = roundCurrency(baseOpsTotal + catalogTotal + customTotal);
     const finalTotal = roundCurrency(sellBaseOps + sellCatalog + sellCustom);
@@ -51,7 +51,7 @@ export const calculatePricingSummary = (input: PricingSummaryInput): PricingSumm
             catalog_total: sellCatalog,
             custom_total: sellCustom,
         },
-        service_fee: serviceFee,
+        line_items_total: lineItemsTotal,
         logistics_sub_total: logisticsSubTotal,
         base_sub_total: baseSubTotal,
         margin_amount: marginAmount,

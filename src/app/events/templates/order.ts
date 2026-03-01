@@ -99,7 +99,7 @@ export const quoteSentClient: EmailTemplate = {
                 ${lineItemsHtml}
                 <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 12px 0;">
                 <p style="margin: 6px 0;"><strong>Subtotal:</strong> ${formatAmount(pricing.base_ops_total)} AED</p>
-                <p style="margin: 6px 0;"><strong>Service Fee:</strong> ${formatAmount(pricing.margin_amount)} AED</p>
+                <p style="margin: 6px 0;"><strong>Margin Adjustment:</strong> ${formatAmount(pricing.margin_amount)} AED</p>
                 <p style="margin: 8px 0; font-size: 18px; font-weight: bold; color: #111827;">Total: ${formatAmount(d.final_total)} AED</p>
             `)}
             <p style="margin: 16px 0; color: #dc2626; font-weight: 600;">⚠️ Action Required: Please review and approve or decline the quote.</p>

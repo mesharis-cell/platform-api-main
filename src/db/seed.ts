@@ -2190,20 +2190,26 @@ async function seedScanEvents() {
             ].includes(order.order_status)
         ) {
             for (const item of items) {
-                await db.insert(schema.scanEvents).values({
-                    order_id: order.id,
+                const [scanEvent] = await db
+                    .insert(schema.scanEvents)
+                    .values({
+                        order_id: order.id,
+                        asset_id: item.asset_id,
+                        scan_type: "OUTBOUND" as ScanType,
+                        quantity: item.quantity,
+                        condition: "GREEN" as AssetCondition,
+                        notes: "All items verified before loading",
+                        discrepancy_reason: null,
+                        metadata: {},
+                        scanned_by: logistics.id,
+                        scanned_at: new Date(order.event_start_date.getTime() - 24 * 3600000),
+                    })
+                    .returning({ id: schema.scanEvents.id });
+
+                await db.insert(schema.scanEventAssets).values({
+                    scan_event_id: scanEvent.id,
                     asset_id: item.asset_id,
-                    scan_type: "OUTBOUND" as ScanType,
                     quantity: item.quantity,
-                    condition: "GREEN" as AssetCondition,
-                    notes: "All items verified before loading",
-                    photos: [],
-                    latest_return_images: [],
-                    damage_report_photos: [],
-                    damage_report_entries: [],
-                    discrepancy_reason: null,
-                    scanned_by: logistics.id,
-                    scanned_at: new Date(order.event_start_date.getTime() - 24 * 3600000),
                 });
                 outCount++;
             }
@@ -2233,23 +2239,54 @@ async function seedScanEvents() {
                               },
                           ]
                         : [];
-                const damagePhotos = damageReportEntries.map((entry) => entry.url);
 
-                await db.insert(schema.scanEvents).values({
-                    order_id: order.id,
+                const [scanEvent] = await db
+                    .insert(schema.scanEvents)
+                    .values({
+                        order_id: order.id,
+                        asset_id: item.asset_id,
+                        scan_type: "INBOUND" as ScanType,
+                        quantity: item.quantity,
+                        condition,
+                        notes,
+                        discrepancy_reason: condition === "ORANGE" ? "BROKEN" : null,
+                        metadata: {
+                            seeded: true,
+                        },
+                        scanned_by: logistics.id,
+                        scanned_at: new Date(order.event_end_date.getTime() + 36 * 3600000),
+                    })
+                    .returning({ id: schema.scanEvents.id });
+
+                await db.insert(schema.scanEventAssets).values({
+                    scan_event_id: scanEvent.id,
                     asset_id: item.asset_id,
-                    scan_type: "INBOUND" as ScanType,
                     quantity: item.quantity,
-                    condition,
-                    notes,
-                    photos: damagePhotos,
-                    latest_return_images: latestReturnImages,
-                    damage_report_photos: damagePhotos,
-                    damage_report_entries: damageReportEntries,
-                    discrepancy_reason: condition === "ORANGE" ? "BROKEN" : null,
-                    scanned_by: logistics.id,
-                    scanned_at: new Date(order.event_end_date.getTime() + 36 * 3600000),
                 });
+
+                if (latestReturnImages.length > 0) {
+                    await db.insert(schema.scanEventMedia).values(
+                        latestReturnImages.map((url, index) => ({
+                            scan_event_id: scanEvent.id,
+                            url,
+                            note: null,
+                            media_kind: "RETURN_WIDE",
+                            sort_order: index,
+                        }))
+                    );
+                }
+
+                if (damageReportEntries.length > 0) {
+                    await db.insert(schema.scanEventMedia).values(
+                        damageReportEntries.map((entry, index) => ({
+                            scan_event_id: scanEvent.id,
+                            url: entry.url,
+                            note: entry.description ?? null,
+                            media_kind: "DAMAGE",
+                            sort_order: index,
+                        }))
+                    );
+                }
                 inCount++;
             }
         }

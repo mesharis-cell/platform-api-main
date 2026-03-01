@@ -6,6 +6,7 @@ import {
     inboundRequests,
     lineItems,
     orders,
+    platforms,
     prices,
     serviceRequests,
     serviceTypes,
@@ -58,6 +59,7 @@ type BuildInitialPricingParams = {
     warehouse_ops_rate: string | number;
     base_ops_total: number;
     margin_percent: number;
+    vat_percent?: number;
     calculated_by: string;
     volume?: number;
     enable_base_operations?: boolean;
@@ -79,6 +81,7 @@ type RawPricingRecord = {
     entity_type?: PricedEntityType;
     entity_id?: string;
     margin_percent?: string | number | null;
+    vat_percent?: string | number | null;
     margin_is_override?: boolean | null;
     margin_override_reason?: string | null;
     breakdown_lines?: unknown;
@@ -116,9 +119,10 @@ type BreakdownTotals = {
     sell_rate_card_total: number;
     sell_custom_total: number;
     sell_total: number;
+    sell_vat_percent: number;
+    sell_vat_amount: number;
+    sell_total_with_vat: number;
     margin_amount: number;
-    service_fee_buy: number;
-    service_fee_sell: number;
 };
 
 const toNum = (v: unknown): number => {
@@ -191,7 +195,7 @@ const parseBreakdownLines = (lines: unknown): BreakdownLine[] => {
 const shouldCountInTotals = (line: BreakdownLine) =>
     !line.is_voided && line.billing_mode === "BILLABLE";
 
-const calculateBreakdownTotals = (lines: BreakdownLine[]): BreakdownTotals => {
+const calculateBreakdownTotals = (lines: BreakdownLine[], vatPercent = 0): BreakdownTotals => {
     const totals: BreakdownTotals = {
         buy_base_ops_total: 0,
         buy_rate_card_total: 0,
@@ -201,9 +205,10 @@ const calculateBreakdownTotals = (lines: BreakdownLine[]): BreakdownTotals => {
         sell_rate_card_total: 0,
         sell_custom_total: 0,
         sell_total: 0,
+        sell_vat_percent: 0,
+        sell_vat_amount: 0,
+        sell_total_with_vat: 0,
         margin_amount: 0,
-        service_fee_buy: 0,
-        service_fee_sell: 0,
     };
 
     for (const line of lines) {
@@ -235,8 +240,9 @@ const calculateBreakdownTotals = (lines: BreakdownLine[]): BreakdownTotals => {
     totals.sell_total = roundCurrency(
         totals.sell_base_ops_total + totals.sell_rate_card_total + totals.sell_custom_total
     );
-    totals.service_fee_buy = roundCurrency(totals.buy_rate_card_total + totals.buy_custom_total);
-    totals.service_fee_sell = roundCurrency(totals.sell_rate_card_total + totals.sell_custom_total);
+    totals.sell_vat_percent = roundCurrency(vatPercent);
+    totals.sell_vat_amount = roundCurrency((totals.sell_total * totals.sell_vat_percent) / 100);
+    totals.sell_total_with_vat = roundCurrency(totals.sell_total + totals.sell_vat_amount);
     totals.margin_amount = roundCurrency(totals.sell_total - totals.buy_total);
     return totals;
 };
@@ -413,12 +419,15 @@ const resolveEntityContext = async (
                 pricing_id: orders.order_pricing_id,
                 company_margin: companies.platform_margin_percent,
                 company_ops_rate: companies.warehouse_ops_rate,
+                company_vat_percent_override: companies.vat_percent_override,
                 company_features: companies.features,
+                platform_vat_percent: platforms.vat_percent,
                 created_by: orders.created_by,
                 calculated_totals: orders.calculated_totals,
             })
             .from(orders)
             .leftJoin(companies, eq(orders.company_id, companies.id))
+            .leftJoin(platforms, eq(orders.platform_id, platforms.id))
             .where(and(eq(orders.id, entityId), eq(orders.platform_id, platformId)))
             .limit(1);
         if (!row) throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
@@ -427,6 +436,11 @@ const resolveEntityContext = async (
             pricing_id: row.pricing_id as string | null,
             company_margin: toNum(row.company_margin),
             company_ops_rate: toNum(row.company_ops_rate),
+            vat_percent:
+                row.company_vat_percent_override !== null &&
+                row.company_vat_percent_override !== undefined
+                    ? toNum(row.company_vat_percent_override)
+                    : toNum(row.platform_vat_percent),
             created_by: String(row.created_by),
             volume: toNum((row.calculated_totals as Record<string, unknown> | null)?.volume),
             enable_base_operations:
@@ -442,11 +456,14 @@ const resolveEntityContext = async (
                 pricing_id: inboundRequests.request_pricing_id,
                 company_margin: companies.platform_margin_percent,
                 company_ops_rate: companies.warehouse_ops_rate,
+                company_vat_percent_override: companies.vat_percent_override,
                 company_features: companies.features,
+                platform_vat_percent: platforms.vat_percent,
                 created_by: inboundRequests.created_by,
             })
             .from(inboundRequests)
             .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
+            .leftJoin(platforms, eq(inboundRequests.platform_id, platforms.id))
             .where(
                 and(eq(inboundRequests.id, entityId), eq(inboundRequests.platform_id, platformId))
             )
@@ -457,6 +474,11 @@ const resolveEntityContext = async (
             pricing_id: row.pricing_id as string | null,
             company_margin: toNum(row.company_margin),
             company_ops_rate: toNum(row.company_ops_rate),
+            vat_percent:
+                row.company_vat_percent_override !== null &&
+                row.company_vat_percent_override !== undefined
+                    ? toNum(row.company_vat_percent_override)
+                    : toNum(row.platform_vat_percent),
             created_by: String(row.created_by),
             volume: undefined,
             enable_base_operations:
@@ -471,11 +493,14 @@ const resolveEntityContext = async (
             pricing_id: serviceRequests.request_pricing_id,
             company_margin: companies.platform_margin_percent,
             company_ops_rate: companies.warehouse_ops_rate,
+            company_vat_percent_override: companies.vat_percent_override,
             company_features: companies.features,
+            platform_vat_percent: platforms.vat_percent,
             created_by: serviceRequests.created_by,
         })
         .from(serviceRequests)
         .leftJoin(companies, eq(serviceRequests.company_id, companies.id))
+        .leftJoin(platforms, eq(serviceRequests.platform_id, platforms.id))
         .where(and(eq(serviceRequests.id, entityId), eq(serviceRequests.platform_id, platformId)))
         .limit(1);
     if (!row) throw new CustomizedError(httpStatus.NOT_FOUND, "Service request not found");
@@ -484,6 +509,11 @@ const resolveEntityContext = async (
         pricing_id: row.pricing_id as string | null,
         company_margin: toNum(row.company_margin),
         company_ops_rate: toNum(row.company_ops_rate),
+        vat_percent:
+            row.company_vat_percent_override !== null &&
+            row.company_vat_percent_override !== undefined
+                ? toNum(row.company_vat_percent_override)
+                : toNum(row.platform_vat_percent),
         created_by: String(row.created_by),
         volume: undefined,
         enable_base_operations:
@@ -501,6 +531,7 @@ const ensurePricingRow = async (
         platformId: string;
         actorId: string;
         defaultMarginPercent: number;
+        defaultVatPercent: number;
     }
 ) => {
     const existing = await executor
@@ -524,6 +555,7 @@ const ensurePricingRow = async (
             entity_id: params.entityId,
             breakdown_lines: [],
             margin_percent: params.defaultMarginPercent.toFixed(2),
+            vat_percent: params.defaultVatPercent.toFixed(2),
             margin_is_override: false,
             margin_override_reason: null,
             calculated_by: params.actorId,
@@ -555,6 +587,7 @@ const buildInitialPricing = (params: BuildInitialPricingParams) => {
     const now = new Date();
     const baseOpsTotal = roundCurrency(params.base_ops_total);
     const marginPercent = roundCurrency(params.margin_percent);
+    const vatPercent = roundCurrency(toNum(params.vat_percent));
     const opsRate = roundCurrency(toNum(params.warehouse_ops_rate));
     const baseLine =
         params.enable_base_operations === false
@@ -574,6 +607,7 @@ const buildInitialPricing = (params: BuildInitialPricingParams) => {
         entity_id: params.entity_id,
         breakdown_lines: baseLine ? [baseLine] : [],
         margin_percent: marginPercent.toFixed(2),
+        vat_percent: vatPercent.toFixed(2),
         margin_is_override: false,
         margin_override_reason: null,
         calculated_at: now,
@@ -596,12 +630,14 @@ const rebuildBreakdown = async (params: RebuildBreakdownParams) => {
         platformId: params.platform_id,
         actorId: params.calculated_by,
         defaultMarginPercent: context.company_margin,
+        defaultVatPercent: context.vat_percent,
     });
 
     const [pricingRow] = await executor
         .select({
             id: prices.id,
             margin_percent: prices.margin_percent,
+            vat_percent: prices.vat_percent,
             margin_is_override: prices.margin_is_override,
             margin_override_reason: prices.margin_override_reason,
             breakdown_lines: prices.breakdown_lines,
@@ -664,6 +700,7 @@ const rebuildBreakdown = async (params: RebuildBreakdownParams) => {
             entity_id: params.entity_id,
             breakdown_lines: breakdownLines,
             margin_percent: marginPercent.toFixed(2),
+            vat_percent: context.vat_percent.toFixed(2),
             margin_is_override: marginIsOverride,
             margin_override_reason: marginOverrideReason,
             calculated_at: now,
@@ -671,7 +708,7 @@ const rebuildBreakdown = async (params: RebuildBreakdownParams) => {
         })
         .where(eq(prices.id, pricingId));
 
-    const totals = calculateBreakdownTotals(breakdownLines);
+    const totals = calculateBreakdownTotals(breakdownLines, context.vat_percent);
     await eventBus.emit({
         platform_id: params.platform_id,
         event_type: EVENT_TYPES.PRICING_RECALCULATED,
@@ -688,7 +725,9 @@ const rebuildBreakdown = async (params: RebuildBreakdownParams) => {
             catalog_total: totals.buy_rate_card_total,
             custom_total: totals.buy_custom_total,
             margin_percent: marginPercent,
-            final_total: totals.sell_total,
+            vat_percent: context.vat_percent,
+            final_total: totals.sell_total_with_vat,
+            final_total_with_vat: totals.sell_total_with_vat,
             trigger:
                 params.base_ops_total_override !== undefined
                     ? "base_ops_recalc"
@@ -701,14 +740,20 @@ const rebuildBreakdown = async (params: RebuildBreakdownParams) => {
     return {
         pricing_id: pricingId,
         margin_percent: marginPercent,
+        vat_percent: context.vat_percent,
         margin_is_override: marginIsOverride,
         margin_override_reason: marginOverrideReason,
         buy_total: totals.buy_total,
-        final_total: totals.sell_total,
+        subtotal: totals.sell_total,
+        final_total: totals.sell_total_with_vat,
         base_ops_total: totals.buy_base_ops_total,
         line_items: {
             catalog_total: totals.buy_rate_card_total,
             custom_total: totals.buy_custom_total,
+        },
+        vat: {
+            percent: totals.sell_vat_percent,
+            amount: totals.sell_vat_amount,
         },
         margin: {
             percent: marginPercent,
@@ -723,7 +768,8 @@ const rebuildBreakdown = async (params: RebuildBreakdownParams) => {
 const projectByRole = (pricing: RawPricingRecord | null | undefined, role: PricingRole) => {
     if (!pricing) return null;
     const lines = parseBreakdownLines(pricing.breakdown_lines);
-    const totals = calculateBreakdownTotals(lines);
+    const vatPercent = toNum(pricing.vat_percent);
+    const totals = calculateBreakdownTotals(lines, vatPercent);
     const marginPolicy = {
         percent: toNum(pricing.margin_percent),
         is_override: !!pricing.margin_is_override,
@@ -744,6 +790,10 @@ const projectByRole = (pricing: RawPricingRecord | null | undefined, role: Prici
                 catalog_total: totals.buy_rate_card_total,
                 custom_total: totals.buy_custom_total,
             },
+            vat: {
+                percent: totals.sell_vat_percent,
+                amount: totals.sell_vat_amount,
+            },
             margin: {
                 percent: marginPolicy.percent,
                 amount: totals.margin_amount,
@@ -752,10 +802,12 @@ const projectByRole = (pricing: RawPricingRecord | null | undefined, role: Prici
             },
             sell: {
                 base_ops_total: totals.sell_base_ops_total,
-                service_fee: totals.service_fee_sell,
-                final_total: totals.sell_total,
+                subtotal: totals.sell_total,
+                vat_amount: totals.sell_vat_amount,
+                final_total: totals.sell_total_with_vat,
             },
-            final_total: totals.sell_total.toFixed(2),
+            subtotal: totals.sell_total.toFixed(2),
+            final_total: totals.sell_total_with_vat.toFixed(2),
         };
     }
 
@@ -811,19 +863,25 @@ const projectByRole = (pricing: RawPricingRecord | null | undefined, role: Prici
             base_ops_total: totals.sell_base_ops_total,
             rate_card_total: totals.sell_rate_card_total,
             custom_total: totals.sell_custom_total,
-            total: totals.sell_total,
+            subtotal: totals.sell_total,
+            vat_percent: totals.sell_vat_percent,
+            vat_amount: totals.sell_vat_amount,
+            total: totals.sell_total_with_vat,
         },
-        // Legacy compatibility fields
-        logistics_sub_total: totals.sell_base_ops_total.toFixed(2),
-        service_fee: totals.service_fee_sell.toFixed(2),
-        final_total: totals.sell_total.toFixed(2),
+        subtotal: totals.sell_total.toFixed(2),
+        vat: {
+            percent: totals.sell_vat_percent,
+            amount: totals.sell_vat_amount,
+        },
+        final_total: totals.sell_total_with_vat.toFixed(2),
     };
 };
 
 const projectSummaryForRole = (pricing: RawPricingRecord | null | undefined, role: PricingRole) => {
     if (!pricing) return null;
     const lines = parseBreakdownLines(pricing.breakdown_lines);
-    const totals = calculateBreakdownTotals(lines);
+    const vatPercent = toNum(pricing.vat_percent);
+    const totals = calculateBreakdownTotals(lines, vatPercent);
 
     if (role === "LOGISTICS") {
         return {
@@ -833,11 +891,17 @@ const projectSummaryForRole = (pricing: RawPricingRecord | null | undefined, rol
     }
     if (role === "CLIENT") {
         return {
-            final_total: totals.sell_total.toFixed(2),
+            subtotal: totals.sell_total.toFixed(2),
+            vat_percent: totals.sell_vat_percent,
+            vat_amount: totals.sell_vat_amount.toFixed(2),
+            final_total: totals.sell_total_with_vat.toFixed(2),
         };
     }
     return {
-        final_total: totals.sell_total.toFixed(2),
+        subtotal: totals.sell_total.toFixed(2),
+        vat_percent: totals.sell_vat_percent,
+        vat_amount: totals.sell_vat_amount.toFixed(2),
+        final_total: totals.sell_total_with_vat.toFixed(2),
         buy_total: totals.buy_total.toFixed(2),
         margin_percent: toNum(pricing.margin_percent),
         calculated_at: pricing.calculated_at,

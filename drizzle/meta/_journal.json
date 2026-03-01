@@ -127,6 +127,20 @@
             "when": 1772301935495,
             "tag": "0017_order_photos_line_visibility",
             "breakpoints": true
+        },
+        {
+            "idx": 18,
+            "version": "7",
+            "when": 1772308800000,
+            "tag": "0018_scan_event_unification",
+            "breakpoints": true
+        },
+        {
+            "idx": 19,
+            "version": "7",
+            "when": 1772387101449,
+            "tag": "0019_vat_platform_company",
+            "breakpoints": true
         }
     ]
 }

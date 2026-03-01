@@ -146,6 +146,7 @@ const exportOrdersService = async (
             pricing: {
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
+                vat_percent: prices.vat_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
@@ -232,6 +233,7 @@ const exportOrderHistoryService = async (
             pricing: {
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
+                vat_percent: prices.vat_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
@@ -472,6 +474,7 @@ const exportInboundLogService = async (
             pricing: {
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
+                vat_percent: prices.vat_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
@@ -545,6 +548,7 @@ const exportRevenueReportService = async (
             pricing: {
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
+                vat_percent: prices.vat_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
@@ -601,6 +605,7 @@ const exportCostReportService = async (
             pricing: {
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
+                vat_percent: prices.vat_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
@@ -684,12 +689,13 @@ const exportAssetUtilizationService = async (
             )
             .groupBy(scanEvents.asset_id);
 
-        usageRows.forEach((row) =>
+        usageRows.forEach((row) => {
+            if (!row.asset_id) return;
             usageMap.set(row.asset_id, {
                 last_used: row.last_used ? new Date(row.last_used) : null,
                 uses: parseNumber(row.uses),
-            })
-        );
+            });
+        });
     }
 
     const threshold = threshold_days ? parseNumber(threshold_days) : 0;
@@ -760,6 +766,7 @@ const exportWorkSummaryService = async (
             pricing: {
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
+                vat_percent: prices.vat_percent,
                 margin_is_override: prices.margin_is_override,
                 margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,

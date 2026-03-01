@@ -104,7 +104,14 @@ export const entityTypeEnum = pgEnum("entity_type", [
     "SELF_BOOKING",
 ]);
 export const recipientTypeEnum = pgEnum("recipient_type", ["ROLE", "ENTITY_OWNER", "EMAIL"]);
-export const scanTypeEnum = pgEnum("scan_type", ["OUTBOUND", "INBOUND"]);
+export const scanTypeEnum = pgEnum("scan_type", [
+    "OUTBOUND",
+    "INBOUND",
+    "DERIG_CAPTURE",
+    "OUTBOUND_TRUCK_PHOTOS",
+    "RETURN_TRUCK_PHOTOS",
+    "ON_SITE_CAPTURE",
+]);
 export const discrepancyReasonEnum = pgEnum("discrepancy_reason", ["BROKEN", "LOST", "OTHER"]);
 export const lineItemTypeEnum = pgEnum("line_item_type", ["CATALOG", "CUSTOM"]);
 export const billingModeEnum = pgEnum("billing_mode", [
@@ -199,6 +206,7 @@ export const platforms = pgTable(
         domain: varchar("domain", { length: 100 }).notNull().unique(),
         config: jsonb("config").default({}).notNull(),
         features: jsonb("features").default({}).notNull(),
+        vat_percent: decimal("vat_percent", { precision: 5, scale: 2 }).notNull().default("0.00"),
         is_active: boolean("is_active").default(true).notNull(),
         created_at: timestamp("created_at").notNull().defaultNow(),
         updated_at: timestamp("updated_at")
@@ -244,6 +252,7 @@ export const companies = pgTable(
         warehouse_ops_rate: decimal("warehouse_ops_rate", { precision: 10, scale: 2 })
             .notNull()
             .default("25.20"), // AED per m³
+        vat_percent_override: decimal("vat_percent_override", { precision: 5, scale: 2 }),
         contact_email: varchar("contact_email", { length: 255 }),
         contact_phone: varchar("contact_phone", { length: 50 }),
         features: jsonb("features").default({}).notNull(), // {show_estimate_on_order_creation: false  // This company's overrid }
@@ -785,16 +794,6 @@ export const orders = pgTable(
         delivery_photos: text("delivery_photos")
             .array()
             .default(sql`ARRAY[]::text[]`),
-        truck_photos: text("truck_photos")
-            .array()
-            .default(sql`ARRAY[]::text[]`), // Outbound truck loading photos
-        return_truck_photos: text("return_truck_photos")
-            .array()
-            .default(sql`ARRAY[]::text[]`), // Return pickup truck photos
-        on_site_photos: text("on_site_photos")
-            .array()
-            .default(sql`ARRAY[]::text[]`), // Captured while assets are IN_USE (On Site)
-
         // Timestamps
         created_at: timestamp("created_at").notNull().defaultNow(),
         updated_at: timestamp("updated_at")
@@ -864,12 +863,6 @@ export const orderItems = pgTable(
         requires_maintenance: boolean("requires_maintenance").notNull().default(false),
         maintenance_refurb_days_snapshot: integer("maintenance_refurb_days_snapshot"),
         maintenance_decision_locked_at: timestamp("maintenance_decision_locked_at"),
-        derig_photos: text("derig_photos")
-            .array()
-            .notNull()
-            .default(sql`ARRAY[]::text[]`),
-        derig_notes: text("derig_notes"),
-
         created_at: timestamp("created_at").notNull().defaultNow(),
     },
     (table) => [
@@ -1242,36 +1235,79 @@ export const scanEvents = pgTable("scan_events", {
     order_id: uuid("order")
         .notNull()
         .references(() => orders.id, { onDelete: "cascade" }),
-    asset_id: uuid("asset")
-        .notNull()
-        .references(() => assets.id),
+    asset_id: uuid("asset").references(() => assets.id),
     scan_type: scanTypeEnum("scan_type").notNull(),
-    quantity: integer("quantity").notNull(),
-    condition: assetConditionEnum("condition").notNull(),
+    quantity: integer("quantity").notNull().default(0),
+    condition: assetConditionEnum("condition"),
     notes: text("notes"),
-    photos: text("photos")
-        .array()
-        .default(sql`ARRAY[]::text[]`),
-    latest_return_images: text("latest_return_images")
-        .array()
-        .default(sql`ARRAY[]::text[]`),
-    damage_report_photos: text("damage_report_photos")
-        .array()
-        .default(sql`ARRAY[]::text[]`),
-    damage_report_entries: jsonb("damage_report_entries")
-        .notNull()
-        .default(sql`'[]'::jsonb`),
     discrepancy_reason: discrepancyReasonEnum("discrepancy_reason"),
-    scanned_by: uuid("scanned_by")
+    metadata: jsonb("metadata")
         .notNull()
-        .references(() => users.id),
+        .default(sql`'{}'::jsonb`),
+    scanned_by: uuid("scanned_by").references(() => users.id),
     scanned_at: timestamp("scanned_at").notNull().defaultNow(),
 });
 
-export const scanEventsRelations = relations(scanEvents, ({ one }) => ({
+export const scanEventsRelations = relations(scanEvents, ({ one, many }) => ({
     order: one(orders, { fields: [scanEvents.order_id], references: [orders.id] }),
     asset: one(assets, { fields: [scanEvents.asset_id], references: [assets.id] }),
     scanned_by_user: one(users, { fields: [scanEvents.scanned_by], references: [users.id] }),
+    event_assets: many(scanEventAssets),
+    event_media: many(scanEventMedia),
+}));
+
+export const scanEventAssets = pgTable(
+    "scan_event_assets",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        scan_event_id: uuid("scan_event_id")
+            .notNull()
+            .references(() => scanEvents.id, { onDelete: "cascade" }),
+        asset_id: uuid("asset_id")
+            .notNull()
+            .references(() => assets.id, { onDelete: "cascade" }),
+        quantity: integer("quantity").notNull().default(1),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+    },
+    (table) => [
+        unique("scan_event_assets_event_asset_unique").on(table.scan_event_id, table.asset_id),
+        index("scan_event_assets_event_idx").on(table.scan_event_id),
+        index("scan_event_assets_asset_idx").on(table.asset_id),
+    ]
+);
+
+export const scanEventAssetsRelations = relations(scanEventAssets, ({ one }) => ({
+    scan_event: one(scanEvents, {
+        fields: [scanEventAssets.scan_event_id],
+        references: [scanEvents.id],
+    }),
+    asset: one(assets, { fields: [scanEventAssets.asset_id], references: [assets.id] }),
+}));
+
+export const scanEventMedia = pgTable(
+    "scan_event_media",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        scan_event_id: uuid("scan_event_id")
+            .notNull()
+            .references(() => scanEvents.id, { onDelete: "cascade" }),
+        url: text("url").notNull(),
+        note: text("note"),
+        media_kind: varchar("media_kind", { length: 32 }).notNull().default("GENERAL"),
+        sort_order: integer("sort_order").notNull().default(0),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+    },
+    (table) => [
+        index("scan_event_media_event_idx").on(table.scan_event_id),
+        index("scan_event_media_kind_idx").on(table.media_kind),
+    ]
+);
+
+export const scanEventMediaRelations = relations(scanEventMedia, ({ one }) => ({
+    scan_event: one(scanEvents, {
+        fields: [scanEventMedia.scan_event_id],
+        references: [scanEvents.id],
+    }),
 }));
 
 // ---------------------------------- SYSTEM EVENTS ----------------------------------------
@@ -1501,6 +1537,7 @@ export const prices = pgTable(
         margin_percent: decimal("margin_percent", { precision: 5, scale: 2 })
             .notNull()
             .default("0"),
+        vat_percent: decimal("vat_percent", { precision: 5, scale: 2 }).notNull().default("0"),
         margin_is_override: boolean("margin_is_override").notNull().default(false),
         margin_override_reason: text("margin_override_reason"),
         calculated_at: timestamp("calculated_at").notNull().defaultNow(),

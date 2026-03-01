@@ -25,18 +25,25 @@ const configSchema = z.object({
         .string()
         .length(3, "Currency must be a 3-letter ISO code (e.g., USD, EUR)")
         .optional(),
+    vat_percent: z
+        .number("VAT percent must be a number")
+        .min(0, "VAT percent must be at least 0")
+        .max(100, "VAT percent cannot exceed 100")
+        .optional(),
 });
 
 const featureSchema = z.object({
     enable_inbound_requests: z.boolean().optional().default(true),
     show_estimate_on_order_creation: z.boolean().optional().default(true),
     enable_kadence_invoicing: z.boolean().optional().default(false),
+    enable_base_operations: z.boolean().optional().default(true),
 });
 
 const featurePatchSchema = z.object({
     enable_inbound_requests: z.boolean().optional(),
     show_estimate_on_order_creation: z.boolean().optional(),
     enable_kadence_invoicing: z.boolean().optional(),
+    enable_base_operations: z.boolean().optional(),
 });
 
 const createPlatform = z.object({
