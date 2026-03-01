@@ -274,6 +274,21 @@ const getAssetOrderHistory = catchAsync(async (req, res) => {
     });
 });
 
+const getAssetUsageReport = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+    const { id } = req.params;
+
+    const result = await AssetServices.getAssetUsageReport(id, user, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Asset usage report fetched successfully",
+        data: result,
+    });
+});
+
 export const AssetControllers = {
     createAsset,
     getAssets,
@@ -291,4 +306,5 @@ export const AssetControllers = {
     sentAssetToMaintenance,
     getAssetVersions,
     getAssetOrderHistory,
+    getAssetUsageReport,
 };

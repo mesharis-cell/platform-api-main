@@ -684,12 +684,13 @@ const exportAssetUtilizationService = async (
             )
             .groupBy(scanEvents.asset_id);
 
-        usageRows.forEach((row) =>
+        usageRows.forEach((row) => {
+            if (!row.asset_id) return;
             usageMap.set(row.asset_id, {
                 last_used: row.last_used ? new Date(row.last_used) : null,
                 uses: parseNumber(row.uses),
-            })
-        );
+            });
+        });
     }
 
     const threshold = threshold_days ? parseNumber(threshold_days) : 0;

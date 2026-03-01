@@ -144,17 +144,24 @@ const getOrderScanEvents = catchAsync(async (req, res) => {
     });
 });
 
-const saveOnSitePhotos = catchAsync(async (req, res) => {
+const saveOnSiteCapture = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
     const { id: orderId } = req.params;
 
-    const result = await OrderServices.saveOnSitePhotos(orderId, platformId, req.body.photos, user);
+    const result = await OrderServices.saveOnSiteCapture(
+        orderId,
+        platformId,
+        req.body.media,
+        req.body.asset_ids,
+        req.body.note,
+        user
+    );
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
         success: true,
-        message: "On Site photos saved successfully",
+        message: "On Site capture saved successfully",
         data: result,
     });
 });
@@ -526,6 +533,6 @@ export const OrderControllers = {
     cancelOrder,
     updateMaintenanceDecision,
     derigCapture,
-    saveOnSitePhotos,
+    saveOnSiteCapture,
     recalculateBaseOps,
 };

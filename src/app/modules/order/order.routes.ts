@@ -219,14 +219,14 @@ router.patch(
     OrderControllers.derigCapture
 );
 
-// Save On Site photos while order is IN_USE
+// Save On Site capture evidence while order is IN_USE
 router.patch(
-    "/:id/on-site-photos",
+    "/:id/on-site-capture",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
     requirePermission(PERMISSIONS.ORDERS_UPDATE),
-    payloadValidator(orderSchemas.onSitePhotosSchema),
-    OrderControllers.saveOnSitePhotos
+    payloadValidator(orderSchemas.onSiteCaptureSchema),
+    OrderControllers.saveOnSiteCapture
 );
 
 // Recalculate base operations from current asset dimensions

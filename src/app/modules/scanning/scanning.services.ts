@@ -7,6 +7,8 @@ import {
     assets,
     orderStatusHistory,
     orders,
+    scanEventAssets,
+    scanEventMedia,
     scanEvents,
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
@@ -19,36 +21,71 @@ import {
     OrderProgressResponse,
     OutboundScanPayload,
     OutboundScanResponse,
+    ScanMediaPayload,
 } from "./scanning.interfaces";
 import { DocumentService } from "../../services/document.service";
 import { eventBus, EVENT_TYPES } from "../../events";
 import config from "../../config";
 
-type DamageReportEntry = {
+type NormalizedMediaEntry = {
     url: string;
-    description?: string;
+    note?: string;
 };
 
-const normalizeDamageReportEntries = (
-    entries?: Array<{ url: string; description?: string }>,
-    legacyPhotos?: string[]
-): DamageReportEntry[] => {
+const normalizeMediaEntries = (entries?: ScanMediaPayload[]): NormalizedMediaEntry[] => {
     const normalized = new Map<string, string | undefined>();
 
     (entries || []).forEach((entry) => {
-        const url = entry.url?.trim();
+        const url = entry?.url?.trim();
         if (!url) return;
-        const description = entry.description?.trim();
-        normalized.set(url, description && description.length > 0 ? description : undefined);
+        const note = entry.note?.trim();
+        normalized.set(url, note && note.length > 0 ? note : undefined);
     });
 
-    (legacyPhotos || []).forEach((photoUrl) => {
-        const url = photoUrl?.trim();
-        if (!url || normalized.has(url)) return;
-        normalized.set(url, undefined);
-    });
+    return Array.from(normalized.entries()).map(([url, note]) => ({ url, note }));
+};
 
-    return Array.from(normalized.entries()).map(([url, description]) => ({ url, description }));
+const insertScanEventMedia = async (
+    scanEventId: string,
+    media: NormalizedMediaEntry[],
+    mediaKind:
+        | "GENERAL"
+        | "RETURN_WIDE"
+        | "DAMAGE"
+        | "DERIG"
+        | "TRUCK_OUTBOUND"
+        | "TRUCK_RETURN"
+        | "ON_SITE"
+) => {
+    if (media.length === 0) return;
+
+    await db.insert(scanEventMedia).values(
+        media.map((item, index) => ({
+            scan_event_id: scanEventId,
+            url: item.url,
+            note: item.note ?? null,
+            media_kind: mediaKind,
+            sort_order: index,
+        }))
+    );
+};
+
+const insertScanEventAssets = async (
+    scanEventId: string,
+    assetRows: Array<{ asset_id: string; quantity?: number }>
+) => {
+    if (assetRows.length === 0) return;
+
+    await db
+        .insert(scanEventAssets)
+        .values(
+            assetRows.map((row) => ({
+                scan_event_id: scanEventId,
+                asset_id: row.asset_id,
+                quantity: Math.max(row.quantity ?? 0, 0),
+            }))
+        )
+        .onConflictDoNothing();
 };
 
 // ----------------------------------- INBOUND SCAN ---------------------------------------
@@ -62,19 +99,15 @@ const inboundScan = async (
         qr_code,
         condition,
         notes,
-        latest_return_images,
-        damage_report_entries,
-        damage_report_photos,
+        return_media,
+        damage_media,
         refurb_days_estimate,
         discrepancy_reason,
         quantity,
     } = data;
 
-    const normalizedDamageEntries = normalizeDamageReportEntries(
-        damage_report_entries,
-        damage_report_photos
-    );
-    const normalizedDamagePhotos = normalizedDamageEntries.map((entry) => entry.url);
+    const normalizedReturnMedia = normalizeMediaEntries(return_media);
+    const normalizedDamageMedia = normalizeMediaEntries(damage_media);
 
     // Step 1: Get order with items
     const order = await db.query.orders.findFirst({
@@ -171,36 +204,44 @@ const inboundScan = async (
         );
     }
 
-    if (!latest_return_images || latest_return_images.length < 2) {
+    if (normalizedReturnMedia.length < 2) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
             "At least 2 wide return photos are required for inbound scans"
         );
     }
 
-    if (condition !== "GREEN" && normalizedDamageEntries.length === 0) {
+    if (condition !== "GREEN" && normalizedDamageMedia.length === 0) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
             "At least one damage report photo is required for damaged inbound items"
         );
     }
 
-    // Step 7: Create scan event
-    await db.insert(scanEvents).values({
-        order_id: orderId,
-        asset_id: asset.id,
-        scan_type: "INBOUND",
-        quantity: scanQuantity,
-        condition,
-        notes: notes || null,
-        photos: normalizedDamagePhotos,
-        latest_return_images: latest_return_images || [],
-        damage_report_photos: normalizedDamagePhotos,
-        damage_report_entries: normalizedDamageEntries,
-        discrepancy_reason: discrepancy_reason || null,
-        scanned_by: user.id,
-        scanned_at: new Date(),
-    });
+    // Step 7: Create scan event + media/assets
+    const [scanEvent] = await db
+        .insert(scanEvents)
+        .values({
+            order_id: orderId,
+            asset_id: asset.id,
+            scan_type: "INBOUND",
+            quantity: scanQuantity,
+            condition,
+            notes: notes || null,
+            discrepancy_reason: discrepancy_reason || null,
+            metadata: {
+                return_media_count: normalizedReturnMedia.length,
+                damage_media_count: normalizedDamageMedia.length,
+                refurb_days_estimate: refurb_days_estimate ?? null,
+            },
+            scanned_by: user.id,
+            scanned_at: new Date(),
+        })
+        .returning({ id: scanEvents.id });
+
+    await insertScanEventAssets(scanEvent.id, [{ asset_id: asset.id, quantity: scanQuantity }]);
+    await insertScanEventMedia(scanEvent.id, normalizedReturnMedia, "RETURN_WIDE");
+    await insertScanEventMedia(scanEvent.id, normalizedDamageMedia, "DAMAGE");
 
     // Step 8: Update asset condition if changed
     if (asset.condition !== condition) {
@@ -224,8 +265,11 @@ const inboundScan = async (
             asset_id: asset.id,
             condition,
             notes: notes || null,
-            photos: normalizedDamagePhotos,
-            damage_report_entries: normalizedDamageEntries,
+            photos: normalizedDamageMedia.map((entry) => entry.url),
+            damage_report_entries: normalizedDamageMedia.map((entry) => ({
+                url: entry.url,
+                description: entry.note,
+            })),
             updated_by: user.id,
         });
     } else {
@@ -247,7 +291,10 @@ const inboundScan = async (
         .set({
             available_quantity: sql`${assets.available_quantity} + ${scanQuantity}`,
             status: newStatus,
-            images: latest_return_images,
+            images: normalizedReturnMedia.map((entry) => ({
+                url: entry.url,
+                note: entry.note,
+            })),
         })
         .where(eq(assets.id, asset.id));
 
@@ -488,7 +535,7 @@ const outboundScan = async (
     user: AuthUser,
     platformId: string
 ): Promise<OutboundScanResponse> => {
-    const { qr_code, quantity } = data;
+    const { qr_code, quantity, note } = data;
 
     // Step 1: Get order with items
     const order = await db.query.orders.findFirst({
@@ -594,18 +641,23 @@ const outboundScan = async (
     }
 
     // Step 8: Create scan event
-    await db.insert(scanEvents).values({
-        order_id: orderId,
-        asset_id: asset.id,
-        scan_type: "OUTBOUND",
-        quantity: scanQuantity,
-        condition: "GREEN", // Default for outbound
-        notes: null,
-        photos: [],
-        discrepancy_reason: null,
-        scanned_by: user.id,
-        scanned_at: new Date(),
-    });
+    const [scanEvent] = await db
+        .insert(scanEvents)
+        .values({
+            order_id: orderId,
+            asset_id: asset.id,
+            scan_type: "OUTBOUND",
+            quantity: scanQuantity,
+            condition: "GREEN", // Default for outbound
+            notes: note || null,
+            discrepancy_reason: null,
+            metadata: {},
+            scanned_by: user.id,
+            scanned_at: new Date(),
+        })
+        .returning({ id: scanEvents.id });
+
+    await insertScanEventAssets(scanEvent.id, [{ asset_id: asset.id, quantity: scanQuantity }]);
 
     // Step 9: Update asset quantities
     // When items go out: decrease available_quantity
@@ -808,7 +860,9 @@ const getOutboundProgress = async (
 // ----------------------------------- UPLOAD TRUCK PHOTOS -------------------------------------
 const uploadTruckPhotos = async (
     orderId: string,
-    photos: string[],
+    media: ScanMediaPayload[],
+    assetIds: string[],
+    note: string | undefined,
     user: AuthUser,
     platformId: string,
     tripPhase: "OUTBOUND" | "RETURN" = "OUTBOUND"
@@ -816,6 +870,14 @@ const uploadTruckPhotos = async (
     // Step 1: Get order
     const order = await db.query.orders.findFirst({
         where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
+        with: {
+            items: {
+                columns: {
+                    asset_id: true,
+                    quantity: true,
+                },
+            },
+        },
     });
 
     if (!order) {
@@ -842,20 +904,60 @@ const uploadTruckPhotos = async (
         );
     }
 
-    // Step 3: Persist photos in the phase-specific order field
-    await db
-        .update(orders)
-        .set({
-            ...(tripPhase === "OUTBOUND"
-                ? { truck_photos: photos }
-                : { return_truck_photos: photos }),
-            updated_at: new Date(),
+    const normalizedMedia = normalizeMediaEntries(media);
+    if (normalizedMedia.length === 0) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "At least one photo is required");
+    }
+
+    const orderAssetMap = new Map(order.items.map((item) => [item.asset_id, item.quantity]));
+    const selectedAssetIds = (assetIds || []).filter((id) => id && id.trim().length > 0);
+
+    if (selectedAssetIds.length > 0) {
+        const invalid = selectedAssetIds.filter((id) => !orderAssetMap.has(id));
+        if (invalid.length > 0) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                `Selected asset_ids are not part of this order: ${invalid.join(", ")}`
+            );
+        }
+    }
+
+    const resolvedAssetIds =
+        selectedAssetIds.length > 0 ? selectedAssetIds : Array.from(orderAssetMap.keys());
+
+    const [scanEvent] = await db
+        .insert(scanEvents)
+        .values({
+            order_id: orderId,
+            asset_id: null,
+            scan_type: tripPhase === "OUTBOUND" ? "OUTBOUND_TRUCK_PHOTOS" : "RETURN_TRUCK_PHOTOS",
+            quantity: 0,
+            condition: null,
+            notes: note || null,
+            discrepancy_reason: null,
+            metadata: { trip_phase: tripPhase },
+            scanned_by: user.id,
+            scanned_at: new Date(),
         })
-        .where(eq(orders.id, orderId));
+        .returning({ id: scanEvents.id });
+
+    await insertScanEventAssets(
+        scanEvent.id,
+        resolvedAssetIds.map((assetId) => ({
+            asset_id: assetId,
+            quantity: orderAssetMap.get(assetId) ?? 0,
+        }))
+    );
+
+    await insertScanEventMedia(
+        scanEvent.id,
+        normalizedMedia,
+        tripPhase === "OUTBOUND" ? "TRUCK_OUTBOUND" : "TRUCK_RETURN"
+    );
 
     return {
         order_id: order.order_id,
-        photos_count: photos.length,
+        photos_count: normalizedMedia.length,
         trip_phase: tripPhase,
     };
 };

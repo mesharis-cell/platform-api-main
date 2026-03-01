@@ -21,14 +21,29 @@
  *         application/json:
  *           schema:
  *             type: object
- *             required: [photos]
+ *             required: [media]
  *             properties:
- *               photos:
+ *               media:
  *                 type: array
  *                 minItems: 1
  *                 items:
+ *                   type: object
+ *                   required: [url]
+ *                   properties:
+ *                     url:
+ *                       type: string
+ *                       description: Publicly accessible uploaded image URL
+ *                     note:
+ *                       type: string
+ *               asset_ids:
+ *                 type: array
+ *                 items:
  *                   type: string
- *                   description: Publicly accessible uploaded image URL
+ *                   format: uuid
+ *                 description: Optional subset of order assets linked to this capture
+ *               note:
+ *                 type: string
+ *                 description: Optional note for the capture event
  *               trip_phase:
  *                 type: string
  *                 enum: [OUTBOUND, RETURN]

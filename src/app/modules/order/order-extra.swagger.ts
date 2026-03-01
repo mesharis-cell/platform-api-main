@@ -28,17 +28,23 @@
  *                 minItems: 1
  *                 items:
  *                   type: object
- *                   required: [order_item_id, photos]
+ *                   required: [order_item_id, media]
  *                   properties:
  *                     order_item_id:
  *                       type: string
  *                       format: uuid
- *                     photos:
+ *                     media:
  *                       type: array
  *                       minItems: 1
  *                       items:
- *                         type: string
- *                     notes:
+ *                         type: object
+ *                         required: [url]
+ *                         properties:
+ *                           url:
+ *                             type: string
+ *                           note:
+ *                             type: string
+ *                     note:
  *                       type: string
  *     responses:
  *       200:
@@ -53,12 +59,12 @@
 
 /**
  * @swagger
- * /api/client/v1/order/{id}/on-site-photos:
+ * /api/client/v1/order/{id}/on-site-capture:
  *   patch:
  *     tags: [Order Management]
- *     summary: Save on-site photos for IN_USE stage
+ *     summary: Save on-site capture media for IN_USE stage
  *     description: |
- *       Saves photos captured when items are installed/on site.
+ *       Saves capture evidence when items are installed/on site.
  *       Allowed only when order status is `IN_USE`.
  *     parameters:
  *       - $ref: '#/components/parameters/PlatformHeader'
@@ -74,16 +80,29 @@
  *         application/json:
  *           schema:
  *             type: object
- *             required: [photos]
+ *             required: [media]
  *             properties:
- *               photos:
+ *               media:
  *                 type: array
  *                 minItems: 1
  *                 items:
+ *                   type: object
+ *                   required: [url]
+ *                   properties:
+ *                     url:
+ *                       type: string
+ *                     note:
+ *                       type: string
+ *               asset_ids:
+ *                 type: array
+ *                 items:
  *                   type: string
+ *                   format: uuid
+ *               note:
+ *                 type: string
  *     responses:
  *       200:
- *         description: On-site photos saved
+ *         description: On-site capture saved
  *       400:
  *         description: Invalid payload or invalid order status
  *       404:

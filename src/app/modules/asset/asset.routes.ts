@@ -123,6 +123,15 @@ router.get(
     AssetControllers.getAssetOrderHistory
 );
 
+// Get asset usage report (orders + scanning + service requests + condition timeline)
+router.get(
+    "/:id/usage-report",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    requirePermission(PERMISSIONS.ASSETS_READ),
+    AssetControllers.getAssetUsageReport
+);
+
 // Update asset
 router.patch(
     "/:id",

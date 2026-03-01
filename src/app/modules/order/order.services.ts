@@ -32,6 +32,8 @@ import {
     serviceRequestItems,
     serviceRequestStatusHistory,
     serviceRequests,
+    scanEventAssets,
+    scanEventMedia,
     scanEvents,
     users,
     countries,
@@ -1255,10 +1257,6 @@ const getOrderScanEvents = async (orderId: string, platformId: string, user: Aut
             id: orders.id,
             order_id: orders.order_id,
             company_id: orders.company_id,
-            truck_photos: orders.truck_photos,
-            return_truck_photos: orders.return_truck_photos,
-            on_site_photos: orders.on_site_photos,
-            updated_at: orders.updated_at,
         })
         .from(orders)
         .where(and(eq(orders.order_id, orderId), eq(orders.platform_id, platformId)));
@@ -1271,196 +1269,97 @@ const getOrderScanEvents = async (orderId: string, platformId: string, user: Aut
         throw new CustomizedError(httpStatus.FORBIDDEN, "You don't have access to this order");
     }
 
-    // Step 2: Fetch scan events with asset and user details
-    const events = await db
-        .select({
-            scanEvent: scanEvents,
+    // Step 2: Fetch canonical scan events with linked media/assets.
+    const events = await db.query.scanEvents.findMany({
+        where: eq(scanEvents.order_id, order.id),
+        with: {
             asset: {
-                id: assets.id,
-                name: assets.name,
-                qr_code: assets.qr_code,
-                tracking_method: assets.tracking_method,
+                columns: {
+                    id: true,
+                    name: true,
+                    qr_code: true,
+                    tracking_method: true,
+                },
             },
-            scannedByUser: {
-                id: users.id,
-                name: users.name,
+            scanned_by_user: {
+                columns: {
+                    id: true,
+                    name: true,
+                },
             },
-        })
-        .from(scanEvents)
-        .leftJoin(assets, eq(scanEvents.asset_id, assets.id))
-        .leftJoin(users, eq(scanEvents.scanned_by, users.id))
-        .where(eq(scanEvents.order_id, order.id))
-        .orderBy(desc(scanEvents.scanned_at));
+            event_assets: {
+                columns: {
+                    asset_id: true,
+                    quantity: true,
+                },
+                with: {
+                    asset: {
+                        columns: {
+                            id: true,
+                            name: true,
+                            qr_code: true,
+                            tracking_method: true,
+                        },
+                    },
+                },
+            },
+            event_media: {
+                columns: {
+                    id: true,
+                    url: true,
+                    note: true,
+                    media_kind: true,
+                    sort_order: true,
+                    created_at: true,
+                },
+            },
+        },
+        orderBy: desc(scanEvents.scanned_at),
+    });
 
-    // Step 3: Fetch derig captures saved on order items
-    const derigCaptures = await db
-        .select({
-            id: orderItems.id,
-            asset_id: orderItems.asset_id,
-            derig_photos: orderItems.derig_photos,
-            derig_notes: orderItems.derig_notes,
-            asset: {
-                id: assets.id,
-                name: assets.name,
-                qr_code: assets.qr_code,
-                tracking_method: assets.tracking_method,
-            },
-        })
-        .from(orderItems)
-        .leftJoin(assets, eq(orderItems.asset_id, assets.id))
-        .where(
-            and(
-                eq(orderItems.order_id, order.id),
-                sql<boolean>`cardinality(${orderItems.derig_photos}) > 0 OR ${orderItems.derig_notes} IS NOT NULL`
-            )
+    return events.map((event) => {
+        const orderedMedia = [...(event.event_media || [])].sort(
+            (a, b) => (a.sort_order || 0) - (b.sort_order || 0)
+        );
+        const damageMedia = orderedMedia.filter((item) => item.media_kind === "DAMAGE");
+        const returnMedia = orderedMedia.filter((item) => item.media_kind === "RETURN_WIDE");
+        const generalMedia = orderedMedia.filter(
+            (item) => !["DAMAGE", "RETURN_WIDE"].includes(item.media_kind)
         );
 
-    const normalizeDamageEntries = (
-        rawEntries: unknown,
-        legacyPhotos: unknown
-    ): Array<{ url: string; description?: string }> => {
-        if (Array.isArray(rawEntries) && rawEntries.length > 0) {
-            const normalized: Array<{ url: string; description?: string }> = [];
-            rawEntries.forEach((entry) => {
-                const url = (entry as any)?.url;
-                const description = (entry as any)?.description;
-                if (typeof url !== "string" || !url.trim()) return;
-                normalized.push({
-                    url: url.trim(),
-                    description:
-                        typeof description === "string" && description.trim().length > 0
-                            ? description.trim()
-                            : undefined,
-                });
-            });
-            return normalized;
-        }
-
-        if (!Array.isArray(legacyPhotos)) return [];
-        return legacyPhotos
-            .filter((url): url is string => typeof url === "string" && url.trim().length > 0)
-            .map((url) => ({ url: url.trim() }));
-    };
-
-    // Step 4: Format scan events
-    const formattedScanEvents = events.map((event) => {
-        const damageEntries = normalizeDamageEntries(
-            (event.scanEvent as any).damage_report_entries,
-            (event.scanEvent as any).damage_report_photos || (event.scanEvent as any).photos
-        );
-        const damagePhotoUrls = damageEntries.map((entry) => entry.url);
+        const primaryAsset = event.asset || event.event_assets[0]?.asset || null;
 
         return {
-            ...event.scanEvent,
-            photos: damagePhotoUrls,
-            damage_report_photos: damagePhotoUrls,
-            damage_report_entries: damageEntries,
-            asset: event.asset,
-            scanned_by_user: event.scannedByUser,
+            ...event,
+            media: orderedMedia.map((item) => ({
+                id: item.id,
+                url: item.url,
+                note: item.note,
+                media_kind: item.media_kind,
+                sort_order: item.sort_order,
+                created_at: item.created_at,
+            })),
+            assets: event.event_assets.map((item) => ({
+                asset_id: item.asset_id,
+                quantity: item.quantity,
+                asset: item.asset,
+            })),
+            // Backward-safe projections consumed by existing UIs.
+            photos: [...new Set([...generalMedia, ...damageMedia].map((item) => item.url))],
+            latest_return_images: returnMedia.map((item) => item.url),
+            damage_report_photos: damageMedia.map((item) => item.url),
+            damage_report_entries: damageMedia.map((item) => ({
+                url: item.url,
+                description: item.note || undefined,
+            })),
+            asset: primaryAsset,
+            scanned_by_user: event.scanned_by_user,
             order: {
                 id: order.id,
                 order_id: order.order_id,
             },
         };
     });
-
-    const syntheticDerigEvents = derigCaptures.map((entry) => ({
-        id: `derig-${entry.id}`,
-        order_id: order.id,
-        asset_id: entry.asset_id,
-        scan_type: "DERIG_CAPTURE",
-        quantity: 0,
-        condition: "GREEN",
-        notes: entry.derig_notes || null,
-        photos: entry.derig_photos || [],
-        latest_return_images: [],
-        damage_report_photos: [],
-        damage_report_entries: [],
-        discrepancy_reason: null,
-        scanned_by: null,
-        scanned_at: order.updated_at,
-        asset: entry.asset,
-        scanned_by_user: null,
-        order: { id: order.id, order_id: order.order_id },
-    }));
-
-    const syntheticTripPhotoEvents = [
-        ...(Array.isArray(order.truck_photos) && order.truck_photos.length > 0
-            ? [
-                  {
-                      id: `truck-outbound-${order.id}`,
-                      order_id: order.id,
-                      asset_id: null,
-                      scan_type: "OUTBOUND_TRUCK_PHOTOS",
-                      quantity: 0,
-                      condition: "GREEN",
-                      notes: "Outbound truck loading photos",
-                      photos: order.truck_photos,
-                      latest_return_images: [],
-                      damage_report_photos: [],
-                      damage_report_entries: [],
-                      discrepancy_reason: null,
-                      scanned_by: null,
-                      scanned_at: order.updated_at,
-                      asset: null,
-                      scanned_by_user: null,
-                      order: { id: order.id, order_id: order.order_id },
-                  },
-              ]
-            : []),
-        ...(Array.isArray(order.return_truck_photos) && order.return_truck_photos.length > 0
-            ? [
-                  {
-                      id: `truck-return-${order.id}`,
-                      order_id: order.id,
-                      asset_id: null,
-                      scan_type: "RETURN_TRUCK_PHOTOS",
-                      quantity: 0,
-                      condition: "GREEN",
-                      notes: "Return truck pickup photos",
-                      photos: order.return_truck_photos,
-                      latest_return_images: [],
-                      damage_report_photos: [],
-                      damage_report_entries: [],
-                      discrepancy_reason: null,
-                      scanned_by: null,
-                      scanned_at: order.updated_at,
-                      asset: null,
-                      scanned_by_user: null,
-                      order: { id: order.id, order_id: order.order_id },
-                  },
-              ]
-            : []),
-        ...(Array.isArray(order.on_site_photos) && order.on_site_photos.length > 0
-            ? [
-                  {
-                      id: `on-site-${order.id}`,
-                      order_id: order.id,
-                      asset_id: null,
-                      scan_type: "ON_SITE_CAPTURE",
-                      quantity: 0,
-                      condition: "GREEN",
-                      notes: "On Site captures",
-                      photos: order.on_site_photos,
-                      latest_return_images: [],
-                      damage_report_photos: [],
-                      damage_report_entries: [],
-                      discrepancy_reason: null,
-                      scanned_by: null,
-                      scanned_at: order.updated_at,
-                      asset: null,
-                      scanned_by_user: null,
-                      order: { id: order.id, order_id: order.order_id },
-                  },
-              ]
-            : []),
-    ];
-
-    return [...formattedScanEvents, ...syntheticDerigEvents, ...syntheticTripPhotoEvents].sort(
-        (a, b) =>
-            new Date((b as any).scanned_at || 0).getTime() -
-            new Date((a as any).scanned_at || 0).getTime()
-    );
 };
 
 // ----------------------------------- PROGRESS ORDER STATUS ----------------------------------
@@ -2900,7 +2799,7 @@ const downloadGoodsForm = async (
 const saveDerigCapture = async (
     orderId: string,
     platformId: string,
-    items: { order_item_id: string; photos: string[]; notes?: string }[],
+    items: { order_item_id: string; media: { url: string; note?: string }[]; note?: string }[],
     user: AuthUser
 ) => {
     const [order] = await db
@@ -2920,41 +2819,114 @@ const saveDerigCapture = async (
             "Derig captures can only be saved when order is in DERIG status"
         );
 
-    await Promise.all(
-        items.map(async (item) => {
-            const [existingItem] = await db
-                .select({ id: orderItems.id })
+    await db.transaction(async (tx) => {
+        for (const item of items) {
+            const [existingItem] = await tx
+                .select({
+                    id: orderItems.id,
+                    asset_id: orderItems.asset_id,
+                    quantity: orderItems.quantity,
+                })
                 .from(orderItems)
                 .where(
                     and(eq(orderItems.id, item.order_item_id), eq(orderItems.order_id, orderId))
                 );
 
-            if (!existingItem)
+            if (!existingItem) {
                 throw new CustomizedError(
                     httpStatus.BAD_REQUEST,
                     `Order item ${item.order_item_id} does not belong to this order`
                 );
+            }
 
-            await db
-                .update(orderItems)
-                .set({ derig_photos: item.photos, derig_notes: item.notes ?? null })
-                .where(eq(orderItems.id, item.order_item_id));
-        })
-    );
+            const existingDerigEvents = await tx
+                .select({ id: scanEvents.id })
+                .from(scanEvents)
+                .where(
+                    and(
+                        eq(scanEvents.order_id, orderId),
+                        eq(scanEvents.scan_type, "DERIG_CAPTURE"),
+                        sql`${scanEvents.metadata} ->> 'order_item_id' = ${item.order_item_id}`
+                    )
+                );
+
+            const existingEventIds = existingDerigEvents.map((event) => event.id);
+            if (existingEventIds.length > 0) {
+                await tx
+                    .delete(scanEventMedia)
+                    .where(inArray(scanEventMedia.scan_event_id, existingEventIds));
+                await tx
+                    .delete(scanEventAssets)
+                    .where(inArray(scanEventAssets.scan_event_id, existingEventIds));
+                await tx.delete(scanEvents).where(inArray(scanEvents.id, existingEventIds));
+            }
+
+            const [insertedEvent] = await tx
+                .insert(scanEvents)
+                .values({
+                    order_id: orderId,
+                    asset_id: existingItem.asset_id,
+                    scan_type: "DERIG_CAPTURE",
+                    quantity: 0,
+                    condition: null,
+                    notes: item.note ?? null,
+                    discrepancy_reason: null,
+                    metadata: {
+                        order_item_id: item.order_item_id,
+                    },
+                    scanned_by: user.id,
+                    scanned_at: new Date(),
+                })
+                .returning({ id: scanEvents.id });
+
+            await tx.insert(scanEventAssets).values({
+                scan_event_id: insertedEvent.id,
+                asset_id: existingItem.asset_id,
+                quantity: existingItem.quantity,
+            });
+
+            const normalizedMedia = Array.from(
+                new Map(
+                    (item.media || [])
+                        .map((entry) => ({
+                            url: entry.url?.trim(),
+                            note: entry.note?.trim() || undefined,
+                        }))
+                        .filter((entry) => !!entry.url)
+                        .map((entry) => [entry.url as string, entry.note])
+                ).entries()
+            ).map(([url, note]) => ({ url, note }));
+
+            if (normalizedMedia.length > 0) {
+                await tx.insert(scanEventMedia).values(
+                    normalizedMedia.map((entry, index) => ({
+                        scan_event_id: insertedEvent.id,
+                        url: entry.url,
+                        note: entry.note ?? null,
+                        media_kind: "DERIG",
+                        sort_order: index,
+                    }))
+                );
+            }
+        }
+    });
 
     return { order_id: orderId, items_updated: items.length };
 };
 
-// ----------------------------------- SAVE ON-SITE PHOTOS --------------------------------------
-const saveOnSitePhotos = async (
+// ----------------------------------- SAVE ON-SITE CAPTURE --------------------------------------
+const saveOnSiteCapture = async (
     orderId: string,
     platformId: string,
-    photos: string[],
+    media: { url: string; note?: string }[],
+    assetIds: string[],
+    note: string | undefined,
     user: AuthUser
 ) => {
     const [order] = await db
         .select({
             id: orders.id,
+            order_id: orders.order_id,
             order_status: orders.order_status,
             platform_id: orders.platform_id,
         })
@@ -2970,15 +2942,102 @@ const saveOnSitePhotos = async (
         );
     }
 
-    await db
-        .update(orders)
-        .set({
-            on_site_photos: photos,
-            updated_at: new Date(),
+    const orderAssets = await db
+        .select({
+            asset_id: orderItems.asset_id,
+            quantity: orderItems.quantity,
         })
-        .where(eq(orders.id, orderId));
+        .from(orderItems)
+        .where(eq(orderItems.order_id, orderId));
 
-    return { order_id: orderId, photos_count: photos.length, captured_by: user.id };
+    const orderAssetMap = new Map(orderAssets.map((item) => [item.asset_id, item.quantity]));
+    const selectedAssetIds = (assetIds || []).filter((id) => id && id.trim().length > 0);
+    if (selectedAssetIds.length > 0) {
+        const invalid = selectedAssetIds.filter((id) => !orderAssetMap.has(id));
+        if (invalid.length > 0) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                `Selected asset_ids are not part of this order: ${invalid.join(", ")}`
+            );
+        }
+    }
+
+    const resolvedAssetIds =
+        selectedAssetIds.length > 0 ? selectedAssetIds : Array.from(orderAssetMap.keys());
+
+    const normalizedMedia = Array.from(
+        new Map(
+            (media || [])
+                .map((entry) => ({
+                    url: entry.url?.trim(),
+                    note: entry.note?.trim() || undefined,
+                }))
+                .filter((entry) => !!entry.url)
+                .map((entry) => [entry.url as string, entry.note])
+        ).entries()
+    ).map(([url, mediaNote]) => ({ url, note: mediaNote }));
+
+    if (normalizedMedia.length === 0) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "At least one On Site photo is required");
+    }
+
+    await db.transaction(async (tx) => {
+        const existingOnSiteEvents = await tx
+            .select({ id: scanEvents.id })
+            .from(scanEvents)
+            .where(
+                and(eq(scanEvents.order_id, orderId), eq(scanEvents.scan_type, "ON_SITE_CAPTURE"))
+            );
+
+        const existingIds = existingOnSiteEvents.map((event) => event.id);
+        if (existingIds.length > 0) {
+            await tx
+                .delete(scanEventMedia)
+                .where(inArray(scanEventMedia.scan_event_id, existingIds));
+            await tx
+                .delete(scanEventAssets)
+                .where(inArray(scanEventAssets.scan_event_id, existingIds));
+            await tx.delete(scanEvents).where(inArray(scanEvents.id, existingIds));
+        }
+
+        const [insertedEvent] = await tx
+            .insert(scanEvents)
+            .values({
+                order_id: orderId,
+                asset_id: null,
+                scan_type: "ON_SITE_CAPTURE",
+                quantity: 0,
+                condition: null,
+                notes: note ?? null,
+                discrepancy_reason: null,
+                metadata: {},
+                scanned_by: user.id,
+                scanned_at: new Date(),
+            })
+            .returning({ id: scanEvents.id });
+
+        if (resolvedAssetIds.length > 0) {
+            await tx.insert(scanEventAssets).values(
+                resolvedAssetIds.map((assetId) => ({
+                    scan_event_id: insertedEvent.id,
+                    asset_id: assetId,
+                    quantity: orderAssetMap.get(assetId) ?? 0,
+                }))
+            );
+        }
+
+        await tx.insert(scanEventMedia).values(
+            normalizedMedia.map((entry, index) => ({
+                scan_event_id: insertedEvent.id,
+                url: entry.url,
+                note: entry.note ?? null,
+                media_kind: "ON_SITE",
+                sort_order: index,
+            }))
+        );
+    });
+
+    return { order_id: order.order_id, photos_count: normalizedMedia.length, captured_by: user.id };
 };
 
 // ----------------------------------- RECALCULATE BASE OPS ------------------------------------
@@ -3100,6 +3159,6 @@ export const OrderServices = {
     downloadGoodsForm,
     updateMaintenanceDecision,
     saveDerigCapture,
-    saveOnSitePhotos,
+    saveOnSiteCapture,
     recalculateBaseOps,
 };

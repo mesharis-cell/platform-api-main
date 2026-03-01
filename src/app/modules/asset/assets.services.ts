@@ -10,9 +10,11 @@ import {
     assets,
     brands,
     companies,
-    orderItems,
     orders,
+    scanEventAssets,
+    scanEventMedia,
     scanEvents,
+    serviceRequests,
     selfBookingItems,
     users,
     warehouses,
@@ -1728,31 +1730,57 @@ const getAssetOrderHistory = async (assetId: string, platformId: string) => {
         .leftJoin(companies, eq(orders.company_id, companies.id))
         .where(inArray(orders.id, orderIds));
 
-    // Fetch scan events for this asset across those orders
+    // Fetch canonical scan events linked to this asset directly or via scan_event_assets.
     const scans = await db
         .select({
+            id: scanEvents.id,
             order_id: scanEvents.order_id,
             scan_type: scanEvents.scan_type,
             condition: scanEvents.condition,
-            photos: scanEvents.photos,
+            notes: scanEvents.notes,
             scanned_at: scanEvents.scanned_at,
             scanned_by_name: users.name,
         })
         .from(scanEvents)
         .leftJoin(users, eq(scanEvents.scanned_by, users.id))
-        .where(and(eq(scanEvents.asset_id, assetId), inArray(scanEvents.order_id, orderIds)));
+        .where(
+            and(
+                inArray(scanEvents.order_id, orderIds),
+                sql<boolean>`
+                    ${scanEvents.asset_id} = ${assetId}
+                    OR EXISTS (
+                        SELECT 1
+                        FROM ${scanEventAssets} sea
+                        WHERE sea.scan_event_id = ${scanEvents.id}
+                          AND sea.asset_id = ${assetId}
+                    )
+                `
+            )
+        )
+        .orderBy(desc(scanEvents.scanned_at));
 
-    // Fetch derig data from order_items
-    const derigItems = await db
-        .select({
-            order_id: orderItems.order_id,
-            derig_photos: orderItems.derig_photos,
-            derig_notes: orderItems.derig_notes,
-        })
-        .from(orderItems)
-        .where(and(eq(orderItems.asset_id, assetId), inArray(orderItems.order_id, orderIds)));
+    const scanEventIds = [...new Set(scans.map((scan) => scan.id))];
+    const mediaRows =
+        scanEventIds.length > 0
+            ? await db
+                  .select({
+                      scan_event_id: scanEventMedia.scan_event_id,
+                      url: scanEventMedia.url,
+                      note: scanEventMedia.note,
+                      media_kind: scanEventMedia.media_kind,
+                      sort_order: scanEventMedia.sort_order,
+                  })
+                  .from(scanEventMedia)
+                  .where(inArray(scanEventMedia.scan_event_id, scanEventIds))
+                  .orderBy(asc(scanEventMedia.sort_order))
+            : [];
 
-    const derigByOrder = new Map(derigItems.map((d) => [d.order_id, d]));
+    const mediaByEventId = new Map<string, typeof mediaRows>();
+    mediaRows.forEach((row) => {
+        if (!mediaByEventId.has(row.scan_event_id)) mediaByEventId.set(row.scan_event_id, []);
+        mediaByEventId.get(row.scan_event_id)!.push(row);
+    });
+
     const scansByOrder = new Map<string, typeof scans>();
     for (const scan of scans) {
         if (!scansByOrder.has(scan.order_id)) scansByOrder.set(scan.order_id, []);
@@ -1764,7 +1792,18 @@ const getAssetOrderHistory = async (assetId: string, platformId: string) => {
         const orderScans = scansByOrder.get(booking.order_id) ?? [];
         const outbound = orderScans.find((s) => s.scan_type === "OUTBOUND");
         const inbound = orderScans.find((s) => s.scan_type === "INBOUND");
-        const derig = derigByOrder.get(booking.order_id);
+        const derig = orderScans.find((s) => s.scan_type === "DERIG_CAPTURE");
+
+        const inboundMedia = inbound ? (mediaByEventId.get(inbound.id) ?? []) : [];
+        const derigMedia = derig ? (mediaByEventId.get(derig.id) ?? []) : [];
+
+        const inboundDamagePhotos = inboundMedia
+            .filter((media) => media.media_kind === "DAMAGE")
+            .map((media) => media.url);
+
+        const derigPhotos = derigMedia
+            .filter((media) => media.media_kind === "DERIG")
+            .map((media) => media.url);
 
         return {
             order_id: booking.order_id,
@@ -1777,18 +1816,301 @@ const getAssetOrderHistory = async (assetId: string, platformId: string) => {
                 ? { scanned_at: outbound.scanned_at, scanned_by_name: outbound.scanned_by_name }
                 : null,
             derig_capture:
-                derig && derig.derig_photos && derig.derig_photos.length > 0
-                    ? { photos: derig.derig_photos, notes: derig.derig_notes }
+                derig && derigPhotos.length > 0
+                    ? { photos: derigPhotos, notes: derig.notes }
                     : null,
             inbound_scan: inbound
                 ? {
                       scanned_at: inbound.scanned_at,
                       condition: inbound.condition,
-                      photos: inbound.photos ?? [],
+                      photos: inboundDamagePhotos,
                   }
                 : null,
         };
     });
+};
+
+// ----------------------------------- GET ASSET USAGE REPORT -----------------------------------
+const getAssetUsageReport = async (assetId: string, user: AuthUser, platformId: string) => {
+    const assetConditions: any[] = [
+        eq(assets.id, assetId),
+        eq(assets.platform_id, platformId),
+        isNull(assets.deleted_at),
+    ];
+
+    if (user.role === "CLIENT") {
+        if (!user.company_id) {
+            throw new CustomizedError(httpStatus.UNAUTHORIZED, "Company not found");
+        }
+        assetConditions.push(eq(assets.company_id, user.company_id));
+    }
+
+    const [asset] = await db
+        .select({
+            id: assets.id,
+            name: assets.name,
+            company_id: assets.company_id,
+            company_name: companies.name,
+            condition: assets.condition,
+            status: assets.status,
+            available_quantity: assets.available_quantity,
+            total_quantity: assets.total_quantity,
+            last_scanned_at: assets.last_scanned_at,
+            condition_notes: assets.condition_notes,
+            refurb_days_estimate: assets.refurb_days_estimate,
+        })
+        .from(assets)
+        .leftJoin(companies, eq(assets.company_id, companies.id))
+        .where(and(...assetConditions))
+        .limit(1);
+
+    if (!asset) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found");
+    }
+
+    const [orderUsages, scanRows, conditionRows, linkedServiceRequests] = await Promise.all([
+        db
+            .select({
+                booking_id: assetBookings.id,
+                order_id: orders.id,
+                order_readable_id: orders.order_id,
+                order_status: orders.order_status,
+                company_name: companies.name,
+                blocked_from: assetBookings.blocked_from,
+                blocked_until: assetBookings.blocked_until,
+                event_start_date: orders.event_start_date,
+                event_end_date: orders.event_end_date,
+                quantity: assetBookings.quantity,
+            })
+            .from(assetBookings)
+            .innerJoin(orders, eq(assetBookings.order_id, orders.id))
+            .leftJoin(companies, eq(orders.company_id, companies.id))
+            .where(and(eq(assetBookings.asset_id, assetId), eq(orders.platform_id, platformId)))
+            .orderBy(desc(assetBookings.blocked_from)),
+        db
+            .select({
+                id: scanEvents.id,
+                order_id: scanEvents.order_id,
+                order_readable_id: orders.order_id,
+                scan_type: scanEvents.scan_type,
+                condition: scanEvents.condition,
+                notes: scanEvents.notes,
+                quantity: scanEvents.quantity,
+                scanned_at: scanEvents.scanned_at,
+                scanned_by_name: users.name,
+            })
+            .from(scanEvents)
+            .innerJoin(orders, eq(scanEvents.order_id, orders.id))
+            .leftJoin(users, eq(scanEvents.scanned_by, users.id))
+            .where(
+                and(
+                    eq(orders.platform_id, platformId),
+                    sql<boolean>`
+                        ${scanEvents.asset_id} = ${assetId}
+                        OR EXISTS (
+                            SELECT 1
+                            FROM ${scanEventAssets} sea
+                            WHERE sea.scan_event_id = ${scanEvents.id}
+                              AND sea.asset_id = ${assetId}
+                        )
+                    `
+                )
+            )
+            .orderBy(desc(scanEvents.scanned_at)),
+        db
+            .select({
+                id: assetConditionHistory.id,
+                condition: assetConditionHistory.condition,
+                notes: assetConditionHistory.notes,
+                photos: assetConditionHistory.photos,
+                damage_report_entries: assetConditionHistory.damage_report_entries,
+                timestamp: assetConditionHistory.timestamp,
+                updated_by_name: users.name,
+            })
+            .from(assetConditionHistory)
+            .leftJoin(users, eq(assetConditionHistory.updated_by, users.id))
+            .where(
+                and(
+                    eq(assetConditionHistory.asset_id, assetId),
+                    eq(assetConditionHistory.platform_id, platformId)
+                )
+            )
+            .orderBy(desc(assetConditionHistory.timestamp)),
+        db
+            .select({
+                id: serviceRequests.id,
+                service_request_id: serviceRequests.service_request_id,
+                request_type: serviceRequests.request_type,
+                request_status: serviceRequests.request_status,
+                commercial_status: serviceRequests.commercial_status,
+                title: serviceRequests.title,
+                description: serviceRequests.description,
+                work_notes: serviceRequests.work_notes,
+                photos: serviceRequests.photos,
+                created_at: serviceRequests.created_at,
+                completed_at: serviceRequests.completed_at,
+                related_order_id: serviceRequests.related_order_id,
+                related_order_readable_id: orders.order_id,
+            })
+            .from(serviceRequests)
+            .leftJoin(orders, eq(serviceRequests.related_order_id, orders.id))
+            .where(
+                and(
+                    eq(serviceRequests.related_asset_id, assetId),
+                    eq(serviceRequests.platform_id, platformId)
+                )
+            )
+            .orderBy(desc(serviceRequests.created_at)),
+    ]);
+
+    const scanEventIds = [...new Set(scanRows.map((scan) => scan.id))];
+    const scanMediaRows =
+        scanEventIds.length > 0
+            ? await db
+                  .select({
+                      scan_event_id: scanEventMedia.scan_event_id,
+                      url: scanEventMedia.url,
+                      note: scanEventMedia.note,
+                      media_kind: scanEventMedia.media_kind,
+                      sort_order: scanEventMedia.sort_order,
+                  })
+                  .from(scanEventMedia)
+                  .where(inArray(scanEventMedia.scan_event_id, scanEventIds))
+                  .orderBy(asc(scanEventMedia.sort_order))
+            : [];
+
+    const mediaByEventId = new Map<string, typeof scanMediaRows>();
+    scanMediaRows.forEach((row) => {
+        if (!mediaByEventId.has(row.scan_event_id)) mediaByEventId.set(row.scan_event_id, []);
+        mediaByEventId.get(row.scan_event_id)!.push(row);
+    });
+
+    const timeline: Array<{
+        id: string;
+        event_type: "ORDER_USAGE" | "SCAN_EVENT" | "SERVICE_REQUEST" | "CONDITION_UPDATE";
+        occurred_at: Date;
+        title: string;
+        subtitle?: string | null;
+        note?: string | null;
+        actor_name?: string | null;
+        condition?: string | null;
+        scan_type?: string | null;
+        order_id?: string | null;
+        order_readable_id?: string | null;
+        service_request_id?: string | null;
+        photos: Array<{ url: string; note?: string | null; kind?: string | null }>;
+    }> = [];
+
+    orderUsages.forEach((usage) => {
+        timeline.push({
+            id: `order-usage-${usage.booking_id}`,
+            event_type: "ORDER_USAGE",
+            occurred_at: usage.blocked_from,
+            title: `Used in order ${usage.order_readable_id}`,
+            subtitle: `Quantity ${usage.quantity} • ${usage.order_status}`,
+            note: usage.company_name
+                ? `Client: ${usage.company_name}. Window: ${usage.blocked_from.toISOString()} -> ${usage.blocked_until.toISOString()}`
+                : `Window: ${usage.blocked_from.toISOString()} -> ${usage.blocked_until.toISOString()}`,
+            order_id: usage.order_id,
+            order_readable_id: usage.order_readable_id,
+            photos: [],
+        });
+    });
+
+    scanRows.forEach((event) => {
+        const media = (mediaByEventId.get(event.id) || []).map((item) => ({
+            url: item.url,
+            note: item.note || null,
+            kind: item.media_kind || null,
+        }));
+        timeline.push({
+            id: `scan-${event.id}`,
+            event_type: "SCAN_EVENT",
+            occurred_at: event.scanned_at,
+            title: `${event.scan_type.replace(/_/g, " ")} recorded`,
+            subtitle: event.order_readable_id ? `Order ${event.order_readable_id}` : undefined,
+            note: event.notes || null,
+            actor_name: event.scanned_by_name || null,
+            condition: event.condition || null,
+            scan_type: event.scan_type,
+            order_id: event.order_id,
+            order_readable_id: event.order_readable_id,
+            photos: media,
+        });
+    });
+
+    conditionRows.forEach((entry) => {
+        const rawDamageEntries = Array.isArray(entry.damage_report_entries)
+            ? entry.damage_report_entries
+            : [];
+        const damagePhotos = rawDamageEntries
+            .map((item) => {
+                const url = (item as any)?.url;
+                if (typeof url !== "string" || !url.trim()) return null;
+                return {
+                    url: url.trim(),
+                    note:
+                        typeof (item as any)?.description === "string" &&
+                        (item as any).description.trim().length > 0
+                            ? (item as any).description.trim()
+                            : null,
+                    kind: "DAMAGE",
+                };
+            })
+            .filter(Boolean) as Array<{ url: string; note?: string | null; kind?: string | null }>;
+
+        const fallbackPhotos =
+            damagePhotos.length > 0
+                ? []
+                : (entry.photos || []).map((url) => ({ url, kind: "GENERAL" as const }));
+
+        timeline.push({
+            id: `condition-${entry.id}`,
+            event_type: "CONDITION_UPDATE",
+            occurred_at: entry.timestamp,
+            title: `Condition set to ${entry.condition}`,
+            note: entry.notes || null,
+            actor_name: entry.updated_by_name || null,
+            condition: entry.condition,
+            photos: damagePhotos.length > 0 ? damagePhotos : fallbackPhotos,
+        });
+    });
+
+    linkedServiceRequests.forEach((request) => {
+        const photos = (request.photos || []).map((url) => ({
+            url,
+            note: request.work_notes || null,
+            kind: "SERVICE_REQUEST",
+        }));
+        timeline.push({
+            id: `service-request-${request.id}`,
+            event_type: "SERVICE_REQUEST",
+            occurred_at: request.completed_at || request.created_at,
+            title: `${request.request_type} service request ${request.service_request_id}`,
+            subtitle: `${request.request_status} • ${request.commercial_status}`,
+            note: request.work_notes || request.description || null,
+            service_request_id: request.service_request_id,
+            order_id: request.related_order_id,
+            order_readable_id: request.related_order_readable_id,
+            photos,
+        });
+    });
+
+    timeline.sort((a, b) => b.occurred_at.getTime() - a.occurred_at.getTime());
+
+    return {
+        asset: {
+            ...asset,
+        },
+        summary: {
+            total_order_usages: orderUsages.length,
+            total_scan_events: scanRows.length,
+            total_service_requests: linkedServiceRequests.length,
+            total_condition_updates: conditionRows.length,
+            latest_activity_at: timeline[0]?.occurred_at || null,
+        },
+        timeline,
+    };
 };
 
 export const AssetServices = {
@@ -1810,4 +2132,5 @@ export const AssetServices = {
     createAssetVersionSnapshot,
     getAssetVersions,
     getAssetOrderHistory,
+    getAssetUsageReport,
 };

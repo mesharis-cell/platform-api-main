@@ -308,21 +308,33 @@ const derigCaptureSchema = z.object({
             .array(
                 z.object({
                     order_item_id: z.string().uuid("Invalid order item ID"),
-                    photos: z
-                        .array(z.string().url("Invalid photo URL"))
+                    media: z
+                        .array(
+                            z.object({
+                                url: z.string().url("Invalid photo URL"),
+                                note: z.string().max(1000).optional(),
+                            })
+                        )
                         .min(1, "At least one photo is required per item"),
-                    notes: z.string().max(2000).optional(),
+                    note: z.string().max(2000).optional(),
                 })
             )
             .min(1, "At least one item is required"),
     }),
 });
 
-const onSitePhotosSchema = z.object({
+const onSiteCaptureSchema = z.object({
     body: z
         .object({
-            photos: z
-                .array(z.string().url("Invalid photo URL"))
+            asset_ids: z.array(z.string().uuid("Invalid asset ID")).default([]),
+            note: z.string().max(2000).optional(),
+            media: z
+                .array(
+                    z.object({
+                        url: z.string().url("Invalid photo URL"),
+                        note: z.string().max(1000).optional(),
+                    })
+                )
                 .min(1, "At least one photo is required"),
         })
         .strict(),
@@ -344,6 +356,6 @@ export const orderSchemas = {
     updateOrderItemQuantitySchema,
     updateMaintenanceDecisionSchema,
     derigCaptureSchema,
-    onSitePhotosSchema,
+    onSiteCaptureSchema,
     adminApproveQuoteSchema,
 };
