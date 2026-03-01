@@ -27,6 +27,7 @@ import {
     financialStatusHistory,
     invoices,
     prices,
+    orderTransportTrips,
     orders,
     orderStatusHistory,
     platforms,
@@ -2728,24 +2729,26 @@ const downloadGoodsForm = async (
         start?: Date | string | null;
         end?: Date | string | null;
     } | null;
-    const primaryTransport = (order.line_items || []).find(
-        (lineItem) =>
-            !lineItem.is_voided &&
-            lineItem.category === "TRANSPORT" &&
-            lineItem.billing_mode === "BILLABLE"
-    );
-    const transportMetadata = ((primaryTransport?.metadata as Record<string, unknown>) ||
-        {}) as Record<string, unknown>;
-    const tripType =
-        typeof transportMetadata.trip_direction === "string"
-            ? transportMetadata.trip_direction
-            : "";
-    const vehicleType =
-        typeof transportMetadata.vehicle_type_name === "string"
-            ? transportMetadata.vehicle_type_name
-            : typeof transportMetadata.truck_size === "string"
-              ? transportMetadata.truck_size
-              : "";
+    const candidateLegType = resolvedFormType === "GOODS_IN" ? "PICKUP" : "DELIVERY";
+    const transportTrips = await db
+        .select({
+            leg_type: orderTransportTrips.leg_type,
+            truck_size: orderTransportTrips.truck_size,
+            sequence_no: orderTransportTrips.sequence_no,
+        })
+        .from(orderTransportTrips)
+        .where(
+            and(
+                eq(orderTransportTrips.order_id, order.id),
+                eq(orderTransportTrips.platform_id, platformId)
+            )
+        )
+        .orderBy(asc(orderTransportTrips.sequence_no), asc(orderTransportTrips.created_at));
+
+    const selectedTrip =
+        transportTrips.find((trip) => trip.leg_type === candidateLegType) || transportTrips[0];
+    const tripType = selectedTrip?.leg_type || "";
+    const vehicleType = selectedTrip?.truck_size || "";
 
     const buffer = await generateGoodsFormXlsx({
         form_type: resolvedFormType,

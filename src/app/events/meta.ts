@@ -86,6 +86,10 @@ export const EVENT_GROUPS: EventGroup[] = [
         ],
     },
     {
+        label: "Line Item Requests",
+        events: [{ key: "line_item_request.submitted", label: "Line Item Request Submitted" }],
+    },
+    {
         label: "Auth",
         events: [{ key: "auth.password_reset_requested", label: "Password Reset" }],
     },
@@ -196,6 +200,12 @@ export const TEMPLATES_BY_EVENT: Record<string, TemplateMeta[]> = {
     ],
     "self_booking.cancelled": [
         { key: "self_booking_cancelled_admin", label: "Admin — Self-Booking Cancelled" },
+    ],
+    "line_item_request.submitted": [
+        {
+            key: "line_item_request_submitted_admin",
+            label: "Admin — Line Item Request Submitted",
+        },
     ],
     "auth.password_reset_requested": [
         { key: "password_reset_otp", label: "User — Password Reset OTP" },

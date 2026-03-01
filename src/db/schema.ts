@@ -119,6 +119,17 @@ export const billingModeEnum = pgEnum("billing_mode", [
     "NON_BILLABLE",
     "COMPLIMENTARY",
 ]);
+export const lineItemRequestStatusEnum = pgEnum("line_item_request_status", [
+    "REQUESTED",
+    "APPROVED",
+    "REJECTED",
+]);
+export const transportTripLegEnum = pgEnum("transport_trip_leg", [
+    "DELIVERY",
+    "PICKUP",
+    "ACCESS",
+    "TRANSFER",
+]);
 export const maintenanceDecisionEnum = pgEnum("maintenance_decision", [
     "FIX_IN_ORDER",
     "USE_AS_IS",
@@ -309,6 +320,7 @@ export const companiesRelations = relations(companies, ({ one, many }) => ({
     collections: many(collections),
     orders: many(orders),
     users: many(users),
+    line_item_requests: many(lineItemRequests),
 }));
 
 export const companyDomainsRelations = relations(companyDomains, ({ one }) => ({
@@ -822,6 +834,8 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
     venue_city: one(cities, { fields: [orders.venue_city_id], references: [cities.id] }),
     items: many(orderItems),
     line_items: many(lineItems),
+    transport_trips: many(orderTransportTrips),
+    line_item_requests: many(lineItemRequests),
     scan_events: many(scanEvents),
     asset_bookings: many(assetBookings),
     order_status_history: many(orderStatusHistory),
@@ -966,6 +980,163 @@ export const lineItemsRelations = relations(lineItems, ({ one }) => ({
     }),
     added_by_user: one(users, { fields: [lineItems.added_by], references: [users.id] }),
     voided_by_user: one(users, { fields: [lineItems.voided_by], references: [users.id] }),
+}));
+
+export const orderTransportTrips = pgTable(
+    "order_transport_trips",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        order_id: uuid("order_id")
+            .notNull()
+            .references(() => orders.id, { onDelete: "cascade" }),
+        leg_type: transportTripLegEnum("leg_type").notNull().default("DELIVERY"),
+        truck_plate: varchar("truck_plate", { length: 80 }),
+        driver_name: varchar("driver_name", { length: 120 }),
+        driver_contact: varchar("driver_contact", { length: 80 }),
+        truck_size: varchar("truck_size", { length: 80 }),
+        manpower: integer("manpower"),
+        tailgate_required: boolean("tailgate_required").notNull().default(false),
+        notes: text("notes"),
+        sequence_no: integer("sequence_no").notNull().default(0),
+        created_by: uuid("created_by")
+            .notNull()
+            .references(() => users.id),
+        updated_by: uuid("updated_by").references(() => users.id),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+        updated_at: timestamp("updated_at")
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [
+        index("order_transport_trips_order_idx").on(
+            table.order_id,
+            table.leg_type,
+            table.sequence_no
+        ),
+        index("order_transport_trips_platform_idx").on(table.platform_id, table.order_id),
+    ]
+);
+
+export const orderTransportTripsRelations = relations(orderTransportTrips, ({ one }) => ({
+    platform: one(platforms, {
+        fields: [orderTransportTrips.platform_id],
+        references: [platforms.id],
+    }),
+    order: one(orders, { fields: [orderTransportTrips.order_id], references: [orders.id] }),
+    created_by_user: one(users, {
+        fields: [orderTransportTrips.created_by],
+        references: [users.id],
+        relationName: "transport_trip_created_by_user",
+    }),
+    updated_by_user: one(users, {
+        fields: [orderTransportTrips.updated_by],
+        references: [users.id],
+        relationName: "transport_trip_updated_by_user",
+    }),
+}));
+
+export const lineItemRequests = pgTable(
+    "line_item_requests",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        line_item_request_id: varchar("line_item_request_id", { length: 20 }).notNull(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        company_id: uuid("company_id").references(() => companies.id),
+        purpose_type: invoiceTypeEnum("purpose_type").notNull(),
+        order_id: uuid("order_id").references(() => orders.id, { onDelete: "cascade" }),
+        inbound_request_id: uuid("inbound_request_id").references(() => inboundRequests.id, {
+            onDelete: "cascade",
+        }),
+        service_request_id: uuid("service_request_id").references(() => serviceRequests.id, {
+            onDelete: "cascade",
+        }),
+        status: lineItemRequestStatusEnum("status").notNull().default("REQUESTED"),
+        description: varchar("description", { length: 200 }).notNull(),
+        category: serviceCategoryEnum("category").notNull(),
+        quantity: decimal("quantity", { precision: 10, scale: 2 }).notNull(),
+        unit: varchar("unit", { length: 20 }).notNull(),
+        unit_rate: decimal("unit_rate", { precision: 10, scale: 2 }).notNull(),
+        notes: text("notes"),
+        requested_by: uuid("requested_by")
+            .notNull()
+            .references(() => users.id),
+        reviewed_description: varchar("reviewed_description", { length: 200 }),
+        reviewed_category: serviceCategoryEnum("reviewed_category"),
+        reviewed_quantity: decimal("reviewed_quantity", { precision: 10, scale: 2 }),
+        reviewed_unit: varchar("reviewed_unit", { length: 20 }),
+        reviewed_unit_rate: decimal("reviewed_unit_rate", { precision: 10, scale: 2 }),
+        reviewed_notes: text("reviewed_notes"),
+        approved_billing_mode: billingModeEnum("approved_billing_mode"),
+        admin_note: text("admin_note"),
+        resolved_by: uuid("resolved_by").references(() => users.id),
+        resolved_at: timestamp("resolved_at"),
+        approved_line_item_id: uuid("approved_line_item_id").references(() => lineItems.id),
+        created_service_type_id: uuid("created_service_type_id").references(() => serviceTypes.id),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+        updated_at: timestamp("updated_at")
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [
+        unique("line_item_requests_platform_request_id_unique").on(
+            table.platform_id,
+            table.line_item_request_id
+        ),
+        index("line_item_requests_platform_status_idx").on(
+            table.platform_id,
+            table.status,
+            table.created_at
+        ),
+        index("line_item_requests_order_idx").on(table.order_id),
+        index("line_item_requests_inbound_idx").on(table.inbound_request_id),
+        index("line_item_requests_service_idx").on(table.service_request_id),
+    ]
+);
+
+export const lineItemRequestsRelations = relations(lineItemRequests, ({ one }) => ({
+    platform: one(platforms, {
+        fields: [lineItemRequests.platform_id],
+        references: [platforms.id],
+    }),
+    company: one(companies, {
+        fields: [lineItemRequests.company_id],
+        references: [companies.id],
+    }),
+    order: one(orders, {
+        fields: [lineItemRequests.order_id],
+        references: [orders.id],
+    }),
+    inbound_request: one(inboundRequests, {
+        fields: [lineItemRequests.inbound_request_id],
+        references: [inboundRequests.id],
+    }),
+    service_request: one(serviceRequests, {
+        fields: [lineItemRequests.service_request_id],
+        references: [serviceRequests.id],
+    }),
+    requested_by_user: one(users, {
+        fields: [lineItemRequests.requested_by],
+        references: [users.id],
+        relationName: "line_item_request_requested_by_user",
+    }),
+    resolved_by_user: one(users, {
+        fields: [lineItemRequests.resolved_by],
+        references: [users.id],
+        relationName: "line_item_request_resolved_by_user",
+    }),
+    approved_line_item: one(lineItems, {
+        fields: [lineItemRequests.approved_line_item_id],
+        references: [lineItems.id],
+    }),
+    created_service_type: one(serviceTypes, {
+        fields: [lineItemRequests.created_service_type_id],
+        references: [serviceTypes.id],
+    }),
 }));
 
 // ---------------------------------- ORDER STATUS HISTORY ---------------------------------
@@ -1612,6 +1783,7 @@ export const inboundRequestsRelations = relations(inboundRequests, ({ one, many 
     }),
     items: many(inboundRequestItems),
     line_items: many(lineItems),
+    line_item_requests: many(lineItemRequests),
 }));
 
 // ---------------------------------- INBOUND REQUEST ITEM ---------------------------------
@@ -1842,6 +2014,7 @@ export const serviceRequestsRelations = relations(serviceRequests, ({ one, many 
         relationName: "service_request_concession_approved_by_user",
     }),
     line_items: many(lineItems),
+    line_item_requests: many(lineItemRequests),
     invoices: many(invoices),
     items: many(serviceRequestItems),
     status_history: many(serviceRequestStatusHistory),

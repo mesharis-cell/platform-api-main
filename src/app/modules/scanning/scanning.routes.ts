@@ -13,7 +13,7 @@ const router = Router();
 router.post(
     "/inbound/:order_id/scan",
     platformValidator,
-    auth("ADMIN", "LOGISTICS"),
+    auth("LOGISTICS"),
     requirePermission(PERMISSIONS.SCANNING_SCAN_IN),
     payloadValidator(ScanningSchemas.inboundScanSchema),
     ScanningControllers.inboundScan
@@ -32,7 +32,7 @@ router.get(
 router.post(
     "/inbound/:order_id/complete",
     platformValidator,
-    auth("ADMIN", "LOGISTICS"),
+    auth("LOGISTICS"),
     requirePermission(PERMISSIONS.SCANNING_SCAN_IN),
     ScanningControllers.completeInboundScan
 );
@@ -43,7 +43,7 @@ router.post(
 router.post(
     "/outbound/:order_id/scan",
     platformValidator,
-    auth("ADMIN", "LOGISTICS"),
+    auth("LOGISTICS"),
     requirePermission(PERMISSIONS.SCANNING_SCAN_OUT),
     payloadValidator(ScanningSchemas.outboundScanSchema),
     ScanningControllers.outboundScan
@@ -62,7 +62,7 @@ router.get(
 router.post(
     "/outbound/:order_id/truck-photos",
     platformValidator,
-    auth("ADMIN", "LOGISTICS"),
+    auth("LOGISTICS"),
     requirePermission(PERMISSIONS.SCANNING_SCAN_OUT),
     payloadValidator(ScanningSchemas.uploadTruckPhotosSchema),
     ScanningControllers.uploadTruckPhotos
@@ -72,7 +72,7 @@ router.post(
 router.post(
     "/outbound/:order_id/complete",
     platformValidator,
-    auth("ADMIN", "LOGISTICS"),
+    auth("LOGISTICS"),
     requirePermission(PERMISSIONS.SCANNING_SCAN_OUT),
     ScanningControllers.completeOutboundScan
 );

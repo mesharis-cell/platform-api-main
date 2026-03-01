@@ -31,16 +31,6 @@ router.post(
     OrderControllers.checkMaintenanceFeasibility
 );
 
-// Backward-compatible alias
-router.post(
-    "/check-red-feasibility",
-    platformValidator,
-    auth("CLIENT"),
-    requirePermission(PERMISSIONS.ORDERS_CREATE),
-    payloadValidator(orderSchemas.checkMaintenanceFeasibilitySchema),
-    OrderControllers.checkMaintenanceFeasibility
-);
-
 // Submit order
 router.post(
     "/submit-from-cart",
@@ -147,7 +137,7 @@ router.patch(
 router.patch(
     "/:id/status",
     platformValidator,
-    auth("ADMIN", "LOGISTICS"),
+    auth("LOGISTICS"),
     payloadValidator(orderSchemas.progressStatusSchema),
     OrderControllers.progressOrderStatus
 );
@@ -174,7 +164,7 @@ router.patch(
 router.patch(
     "/:id/time-windows",
     platformValidator,
-    auth("ADMIN", "LOGISTICS"),
+    auth("LOGISTICS"),
     requirePermission(PERMISSIONS.ORDERS_ADD_TIME_WINDOWS),
     payloadValidator(orderSchemas.updateTimeWindowsSchema),
     OrderControllers.updateTimeWindows
@@ -213,7 +203,7 @@ router.patch(
 router.patch(
     "/:id/derig",
     platformValidator,
-    auth("ADMIN", "LOGISTICS"),
+    auth("LOGISTICS"),
     requirePermission(PERMISSIONS.ORDERS_UPDATE),
     payloadValidator(orderSchemas.derigCaptureSchema),
     OrderControllers.derigCapture
@@ -223,7 +213,7 @@ router.patch(
 router.patch(
     "/:id/on-site-capture",
     platformValidator,
-    auth("ADMIN", "LOGISTICS"),
+    auth("LOGISTICS"),
     requirePermission(PERMISSIONS.ORDERS_UPDATE),
     payloadValidator(orderSchemas.onSiteCaptureSchema),
     OrderControllers.saveOnSiteCapture
@@ -233,7 +223,7 @@ router.patch(
 router.post(
     "/:id/recalculate-base-ops",
     platformValidator,
-    auth("ADMIN", "LOGISTICS"),
+    auth("LOGISTICS"),
     requirePermission(PERMISSIONS.ORDERS_UPDATE),
     OrderControllers.recalculateBaseOps
 );
@@ -242,7 +232,7 @@ router.post(
 router.post(
     "/:id/submit-for-approval",
     platformValidator,
-    auth("ADMIN", "LOGISTICS"),
+    auth("LOGISTICS"),
     // requirePermission(PERMISSIONS.PRICING_REVIEW),
     OrderControllers.submitForApproval
 );

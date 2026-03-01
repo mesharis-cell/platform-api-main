@@ -81,6 +81,7 @@ import {
 
 // Auth templates
 import { passwordResetOtp } from "./auth";
+import { lineItemRequestSubmittedAdmin } from "./line-item-request";
 
 const registry: Record<string, EmailTemplate> = {
     // Orders
@@ -149,6 +150,9 @@ const registry: Record<string, EmailTemplate> = {
 
     // Auth
     password_reset_otp: passwordResetOtp,
+
+    // Line item requests
+    line_item_request_submitted_admin: lineItemRequestSubmittedAdmin,
 };
 
 export function renderTemplate(

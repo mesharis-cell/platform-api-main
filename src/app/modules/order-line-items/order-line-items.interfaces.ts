@@ -6,6 +6,7 @@ export type CreateCatalogLineItemPayload = z.infer<
 >["body"] & {
     platform_id: string;
     added_by: string;
+    added_by_role: "ADMIN" | "LOGISTICS";
 };
 
 export type CreateCustomLineItemPayload = z.infer<
@@ -13,6 +14,7 @@ export type CreateCustomLineItemPayload = z.infer<
 >["body"] & {
     platform_id: string;
     added_by: string;
+    added_by_role: "ADMIN" | "LOGISTICS";
 };
 
 export type UpdateLineItemPayload = z.infer<typeof LineItemsSchemas.updateLineItemSchema>["body"];

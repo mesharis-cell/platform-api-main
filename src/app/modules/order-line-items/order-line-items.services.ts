@@ -33,40 +33,6 @@ import { PricingService } from "../../services/pricing.service";
 const LINE_ITEM_ID_UNIQUE_CONSTRAINT = "line_items_platform_line_item_id_unique";
 const MAX_LINE_ITEM_ID_INSERT_RETRIES = 3;
 
-const validateTransportMetadata = (metadata: Record<string, unknown> | undefined) => {
-    if (!metadata) return;
-    if (metadata.truck_plate !== undefined && String(metadata.truck_plate).length > 80) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            "truck_plate must be under 80 characters"
-        );
-    }
-    if (metadata.driver_name !== undefined && String(metadata.driver_name).length > 120) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            "driver_name must be under 120 characters"
-        );
-    }
-    if (metadata.driver_contact !== undefined && String(metadata.driver_contact).length > 80) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            "driver_contact must be under 80 characters"
-        );
-    }
-    if (metadata.truck_size !== undefined && String(metadata.truck_size).length > 80) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "truck_size must be under 80 characters");
-    }
-    if (metadata.manpower !== undefined) {
-        const manpower = Number(metadata.manpower);
-        if (!Number.isInteger(manpower) || manpower < 0) {
-            throw new CustomizedError(
-                httpStatus.BAD_REQUEST,
-                "manpower must be a non-negative integer"
-            );
-        }
-    }
-};
-
 const isLineItemIdConflict = (error: unknown) => {
     const pgError = error as { code?: string; constraint?: string };
     return pgError?.code === "23505" && pgError?.constraint === LINE_ITEM_ID_UNIQUE_CONSTRAINT;
@@ -214,6 +180,7 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
         billing_mode,
         metadata,
         added_by,
+        added_by_role,
     } = data;
 
     // Get service type details
@@ -253,7 +220,8 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
         ...(((serviceType as any).default_metadata || {}) as Record<string, unknown>),
         ...((metadata || {}) as Record<string, unknown>),
     };
-    if (serviceType.category === "TRANSPORT") validateTransportMetadata(effectiveMetadata);
+    const effectiveBillingMode =
+        added_by_role === "LOGISTICS" ? "BILLABLE" : billing_mode || "BILLABLE";
 
     // Calculate total
     const total = quantity * Number(serviceType.default_rate);
@@ -272,7 +240,7 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
                     purpose_type,
                     service_type_id,
                     line_item_type: "CATALOG",
-                    billing_mode: billing_mode || "BILLABLE",
+                    billing_mode: effectiveBillingMode,
                     category: serviceType.category,
                     description: serviceType.name,
                     quantity: quantity.toString(),
@@ -361,6 +329,7 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
         billing_mode,
         metadata,
         added_by,
+        added_by_role,
     } = data;
     const total = quantity * unit_rate;
     const createEditability = await getLineItemEditability(
@@ -379,7 +348,8 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
     }
 
     const parsedMetadata = (metadata || {}) as Record<string, unknown>;
-    if (category === "TRANSPORT") validateTransportMetadata(parsedMetadata);
+    const effectiveBillingMode =
+        added_by_role === "LOGISTICS" ? "BILLABLE" : billing_mode || "BILLABLE";
 
     const result = await runWithLineItemIdRetry(async () =>
         db.transaction(async (tx) => {
@@ -395,7 +365,7 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
                     purpose_type,
                     service_type_id: null,
                     line_item_type: "CUSTOM",
-                    billing_mode: billing_mode || "BILLABLE",
+                    billing_mode: effectiveBillingMode,
                     category: category as any,
                     description,
                     quantity: quantity.toString(),
@@ -472,7 +442,8 @@ const updateLineItem = async (
     id: string,
     platformId: string,
     data: UpdateLineItemPayload,
-    userId: string
+    userId: string,
+    userRole: "ADMIN" | "LOGISTICS"
 ) => {
     const [existing] = await db
         .select()
@@ -500,6 +471,12 @@ const updateLineItem = async (
             editability.lock_reason || "Line is locked"
         );
     }
+    if (userRole === "LOGISTICS" && data.billing_mode !== undefined) {
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            "Only Platform Admin can change billing mode"
+        );
+    }
 
     const dbData: any = {
         ...(data.notes !== undefined && { notes: data.notes }),
@@ -509,10 +486,6 @@ const updateLineItem = async (
             client_price_visible: data.client_price_visible,
         }),
     };
-
-    if (data.metadata !== undefined && existing.category === "TRANSPORT") {
-        validateTransportMetadata((data.metadata || {}) as Record<string, unknown>);
-    }
 
     const shouldRecalculateTotal =
         data.quantity !== undefined || data.unit !== undefined || data.unit_rate !== undefined;
@@ -630,10 +603,6 @@ const patchLineItemMetadata = async (
     }
     if (existing.is_voided) {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Cannot update voided line item");
-    }
-
-    if (data.metadata !== undefined && existing.category === "TRANSPORT") {
-        validateTransportMetadata((data.metadata || {}) as Record<string, unknown>);
     }
 
     const [result] = await db

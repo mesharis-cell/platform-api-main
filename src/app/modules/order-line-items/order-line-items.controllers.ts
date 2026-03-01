@@ -29,6 +29,7 @@ const createCatalogLineItem = catchAsync(async (req: Request, res: Response) => 
         ...req.body,
         platform_id: platformId,
         added_by: user.id,
+        added_by_role: user.role,
     };
 
     const lineItem = await LineItemsServices.createCatalogLineItem(payload);
@@ -50,6 +51,7 @@ const createCustomLineItem = catchAsync(async (req: Request, res: Response) => {
         ...req.body,
         platform_id: platformId,
         added_by: user.id,
+        added_by_role: user.role,
     };
 
     const lineItem = await LineItemsServices.createCustomLineItem(payload);
@@ -69,7 +71,13 @@ const updateLineItem = catchAsync(async (req: Request, res: Response) => {
     const itemId = getRequiredString(req.params.itemId, "itemId");
     const payload = req.body;
 
-    const lineItem = await LineItemsServices.updateLineItem(itemId, platformId, payload, user.id);
+    const lineItem = await LineItemsServices.updateLineItem(
+        itemId,
+        platformId,
+        payload,
+        user.id,
+        user.role
+    );
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
