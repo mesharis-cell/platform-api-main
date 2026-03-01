@@ -47,6 +47,7 @@ export const EVENT_TYPES = {
     LINE_ITEM_ADDED: "line_item.added",
     LINE_ITEM_UPDATED: "line_item.updated",
     LINE_ITEM_VOIDED: "line_item.voided",
+    LINE_ITEM_REQUEST_SUBMITTED: "line_item_request.submitted",
 
     // Pricing lifecycle (vacant — no listeners yet)
     PRICING_RECALCULATED: "pricing.recalculated",

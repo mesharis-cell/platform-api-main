@@ -6,25 +6,6 @@ const billingModeSchema = z.enum(["BILLABLE", "NON_BILLABLE", "COMPLIMENTARY"], 
     message: "Invalid billing mode",
 });
 
-const transportMetadataSchema = z
-    .object({
-        truck_plate: z.string().max(80).optional(),
-        driver_name: z.string().max(120).optional(),
-        driver_contact: z.string().max(80).optional(),
-        truck_size: z.string().max(80).optional(),
-        tailgate_required: z.boolean().optional(),
-        manpower: z.number().int().min(0).optional(),
-        city_id: z.string().uuid().optional(),
-        city_name: z.string().optional(),
-        vehicle_type_id: z.string().uuid().optional(),
-        vehicle_type_name: z.string().optional(),
-        trip_direction: z.enum(["DELIVERY", "PICKUP", "ACCESS", "TRANSFER"]).optional(),
-        delivery_notes: z.string().optional(),
-        pickup_notes: z.string().optional(),
-        notes: z.string().optional(),
-    })
-    .passthrough();
-
 const createCatalogLineItemSchema = z.object({
     body: z
         .object({
@@ -100,18 +81,6 @@ const createCustomLineItemSchema = z.object({
             if (data.purpose_type === "SERVICE_REQUEST" && !data.service_request_id) return false;
             return true;
         }, "Order ID is required for ORDER, inbound request ID for INBOUND_REQUEST, and service request ID for SERVICE_REQUEST purpose type")
-        .superRefine((data, ctx) => {
-            if (data.category !== "TRANSPORT") return;
-            const parsed = transportMetadataSchema.safeParse(data.metadata || {});
-            if (parsed.success) return;
-            parsed.error.issues.forEach((issue) => {
-                ctx.addIssue({
-                    code: z.ZodIssueCode.custom,
-                    path: ["metadata", ...(issue.path || [])],
-                    message: issue.message,
-                });
-            });
-        })
         .strict(),
 });
 

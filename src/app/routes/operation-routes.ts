@@ -22,6 +22,8 @@ import { ServiceRequestRoutes } from "../modules/service-request/service-request
 import { SelfBookingsRoutes } from "../modules/self-bookings/self-bookings.routes";
 import { TeamRoutes } from "../modules/team/team.routes";
 import { CompanyDomainRoutes } from "../modules/company-domain/company-domain.routes";
+import { OrderTransportTripsRoutes } from "../modules/order-transport-trips/order-transport-trips.routes";
+import { LineItemRequestsRoutes } from "../modules/line-item-requests/line-item-requests.routes";
 
 const router = Router();
 
@@ -97,6 +99,14 @@ const routes = [
     {
         path: "/line-item",
         route: LineItemsRoutes,
+    },
+    {
+        path: "/line-item-requests",
+        route: LineItemRequestsRoutes,
+    },
+    {
+        path: "/order",
+        route: OrderTransportTripsRoutes,
     },
     {
         path: "/export",

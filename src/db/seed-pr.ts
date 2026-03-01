@@ -685,6 +685,13 @@ async function seedNotificationRules() {
             template_key: "password_reset_otp",
             sort_order: 0,
         },
+        {
+            event_type: "line_item_request.submitted",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "line_item_request_submitted_admin",
+            sort_order: 0,
+        },
     ];
     await db
         .insert(schema.notificationRules)
