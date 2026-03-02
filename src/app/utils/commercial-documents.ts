@@ -152,10 +152,13 @@ const toAdminProjection = (pricingRecord: unknown) =>
 const mapLineItems = (projected: any): NormalizedDocumentLineItem[] => {
     const lines = Array.isArray(projected?.breakdown_lines) ? projected.breakdown_lines : [];
     return lines
-        .filter(
-            (line: any) =>
-                !line?.is_voided && String(line?.billing_mode || "BILLABLE") === "BILLABLE"
-        )
+        .filter((line: any) => {
+            if (line?.is_voided) return false;
+            const billingMode = String(line?.billing_mode || "BILLABLE");
+            const lineKind = String(line?.line_kind || "");
+            if (lineKind === "CUSTOM" && billingMode === "NON_BILLABLE") return false;
+            return billingMode === "BILLABLE";
+        })
         .map((line: any) => ({
             line_item_id: String(line?.line_id || ""),
             description: String(line?.label || ""),
