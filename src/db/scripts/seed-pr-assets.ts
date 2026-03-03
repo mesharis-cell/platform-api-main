@@ -30,7 +30,7 @@ import { qrCodeGenerator } from "../../app/utils/qr-code-generator";
 // Config
 // ---------------------------------------------------------------------------
 
-const BUNDLE_DIR = path.resolve(process.cwd(), "seed/preview-latest");
+const BUNDLE_DIR = path.resolve(process.cwd(), "seed/preview-latest/preview-latest");
 const PHOTOS_DIR = path.join(BUNDLE_DIR, "files/photos");
 const IMPORT_DOCS_FILE = path.join(BUNDLE_DIR, "import/docs-import.ndjson");
 const IMPORT_ASSETS_FILE = path.join(BUNDLE_DIR, "import/assets-import.ndjson");

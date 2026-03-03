@@ -15,6 +15,7 @@
         "test": "echo \"Error: no test specified\" && exit 1",
         "db:seed": "tsx src/db/scripts/seed-safe.ts",
         "db:seed:pr": "bun run src/db/seed-pr.ts",
+        "db:seed:demo:pr": "bun run src/db/seed-demo-pr.ts",
         "db:rebuild": "tsx src/db/scripts/rebuild-schema.ts",
         "db:reset": "bun run db:rebuild && bun run db:seed",
         "db:reset:pr": "bun run db:rebuild && bun run db:seed:pr",
