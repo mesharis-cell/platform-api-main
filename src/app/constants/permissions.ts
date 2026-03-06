@@ -10,6 +10,7 @@ export const PERMISSIONS = {
     USERS_ALL: "users:*",
     USERS_UPDATE: "users:update", // ✅
     USERS_DEACTIVATE: "users:deactivate", // ✅
+    USERS_MANAGE_PASSWORD: "users:manage_password",
 
     // ==================== COMPANY MANAGEMENT ====================
     COMPANIES_CREATE: "companies:create", // ✅

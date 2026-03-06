@@ -584,6 +584,11 @@
  *                     domain:
  *                       type: string
  *                       example: "diageo"
+ *                     primary_domain_hostname:
+ *                       type: string
+ *                       nullable: true
+ *                       description: Active primary hostname from company domains (authoritative)
+ *                       example: "diageo.kadence.ae"
  *                     settings:
  *                       type: object
  *                       properties:
@@ -709,13 +714,6 @@
  *                 maxLength: 100
  *                 description: Company name
  *                 example: "Client Company Updated"
- *               domain:
- *                 type: string
- *                 minLength: 1
- *                 maxLength: 50
- *                 pattern: "^[a-z0-9-]+$"
- *                 description: Company subdomain (lowercase, alphanumeric and hyphens only)
- *                 example: "diageo-updated"
  *               settings:
  *                 type: object
  *                 description: Company branding and configuration settings
@@ -795,6 +793,11 @@
  *                     domain:
  *                       type: string
  *                       example: "diageo-updated"
+ *                     primary_domain_hostname:
+ *                       type: string
+ *                       nullable: true
+ *                       description: Active primary hostname from company domains (authoritative)
+ *                       example: "diageo.kadence.ae"
  *                     settings:
  *                       type: object
  *                       properties:

@@ -733,4 +733,85 @@
  *       - BearerAuth: []
  */
 
+/**
+ * @swagger
+ * /api/operations/v1/user/{id}/password:
+ *   patch:
+ *     tags:
+ *       - User Management
+ *     summary: Set password for a user
+ *     description: |
+ *       Sets a new password for a user account. Requires ADMIN role and `users:manage_password` permission.
+ *       Non-super-admin users cannot manage passwords for super admin users.
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [new_password]
+ *             properties:
+ *               new_password:
+ *                 type: string
+ *                 minLength: 8
+ *                 maxLength: 50
+ *                 example: "Temp@Pass123"
+ *     responses:
+ *       200:
+ *         description: Password updated successfully
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: User not found
+ *     security:
+ *       - BearerAuth: []
+ *
+ * /api/operations/v1/user/{id}/password/generate:
+ *   post:
+ *     tags:
+ *       - User Management
+ *     summary: Generate temporary password for a user
+ *     description: |
+ *       Generates and stores a secure temporary password for a user account.
+ *       Requires ADMIN role and `users:manage_password` permission.
+ *       Response includes plaintext temporary password one time for secure handoff.
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               length:
+ *                 type: integer
+ *                 minimum: 10
+ *                 maximum: 64
+ *                 example: 14
+ *     responses:
+ *       200:
+ *         description: Temporary password generated successfully
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: User not found
+ *     security:
+ *       - BearerAuth: []
+ */
+
 export const userSwagger = {};

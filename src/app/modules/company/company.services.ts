@@ -41,6 +41,26 @@ const toVatOverrideDbValue = (value: unknown) => {
     return Math.min(100, Math.max(0, parsed)).toFixed(2);
 };
 
+const getPrimaryDomainHostname = (
+    domains: Array<{ hostname: string; is_active: boolean; is_primary: boolean }>
+) => {
+    const primary = domains.find((domain) => domain.is_active && domain.is_primary);
+    return primary?.hostname ?? null;
+};
+
+const projectCompany = <
+    T extends {
+        features: unknown;
+        domains?: Array<{ hostname: string; is_active: boolean; is_primary: boolean }>;
+    },
+>(
+    company: T
+) => ({
+    ...company,
+    features: sanitizeFeatureOverrides(company.features),
+    primary_domain_hostname: getPrimaryDomainHostname(company.domains ?? []),
+});
+
 // ----------------------------------- CREATE COMPANY -----------------------------------
 const createCompany = async (data: CreateCompanyPayload) => {
     try {
@@ -105,7 +125,8 @@ const createCompany = async (data: CreateCompanyPayload) => {
 
             // Step 2: Create company domain(s)
             const createdDomains = [];
-            for (const h of hostnames) {
+            for (let i = 0; i < hostnames.length; i++) {
+                const h = hostnames[i];
                 const [domain] = await tx
                     .insert(companyDomains)
                     .values({
@@ -113,17 +134,17 @@ const createCompany = async (data: CreateCompanyPayload) => {
                         type: h.type,
                         company_id: company.id,
                         hostname: h.hostname,
+                        is_primary: i === 0,
                     })
                     .returning();
                 createdDomains.push(domain);
             }
 
             // Step 3: Return company with domain information
-            return {
+            return projectCompany({
                 ...company,
-                features: sanitizeFeatureOverrides(company.features),
                 domains: createdDomains,
-            };
+            });
         });
 
         return result;
@@ -226,8 +247,7 @@ const getCompanies = async (query: Record<string, any>, platformId: string) => {
             total: total[0].count,
         },
         data: result.map((company) => ({
-            ...company,
-            features: sanitizeFeatureOverrides(company.features),
+            ...projectCompany(company),
         })),
     };
 };
@@ -262,10 +282,7 @@ const getCompanyById = async (id: string, platformId: string, user: AuthUser) =>
         throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found");
     }
 
-    return {
-        ...company,
-        features: sanitizeFeatureOverrides(company.features),
-    };
+    return projectCompany(company);
 };
 
 // ----------------------------------- UPDATE COMPANY -----------------------------------
@@ -285,6 +302,13 @@ const updateCompany = async (id: string, data: any, platformId: string, user: Au
 
         if (!existingCompany) {
             throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found");
+        }
+
+        if (data.domain !== undefined) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Company domain can only be set during creation. Manage hostnames in Company Domains settings."
+            );
         }
 
         if (
@@ -315,16 +339,20 @@ const updateCompany = async (id: string, data: any, platformId: string, user: Au
             dbData.vat_percent_override = toVatOverrideDbValue(data.vat_percent_override);
         }
 
-        const [result] = await db
-            .update(companies)
-            .set(dbData)
-            .where(eq(companies.id, id))
-            .returning();
+        await db.update(companies).set(dbData).where(eq(companies.id, id)).returning();
 
-        return {
-            ...result,
-            features: sanitizeFeatureOverrides(result.features),
-        };
+        const company = await db.query.companies.findFirst({
+            where: and(eq(companies.id, id), eq(companies.platform_id, platformId)),
+            with: {
+                domains: true,
+            },
+        });
+
+        if (!company) {
+            throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found");
+        }
+
+        return projectCompany(company);
     } catch (error: any) {
         // Step 3: Handle database errors
         const pgError = error.cause || error;
@@ -333,7 +361,7 @@ const updateCompany = async (id: string, data: any, platformId: string, user: Au
             if (pgError.constraint === "companies_platform_domain_unique") {
                 throw new CustomizedError(
                     httpStatus.CONFLICT,
-                    `Company with domain "${data.domain}" already exists for this platform`
+                    "Company with this domain already exists for this platform"
                 );
             }
             throw new CustomizedError(

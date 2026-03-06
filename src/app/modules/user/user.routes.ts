@@ -29,15 +29,42 @@ router.get(
 );
 
 // Get single user by ID
-router.get("/:id", platformValidator, auth("ADMIN", "LOGISTICS"), UserControllers.getUserById);
+router.get(
+    "/:id",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.USERS_READ),
+    UserControllers.getUserById
+);
 
 // Update user
 router.patch(
     "/:id",
     platformValidator,
     auth("ADMIN"),
+    requirePermission(PERMISSIONS.USERS_UPDATE),
     payloadValidator(UserSchemas.updateUser),
     UserControllers.updateUser
+);
+
+// Set user password (admin only)
+router.patch(
+    "/:id/password",
+    platformValidator,
+    auth("ADMIN"),
+    requirePermission(PERMISSIONS.USERS_MANAGE_PASSWORD),
+    payloadValidator(UserSchemas.setUserPassword),
+    UserControllers.setUserPassword
+);
+
+// Generate temporary user password (admin only)
+router.post(
+    "/:id/password/generate",
+    platformValidator,
+    auth("ADMIN"),
+    requirePermission(PERMISSIONS.USERS_MANAGE_PASSWORD),
+    payloadValidator(UserSchemas.generateUserPassword),
+    UserControllers.generateUserPassword
 );
 
 export const UserRoutes = router;

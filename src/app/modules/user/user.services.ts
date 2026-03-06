@@ -1,4 +1,5 @@
 import bcrypt from "bcrypt";
+import { randomInt } from "crypto";
 import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, lte, or } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
@@ -11,6 +12,78 @@ import queryValidator from "../../utils/query-validator";
 import { CreateUserPayload } from "./user.interfaces";
 import { userQueryValidationConfig } from "./user.utils";
 import { AuthUser } from "../../interface/common";
+
+const TEMP_PASSWORD_LENGTH = 14;
+const UPPER = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+const LOWER = "abcdefghijkmnopqrstuvwxyz";
+const DIGITS = "23456789";
+const SYMBOLS = "!@#$%^&*";
+
+const shuffle = (value: string[]) => {
+    for (let i = value.length - 1; i > 0; i--) {
+        const j = randomInt(0, i + 1);
+        [value[i], value[j]] = [value[j], value[i]];
+    }
+    return value.join("");
+};
+
+const generateTemporaryPassword = (length: number = TEMP_PASSWORD_LENGTH) => {
+    const safeLength = Math.max(10, Math.min(64, Math.floor(length)));
+    const required = [
+        UPPER[randomInt(0, UPPER.length)],
+        LOWER[randomInt(0, LOWER.length)],
+        DIGITS[randomInt(0, DIGITS.length)],
+        SYMBOLS[randomInt(0, SYMBOLS.length)],
+    ];
+    const allChars = `${UPPER}${LOWER}${DIGITS}${SYMBOLS}`;
+
+    while (required.length < safeLength) {
+        required.push(allChars[randomInt(0, allChars.length)]);
+    }
+
+    return shuffle(required);
+};
+
+const assertPasswordManagementAccess = (
+    actor: AuthUser,
+    target: { id: string; is_super_admin: boolean }
+) => {
+    if (target.is_super_admin && !actor.is_super_admin) {
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            "Only super admins can manage passwords for super admin users"
+        );
+    }
+};
+
+const getUserForPasswordManagement = async (id: string, platformId: string) => {
+    const [target] = await db
+        .select({
+            id: users.id,
+            platform_id: users.platform_id,
+            company_id: users.company_id,
+            name: users.name,
+            email: users.email,
+            password: users.password,
+            role: users.role,
+            permissions: users.permissions,
+            permission_template: users.permission_template,
+            is_super_admin: users.is_super_admin,
+            is_active: users.is_active,
+            last_login_at: users.last_login_at,
+            created_at: users.created_at,
+            updated_at: users.updated_at,
+        })
+        .from(users)
+        .where(and(eq(users.id, id), eq(users.platform_id, platformId)))
+        .limit(1);
+
+    if (!target) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "User not found");
+    }
+
+    return target;
+};
 
 // ----------------------------------- CREATE USER ------------------------------------
 const createUser = async (data: CreateUserPayload) => {
@@ -155,6 +228,7 @@ const getUsers = async (platformId: string, query: Record<string, any>, user: Au
             },
             columns: {
                 company_id: false,
+                password: false,
             },
             orderBy: orderDirection,
             limit: limitNumber,
@@ -192,6 +266,7 @@ const getUserById = async (id: string, platformId: string) => {
         },
         columns: {
             company_id: false,
+            password: false,
         },
     });
 
@@ -288,7 +363,72 @@ const updateUser = async (
         .where(and(eq(users.id, id), eq(users.platform_id, platformId)))
         .returning();
 
-    return result;
+    const { password, ...remaining } = result;
+    return remaining;
+};
+
+// ----------------------------------- SET USER PASSWORD ------------------------------------
+const setUserPassword = async (
+    id: string,
+    platformId: string,
+    newPassword: string,
+    actor: AuthUser
+) => {
+    const target = await getUserForPasswordManagement(id, platformId);
+    assertPasswordManagementAccess(actor, target);
+
+    const isSamePassword = await bcrypt.compare(newPassword, target.password);
+    if (isSamePassword) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "New password cannot be the same as the current password"
+        );
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, config.salt_rounds);
+    const [updated] = await db
+        .update(users)
+        .set({
+            password: hashedPassword,
+            updated_at: new Date(),
+        })
+        .where(and(eq(users.id, id), eq(users.platform_id, platformId)))
+        .returning();
+
+    const { password, ...sanitized } = updated;
+    return sanitized;
+};
+
+// ----------------------------------- GENERATE USER PASSWORD ------------------------------------
+const generateUserPassword = async (
+    id: string,
+    platformId: string,
+    length: number | undefined,
+    actor: AuthUser
+) => {
+    const target = await getUserForPasswordManagement(id, platformId);
+    assertPasswordManagementAccess(actor, target);
+
+    let temporaryPassword = generateTemporaryPassword(length);
+    if (await bcrypt.compare(temporaryPassword, target.password)) {
+        temporaryPassword = generateTemporaryPassword(length);
+    }
+
+    const hashedPassword = await bcrypt.hash(temporaryPassword, config.salt_rounds);
+    const [updated] = await db
+        .update(users)
+        .set({
+            password: hashedPassword,
+            updated_at: new Date(),
+        })
+        .where(and(eq(users.id, id), eq(users.platform_id, platformId)))
+        .returning();
+
+    const { password, ...sanitized } = updated;
+    return {
+        user: sanitized,
+        temporary_password: temporaryPassword,
+    };
 };
 
 export const UserServices = {
@@ -296,4 +436,6 @@ export const UserServices = {
     getUsers,
     getUserById,
     updateUser,
+    setUserPassword,
+    generateUserPassword,
 };

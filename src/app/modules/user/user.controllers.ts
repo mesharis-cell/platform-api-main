@@ -71,9 +71,51 @@ const updateUser = catchAsync(async (req, res, next) => {
     });
 });
 
+const setUserPassword = catchAsync(async (req, res) => {
+    const authUser = (req as any).user;
+    const platformId = (req as any).platformId;
+    const { id } = req.params;
+
+    const result = await UserServices.setUserPassword(
+        id as string,
+        platformId,
+        req.body.new_password,
+        authUser
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "User password updated successfully",
+        data: result,
+    });
+});
+
+const generateUserPassword = catchAsync(async (req, res) => {
+    const authUser = (req as any).user;
+    const platformId = (req as any).platformId;
+    const { id } = req.params;
+
+    const result = await UserServices.generateUserPassword(
+        id as string,
+        platformId,
+        req.body.length,
+        authUser
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Temporary password generated successfully",
+        data: result,
+    });
+});
+
 export const UserControllers = {
     createUser,
     getUsers,
     getUserById,
     updateUser,
+    setUserPassword,
+    generateUserPassword,
 };
