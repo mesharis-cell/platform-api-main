@@ -13,7 +13,10 @@
 import "dotenv/config";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { and, eq, isNull } from "drizzle-orm";
+import { HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { db } from "./index";
 import * as schema from "./schema";
 import { lineItemIdGenerator } from "../app/modules/order-line-items/order-line-items.utils";
@@ -76,6 +79,7 @@ type DemoAsset = {
     weight_per_unit: string;
     condition_notes: string | null;
     handling_tags: string[];
+    images: unknown;
 };
 
 type OrderLineSeed = {
@@ -93,6 +97,17 @@ type OrderLineSeed = {
     notes?: string | null;
     metadata?: Record<string, unknown>;
 };
+
+type DemoMediaCategory = "outbound-truck" | "return-truck" | "on-site" | "derig";
+type DemoBrandTag = "chivas" | "smoky-pina" | "absolut";
+
+type DemoMediaItem = {
+    fileName: string;
+    url: string;
+    brandTag: DemoBrandTag | null;
+};
+
+type DemoMediaPools = Record<DemoMediaCategory, DemoMediaItem[]>;
 
 const REQUIRED_ORDER_STATUSES: DemoOrderStatus[] = [
     "PRICING_REVIEW",
@@ -383,11 +398,214 @@ const statusRank = (status: DemoOrderStatus): number => {
     return rank[status];
 };
 
-const mockImage = (bg: string, text: string) =>
-    `https://placehold.co/1200x800/${bg}/FFFFFF?text=${encodeURIComponent(text)}`;
+const DEMO_MEDIA_ROOT = path.resolve(process.cwd(), "seed/demo-media");
+const DEMO_MEDIA_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
+const BRAND_TAGS: DemoBrandTag[] = ["chivas", "smoky-pina", "absolut"];
+
+const DEMO_MEDIA_BUCKET = process.env.AWS_BUCKET_NAME;
+const DEMO_MEDIA_REGION = process.env.AWS_REGION;
+const DEMO_MEDIA_ACCESS_KEY = process.env.AWS_ACCESS_KEY_ID;
+const DEMO_MEDIA_SECRET_KEY = process.env.AWS_SECRET_ACCESS_KEY;
+const demoMediaS3Client =
+    DEMO_MEDIA_ACCESS_KEY && DEMO_MEDIA_SECRET_KEY && DEMO_MEDIA_REGION
+        ? new S3Client({
+              region: DEMO_MEDIA_REGION,
+              credentials: {
+                  accessKeyId: DEMO_MEDIA_ACCESS_KEY,
+                  secretAccessKey: DEMO_MEDIA_SECRET_KEY,
+              },
+          })
+        : null;
+
+const mediaContentType = (fileName: string): string => {
+    const ext = path.extname(fileName).toLowerCase();
+    if (ext === ".png") return "image/png";
+    if (ext === ".webp") return "image/webp";
+    return "image/jpeg";
+};
+
+const listLocalMediaFiles = (category: DemoMediaCategory): string[] => {
+    const categoryDir = path.join(DEMO_MEDIA_ROOT, category);
+    if (!existsSync(categoryDir)) return [];
+
+    return readdirSync(categoryDir)
+        .filter((fileName) => DEMO_MEDIA_EXTENSIONS.includes(path.extname(fileName).toLowerCase()))
+        .sort((a, b) => a.localeCompare(b));
+};
+
+const normalizeFileKeySegment = (value: string): string =>
+    value.toLowerCase().replace(/[^a-z0-9._-]+/g, "-");
+
+const normalizeLookupText = (value: string): string =>
+    value
+        .toLowerCase()
+        .replace(/[_\s]+/g, "-")
+        .replace(/[^a-z0-9-]+/g, "");
+
+const detectBrandTag = (value: string): DemoBrandTag | null => {
+    const normalized = normalizeLookupText(value);
+    if (!normalized) return null;
+    if (normalized.includes("chivas")) return "chivas";
+    if (normalized.includes("absolut")) return "absolut";
+    if (normalized.includes("smoky-pina") || normalized.includes("smokypina")) return "smoky-pina";
+    return null;
+};
+
+const detectBrandFromParts = (...parts: Array<string | null | undefined>): DemoBrandTag | null => {
+    const merged = parts.filter(Boolean).join(" ");
+    if (!merged) return null;
+    return detectBrandTag(merged);
+};
+
+const extractAssetImageUrl = (images: unknown): string | null => {
+    if (!Array.isArray(images)) return null;
+
+    for (const image of images) {
+        if (typeof image === "string" && image.trim()) {
+            return image;
+        }
+
+        if (image && typeof image === "object") {
+            const url = (image as { url?: unknown }).url;
+            if (typeof url === "string" && url.trim()) {
+                return url;
+            }
+        }
+    }
+
+    return null;
+};
+
+const stableSeedIndex = (seed: string, poolSize: number): number => {
+    if (poolSize <= 1) return 0;
+    let hash = 0;
+    for (let i = 0; i < seed.length; i += 1) {
+        hash = (hash * 31 + seed.charCodeAt(i)) % 2147483647;
+    }
+    return Math.abs(hash) % poolSize;
+};
+
+const pickManyFromPool = (pool: DemoMediaItem[], seed: string, count: number): DemoMediaItem[] => {
+    if (pool.length === 0 || count <= 0) return [];
+
+    const startIndex = stableSeedIndex(seed, pool.length);
+    const picked: DemoMediaItem[] = [];
+
+    for (let i = 0; i < pool.length && picked.length < count; i += 1) {
+        const item = pool[(startIndex + i) % pool.length];
+        if (!picked.some((existing) => existing.fileName === item.fileName)) {
+            picked.push(item);
+        }
+    }
+
+    return picked;
+};
+
+const pickFromPool = (pool: DemoMediaItem[], seed: string): DemoMediaItem | null =>
+    pickManyFromPool(pool, seed, 1)[0] ?? null;
+
+const pickBrandMedia = (
+    pool: DemoMediaItem[],
+    brandTag: DemoBrandTag | null,
+    seed: string
+): DemoMediaItem | null => {
+    if (!brandTag) return null;
+    const matchingPool = pool.filter((item) => item.brandTag === brandTag);
+    return pickFromPool(matchingPool, seed);
+};
+
+const uploadDemoMediaFile = async (opts: {
+    platformId: string;
+    category: DemoMediaCategory;
+    fileName: string;
+}): Promise<string> => {
+    if (!DEMO_MEDIA_BUCKET || !DEMO_MEDIA_REGION || !demoMediaS3Client) {
+        throw new Error(
+            "AWS S3 media config missing. Set AWS_BUCKET_NAME, AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY."
+        );
+    }
+
+    const localPath = path.join(DEMO_MEDIA_ROOT, opts.category, opts.fileName);
+    if (!existsSync(localPath)) {
+        throw new Error(`Demo media file not found: ${localPath}`);
+    }
+
+    const key = `${opts.platformId}/demo-media/${opts.category}/${normalizeFileKeySegment(
+        opts.fileName
+    )}`;
+    const url = `https://${DEMO_MEDIA_BUCKET}.s3.${DEMO_MEDIA_REGION}.amazonaws.com/${key}`;
+
+    try {
+        await demoMediaS3Client.send(
+            new HeadObjectCommand({
+                Bucket: DEMO_MEDIA_BUCKET,
+                Key: key,
+            })
+        );
+        return url;
+    } catch {
+        const body = readFileSync(localPath);
+        await demoMediaS3Client.send(
+            new PutObjectCommand({
+                Bucket: DEMO_MEDIA_BUCKET,
+                Key: key,
+                Body: body,
+                ContentType: mediaContentType(opts.fileName),
+            })
+        );
+        return url;
+    }
+};
+
+const buildDemoMediaPools = async (ctx: SeedContext): Promise<DemoMediaPools> => {
+    const pools: DemoMediaPools = {
+        "outbound-truck": [],
+        "return-truck": [],
+        "on-site": [],
+        derig: [],
+    };
+
+    for (const category of Object.keys(pools) as DemoMediaCategory[]) {
+        const files = listLocalMediaFiles(category);
+        for (const fileName of files) {
+            const url = await uploadDemoMediaFile({
+                platformId: ctx.platform.id,
+                category,
+                fileName,
+            });
+            pools[category].push({
+                fileName,
+                url,
+                brandTag: detectBrandTag(fileName),
+            });
+        }
+    }
+
+    const missingCategories = (Object.keys(pools) as DemoMediaCategory[]).filter(
+        (category) => pools[category].length === 0
+    );
+
+    if (missingCategories.length > 0) {
+        throw new Error(
+            `Missing demo media files in categories: ${missingCategories.join(", ")} under ${DEMO_MEDIA_ROOT}`
+        );
+    }
+
+    const missingOnSiteBrands = BRAND_TAGS.filter(
+        (brand) => !pools["on-site"].some((item) => item.brandTag === brand)
+    );
+
+    if (missingOnSiteBrands.length > 0) {
+        throw new Error(
+            `Missing brand-tagged on-site images for: ${missingOnSiteBrands.join(", ")}`
+        );
+    }
+
+    return pools;
+};
 
 const runBaseDemoSeed = () => {
-    console.log("\n[1/7] Running baseline demo seed (seed.ts)…\n");
+    console.log("\n[1/8] Running baseline demo seed (seed.ts)…\n");
     const result = spawnSync("bun", ["run", "src/db/seed.ts"], {
         cwd: process.cwd(),
         stdio: "inherit",
@@ -493,7 +711,7 @@ const loadContext = async (): Promise<SeedContext> => {
 };
 
 const ensureCompanyBaseOpsRate = async (ctx: SeedContext) => {
-    console.log("\n[2/7] Aligning Pernod warehouse ops rate for demo…");
+    console.log("\n[2/8] Aligning Pernod warehouse ops rate for demo…");
     await db
         .update(schema.companies)
         .set({ warehouse_ops_rate: "15.60", updated_at: new Date() })
@@ -501,7 +719,7 @@ const ensureCompanyBaseOpsRate = async (ctx: SeedContext) => {
 };
 
 const importPrAssets = async (ctx: SeedContext) => {
-    console.log("\n[3/7] Importing Pernod asset bundle into seeded demo…\n");
+    console.log("\n[3/8] Importing Pernod asset bundle into seeded demo…\n");
     await seedPrAssets({
         platformId: ctx.platform.id,
         companyId: ctx.company.id,
@@ -514,7 +732,7 @@ const importPrAssets = async (ctx: SeedContext) => {
 const upsertRfqServiceTypes = async (
     ctx: SeedContext
 ): Promise<Map<string, typeof schema.serviceTypes.$inferSelect>> => {
-    console.log("\n[4/7] Upserting RFQ-aligned service catalog…");
+    console.log("\n[5/8] Upserting RFQ-aligned service catalog…");
 
     const results = new Map<string, typeof schema.serviceTypes.$inferSelect>();
 
@@ -747,6 +965,7 @@ const pickDemoAssets = async (ctx: SeedContext): Promise<DemoAsset[]> => {
             weight_per_unit: schema.assets.weight_per_unit,
             condition_notes: schema.assets.condition_notes,
             handling_tags: schema.assets.handling_tags,
+            images: schema.assets.images,
         })
         .from(schema.assets)
         .where(
@@ -764,7 +983,7 @@ const ensureOrderStatusCoverage = async (
     ctx: SeedContext,
     serviceTypes: Map<string, typeof schema.serviceTypes.$inferSelect>
 ) => {
-    console.log("\n[5/7] Ensuring complete order status walkthrough matrix…");
+    console.log("\n[6/8] Ensuring complete order status walkthrough matrix…");
 
     const existingOrders = await db
         .select({
@@ -1167,8 +1386,8 @@ const insertScanEvent = async (opts: {
     }
 };
 
-const ensureScanCoverage = async (ctx: SeedContext) => {
-    console.log("\n[6/7] Ensuring scan activity coverage with mock media…");
+const ensureScanCoverage = async (ctx: SeedContext, mediaPools: DemoMediaPools) => {
+    console.log("\n[7/8] Ensuring scan activity coverage with demo media…");
 
     const orderRows = await db
         .select({
@@ -1184,6 +1403,9 @@ const ensureScanCoverage = async (ctx: SeedContext) => {
             )
         );
 
+    const demoAssets = await pickDemoAssets(ctx);
+    const assetById = new Map(demoAssets.map((asset) => [asset.id, asset]));
+
     for (const order of orderRows) {
         const items = await db
             .select({
@@ -1197,6 +1419,13 @@ const ensureScanCoverage = async (ctx: SeedContext) => {
         if (items.length === 0) continue;
 
         const primary = items[0];
+        const primaryAsset = assetById.get(primary.asset_id);
+        const primaryAssetImage = extractAssetImageUrl(primaryAsset?.images);
+        const orderBrandTag = detectBrandFromParts(
+            primary.asset_name,
+            primaryAsset?.name,
+            primaryAsset?.category
+        );
 
         const existingTypes = new Set(
             (
@@ -1210,6 +1439,9 @@ const ensureScanCoverage = async (ctx: SeedContext) => {
         const rank = statusRank(order.order_status as DemoOrderStatus);
 
         if (rank >= statusRank("READY_FOR_DELIVERY") && !existingTypes.has("OUTBOUND")) {
+            const outboundMediaUrl =
+                primaryAssetImage ||
+                pickFromPool(mediaPools["outbound-truck"], `${order.id}-outbound`)?.url;
             await insertScanEvent({
                 orderId: order.id,
                 assetId: primary.asset_id,
@@ -1218,17 +1450,30 @@ const ensureScanCoverage = async (ctx: SeedContext) => {
                 quantity: primary.quantity,
                 condition: "GREEN",
                 note: "Outbound scan completed for loading manifest.",
-                media: [
-                    {
-                        url: mockImage("334155", `${order.order_id}\\nOutbound\\nLoading Bay`),
-                        note: "Pre-dispatch verification",
-                        kind: "GENERAL",
-                    },
-                ],
+                media: outboundMediaUrl
+                    ? [
+                          {
+                              url: outboundMediaUrl,
+                              note: "Pre-dispatch verification",
+                              kind: "GENERAL",
+                          },
+                      ]
+                    : [],
             });
         }
 
         if (rank >= statusRank("DELIVERED") && !existingTypes.has("OUTBOUND_TRUCK_PHOTOS")) {
+            const outboundTruckPhotos = pickManyFromPool(
+                mediaPools["outbound-truck"],
+                `${order.id}-outbound-truck`,
+                2
+            );
+            const outboundTruckMedia = outboundTruckPhotos.map((item, index) => ({
+                url: item.url,
+                note: index === 0 ? "Truck gate-out" : "Load secured",
+                kind: "GENERAL",
+            }));
+
             await insertScanEvent({
                 orderId: order.id,
                 assetId: primary.asset_id,
@@ -1237,22 +1482,15 @@ const ensureScanCoverage = async (ctx: SeedContext) => {
                 quantity: 1,
                 condition: null,
                 note: "Outbound truck photos captured at dispatch.",
-                media: [
-                    {
-                        url: mockImage("1D4ED8", `${order.order_id}\\nTruck Dispatch\\nPhoto 1`),
-                        note: "Truck gate-out",
-                        kind: "GENERAL",
-                    },
-                    {
-                        url: mockImage("2563EB", `${order.order_id}\\nTruck Dispatch\\nPhoto 2`),
-                        note: "Load secured",
-                        kind: "GENERAL",
-                    },
-                ],
+                media: outboundTruckMedia,
             });
         }
 
         if (rank >= statusRank("IN_USE") && !existingTypes.has("ON_SITE_CAPTURE")) {
+            const onSiteUrl =
+                pickBrandMedia(mediaPools["on-site"], orderBrandTag, `${order.id}-on-site`)?.url ||
+                primaryAssetImage ||
+                pickFromPool(mediaPools["on-site"], `${order.id}-on-site-fallback`)?.url;
             await insertScanEvent({
                 orderId: order.id,
                 assetId: primary.asset_id,
@@ -1261,17 +1499,25 @@ const ensureScanCoverage = async (ctx: SeedContext) => {
                 quantity: 1,
                 condition: null,
                 note: "On-site setup complete and ready for activation.",
-                media: [
-                    {
-                        url: mockImage("BE185D", `${order.order_id}\\nOn Site\\nAssembled`),
-                        note: "Installed and client-ready",
-                        kind: "ON_SITE",
-                    },
-                ],
+                media: onSiteUrl
+                    ? [
+                          {
+                              url: onSiteUrl,
+                              note: "Installed and client-ready",
+                              kind: "ON_SITE",
+                          },
+                      ]
+                    : [],
             });
         }
 
         if (rank >= statusRank("DERIG") && !existingTypes.has("DERIG_CAPTURE")) {
+            const derigUrl =
+                pickBrandMedia(mediaPools.derig, orderBrandTag, `${order.id}-derig`)?.url ||
+                pickBrandMedia(mediaPools["on-site"], orderBrandTag, `${order.id}-derig-on-site`)
+                    ?.url ||
+                primaryAssetImage ||
+                pickFromPool(mediaPools.derig, `${order.id}-derig-fallback`)?.url;
             await insertScanEvent({
                 orderId: order.id,
                 assetId: primary.asset_id,
@@ -1280,17 +1526,22 @@ const ensureScanCoverage = async (ctx: SeedContext) => {
                 quantity: 1,
                 condition: null,
                 note: "Derig notes and condition captured before return loading.",
-                media: [
-                    {
-                        url: mockImage("7E22CE", `${order.order_id}\\nDerig\\nCondition Capture`),
-                        note: "Minor cosmetic marks recorded",
-                        kind: "GENERAL",
-                    },
-                ],
+                media: derigUrl
+                    ? [
+                          {
+                              url: derigUrl,
+                              note: "Minor cosmetic marks recorded",
+                              kind: "GENERAL",
+                          },
+                      ]
+                    : [],
             });
         }
 
         if (rank >= statusRank("RETURN_IN_TRANSIT") && !existingTypes.has("RETURN_TRUCK_PHOTOS")) {
+            const returnTruckUrl =
+                pickFromPool(mediaPools["return-truck"], `${order.id}-return-truck`)?.url ||
+                primaryAssetImage;
             await insertScanEvent({
                 orderId: order.id,
                 assetId: primary.asset_id,
@@ -1299,17 +1550,47 @@ const ensureScanCoverage = async (ctx: SeedContext) => {
                 quantity: 1,
                 condition: null,
                 note: "Return truck evidence captured before warehouse arrival.",
-                media: [
-                    {
-                        url: mockImage("EA580C", `${order.order_id}\\nReturn Transit\\nTruck`),
-                        note: "Return departure proof",
-                        kind: "GENERAL",
-                    },
-                ],
+                media: returnTruckUrl
+                    ? [
+                          {
+                              url: returnTruckUrl,
+                              note: "Return departure proof",
+                              kind: "GENERAL",
+                          },
+                      ]
+                    : [],
             });
         }
 
         if (rank >= statusRank("CLOSED") && !existingTypes.has("INBOUND")) {
+            const returnWideMedia = pickManyFromPool(
+                mediaPools["return-truck"],
+                `${order.id}-inbound-return`,
+                2
+            );
+            const inboundMedia: Array<{ url: string; note?: string; kind: string }> = [];
+            if (returnWideMedia[0]) {
+                inboundMedia.push({
+                    url: returnWideMedia[0].url,
+                    note: "Unloading wide shot",
+                    kind: "RETURN_WIDE",
+                });
+            }
+            if (returnWideMedia[1]) {
+                inboundMedia.push({
+                    url: returnWideMedia[1].url,
+                    note: "Asset staging at warehouse",
+                    kind: "RETURN_WIDE",
+                });
+            }
+            if (primaryAssetImage) {
+                inboundMedia.push({
+                    url: primaryAssetImage,
+                    note: "Damage observation tied to returned asset image",
+                    kind: "DAMAGE",
+                });
+            }
+
             await insertScanEvent({
                 orderId: order.id,
                 assetId: primary.asset_id,
@@ -1319,23 +1600,7 @@ const ensureScanCoverage = async (ctx: SeedContext) => {
                 condition: "ORANGE",
                 note: "Inbound return complete with minor scuff documented.",
                 discrepancy: "BROKEN",
-                media: [
-                    {
-                        url: mockImage("475569", `${order.order_id}\\nReturn Wide 1`),
-                        note: "Unloading wide shot",
-                        kind: "RETURN_WIDE",
-                    },
-                    {
-                        url: mockImage("334155", `${order.order_id}\\nReturn Wide 2`),
-                        note: "Asset staging at warehouse",
-                        kind: "RETURN_WIDE",
-                    },
-                    {
-                        url: mockImage("F97316", `${order.order_id}\\nDamage Detail`),
-                        note: "Minor panel scuff",
-                        kind: "DAMAGE",
-                    },
-                ],
+                media: inboundMedia,
             });
         }
     }
@@ -1345,9 +1610,10 @@ const ensureScanCoverage = async (ctx: SeedContext) => {
 
 const ensureInboundCoverage = async (
     ctx: SeedContext,
-    serviceTypes: Map<string, typeof schema.serviceTypes.$inferSelect>
+    serviceTypes: Map<string, typeof schema.serviceTypes.$inferSelect>,
+    mediaPools: DemoMediaPools
 ) => {
-    console.log("\n[7/7] Ensuring inbound/service-request demo coverage…");
+    console.log("\n[8/8] Ensuring inbound/service-request demo coverage…");
 
     const existingInbound = await db
         .select({ request_status: schema.inboundRequests.request_status })
@@ -1370,6 +1636,9 @@ const ensureInboundCoverage = async (
 
     const assets = await pickDemoAssets(ctx);
     const chosenAsset = ensureValue(assets[0], "No assets available for inbound seeding");
+    const chosenAssetImage =
+        extractAssetImageUrl(chosenAsset.images) ||
+        pickFromPool(mediaPools["on-site"], "inbound-chosen-asset")?.url;
 
     let createdInbound = 0;
 
@@ -1448,7 +1717,7 @@ const ensureInboundCoverage = async (
             dimensions: { length: 120, width: 80, height: 140 },
             volume_per_unit: chosenAsset.volume_per_unit,
             handling_tags: ["Fragile"],
-            images: [mockImage("0F766E", `${requestId}\\nInbound Item`)],
+            images: chosenAssetImage ? [chosenAssetImage] : [],
             asset_id: null,
         });
 
@@ -1551,7 +1820,7 @@ const ensureInboundCoverage = async (
                 requested_start_at: daysFromNow(2),
                 requested_due_at: daysFromNow(5),
                 created_by: ctx.clientUser.id,
-                photos: [mockImage("7C3AED", "SR Submitted\\nReference")],
+                photos: chosenAssetImage ? [chosenAssetImage] : [],
                 work_notes: "Awaiting commercial quote",
             })
             .returning();
@@ -1578,6 +1847,9 @@ const ensureInboundCoverage = async (
 
     const conditionSeedAssets = assets.slice(0, 5);
     for (const [index, asset] of conditionSeedAssets.entries()) {
+        const assetImage =
+            extractAssetImageUrl(asset.images) ||
+            pickFromPool(mediaPools.derig, `${asset.id}-condition-fallback`)?.url;
         await db.insert(schema.assetConditionHistory).values({
             platform_id: ctx.platform.id,
             asset_id: asset.id,
@@ -1586,7 +1858,7 @@ const ensureInboundCoverage = async (
                 index % 2 === 0
                     ? "Asset passed post-event inspection"
                     : "Minor wear observed; maintenance follow-up scheduled",
-            photos: [mockImage("475569", `${asset.name.slice(0, 24)}\\nCondition Snapshot`)],
+            photos: assetImage ? [assetImage] : [],
             updated_by: ctx.logisticsUser.id,
             timestamp: new Date(),
         });
@@ -1607,10 +1879,12 @@ const main = async () => {
 
     await ensureCompanyBaseOpsRate(ctx);
     await importPrAssets(ctx);
+    console.log("\n[4/8] Uploading and indexing demo media set…");
+    const mediaPools = await buildDemoMediaPools(ctx);
     const rfqServices = await upsertRfqServiceTypes(ctx);
     await ensureOrderStatusCoverage(ctx, rfqServices);
-    await ensureScanCoverage(ctx);
-    await ensureInboundCoverage(ctx, rfqServices);
+    await ensureScanCoverage(ctx, mediaPools);
+    await ensureInboundCoverage(ctx, rfqServices, mediaPools);
 
     console.log("\n✅ Demo PR overlay complete.");
     console.log("\n🔑 Credentials (all password123):");

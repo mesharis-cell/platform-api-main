@@ -155,6 +155,13 @@
             "when": 1772395200000,
             "tag": "0021_line_item_governance_transport_split",
             "breakpoints": true
+        },
+        {
+            "idx": 22,
+            "version": "7",
+            "when": 1772790967100,
+            "tag": "0022_normalize_asset_images_shape",
+            "breakpoints": true
         }
     ]
 }
