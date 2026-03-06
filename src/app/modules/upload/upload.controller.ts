@@ -35,12 +35,13 @@ const uploadMultipleImagesController = catchAsync(async (req, res) => {
     const files = req.files as { [fieldname: string]: Express.Multer.File[] };
     const companyId = req.body.companyId as string;
     const isDraft = req.query.draft === "true";
+    const fileEntries = files?.files;
 
-    if (!files || !files.files || files.files.length === 0)
+    if (!fileEntries || fileEntries.length === 0)
         throw new CustomizedError(httpStatus.BAD_REQUEST, "No files to upload");
 
     const imageUrls = await Promise.all(
-        files.files.map(async (file) => {
+        fileEntries.map(async (file) => {
             const fileName = buildKey(companyId, file.originalname, isDraft);
             return uploadImageToS3(file.buffer, fileName, file.mimetype);
         })

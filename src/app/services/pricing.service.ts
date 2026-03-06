@@ -195,6 +195,9 @@ const parseBreakdownLines = (lines: unknown): BreakdownLine[] => {
 const shouldCountInTotals = (line: BreakdownLine) =>
     !line.is_voided && line.billing_mode === "BILLABLE";
 
+const shouldHideLineForClient = (line: BreakdownLine) =>
+    line.line_kind === "CUSTOM" && line.billing_mode === "NON_BILLABLE";
+
 const calculateBreakdownTotals = (lines: BreakdownLine[], vatPercent = 0): BreakdownTotals => {
     const totals: BreakdownTotals = {
         buy_base_ops_total: 0,
@@ -845,17 +848,20 @@ const projectByRole = (pricing: RawPricingRecord | null | undefined, role: Prici
         };
     }
 
-    const clientLines = lines.map((line) => ({
-        line_id: line.line_id,
-        line_kind: line.line_kind,
-        category: line.category,
-        label: line.label,
-        quantity: line.quantity,
-        unit: line.unit,
-        unit_price: line.client_price_visible ? line.sell_unit_price : null,
-        total: line.client_price_visible ? line.sell_total : null,
-        client_price_visible: line.client_price_visible,
-    }));
+    const clientLines = lines
+        .filter((line) => !shouldHideLineForClient(line))
+        .map((line) => ({
+            line_id: line.line_id,
+            line_kind: line.line_kind,
+            category: line.category,
+            label: line.label,
+            quantity: line.quantity,
+            unit: line.unit,
+            billing_mode: line.billing_mode,
+            unit_price: line.client_price_visible ? line.sell_unit_price : null,
+            total: line.client_price_visible ? line.sell_total : null,
+            client_price_visible: line.client_price_visible,
+        }));
     return {
         breakdown_lines: clientLines,
         lines: clientLines,
