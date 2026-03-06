@@ -78,7 +78,28 @@ const updateUser = z.object({
         .strict(),
 });
 
+const setUserPassword = z.object({
+    body: z
+        .object({
+            new_password: z
+                .string({ error: "New password is required" })
+                .min(8, "New password must be at least 8 characters")
+                .max(50, "New password must be at most 50 characters"),
+        })
+        .strict(),
+});
+
+const generateUserPassword = z.object({
+    body: z
+        .object({
+            length: z.number().int().min(10).max(64).optional(),
+        })
+        .strict(),
+});
+
 export const UserSchemas = {
     createUser,
     updateUser,
+    setUserPassword,
+    generateUserPassword,
 };
