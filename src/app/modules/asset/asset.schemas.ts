@@ -168,6 +168,15 @@ const updateAssetSchema = z.object({
     }),
 });
 
+const addAssetUnitsSchema = z.object({
+    body: z.object({
+        quantity: z
+            .number({ message: "Quantity must be a number" })
+            .int("Quantity must be an integer")
+            .min(1, "Quantity must be at least 1"),
+    }),
+});
+
 // ----------------------------------- BATCH AVAILABILITY SCHEMA --------------------------
 const batchAvailabilitySchema = z.object({
     body: z.object({
@@ -265,6 +274,7 @@ const completeMaintenanceSchema = z.object({
 export const AssetSchemas = {
     createAssetSchema,
     updateAssetSchema,
+    addAssetUnitsSchema,
     batchAvailabilitySchema,
     checkAvailabilitySchema,
     addConditionHistorySchema,

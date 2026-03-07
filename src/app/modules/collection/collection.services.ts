@@ -8,6 +8,7 @@ import {
     collectionItems,
     collections,
     companies,
+    teams,
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
@@ -15,6 +16,59 @@ import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
 import { CreateCollectionItemPayload, CreateCollectionPayload } from "./collection.interfaces";
 import { collectionQueryValidationConfig, collectionSortableFields } from "./collection.utils";
+
+const assertBrandBelongsToCompany = async (
+    brandId: string,
+    companyId: string,
+    platformId: string
+) => {
+    const [brand] = await db
+        .select({
+            id: brands.id,
+        })
+        .from(brands)
+        .where(
+            and(
+                eq(brands.id, brandId),
+                eq(brands.company_id, companyId),
+                eq(brands.platform_id, platformId),
+                eq(brands.is_active, true)
+            )
+        );
+
+    if (!brand) {
+        throw new CustomizedError(
+            httpStatus.NOT_FOUND,
+            "Brand not found or does not belong to this company"
+        );
+    }
+};
+
+const assertTeamBelongsToCompany = async (
+    teamId: string,
+    companyId: string,
+    platformId: string
+) => {
+    const [team] = await db
+        .select({
+            id: teams.id,
+        })
+        .from(teams)
+        .where(
+            and(
+                eq(teams.id, teamId),
+                eq(teams.company_id, companyId),
+                eq(teams.platform_id, platformId)
+            )
+        );
+
+    if (!team) {
+        throw new CustomizedError(
+            httpStatus.NOT_FOUND,
+            "Team not found or does not belong to this company"
+        );
+    }
+};
 
 // ----------------------------------- CREATE COLLECTION -----------------------------------
 const createCollection = async (data: CreateCollectionPayload) => {
@@ -35,26 +89,10 @@ const createCollection = async (data: CreateCollectionPayload) => {
             throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found or is archived");
         }
 
-        // Step 2: If brand_id is provided, validate it exists and belongs to the company
-        if (data.brand_id) {
-            const [brand] = await db
-                .select()
-                .from(brands)
-                .where(
-                    and(
-                        eq(brands.id, data.brand_id),
-                        eq(brands.company_id, data.company_id),
-                        eq(brands.platform_id, data.platform_id),
-                        eq(brands.is_active, true)
-                    )
-                );
-
-            if (!brand) {
-                throw new CustomizedError(
-                    httpStatus.NOT_FOUND,
-                    "Brand not found or does not belong to this company"
-                );
-            }
+        // Step 2: Validate brand and team identity
+        await assertBrandBelongsToCompany(data.brand_id, data.company_id, data.platform_id);
+        if (data.team_id) {
+            await assertTeamBelongsToCompany(data.team_id, data.company_id, data.platform_id);
         }
 
         // Step 3: Insert collection into database
@@ -157,6 +195,12 @@ const getCollections = async (query: Record<string, any>, user: AuthUser, platfo
                         logo_url: true,
                     },
                 },
+                team: {
+                    columns: {
+                        id: true,
+                        name: true,
+                    },
+                },
                 // Include asset IDs only — used for per-collection item count on list UI
                 assets: {
                     columns: { id: true },
@@ -222,6 +266,12 @@ const getCollectionById = async (id: string, user: AuthUser, platformId: string)
                     logo_url: true,
                 },
             },
+            team: {
+                columns: {
+                    id: true,
+                    name: true,
+                },
+            },
             assets: {
                 with: {
                     asset: {
@@ -274,24 +324,62 @@ const updateCollection = async (id: string, data: any, platformId: string) => {
             throw new CustomizedError(httpStatus.NOT_FOUND, "Collection not found");
         }
 
-        // Step 2: If brand_id is being updated, validate it exists and belongs to the company
-        if (data.brand_id) {
-            const [brand] = await db
-                .select()
-                .from(brands)
+        if (data.company_id !== undefined) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Collection company cannot be changed after creation"
+            );
+        }
+
+        // Step 2: Validate brand/team if they are being changed
+        if (data.brand_id !== undefined) {
+            await assertBrandBelongsToCompany(
+                data.brand_id,
+                existingCollection.company_id,
+                platformId
+            );
+        }
+
+        if (data.team_id !== undefined && data.team_id !== null) {
+            await assertTeamBelongsToCompany(
+                data.team_id,
+                existingCollection.company_id,
+                platformId
+            );
+        }
+
+        const nextBrandId = data.brand_id ?? existingCollection.brand_id;
+        const nextTeamId = data.team_id !== undefined ? data.team_id : existingCollection.team_id;
+
+        if (data.brand_id !== undefined || data.team_id !== undefined) {
+            const existingItems = await db
+                .select({
+                    asset_id: assets.id,
+                    company_id: assets.company_id,
+                    brand_id: assets.brand_id,
+                    team_id: assets.team_id,
+                })
+                .from(collectionItems)
+                .innerJoin(assets, eq(collectionItems.asset, assets.id))
                 .where(
                     and(
-                        eq(brands.id, data.brand_id),
-                        eq(brands.company_id, existingCollection.company_id),
-                        eq(brands.platform_id, platformId),
-                        eq(brands.is_active, true)
+                        eq(collectionItems.collection, id),
+                        eq(assets.platform_id, platformId),
+                        isNull(assets.deleted_at)
                     )
                 );
 
-            if (!brand) {
+            const hasMismatch = existingItems.some(
+                (item) =>
+                    item.company_id !== existingCollection.company_id ||
+                    item.brand_id !== nextBrandId ||
+                    item.team_id !== nextTeamId
+            );
+
+            if (hasMismatch) {
                 throw new CustomizedError(
-                    httpStatus.NOT_FOUND,
-                    "Brand not found or does not belong to this company"
+                    httpStatus.CONFLICT,
+                    "Collection brand/team cannot be updated because one or more assigned assets would no longer match collection identity"
                 );
             }
         }
@@ -364,23 +452,52 @@ const addCollectionItem = async (
             throw new CustomizedError(httpStatus.NOT_FOUND, "Collection not found");
         }
 
-        // Step 2: Verify asset exists and belongs to the same company
+        if (!collection.brand_id) {
+            throw new CustomizedError(
+                httpStatus.CONFLICT,
+                "Collection identity is incomplete. Set collection brand before adding assets."
+            );
+        }
+
+        // Step 2: Verify asset exists and identity matches collection
         const [asset] = await db
-            .select()
+            .select({
+                id: assets.id,
+                company_id: assets.company_id,
+                brand_id: assets.brand_id,
+                team_id: assets.team_id,
+            })
             .from(assets)
             .where(
                 and(
                     eq(assets.id, data.asset_id),
-                    eq(assets.company_id, collection.company_id),
                     eq(assets.platform_id, platformId),
                     isNull(assets.deleted_at)
                 )
             );
 
         if (!asset) {
+            throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found");
+        }
+
+        if (asset.company_id !== collection.company_id) {
             throw new CustomizedError(
-                httpStatus.NOT_FOUND,
-                "Asset not found or does not belong to this company"
+                httpStatus.CONFLICT,
+                "Asset company does not match the collection company"
+            );
+        }
+
+        if (asset.brand_id !== collection.brand_id) {
+            throw new CustomizedError(
+                httpStatus.CONFLICT,
+                "Asset brand does not match the collection brand"
+            );
+        }
+
+        if (asset.team_id !== collection.team_id) {
+            throw new CustomizedError(
+                httpStatus.CONFLICT,
+                "Asset team does not match the collection team"
             );
         }
 

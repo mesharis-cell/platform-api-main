@@ -72,6 +72,22 @@ const updateAsset = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- ADD ASSET UNITS -----------------------------------
+const addAssetUnits = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+    const { id } = req.params;
+
+    const result = await AssetServices.addAssetUnits(id as string, req.body, user, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.CREATED,
+        success: true,
+        message: "Asset units added successfully",
+        data: result,
+    });
+});
+
 // ----------------------------------- DELETE ASSET -----------------------------------
 const deleteAsset = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
@@ -294,6 +310,7 @@ export const AssetControllers = {
     getAssets,
     getAssetById,
     updateAsset,
+    addAssetUnits,
     deleteAsset,
     getAssetAvailabilityStats,
     getAssetScanHistory,

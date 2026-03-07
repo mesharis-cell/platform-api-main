@@ -1767,7 +1767,7 @@
  *     tags:
  *       - Asset Management
  *     summary: Update asset
- *     description: Updates an existing asset. ADMIN and LOGISTICS users can update assets. Tracks condition changes in condition_history. Auto-clears refurb_days_estimate when condition changes to GREEN.
+ *     description: Updates an existing asset. ADMIN and LOGISTICS users can update assets. Tracks condition changes in condition_history. Auto-clears refurb_days_estimate when condition changes to GREEN. Use add-units endpoint for INDIVIDUAL asset unit expansion.
  *     parameters:
  *       - $ref: '#/components/parameters/PlatformHeader'
  *       - name: id
@@ -2003,6 +2003,83 @@
  *                 message:
  *                   type: string
  *                   example: "Something went wrong!"
+ *     security:
+ *       - BearerAuth: []
+ */
+
+/**
+ * @swagger
+ * /api/operations/v1/asset/{id}/add-units:
+ *   post:
+ *     tags:
+ *       - Asset Management
+ *     summary: Add units to an INDIVIDUAL asset
+ *     description: Creates additional INDIVIDUAL asset rows based on the source asset, each with a new QR code and auto-suffixed name.
+ *     parameters:
+ *       - $ref: '#/components/parameters/PlatformHeader'
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [quantity]
+ *             properties:
+ *               quantity:
+ *                 type: integer
+ *                 minimum: 1
+ *                 example: 2
+ *     responses:
+ *       201:
+ *         description: Asset units added successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Asset units added successfully
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     source_asset_id:
+ *                       type: string
+ *                       format: uuid
+ *                     created_count:
+ *                       type: integer
+ *                       example: 2
+ *                     created_assets:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                             format: uuid
+ *                           name:
+ *                             type: string
+ *                           qr_code:
+ *                             type: string
+ *       400:
+ *         description: Bad request (invalid quantity or non-INDIVIDUAL source asset)
+ *       404:
+ *         description: Asset not found
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Internal Server Error
  *     security:
  *       - BearerAuth: []
  */
