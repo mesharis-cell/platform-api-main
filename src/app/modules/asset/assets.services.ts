@@ -29,6 +29,7 @@ import { qrCodeGenerator } from "../../utils/qr-code-generator";
 import queryValidator from "../../utils/query-validator";
 import {
     AddConditionHistoryPayload,
+    AddAssetUnitsPayload,
     CreateAssetPayload,
     GenerateQRCodePayload,
     SingleAssetAvailabilityResponse,
@@ -772,6 +773,128 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
 
         throw error;
     }
+};
+
+const parseAssetNameSeries = (name: string): { baseName: string; suffixNumber: number | null } => {
+    const trimmedName = name.trim();
+    const suffixMatch = trimmedName.match(/^(.*?)(?:\s+#(\d+))?$/);
+
+    const baseName = (suffixMatch?.[1] || trimmedName).trim() || trimmedName;
+    if (!suffixMatch?.[2]) {
+        return { baseName, suffixNumber: null };
+    }
+
+    const parsedSuffix = Number(suffixMatch[2]);
+    return {
+        baseName,
+        suffixNumber: Number.isFinite(parsedSuffix) ? parsedSuffix : null,
+    };
+};
+
+// ----------------------------------- ADD ASSET UNITS -----------------------------------
+const addAssetUnits = async (
+    id: string,
+    data: AddAssetUnitsPayload,
+    user: AuthUser,
+    platformId: string
+) => {
+    const [sourceAsset] = await db
+        .select()
+        .from(assets)
+        .where(
+            and(eq(assets.id, id), eq(assets.platform_id, platformId), isNull(assets.deleted_at))
+        );
+
+    if (!sourceAsset) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found");
+    }
+
+    if (sourceAsset.tracking_method !== "INDIVIDUAL") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Add units is only supported for INDIVIDUAL tracking assets"
+        );
+    }
+
+    const { baseName } = parseAssetNameSeries(sourceAsset.name);
+    const siblingRows = await db
+        .select({ name: assets.name })
+        .from(assets)
+        .where(
+            and(
+                eq(assets.platform_id, platformId),
+                eq(assets.company_id, sourceAsset.company_id),
+                isNull(assets.deleted_at),
+                ilike(assets.name, `${baseName}%`)
+            )
+        );
+
+    let maxSuffixNumber = 1;
+    for (const row of siblingRows) {
+        const parsed = parseAssetNameSeries(row.name);
+        if (parsed.baseName !== baseName) continue;
+        const normalizedSuffix = parsed.suffixNumber ?? 1;
+        if (normalizedSuffix > maxSuffixNumber) {
+            maxSuffixNumber = normalizedSuffix;
+        }
+    }
+
+    const createdAssets = await db.transaction(async (tx) => {
+        const created: Array<{ id: string; name: string; qr_code: string }> = [];
+
+        for (let index = 0; index < data.quantity; index += 1) {
+            const qrCode = await qrCodeGenerator(sourceAsset.company_id);
+            const unitName = `${baseName} #${maxSuffixNumber + index + 1}`;
+
+            const [createdAsset] = await tx
+                .insert(assets)
+                .values({
+                    platform_id: sourceAsset.platform_id,
+                    company_id: sourceAsset.company_id,
+                    warehouse_id: sourceAsset.warehouse_id,
+                    zone_id: sourceAsset.zone_id,
+                    brand_id: sourceAsset.brand_id,
+                    team_id: sourceAsset.team_id,
+                    name: unitName,
+                    description: sourceAsset.description,
+                    category: sourceAsset.category,
+                    images: sourceAsset.images || [],
+                    on_display_image: sourceAsset.on_display_image,
+                    tracking_method: sourceAsset.tracking_method,
+                    total_quantity: sourceAsset.total_quantity,
+                    available_quantity: sourceAsset.available_quantity,
+                    qr_code: qrCode,
+                    packaging: sourceAsset.packaging,
+                    weight_per_unit: sourceAsset.weight_per_unit,
+                    dimensions: sourceAsset.dimensions || {},
+                    volume_per_unit: sourceAsset.volume_per_unit,
+                    condition: sourceAsset.condition,
+                    condition_notes: sourceAsset.condition_notes,
+                    refurb_days_estimate: sourceAsset.refurb_days_estimate,
+                    handling_tags: sourceAsset.handling_tags || [],
+                    status: sourceAsset.status,
+                })
+                .returning({
+                    id: assets.id,
+                    name: assets.name,
+                    qr_code: assets.qr_code,
+                });
+
+            created.push(createdAsset);
+        }
+
+        return created;
+    });
+
+    for (const createdAsset of createdAssets) {
+        await createAssetVersionSnapshot(createdAsset.id, platformId, "Added units", user.id);
+    }
+
+    return {
+        source_asset_id: sourceAsset.id,
+        created_count: createdAssets.length,
+        created_assets: createdAssets,
+    };
 };
 
 // ----------------------------------- DELETE ASSET ---------------------------------------
@@ -2142,6 +2265,7 @@ export const AssetServices = {
     getAssets,
     getAssetById,
     updateAsset,
+    addAssetUnits,
     deleteAsset,
     getAssetAvailabilityStats,
     getAssetScanHistory,

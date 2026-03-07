@@ -142,6 +142,16 @@ router.patch(
     AssetControllers.updateAsset
 );
 
+// Add units to an INDIVIDUAL asset (creates new unit rows with unique QR codes)
+router.post(
+    "/:id/add-units",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.ASSETS_UPDATE),
+    payloadValidator(AssetSchemas.addAssetUnitsSchema),
+    AssetControllers.addAssetUnits
+);
+
 // Delete asset
 router.delete(
     "/:id",
