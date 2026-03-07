@@ -648,6 +648,7 @@ export const collections = pgTable(
             .notNull()
             .references(() => companies.id),
         brand_id: uuid("brand").references(() => brands.id),
+        team_id: uuid("team").references(() => teams.id, { onDelete: "set null" }),
         name: varchar("name", { length: 200 }).notNull(),
         description: text("description"),
         images: text("images")
@@ -662,7 +663,10 @@ export const collections = pgTable(
             .notNull(),
         deleted_at: timestamp("deleted_at"),
     },
-    (table) => [index("collections_company_idx").on(table.company_id)]
+    (table) => [
+        index("collections_company_idx").on(table.company_id),
+        index("collections_team_idx").on(table.team_id),
+    ]
 );
 
 export const collectionRelations = relations(collections, ({ one, many }) => ({
@@ -677,6 +681,10 @@ export const collectionRelations = relations(collections, ({ one, many }) => ({
     brand: one(brands, {
         fields: [collections.brand_id],
         references: [brands.id],
+    }),
+    team: one(teams, {
+        fields: [collections.team_id],
+        references: [teams.id],
     }),
     assets: many(collectionItems),
     orders: many(orders),

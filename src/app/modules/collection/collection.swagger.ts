@@ -16,6 +16,8 @@
  *             type: object
  *             required:
  *               - company_id
+ *               - brand_id
+ *               - team_id
  *               - name
  *             properties:
  *               company_id:
@@ -26,8 +28,14 @@
  *               brand_id:
  *                 type: string
  *                 format: uuid
- *                 description: Brand ID (optional)
+ *                 description: Brand ID (required)
  *                 example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *               team_id:
+ *                 type: string
+ *                 format: uuid
+ *                 nullable: true
+ *                 description: Team ID for collection identity. Use null for shared team collections.
+ *                 example: "d4f5a6b7-c8d9-4012-9f01-23456789abcd"
  *               name:
  *                 type: string
  *                 minLength: 1
@@ -86,8 +94,12 @@
  *                     brand_id:
  *                       type: string
  *                       format: uuid
- *                       nullable: true
  *                       example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *                     team_id:
+ *                       type: string
+ *                       format: uuid
+ *                       nullable: true
+ *                       example: "d4f5a6b7-c8d9-4012-9f01-23456789abcd"
  *                     name:
  *                       type: string
  *                       example: "Event Package - Corporate"
@@ -646,7 +658,10 @@
  *     tags:
  *       - Collection Management
  *     summary: Update a collection
- *     description: Updates an existing collection's information. Only ADMIN and LOGISTICS users can update collections. All fields are optional - only provided fields will be updated.
+ *     description: |
+ *       Updates an existing collection's information. Only ADMIN and LOGISTICS users can update collections.
+ *       If brand/team identity is changed, all existing assigned assets must still match the resulting
+ *       company+brand+team identity, otherwise update is rejected.
  *     parameters:
  *       - $ref: '#/components/parameters/PlatformHeader'
  *       - name: id
@@ -669,6 +684,12 @@
  *                 format: uuid
  *                 description: Brand ID
  *                 example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *               team_id:
+ *                 type: string
+ *                 format: uuid
+ *                 nullable: true
+ *                 description: Team ID for collection identity. Use null for shared team collections.
+ *                 example: "d4f5a6b7-c8d9-4012-9f01-23456789abcd"
  *               name:
  *                 type: string
  *                 minLength: 1
@@ -728,6 +749,11 @@
  *                       format: uuid
  *                       nullable: true
  *                       example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ *                     team_id:
+ *                       type: string
+ *                       format: uuid
+ *                       nullable: true
+ *                       example: "d4f5a6b7-c8d9-4012-9f01-23456789abcd"
  *                     name:
  *                       type: string
  *                       example: "Event Package - Premium Corporate"
@@ -923,7 +949,10 @@
  *     tags:
  *       - Collection Management
  *     summary: Add an item to a collection
- *     description: Adds an asset to a collection with specified quantity and display order. Only ADMIN and LOGISTICS users can add items.
+ *     description: |
+ *       Adds an asset to a collection with specified quantity and display order.
+ *       Asset identity must match collection identity exactly (company + brand + team, including null team matching).
+ *       Only ADMIN and LOGISTICS users can add items.
  *     parameters:
  *       - $ref: '#/components/parameters/PlatformHeader'
  *       - name: id
@@ -1046,7 +1075,7 @@
  *                   type: string
  *                   example: "Collection not found"
  *       409:
- *         description: Conflict - Asset already exists in collection
+ *         description: Conflict - Asset already exists in collection or asset identity does not match collection identity
  *         content:
  *           application/json:
  *             schema:
@@ -1057,7 +1086,7 @@
  *                   example: false
  *                 message:
  *                   type: string
- *                   example: "This asset is already in the collection"
+ *                   example: "Asset brand does not match the collection brand"
  *       500:
  *         description: Internal server error
  *         content:

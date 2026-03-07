@@ -4,7 +4,8 @@ const collectionSchema = z.object({
     body: z
         .object({
             company_id: z.uuid({ message: "Company ID must be a valid UUID" }),
-            brand_id: z.uuid({ message: "Brand ID must be a valid UUID" }).optional(),
+            brand_id: z.uuid({ message: "Brand ID must be a valid UUID" }),
+            team_id: z.union([z.uuid({ message: "Team ID must be a valid UUID" }), z.null()]),
             name: z
                 .string({ message: "Name is required" })
                 .min(1, { message: "Name is required" })
@@ -24,6 +25,9 @@ const updateCollectionSchema = z.object({
     body: z
         .object({
             brand_id: z.uuid({ message: "Brand ID must be a valid UUID" }).optional(),
+            team_id: z
+                .union([z.uuid({ message: "Team ID must be a valid UUID" }), z.null()])
+                .optional(),
             name: z
                 .string({ message: "Name cannot be empty" })
                 .min(1, { message: "Name cannot be empty" })

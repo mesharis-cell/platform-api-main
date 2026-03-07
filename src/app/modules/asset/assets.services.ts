@@ -16,6 +16,7 @@ import {
     scanEvents,
     serviceRequests,
     selfBookingItems,
+    teams,
     users,
     warehouses,
     zones,
@@ -118,6 +119,27 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
             }
         }
 
+        // Step 2b: Validate team if provided
+        if (data.team_id) {
+            const [team] = await db
+                .select()
+                .from(teams)
+                .where(
+                    and(
+                        eq(teams.id, data.team_id),
+                        eq(teams.company_id, data.company_id),
+                        eq(teams.platform_id, data.platform_id)
+                    )
+                );
+
+            if (!team) {
+                throw new CustomizedError(
+                    httpStatus.NOT_FOUND,
+                    "Team not found or does not belong to the specified company"
+                );
+            }
+        }
+
         // Promote any draft S3 images to permanent paths
         if (data.images && data.images.length > 0)
             data.images = await promoteDraftImages(
@@ -154,6 +176,7 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
                         warehouse_id: data.warehouse_id,
                         zone_id: data.zone_id,
                         brand_id: data.brand_id || null,
+                        team_id: data.team_id ?? null,
                         name: `${data.name} #${i + 1}`, // Add unit number to name
                         description: data.description || null,
                         category: data.category,
@@ -213,6 +236,7 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
             weight_per_unit: data.weight_per_unit.toString(),
             volume_per_unit: data.volume_per_unit.toString(),
             brand_id: data.brand_id || null,
+            team_id: data.team_id ?? null,
             description: data.description || null,
             images: data.images || [],
             on_display_image: data.on_display_image || null,
