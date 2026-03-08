@@ -169,6 +169,13 @@
             "when": 1772817600000,
             "tag": "0023_collection_team_identity",
             "breakpoints": true
+        },
+        {
+            "idx": 24,
+            "version": "7",
+            "when": 1772887200000,
+            "tag": "0024_workflow_attachments_permits_system_lines",
+            "breakpoints": true
         }
     ]
 }

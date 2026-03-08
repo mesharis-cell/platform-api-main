@@ -1,8 +1,9 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../db";
 import {
     companies,
+    inboundRequestItems,
     inboundRequests,
     lineItems,
     orders,
@@ -15,12 +16,18 @@ import CustomizedError from "../error/customized-error";
 import { eventBus } from "../events/event-bus";
 import { EVENT_TYPES } from "../events/event-types";
 import { applyMarginPerLine, roundCurrency } from "../utils/pricing-engine";
+import { lineItemIdGenerator } from "../modules/order-line-items/order-line-items.utils";
 
 export type PricedEntityType = "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST";
 type PricingRole = "ADMIN" | "LOGISTICS" | "CLIENT";
 
 type BreakdownLineKind = "BASE_OPS" | "RATE_CARD" | "CUSTOM";
-type BreakdownSourceMode = "WAREHOUSE_OPS_RATE" | "SERVICE_TYPE" | "MANUAL" | "LEGACY_MIGRATION";
+type BreakdownSourceMode =
+    | "WAREHOUSE_OPS_RATE"
+    | "SERVICE_TYPE"
+    | "MANUAL"
+    | "LEGACY_MIGRATION"
+    | "SYSTEM_LINE_ITEM";
 
 type BreakdownLine = {
     line_id: string;
@@ -105,6 +112,7 @@ type RawLineItem = {
     isVoided?: boolean | null;
     line_item_type?: string | null;
     lineItemType?: string | null;
+    system_key?: string | null;
     client_price_visible?: boolean | null;
     clientPriceVisible?: boolean | null;
     [key: string]: unknown;
@@ -250,65 +258,6 @@ const calculateBreakdownTotals = (lines: BreakdownLine[], vatPercent = 0): Break
     return totals;
 };
 
-const buildBaseOpsLine = ({
-    baseOpsTotal,
-    warehouseOpsRate,
-    marginPercent,
-    actorId,
-    volume,
-    now,
-}: {
-    baseOpsTotal: number;
-    warehouseOpsRate: number;
-    marginPercent: number;
-    actorId: string;
-    volume?: number;
-    now: Date;
-}): BreakdownLine => {
-    const qty =
-        volume !== undefined
-            ? roundCurrency(volume)
-            : warehouseOpsRate > 0
-              ? roundCurrency(baseOpsTotal / warehouseOpsRate)
-              : 0;
-    const sellTotal = applyMarginPerLine(baseOpsTotal, marginPercent);
-    const buyUnitPrice =
-        qty > 0 ? roundCurrency(baseOpsTotal / qty) : roundCurrency(warehouseOpsRate);
-    const sellUnitPrice =
-        qty > 0 ? roundCurrency(sellTotal / qty) : applyMarginPerLine(buyUnitPrice, marginPercent);
-    const label = qty > 0 ? `Picking & Handling (${qty.toFixed(3)} m³)` : "Picking & Handling";
-
-    return {
-        line_id: "BASE_OPS",
-        line_kind: "BASE_OPS",
-        category: "BASE_OPS",
-        label,
-        quantity: qty,
-        unit: "m3",
-        buy_unit_price: buyUnitPrice,
-        buy_total: roundCurrency(baseOpsTotal),
-        sell_unit_price: sellUnitPrice,
-        sell_total: sellTotal,
-        billing_mode: "BILLABLE",
-        source: {
-            mode: "WAREHOUSE_OPS_RATE",
-            service_type_id: null,
-            service_type_name_snapshot: null,
-            service_type_rate_snapshot: roundCurrency(warehouseOpsRate),
-        },
-        is_voided: false,
-        notes: null,
-        created_by: actorId,
-        created_at: now.toISOString(),
-        updated_by: actorId,
-        updated_at: now.toISOString(),
-        voided_by: null,
-        voided_at: null,
-        void_reason: null,
-        client_price_visible: false,
-    };
-};
-
 const getLineItemCondition = (entityType: PricedEntityType, entityId: string) => {
     if (entityType === "ORDER") return eq(lineItems.order_id, entityId);
     if (entityType === "INBOUND_REQUEST") return eq(lineItems.inbound_request_id, entityId);
@@ -323,8 +272,10 @@ const loadEntityLineItems = async (
 ) =>
     executor
         .select({
+            id: lineItems.id,
             line_item_id: lineItems.line_item_id,
             line_item_type: lineItems.line_item_type,
+            system_key: lineItems.system_key,
             category: lineItems.category,
             description: lineItems.description,
             quantity: lineItems.quantity,
@@ -369,11 +320,21 @@ const buildBreakdownLinesFromLineItems = (
                 ? roundCurrency(sellTotal / quantity)
                 : applyMarginPerLine(buyUnitPrice, marginPercent);
         const nowIso = new Date().toISOString();
+        const systemKey = item.system_key ? String(item.system_key) : null;
+        const isSystemBaseOps = item.line_item_type === "SYSTEM" && systemKey === "BASE_OPS";
         return {
             line_id: String(item.line_item_id || ""),
-            line_kind: item.line_item_type === "CATALOG" ? "RATE_CARD" : "CUSTOM",
-            category: String(item.category || "OTHER"),
-            label: String(item.description || ""),
+            line_kind: isSystemBaseOps
+                ? "BASE_OPS"
+                : item.line_item_type === "CATALOG"
+                  ? "RATE_CARD"
+                  : "CUSTOM",
+            category: isSystemBaseOps ? "BASE_OPS" : String(item.category || "OTHER"),
+            label: isSystemBaseOps
+                ? quantity > 0
+                    ? `Picking & Handling (${quantity.toFixed(3)} m³)`
+                    : "Picking & Handling"
+                : String(item.description || ""),
             quantity,
             unit: String(item.unit || "service"),
             buy_unit_price: buyUnitPrice,
@@ -382,7 +343,11 @@ const buildBreakdownLinesFromLineItems = (
             sell_total: sellTotal,
             billing_mode: (String(item.billing_mode || "BILLABLE") as any) || "BILLABLE",
             source: {
-                mode: item.line_item_type === "CATALOG" ? "SERVICE_TYPE" : "MANUAL",
+                mode: isSystemBaseOps
+                    ? "SYSTEM_LINE_ITEM"
+                    : item.line_item_type === "CATALOG"
+                      ? "SERVICE_TYPE"
+                      : "MANUAL",
                 service_type_id: item.service_type_id ? String(item.service_type_id) : null,
                 service_type_name_snapshot: item.service_type_name
                     ? String(item.service_type_name)
@@ -408,6 +373,118 @@ const buildBreakdownLinesFromLineItems = (
             client_price_visible: !!item.client_price_visible,
         };
     });
+
+const computeBaseOpsTotal = (volume: number | undefined, warehouseOpsRate: number) =>
+    roundCurrency(roundCurrency(volume || 0) * roundCurrency(warehouseOpsRate));
+
+const syncSystemBaseLineItem = async (
+    executor: any,
+    params: {
+        entityType: PricedEntityType;
+        entityId: string;
+        platformId: string;
+        addedBy: string;
+        companyOpsRate: number;
+        volume?: number;
+        enableBaseOperations: boolean;
+        baseOpsTotalOverride?: number;
+    }
+) => {
+    if (params.entityType === "SERVICE_REQUEST") return null;
+
+    const baseTotal =
+        params.baseOpsTotalOverride !== undefined
+            ? roundCurrency(params.baseOpsTotalOverride)
+            : computeBaseOpsTotal(params.volume, params.companyOpsRate);
+    const condition =
+        params.entityType === "ORDER"
+            ? eq(lineItems.order_id, params.entityId)
+            : eq(lineItems.inbound_request_id, params.entityId);
+
+    const [existing] = await executor
+        .select()
+        .from(lineItems)
+        .where(
+            and(
+                eq(lineItems.platform_id, params.platformId),
+                condition,
+                eq(lineItems.line_item_type, "SYSTEM"),
+                eq(lineItems.system_key, "BASE_OPS")
+            )
+        )
+        .limit(1);
+
+    if (!params.enableBaseOperations || baseTotal <= 0) {
+        if (existing && !existing.is_voided) {
+            await executor
+                .update(lineItems)
+                .set({
+                    is_voided: true,
+                    voided_at: new Date(),
+                    voided_by: params.addedBy,
+                    void_reason: "Base operations disabled or zero total",
+                    updated_at: new Date(),
+                })
+                .where(eq(lineItems.id, existing.id));
+        }
+        return null;
+    }
+
+    const quantity = roundCurrency(params.volume || 0);
+    const unitRate =
+        quantity > 0 ? roundCurrency(baseTotal / quantity) : roundCurrency(params.companyOpsRate);
+
+    const values = {
+        quantity: quantity.toFixed(2),
+        unit: "m3",
+        unit_rate: unitRate.toFixed(2),
+        total: baseTotal.toFixed(2),
+        category: "HANDLING" as const,
+        description: "Picking & Handling",
+        billing_mode: "BILLABLE" as const,
+        notes: null,
+        metadata: {
+            generated_by: "pricing_service",
+            volume_snapshot: quantity,
+            warehouse_ops_rate_snapshot: roundCurrency(params.companyOpsRate),
+        },
+        client_price_visible: false,
+        is_voided: false,
+        voided_at: null,
+        voided_by: null,
+        void_reason: null,
+        updated_at: new Date(),
+    };
+
+    if (existing) {
+        const [updated] = await executor
+            .update(lineItems)
+            .set(values)
+            .where(eq(lineItems.id, existing.id))
+            .returning();
+        return updated;
+    }
+
+    const lineItemId = await lineItemIdGenerator(params.platformId, executor);
+    const [inserted] = await executor
+        .insert(lineItems)
+        .values({
+            platform_id: params.platformId,
+            line_item_id: lineItemId,
+            order_id: params.entityType === "ORDER" ? params.entityId : null,
+            inbound_request_id: params.entityType === "INBOUND_REQUEST" ? params.entityId : null,
+            service_request_id: null,
+            purpose_type: params.entityType,
+            service_type_id: null,
+            line_item_type: "SYSTEM",
+            system_key: "BASE_OPS",
+            added_by: params.addedBy,
+            ...values,
+        })
+        .returning();
+
+    return inserted;
+};
 
 const resolveEntityContext = async (
     executor: any,
@@ -472,6 +549,12 @@ const resolveEntityContext = async (
             )
             .limit(1);
         if (!row) throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found");
+        const [volumeRow] = await executor
+            .select({
+                total_volume: sql<string>`COALESCE(SUM(${inboundRequestItems.quantity} * ${inboundRequestItems.volume_per_unit}), 0)`,
+            })
+            .from(inboundRequestItems)
+            .where(eq(inboundRequestItems.inbound_request_id, entityId));
         return {
             entity_id: row.entity_id,
             pricing_id: row.pricing_id as string | null,
@@ -483,7 +566,7 @@ const resolveEntityContext = async (
                     ? toNum(row.company_vat_percent_override)
                     : toNum(row.platform_vat_percent),
             created_by: String(row.created_by),
-            volume: undefined,
+            volume: toNum(volumeRow?.total_volume),
             enable_base_operations:
                 ((row.company_features as Record<string, unknown> | null)
                     ?.enable_base_operations as boolean | undefined) ?? true,
@@ -588,27 +671,14 @@ const ensurePricingRow = async (
 
 const buildInitialPricing = (params: BuildInitialPricingParams) => {
     const now = new Date();
-    const baseOpsTotal = roundCurrency(params.base_ops_total);
     const marginPercent = roundCurrency(params.margin_percent);
     const vatPercent = roundCurrency(toNum(params.vat_percent));
-    const opsRate = roundCurrency(toNum(params.warehouse_ops_rate));
-    const baseLine =
-        params.enable_base_operations === false
-            ? null
-            : buildBaseOpsLine({
-                  baseOpsTotal,
-                  warehouseOpsRate: opsRate,
-                  marginPercent,
-                  actorId: params.calculated_by,
-                  volume: params.volume,
-                  now,
-              });
 
     return {
         platform_id: params.platform_id,
         entity_type: params.entity_type,
         entity_id: params.entity_id,
-        breakdown_lines: baseLine ? [baseLine] : [],
+        breakdown_lines: [],
         margin_percent: marginPercent.toFixed(2),
         vat_percent: vatPercent.toFixed(2),
         margin_is_override: false,
@@ -650,13 +720,6 @@ const rebuildBreakdown = async (params: RebuildBreakdownParams) => {
         .where(eq(prices.id, pricingId))
         .limit(1);
 
-    const existingLines = parseBreakdownLines(pricingRow?.breakdown_lines);
-    const existingBaseOps = existingLines.find((line) => line.line_kind === "BASE_OPS");
-    const baseOpsTotal =
-        params.base_ops_total_override !== undefined
-            ? roundCurrency(params.base_ops_total_override)
-            : roundCurrency(existingBaseOps?.buy_total || 0);
-
     let marginPercent = context.company_margin;
     let marginIsOverride = false;
     let marginOverrideReason: string | null = null;
@@ -676,17 +739,16 @@ const rebuildBreakdown = async (params: RebuildBreakdownParams) => {
     }
 
     const now = new Date();
-    const baseLine =
-        context.enable_base_operations === false
-            ? null
-            : buildBaseOpsLine({
-                  baseOpsTotal,
-                  warehouseOpsRate: context.company_ops_rate,
-                  marginPercent,
-                  actorId: params.calculated_by,
-                  volume: context.volume,
-                  now,
-              });
+    await syncSystemBaseLineItem(executor, {
+        entityType: params.entity_type,
+        entityId: params.entity_id,
+        platformId: params.platform_id,
+        addedBy: params.calculated_by,
+        companyOpsRate: context.company_ops_rate,
+        volume: context.volume,
+        enableBaseOperations: context.enable_base_operations,
+        baseOpsTotalOverride: params.base_ops_total_override,
+    });
     const rawLineItems = await loadEntityLineItems(
         executor,
         params.entity_type,
@@ -694,7 +756,7 @@ const rebuildBreakdown = async (params: RebuildBreakdownParams) => {
         params.platform_id
     );
     const pricingLines = buildBreakdownLinesFromLineItems(rawLineItems as any, marginPercent);
-    const breakdownLines = [...(baseLine ? [baseLine] : []), ...pricingLines];
+    const breakdownLines = pricingLines;
 
     await executor
         .update(prices)
@@ -923,6 +985,7 @@ const sumLineItems = (items: RawLineItem[]) => {
         if (voided || billing !== "BILLABLE") continue;
         const total = toNum(item.total);
         const type = item.line_item_type ?? item.lineItemType ?? "CATALOG";
+        if (type === "SYSTEM") continue;
         if (type === "CUSTOM") custom += total;
         else catalog += total;
     }

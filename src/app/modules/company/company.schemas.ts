@@ -9,6 +9,15 @@ const settingsSchema = z.object({
             secondary_color: z.string().optional(),
         })
         .default({}),
+    feasibility: z
+        .object({
+            minimum_lead_hours: z
+                .number("Lead time override should be a number")
+                .int("Lead time override must be a whole number")
+                .min(0, "Lead time override must be 0 or greater")
+                .optional(),
+        })
+        .default({}),
 });
 
 const createCompany = z.object({

@@ -24,6 +24,9 @@ import { TeamRoutes } from "../modules/team/team.routes";
 import { CompanyDomainRoutes } from "../modules/company-domain/company-domain.routes";
 import { OrderTransportTripsRoutes } from "../modules/order-transport-trips/order-transport-trips.routes";
 import { LineItemRequestsRoutes } from "../modules/line-item-requests/line-item-requests.routes";
+import { AttachmentTypesRoutes } from "../modules/attachment-types/attachment-types.routes";
+import { AttachmentsRoutes } from "../modules/attachments/attachments.routes";
+import { WorkflowRequestRoutes } from "../modules/workflow-request/workflow-request.routes";
 
 const router = Router();
 
@@ -103,6 +106,18 @@ const routes = [
     {
         path: "/line-item-requests",
         route: LineItemRequestsRoutes,
+    },
+    {
+        path: "/attachment-types",
+        route: AttachmentTypesRoutes,
+    },
+    {
+        path: "/attachments",
+        route: AttachmentsRoutes,
+    },
+    {
+        path: "/workflow-request",
+        route: WorkflowRequestRoutes,
     },
     {
         path: "/order",

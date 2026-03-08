@@ -276,6 +276,7 @@ const calculateEstimate = async (
 // -------------------------------- CHECK MAINTENANCE FEASIBILITY -----------------------------
 const checkMaintenanceFeasibility = async (
     platformId: string,
+    companyId: string | null,
     payload: CheckMaintenanceFeasibilityPayload
 ): Promise<{
     feasible: boolean;
@@ -297,6 +298,7 @@ const checkMaintenanceFeasibility = async (
 }> => {
     const feasibility = await validateMaintenanceFeasibilityForAssets(
         platformId,
+        companyId,
         payload.items,
         payload.event_start_date
     );
@@ -335,6 +337,7 @@ const submitOrderFromCart = async (
         contact_email,
         contact_phone,
         venue_access_notes,
+        permit_requirements,
         special_instructions,
     } = payload;
 
@@ -401,6 +404,7 @@ const submitOrderFromCart = async (
 
     const maintenanceFeasibility = await validateMaintenanceFeasibilityForAssets(
         platformId,
+        companyId,
         items.map((item) => ({
             asset_id: item.asset_id,
             maintenance_decision: item.maintenance_decision,
@@ -563,6 +567,8 @@ const submitOrderFromCart = async (
                     address: venue_address,
                     access_notes: venue_access_notes || null,
                 },
+                permit_requirements:
+                    permit_requirements?.requires_permit === true ? permit_requirements : null,
                 special_instructions: special_instructions || null,
                 calculated_totals: {
                     volume: calculatedVolume,
@@ -638,6 +644,14 @@ const submitOrderFromCart = async (
         });
 
         return order;
+    });
+
+    await PricingService.rebuildBreakdown({
+        entity_type: "ORDER",
+        entity_id: orderResult.id,
+        platform_id: platformId,
+        calculated_by: user.id,
+        base_ops_total_override: baseOpsTotal,
     });
 
     // Step 7: Emit order.submitted event

@@ -82,6 +82,7 @@ import {
 // Auth templates
 import { passwordResetOtp } from "./auth";
 import { lineItemRequestSubmittedAdmin } from "./line-item-request";
+import { workflowRequestSubmittedAdmin } from "./workflow-request";
 
 const registry: Record<string, EmailTemplate> = {
     // Orders
@@ -153,6 +154,7 @@ const registry: Record<string, EmailTemplate> = {
 
     // Line item requests
     line_item_request_submitted_admin: lineItemRequestSubmittedAdmin,
+    workflow_request_submitted_admin: workflowRequestSubmittedAdmin,
 };
 
 export function renderTemplate(

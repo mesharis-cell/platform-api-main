@@ -458,6 +458,12 @@ const updateLineItem = async (
     if (existing.is_voided) {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Cannot update voided line item");
     }
+    if (existing.line_item_type === "SYSTEM") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "System-generated line items are recalculated automatically and cannot be edited directly"
+        );
+    }
 
     const editability = await getLineItemEditability(existing, platformId);
     const pricingFieldRequested =
@@ -603,6 +609,12 @@ const patchLineItemMetadata = async (
     }
     if (existing.is_voided) {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Cannot update voided line item");
+    }
+    if (existing.line_item_type === "SYSTEM") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "System-generated line items are recalculated automatically and cannot be edited directly"
+        );
     }
 
     const [result] = await db
@@ -781,6 +793,12 @@ const voidLineItem = async (id: string, platformId: string, data: VoidLineItemPa
     if (existing.is_voided) {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Line item is already voided");
     }
+    if (existing.line_item_type === "SYSTEM") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "System-generated line items cannot be voided manually"
+        );
+    }
 
     const editability = await getLineItemEditability(existing, platformId);
     if (!editability.can_edit_pricing_fields) {
@@ -875,7 +893,7 @@ const calculateOrderLineItemsTotals = async (
         const itemTotal = parseFloat(item.total);
         if (item.line_item_type === "CATALOG") {
             catalogTotal += itemTotal;
-        } else {
+        } else if (item.line_item_type === "CUSTOM") {
             customTotal += itemTotal;
         }
     }
@@ -910,7 +928,7 @@ const calculateInboundRequestLineItemsTotals = async (
         const itemTotal = parseFloat(item.total);
         if (item.line_item_type === "CATALOG") {
             catalogTotal += itemTotal;
-        } else {
+        } else if (item.line_item_type === "CUSTOM") {
             customTotal += itemTotal;
         }
     }
@@ -944,7 +962,7 @@ const calculateServiceRequestLineItemsTotals = async (
         const itemTotal = parseFloat(item.total);
         if (item.line_item_type === "CATALOG") {
             catalogTotal += itemTotal;
-        } else {
+        } else if (item.line_item_type === "CUSTOM") {
             customTotal += itemTotal;
         }
     }

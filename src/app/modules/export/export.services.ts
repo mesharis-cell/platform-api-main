@@ -273,16 +273,6 @@ const contextToReconciliationRows = (ctx: NormalizedCommercialDocumentContext) =
         Company: ctx.company.name,
         "Context Name": ctx.context_type === "ORDER" ? ctx.venue.name : "Service Request",
     };
-    const baseOpsKNumber = `K-BASE-${ctx.reference_id}`;
-
-    rows.push({
-        ...shared,
-        "K-Number": baseOpsKNumber,
-        Description: "Picking & Handling",
-        "Buy Price": formatMoney(ctx.pricing.buy.base_ops_total),
-        "Sell Price": formatMoney(ctx.pricing.sell.base_ops_total),
-        Margin: formatMoney(ctx.pricing.sell.base_ops_total - ctx.pricing.buy.base_ops_total),
-    });
 
     for (const li of ctx.line_items) {
         rows.push({

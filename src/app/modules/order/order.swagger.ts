@@ -2173,6 +2173,36 @@
  *                 type: string
  *                 description: Optional special instructions for the order
  *                 example: "Please deliver items 2 days before event start"
+ *               permit_requirements:
+ *                 type: object
+ *                 description: Optional permit or access coordination requirements for the venue
+ *                 properties:
+ *                   requires_permit:
+ *                     type: boolean
+ *                     example: true
+ *                   permit_owner:
+ *                     type: string
+ *                     enum: [CLIENT, PLATFORM, UNKNOWN]
+ *                     example: "CLIENT"
+ *                   venue_contact_name:
+ *                     type: string
+ *                     example: "Venue Operations Desk"
+ *                   venue_contact_email:
+ *                     type: string
+ *                     format: email
+ *                     example: "ops@venue.example"
+ *                   venue_contact_phone:
+ *                     type: string
+ *                     example: "+971500000000"
+ *                   requires_vehicle_docs:
+ *                     type: boolean
+ *                     example: true
+ *                   requires_staff_ids:
+ *                     type: boolean
+ *                     example: false
+ *                   notes:
+ *                     type: string
+ *                     example: "Permit confirmation is required 48 hours before delivery. Additional charges may apply."
  *           examples:
  *             singleItem:
  *               summary: Order with single item
@@ -2210,6 +2240,15 @@
  *                 contactEmail: "jane.smith@example.com"
  *                 contactPhone: "+971509876543"
  *                 specialInstructions: "Please deliver 48 hours before event"
+ *                 permit_requirements:
+ *                   requires_permit: true
+ *                   permit_owner: "CLIENT"
+ *                   venue_contact_name: "Venue Security"
+ *                   venue_contact_email: "security@venue.example"
+ *                   venue_contact_phone: "+971501111111"
+ *                   requires_vehicle_docs: true
+ *                   requires_staff_ids: true
+ *                   notes: "Provide vehicle plate details before access can be issued."
  *     responses:
  *       201:
  *         description: Order submitted successfully

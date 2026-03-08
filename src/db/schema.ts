@@ -113,7 +113,8 @@ export const scanTypeEnum = pgEnum("scan_type", [
     "ON_SITE_CAPTURE",
 ]);
 export const discrepancyReasonEnum = pgEnum("discrepancy_reason", ["BROKEN", "LOST", "OTHER"]);
-export const lineItemTypeEnum = pgEnum("line_item_type", ["CATALOG", "CUSTOM"]);
+export const lineItemTypeEnum = pgEnum("line_item_type", ["CATALOG", "CUSTOM", "SYSTEM"]);
+export const systemLineKeyEnum = pgEnum("system_line_key", ["BASE_OPS"]);
 export const billingModeEnum = pgEnum("billing_mode", [
     "BILLABLE",
     "NON_BILLABLE",
@@ -181,6 +182,25 @@ export const serviceRequestLinkModeEnum = pgEnum("service_request_link_mode", [
     "BUNDLED_WITH_ORDER",
     "SEPARATE_CHANGE_REQUEST",
 ]);
+export const workflowRequestEntityTypeEnum = pgEnum("workflow_request_entity_type", [
+    "ORDER",
+    "INBOUND_REQUEST",
+    "SERVICE_REQUEST",
+]);
+export const workflowRequestKindEnum = pgEnum("workflow_request_kind", ["ARTWORK_SUPPORT"]);
+export const workflowRequestStatusEnum = pgEnum("workflow_request_status", [
+    "REQUESTED",
+    "ACKNOWLEDGED",
+    "IN_PROGRESS",
+    "COMPLETED",
+    "CANCELLED",
+]);
+export const attachmentEntityTypeEnum = pgEnum("attachment_entity_type", [
+    "ORDER",
+    "INBOUND_REQUEST",
+    "SERVICE_REQUEST",
+    "WORKFLOW_REQUEST",
+]);
 
 // ---------------------------------- PLATFORM -------------------------------------------
 // Config structure:
@@ -231,6 +251,9 @@ export const platformsRelations = relations(platforms, ({ many }) => ({
     companies: many(companies),
     users: many(users),
     warehouses: many(warehouses),
+    workflow_requests: many(workflowRequests),
+    attachment_types: many(attachmentTypes),
+    entity_attachments: many(entityAttachments),
 }));
 
 // ---------------------------------- COMPANY & COMPANY DOMAINS ---------------------------
@@ -319,6 +342,8 @@ export const companiesRelations = relations(companies, ({ one, many }) => ({
     assets: many(assets),
     collections: many(collections),
     orders: many(orders),
+    inbound_requests: many(inboundRequests),
+    service_requests: many(serviceRequests),
     users: many(users),
     line_item_requests: many(lineItemRequests),
 }));
@@ -789,6 +814,7 @@ export const orders = pgTable(
             .notNull()
             .references(() => cities.id),
         venue_location: jsonb("venue_location").notNull(), // {country, city, address, access_notes}
+        permit_requirements: jsonb("permit_requirements"),
         special_instructions: text("special_instructions"),
 
         // Logistics windows
@@ -844,6 +870,8 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
     line_items: many(lineItems),
     transport_trips: many(orderTransportTrips),
     line_item_requests: many(lineItemRequests),
+    workflow_requests: many(workflowRequests),
+    attachments: many(entityAttachments),
     scan_events: many(scanEvents),
     asset_bookings: many(assetBookings),
     order_status_history: many(orderStatusHistory),
@@ -928,6 +956,7 @@ export const lineItems = pgTable(
 
         // Item details
         line_item_type: lineItemTypeEnum("line_item_type").notNull(),
+        system_key: systemLineKeyEnum("system_key"),
         billing_mode: billingModeEnum("billing_mode").notNull().default("BILLABLE"),
         category: serviceCategoryEnum("category").notNull(),
         description: varchar("description", { length: 200 }).notNull(),
@@ -968,6 +997,21 @@ export const lineItems = pgTable(
         index("line_items_inbound_request_idx").on(table.inbound_request_id),
         index("line_items_service_request_idx").on(table.service_request_id),
         index("line_items_active_idx").on(table.order_id, table.is_voided),
+        uniqueIndex("line_items_order_system_key_unique")
+            .on(table.platform_id, table.order_id, table.system_key)
+            .where(
+                sql`${table.order_id} is not null and ${table.system_key} is not null and ${table.is_voided} = false`
+            ),
+        uniqueIndex("line_items_inbound_system_key_unique")
+            .on(table.platform_id, table.inbound_request_id, table.system_key)
+            .where(
+                sql`${table.inbound_request_id} is not null and ${table.system_key} is not null and ${table.is_voided} = false`
+            ),
+        uniqueIndex("line_items_service_request_system_key_unique")
+            .on(table.platform_id, table.service_request_id, table.system_key)
+            .where(
+                sql`${table.service_request_id} is not null and ${table.system_key} is not null and ${table.is_voided} = false`
+            ),
     ]
 );
 
@@ -988,6 +1032,138 @@ export const lineItemsRelations = relations(lineItems, ({ one }) => ({
     }),
     added_by_user: one(users, { fields: [lineItems.added_by], references: [users.id] }),
     voided_by_user: one(users, { fields: [lineItems.voided_by], references: [users.id] }),
+}));
+
+export const workflowRequests = pgTable(
+    "workflow_requests",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        entity_type: workflowRequestEntityTypeEnum("entity_type").notNull(),
+        entity_id: uuid("entity_id").notNull(),
+        workflow_kind: workflowRequestKindEnum("workflow_kind")
+            .notNull()
+            .default("ARTWORK_SUPPORT"),
+        status: workflowRequestStatusEnum("status").notNull().default("REQUESTED"),
+        title: varchar("title", { length: 200 }).notNull(),
+        description: text("description"),
+        requested_by: uuid("requested_by")
+            .notNull()
+            .references(() => users.id),
+        requested_by_role: userRoleEnum("requested_by_role").notNull(),
+        assigned_email: varchar("assigned_email", { length: 255 }),
+        requested_at: timestamp("requested_at").notNull().defaultNow(),
+        acknowledged_at: timestamp("acknowledged_at"),
+        completed_at: timestamp("completed_at"),
+        cancelled_at: timestamp("cancelled_at"),
+        metadata: jsonb("metadata")
+            .notNull()
+            .default(sql`'{}'::jsonb`),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+        updated_at: timestamp("updated_at")
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [
+        index("workflow_requests_platform_entity_idx").on(
+            table.platform_id,
+            table.entity_type,
+            table.entity_id
+        ),
+        index("workflow_requests_status_idx").on(table.status),
+        index("workflow_requests_kind_idx").on(table.workflow_kind),
+    ]
+);
+
+export const workflowRequestsRelations = relations(workflowRequests, ({ one, many }) => ({
+    platform: one(platforms, {
+        fields: [workflowRequests.platform_id],
+        references: [platforms.id],
+    }),
+    requested_by_user: one(users, {
+        fields: [workflowRequests.requested_by],
+        references: [users.id],
+    }),
+    attachments: many(entityAttachments),
+}));
+
+export const attachmentTypes = pgTable(
+    "attachment_types",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        code: varchar("code", { length: 64 }).notNull(),
+        label: varchar("label", { length: 120 }).notNull(),
+        allowed_entity_types: attachmentEntityTypeEnum("allowed_entity_types")
+            .array()
+            .notNull()
+            .default(sql`ARRAY[]::attachment_entity_type[]`),
+        default_visible_to_client: boolean("default_visible_to_client").notNull().default(false),
+        is_active: boolean("is_active").notNull().default(true),
+        sort_order: integer("sort_order").notNull().default(0),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+        updated_at: timestamp("updated_at")
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [
+        unique("attachment_types_platform_code_unique").on(table.platform_id, table.code),
+        index("attachment_types_platform_sort_idx").on(table.platform_id, table.sort_order),
+    ]
+);
+
+export const attachmentTypesRelations = relations(attachmentTypes, ({ one, many }) => ({
+    platform: one(platforms, { fields: [attachmentTypes.platform_id], references: [platforms.id] }),
+    attachments: many(entityAttachments),
+}));
+
+export const entityAttachments = pgTable(
+    "entity_attachments",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        entity_type: attachmentEntityTypeEnum("entity_type").notNull(),
+        entity_id: uuid("entity_id").notNull(),
+        attachment_type_id: uuid("attachment_type_id")
+            .notNull()
+            .references(() => attachmentTypes.id, { onDelete: "restrict" }),
+        file_url: text("file_url").notNull(),
+        file_name: varchar("file_name", { length: 255 }).notNull(),
+        mime_type: varchar("mime_type", { length: 255 }).notNull(),
+        file_size_bytes: integer("file_size_bytes"),
+        note: text("note"),
+        visible_to_client: boolean("visible_to_client").notNull().default(false),
+        uploaded_by: uuid("uploaded_by")
+            .notNull()
+            .references(() => users.id),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+    },
+    (table) => [
+        index("entity_attachments_entity_idx").on(table.entity_type, table.entity_id),
+        index("entity_attachments_type_idx").on(table.attachment_type_id),
+        index("entity_attachments_platform_idx").on(table.platform_id),
+    ]
+);
+
+export const entityAttachmentsRelations = relations(entityAttachments, ({ one }) => ({
+    platform: one(platforms, {
+        fields: [entityAttachments.platform_id],
+        references: [platforms.id],
+    }),
+    attachment_type: one(attachmentTypes, {
+        fields: [entityAttachments.attachment_type_id],
+        references: [attachmentTypes.id],
+    }),
+    uploaded_by_user: one(users, {
+        fields: [entityAttachments.uploaded_by],
+        references: [users.id],
+    }),
 }));
 
 export const orderTransportTrips = pgTable(
@@ -1792,6 +1968,8 @@ export const inboundRequestsRelations = relations(inboundRequests, ({ one, many 
     items: many(inboundRequestItems),
     line_items: many(lineItems),
     line_item_requests: many(lineItemRequests),
+    workflow_requests: many(workflowRequests),
+    attachments: many(entityAttachments),
 }));
 
 // ---------------------------------- INBOUND REQUEST ITEM ---------------------------------
@@ -2023,6 +2201,8 @@ export const serviceRequestsRelations = relations(serviceRequests, ({ one, many 
     }),
     line_items: many(lineItems),
     line_item_requests: many(lineItemRequests),
+    workflow_requests: many(workflowRequests),
+    attachments: many(entityAttachments),
     invoices: many(invoices),
     items: many(serviceRequestItems),
     status_history: many(serviceRequestStatusHistory),

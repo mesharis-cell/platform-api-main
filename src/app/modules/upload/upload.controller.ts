@@ -2,7 +2,7 @@ import crypto from "crypto";
 import catchAsync from "../../shared/catch-async";
 import httpStatus from "http-status";
 import sendResponse from "../../shared/send-response";
-import { uploadImageToS3 } from "../../services/s3.service";
+import { uploadFileToS3, uploadImageToS3 } from "../../services/s3.service";
 import CustomizedError from "../../error/customized-error";
 
 const buildKey = (companyId: string | undefined, originalname: string, isDraft: boolean) => {
@@ -55,7 +55,45 @@ const uploadMultipleImagesController = catchAsync(async (req, res) => {
     });
 });
 
+const uploadDocumentsController = catchAsync(async (req, res) => {
+    const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+    const companyId = req.body.companyId as string;
+    const isDraft = req.query.draft === "true";
+    const fileEntries = files?.files;
+
+    if (!fileEntries || fileEntries.length === 0) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "No files to upload");
+    }
+
+    const documents = await Promise.all(
+        fileEntries.map(async (file) => {
+            const fileName = buildKey(companyId, file.originalname, isDraft);
+            const fileUrl = await uploadFileToS3(
+                file.buffer,
+                "documents",
+                file.originalname,
+                file.mimetype,
+                `documents/${fileName}`
+            );
+            return {
+                fileUrl,
+                fileName: file.originalname,
+                mimeType: file.mimetype,
+                fileSizeBytes: file.size,
+            };
+        })
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Documents uploaded successfully",
+        data: { documents },
+    });
+});
+
 export const UploadController = {
     uploadImageController,
     uploadMultipleImagesController,
+    uploadDocumentsController,
 };

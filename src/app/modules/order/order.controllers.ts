@@ -28,7 +28,12 @@ const calculateEstimate = catchAsync(async (req, res) => {
 // ---------------------------- CHECK MAINTENANCE FEASIBILITY -----------------------------
 const checkMaintenanceFeasibility = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
-    const result = await OrderServices.checkMaintenanceFeasibility(platformId, req.body);
+    const user = (req as any).user;
+    const result = await OrderServices.checkMaintenanceFeasibility(
+        platformId,
+        user?.company_id || null,
+        req.body
+    );
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

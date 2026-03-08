@@ -90,6 +90,10 @@ export const EVENT_GROUPS: EventGroup[] = [
         events: [{ key: "line_item_request.submitted", label: "Line Item Request Submitted" }],
     },
     {
+        label: "Workflow Requests",
+        events: [{ key: "workflow_request.submitted", label: "Workflow Request Submitted" }],
+    },
+    {
         label: "Auth",
         events: [{ key: "auth.password_reset_requested", label: "Password Reset" }],
     },
@@ -205,6 +209,12 @@ export const TEMPLATES_BY_EVENT: Record<string, TemplateMeta[]> = {
         {
             key: "line_item_request_submitted_admin",
             label: "Admin — Line Item Request Submitted",
+        },
+    ],
+    "workflow_request.submitted": [
+        {
+            key: "workflow_request_submitted_admin",
+            label: "Admin — Workflow Request Submitted",
         },
     ],
     "auth.password_reset_requested": [

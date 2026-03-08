@@ -20,5 +20,12 @@ router.post(
     fileUploader.multipleUpload,
     UploadController.uploadMultipleImagesController
 );
+router.post(
+    "/documents",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    fileUploader.multipleUpload,
+    UploadController.uploadDocumentsController
+);
 
 export const UploadRoutes = router;

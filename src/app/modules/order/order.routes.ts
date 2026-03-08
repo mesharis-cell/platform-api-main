@@ -8,6 +8,10 @@ import { OrderControllers } from "./order.controllers";
 import { orderSchemas } from "./order.schemas";
 import featureValidator from "../../middleware/feature-validator";
 import { featureNames } from "../../constants/common";
+import { AttachmentsControllers } from "../attachments/attachments.controllers";
+import { AttachmentsSchemas } from "../attachments/attachments.schemas";
+import { WorkflowRequestControllers } from "../workflow-request/workflow-request.controllers";
+import { WorkflowRequestSchemas } from "../workflow-request/workflow-request.schemas";
 
 const router = Router();
 
@@ -185,6 +189,36 @@ router.get(
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
     OrderControllers.getOrderScanEvents
+);
+
+router.get(
+    "/:id/attachments",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    AttachmentsControllers.listForEntity("ORDER")
+);
+
+router.post(
+    "/:id/attachments",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    payloadValidator(AttachmentsSchemas.createEntityAttachmentsSchema),
+    AttachmentsControllers.createForEntity("ORDER")
+);
+
+router.get(
+    "/:id/workflow-requests",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    WorkflowRequestControllers.listForEntity("ORDER")
+);
+
+router.post(
+    "/:id/workflow-requests",
+    platformValidator,
+    auth("LOGISTICS"),
+    payloadValidator(WorkflowRequestSchemas.createWorkflowRequestSchema),
+    WorkflowRequestControllers.createForEntity("ORDER")
 );
 
 // ---------------------------------- NEW PRICING WORKFLOW ROUTES ----------------------------------
