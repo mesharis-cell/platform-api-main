@@ -9,6 +9,7 @@ import { CountryRoutes } from "../modules/country/country.routes";
 import { NotificationLogRoutes } from "../modules/notification-logs/notification-logs.routes";
 import { NotificationRuleRoutes } from "../modules/notification-rules/notification-rules.routes";
 import { EventsRoutes } from "../modules/events/events.routes";
+import { InvoiceRoutes } from "../modules/invoice/invoice.routes";
 import { PlatformRoutes } from "../modules/platform/platform.routes";
 import { ServiceTypesRoutes } from "../modules/service-types/service-types.routes";
 import { UserRoutes } from "../modules/user/user.routes";
@@ -114,6 +115,10 @@ const routes = [
     {
         path: "/attachments",
         route: AttachmentsRoutes,
+    },
+    {
+        path: "/invoice",
+        route: InvoiceRoutes,
     },
     {
         path: "/workflow-request",

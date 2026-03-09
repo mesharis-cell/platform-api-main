@@ -738,13 +738,13 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
             if (data.condition === "GREEN") dbData.refurb_days_estimate = null;
         }
 
-        // Step 9: Snapshot current state before update
-        await createAssetVersionSnapshot(id, existingAsset.platform_id, "Manual update", user.id);
-
-        // Step 10: Update asset
+        // Step 9: Update asset
         const [result] = await db.update(assets).set(dbData).where(eq(assets.id, id)).returning();
 
-        // Step 10b: Insert condition history entry into table if condition changed
+        // Step 10: Snapshot the stored post-update state for asset history
+        await createAssetVersionSnapshot(id, existingAsset.platform_id, "Manual update", user.id);
+
+        // Step 11: Insert condition history entry into table if condition changed
         if (data.condition !== undefined && data.condition !== existingAsset.condition) {
             await db.insert(assetConditionHistory).values({
                 platform_id: existingAsset.platform_id,
@@ -758,7 +758,7 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
 
         return result;
     } catch (error: any) {
-        // Step 10: Handle database errors
+        // Step 12: Handle database errors
         const pgError = error.cause || error;
 
         if (pgError.code === "23505") {
@@ -860,9 +860,9 @@ const addAssetUnits = async (
                     category: sourceAsset.category,
                     images: sourceAsset.images || [],
                     on_display_image: sourceAsset.on_display_image,
-                    tracking_method: sourceAsset.tracking_method,
-                    total_quantity: sourceAsset.total_quantity,
-                    available_quantity: sourceAsset.available_quantity,
+                    tracking_method: "INDIVIDUAL",
+                    total_quantity: 1,
+                    available_quantity: 1,
                     qr_code: qrCode,
                     packaging: sourceAsset.packaging,
                     weight_per_unit: sourceAsset.weight_per_unit,
@@ -872,7 +872,7 @@ const addAssetUnits = async (
                     condition_notes: sourceAsset.condition_notes,
                     refurb_days_estimate: sourceAsset.refurb_days_estimate,
                     handling_tags: sourceAsset.handling_tags || [],
-                    status: sourceAsset.status,
+                    status: "AVAILABLE",
                 })
                 .returning({
                     id: assets.id,

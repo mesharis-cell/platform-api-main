@@ -2,6 +2,7 @@ import httpStatus from "http-status";
 import catchAsync from "../../shared/catch-async";
 import sendResponse from "../../shared/send-response";
 import { TeamServices } from "./team.services";
+import { getRequiredString } from "../../utils/request";
 
 const getTeams = catchAsync(async (req, res) => {
     const user = (req as any).user;
@@ -32,7 +33,8 @@ const createTeam = catchAsync(async (req, res) => {
 
 const updateTeam = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
-    const result = await TeamServices.updateTeam(req.params.id, platformId, req.body);
+    const teamId = getRequiredString(req.params.id, "id");
+    const result = await TeamServices.updateTeam(teamId, platformId, req.body);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -44,7 +46,8 @@ const updateTeam = catchAsync(async (req, res) => {
 
 const deleteTeam = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
-    await TeamServices.deleteTeam(req.params.id, platformId);
+    const teamId = getRequiredString(req.params.id, "id");
+    await TeamServices.deleteTeam(teamId, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -56,7 +59,8 @@ const deleteTeam = catchAsync(async (req, res) => {
 
 const addMember = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
-    const result = await TeamServices.addMember(req.params.id, req.body.user_id, platformId);
+    const teamId = getRequiredString(req.params.id, "id");
+    const result = await TeamServices.addMember(teamId, req.body.user_id, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.CREATED,
@@ -68,7 +72,9 @@ const addMember = catchAsync(async (req, res) => {
 
 const removeMember = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
-    await TeamServices.removeMember(req.params.id, req.params.userId, platformId);
+    const teamId = getRequiredString(req.params.id, "id");
+    const userId = getRequiredString(req.params.userId, "userId");
+    await TeamServices.removeMember(teamId, userId, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

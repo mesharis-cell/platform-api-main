@@ -3,6 +3,7 @@ import CustomizedError from "../../error/customized-error";
 import catchAsync from "../../shared/catch-async";
 import sendResponse from "../../shared/send-response";
 import { AssetServices } from "./assets.services";
+import { getRequiredString } from "../../utils/request";
 
 // ----------------------------------- CREATE ASSET -----------------------------------
 const createAsset = catchAsync(async (req, res) => {
@@ -44,9 +45,9 @@ const getAssets = catchAsync(async (req, res) => {
 const getAssetById = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
 
-    const result = await AssetServices.getAssetById(id as string, user, platformId);
+    const result = await AssetServices.getAssetById(id, user, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -60,9 +61,9 @@ const getAssetById = catchAsync(async (req, res) => {
 const updateAsset = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
 
-    const result = await AssetServices.updateAsset(id as string, req.body, user, platformId);
+    const result = await AssetServices.updateAsset(id, req.body, user, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -76,9 +77,9 @@ const updateAsset = catchAsync(async (req, res) => {
 const addAssetUnits = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
 
-    const result = await AssetServices.addAssetUnits(id as string, req.body, user, platformId);
+    const result = await AssetServices.addAssetUnits(id, req.body, user, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.CREATED,
@@ -92,9 +93,9 @@ const addAssetUnits = catchAsync(async (req, res) => {
 const deleteAsset = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
 
-    const result = await AssetServices.deleteAsset(id as string, user, platformId);
+    const result = await AssetServices.deleteAsset(id, user, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -108,9 +109,9 @@ const deleteAsset = catchAsync(async (req, res) => {
 const getAssetAvailabilityStats = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
 
-    const result = await AssetServices.getAssetAvailabilityStats(id as string, user, platformId);
+    const result = await AssetServices.getAssetAvailabilityStats(id, user, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -124,9 +125,9 @@ const getAssetAvailabilityStats = catchAsync(async (req, res) => {
 const getAssetScanHistory = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
 
-    const result = await AssetServices.getAssetScanHistory(id as string, user, platformId);
+    const result = await AssetServices.getAssetScanHistory(id, user, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -233,7 +234,7 @@ const generateQRCode = catchAsync(async (req, res) => {
 // ----------------------------------- COMPLETE MAINTENANCE -------------------------------
 const completeMaintenance = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
-    const asset_id = req.params.id as string;
+    const asset_id = getRequiredString(req.params.id, "id");
 
     const user = (req as any).user;
     const result = await AssetServices.completeAssetMaintenance(asset_id, platformId, user);
@@ -249,7 +250,7 @@ const completeMaintenance = catchAsync(async (req, res) => {
 // ----------------------------------- SENT ASSET TO MAINTENANCE ------------------------------
 const sentAssetToMaintenance = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
-    const asset_id = req.params.id as string;
+    const asset_id = getRequiredString(req.params.id, "id");
 
     const result = await AssetServices.sentAssetToMaintenance(asset_id, platformId);
 
@@ -264,7 +265,7 @@ const sentAssetToMaintenance = catchAsync(async (req, res) => {
 // ----------------------------------- GET ASSET VERSIONS ---------------------------------
 const getAssetVersions = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
-    const assetId = req.params.id as string;
+    const assetId = getRequiredString(req.params.id, "id");
 
     const versions = await AssetServices.getAssetVersions(assetId, platformId);
 
@@ -278,7 +279,7 @@ const getAssetVersions = catchAsync(async (req, res) => {
 
 const getAssetOrderHistory = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
 
     const result = await AssetServices.getAssetOrderHistory(id, platformId);
 
@@ -293,7 +294,7 @@ const getAssetOrderHistory = catchAsync(async (req, res) => {
 const getAssetUsageReport = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
 
     const result = await AssetServices.getAssetUsageReport(id, user, platformId);
 
