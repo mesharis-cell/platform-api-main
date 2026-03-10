@@ -1102,6 +1102,9 @@ export const workflowRequests = pgTable(
             .notNull()
             .references(() => workflowDefinitions.id, { onDelete: "restrict" }),
         workflow_code: varchar("workflow_code", { length: 64 }).notNull(),
+        workflow_label: varchar("workflow_label", { length: 120 }).notNull(),
+        workflow_family: varchar("workflow_family", { length: 64 }).notNull(),
+        status_model_key: varchar("status_model_key", { length: 64 }).notNull(),
         status: varchar("status", { length: 64 }).notNull(),
         title: varchar("title", { length: 200 }).notNull(),
         description: text("description"),
@@ -1158,6 +1161,8 @@ export const workflowDefinitions = pgTable(
         code: varchar("code", { length: 64 }).notNull(),
         label: varchar("label", { length: 120 }).notNull(),
         description: text("description"),
+        workflow_family: varchar("workflow_family", { length: 64 }).notNull(),
+        status_model_key: varchar("status_model_key", { length: 64 }).notNull(),
         allowed_entity_types: workflowRequestEntityTypeEnum("allowed_entity_types")
             .array()
             .notNull()
@@ -1166,6 +1171,20 @@ export const workflowDefinitions = pgTable(
             .array()
             .notNull()
             .default(sql`ARRAY['ADMIN','LOGISTICS']::user_role[]`),
+        viewer_roles: userRoleEnum("viewer_roles")
+            .array()
+            .notNull()
+            .default(sql`ARRAY['ADMIN','LOGISTICS']::user_role[]`),
+        actor_roles: userRoleEnum("actor_roles")
+            .array()
+            .notNull()
+            .default(sql`ARRAY['ADMIN','LOGISTICS']::user_role[]`),
+        priority_enabled: boolean("priority_enabled").notNull().default(false),
+        sla_hours: integer("sla_hours"),
+        blocks_fulfillment_default: boolean("blocks_fulfillment_default").notNull().default(false),
+        intake_schema: jsonb("intake_schema")
+            .notNull()
+            .default(sql`'{}'::jsonb`),
         is_active: boolean("is_active").notNull().default(true),
         sort_order: integer("sort_order").notNull().default(0),
         created_at: timestamp("created_at").notNull().defaultNow(),
@@ -1202,6 +1221,8 @@ export const workflowDefinitionCompanyOverrides = pgTable(
             .notNull()
             .references(() => companies.id, { onDelete: "cascade" }),
         is_enabled: boolean("is_enabled").notNull(),
+        label_override: varchar("label_override", { length: 120 }),
+        sort_order_override: integer("sort_order_override"),
         created_at: timestamp("created_at").notNull().defaultNow(),
         updated_at: timestamp("updated_at")
             .$onUpdate(() => new Date())
@@ -1873,6 +1894,9 @@ export const notificationRules = pgTable(
         recipient_value: varchar("recipient_value", { length: 255 }),
 
         template_key: varchar("template_key", { length: 100 }).notNull(),
+        conditions: jsonb("conditions")
+            .notNull()
+            .default(sql`'[]'::jsonb`),
 
         is_enabled: boolean("is_enabled").notNull().default(true),
         sort_order: integer("sort_order").notNull().default(0),

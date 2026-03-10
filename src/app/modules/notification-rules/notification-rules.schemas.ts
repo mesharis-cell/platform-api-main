@@ -1,5 +1,26 @@
 import z from "zod";
 
+const conditionFieldSchema = z.enum([
+    "company_id",
+    "entity_type",
+    "actor_role",
+    "workflow_code",
+    "workflow_status",
+    "lifecycle_state",
+    "billing_mode",
+    "request_type",
+]);
+
+const conditionOperatorSchema = z.enum(["equals", "in"]);
+
+const conditionSchema = z
+    .object({
+        field: conditionFieldSchema,
+        operator: conditionOperatorSchema,
+        value: z.union([z.string(), z.array(z.string()).min(1)]),
+    })
+    .strict();
+
 const listRulesQuerySchema = z.object({
     event_type: z.string().min(1).optional(),
     company_id: z.union([z.uuid(), z.literal("null")]).optional(),
@@ -17,6 +38,7 @@ const createRuleSchema = z.object({
             company_id: z.uuid().optional().nullable(),
             sort_order: z.number().int().min(0).optional().default(0),
             is_enabled: z.boolean().optional().default(true),
+            conditions: z.array(conditionSchema).optional().default([]),
         })
         .superRefine((data, ctx) => {
             if (data.recipient_type === "ROLE") {
@@ -60,6 +82,7 @@ const updateRuleSchema = z.object({
             is_enabled: z.boolean().optional(),
             template_key: z.string().min(1).optional(),
             sort_order: z.number().int().min(0).optional(),
+            conditions: z.array(conditionSchema).optional(),
         })
         .strict(),
 });
@@ -83,4 +106,5 @@ export const NotificationRuleSchemas = {
     ruleIdParamsSchema,
     resetEventTypeParamsSchema,
     resetEventTypeQuerySchema,
+    conditionSchema,
 };

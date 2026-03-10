@@ -19,6 +19,20 @@ import { renderTemplate } from "../templates";
 import { SystemEvent } from "../event-types";
 import { sql } from "drizzle-orm";
 
+type NotificationCondition = {
+    field:
+        | "company_id"
+        | "entity_type"
+        | "actor_role"
+        | "workflow_code"
+        | "workflow_status"
+        | "lifecycle_state"
+        | "billing_mode"
+        | "request_type";
+    operator: "equals" | "in";
+    value: string | string[];
+};
+
 // ─── Recipient resolution ────────────────────────────────────────────────────
 
 async function resolveEntityOwnerEmail(
@@ -162,6 +176,50 @@ async function getApplicableRules(
     return merged;
 }
 
+const getConditionValue = (event: SystemEvent, field: NotificationCondition["field"]) => {
+    const payload = (event.payload || {}) as Record<string, unknown>;
+
+    switch (field) {
+        case "company_id":
+            return String(payload.company_id || "");
+        case "entity_type":
+            return event.entity_type;
+        case "actor_role":
+            return String(event.actor_role || "");
+        case "workflow_code":
+            return String(payload.workflow_code || "");
+        case "workflow_status":
+            return String(payload.workflow_status || payload.new_status || "");
+        case "lifecycle_state":
+            return String(payload.lifecycle_state || "");
+        case "billing_mode":
+            return String(payload.billing_mode || "");
+        case "request_type":
+            return String(payload.request_type || "");
+        default:
+            return "";
+    }
+};
+
+const ruleMatchesConditions = (
+    rule: typeof notificationRules.$inferSelect,
+    event: SystemEvent
+): boolean => {
+    const conditions = ((rule.conditions as NotificationCondition[] | null) || []).filter(Boolean);
+    if (conditions.length === 0) return true;
+
+    return conditions.every((condition) => {
+        const actualValue = getConditionValue(event, condition.field);
+        const expected = Array.isArray(condition.value) ? condition.value : [condition.value];
+
+        if (condition.operator === "equals") {
+            return actualValue === String(expected[0] || "");
+        }
+
+        return expected.map(String).includes(actualValue);
+    });
+};
+
 const mapEntityTypeToDeepLink = (entityType: string): DeepLinkEntityType | null => {
     switch (entityType) {
         case "ORDER":
@@ -262,6 +320,7 @@ export async function handleEmailNotifications(event: SystemEvent): Promise<void
 
     for (const rule of rules) {
         if (!rule.is_enabled) continue;
+        if (!ruleMatchesConditions(rule, event)) continue;
 
         const emails = await resolveRecipients(rule, event);
 

@@ -2,7 +2,23 @@ import httpStatus from "http-status";
 import catchAsync from "../../shared/catch-async";
 import sendResponse from "../../shared/send-response";
 import { getRequiredString } from "../../utils/request";
+import {
+    listWorkflowFamilyOptions,
+    listWorkflowStatusModelOptions,
+} from "../../utils/workflow-catalog";
 import { WorkflowDefinitionServices } from "./workflow-definition.services";
+
+const getWorkflowDefinitionMeta = catchAsync(async (_req, res) => {
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Workflow definition meta fetched successfully",
+        data: {
+            workflow_families: listWorkflowFamilyOptions(),
+            status_models: listWorkflowStatusModelOptions(),
+        },
+    });
+});
 
 const listWorkflowDefinitions = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
@@ -32,6 +48,18 @@ const listAvailableWorkflowDefinitions = catchAsync(async (req, res) => {
         statusCode: httpStatus.OK,
         success: true,
         message: "Available workflow definitions fetched successfully",
+        data: result,
+    });
+});
+
+const createWorkflowDefinition = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const result = await WorkflowDefinitionServices.createWorkflowDefinition(platformId, req.body);
+
+    sendResponse(res, {
+        statusCode: httpStatus.CREATED,
+        success: true,
+        message: "Workflow definition created successfully",
         data: result,
     });
 });
@@ -70,9 +98,25 @@ const replaceCompanyOverrides = catchAsync(async (req, res) => {
     });
 });
 
+const deleteWorkflowDefinition = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const id = getRequiredString(req.params.id, "id");
+    const result = await WorkflowDefinitionServices.deleteWorkflowDefinition(id, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Workflow definition deleted successfully",
+        data: result,
+    });
+});
+
 export const WorkflowDefinitionControllers = {
+    getWorkflowDefinitionMeta,
     listWorkflowDefinitions,
+    createWorkflowDefinition,
     listAvailableWorkflowDefinitions,
     updateWorkflowDefinition,
     replaceCompanyOverrides,
+    deleteWorkflowDefinition,
 };

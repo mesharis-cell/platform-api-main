@@ -82,7 +82,16 @@ import {
 // Auth templates
 import { passwordResetOtp } from "./auth";
 import { lineItemRequestSubmittedAdmin } from "./line-item-request";
-import { workflowRequestSubmittedAdmin } from "./workflow-request";
+import {
+    workflowRequestCancelledAdmin,
+    workflowRequestCancelledLogistics,
+    workflowRequestCompletedAdmin,
+    workflowRequestCompletedLogistics,
+    workflowRequestStatusChangedAdmin,
+    workflowRequestStatusChangedLogistics,
+    workflowRequestSubmittedAdmin,
+    workflowRequestSubmittedLogistics,
+} from "./workflow-request";
 
 const registry: Record<string, EmailTemplate> = {
     // Orders
@@ -155,6 +164,13 @@ const registry: Record<string, EmailTemplate> = {
     // Line item requests
     line_item_request_submitted_admin: lineItemRequestSubmittedAdmin,
     workflow_request_submitted_admin: workflowRequestSubmittedAdmin,
+    workflow_request_submitted_logistics: workflowRequestSubmittedLogistics,
+    workflow_request_status_changed_admin: workflowRequestStatusChangedAdmin,
+    workflow_request_status_changed_logistics: workflowRequestStatusChangedLogistics,
+    workflow_request_completed_admin: workflowRequestCompletedAdmin,
+    workflow_request_completed_logistics: workflowRequestCompletedLogistics,
+    workflow_request_cancelled_admin: workflowRequestCancelledAdmin,
+    workflow_request_cancelled_logistics: workflowRequestCancelledLogistics,
 };
 
 export function renderTemplate(

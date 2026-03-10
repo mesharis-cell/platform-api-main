@@ -10,6 +10,14 @@ import { WorkflowDefinitionSchemas } from "./workflow-definition.schemas";
 const router = Router();
 
 router.get(
+    "/meta",
+    platformValidator,
+    auth("ADMIN"),
+    requirePermission(PERMISSIONS.USERS_READ),
+    WorkflowDefinitionControllers.getWorkflowDefinitionMeta
+);
+
+router.get(
     "/",
     platformValidator,
     auth("ADMIN"),
@@ -22,6 +30,15 @@ router.get(
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
     WorkflowDefinitionControllers.listAvailableWorkflowDefinitions
+);
+
+router.post(
+    "/",
+    platformValidator,
+    auth("ADMIN"),
+    requirePermission(PERMISSIONS.USERS_CREATE),
+    payloadValidator(WorkflowDefinitionSchemas.createWorkflowDefinitionSchema),
+    WorkflowDefinitionControllers.createWorkflowDefinition
 );
 
 router.patch(
@@ -40,6 +57,14 @@ router.put(
     requirePermission(PERMISSIONS.USERS_UPDATE),
     payloadValidator(WorkflowDefinitionSchemas.replaceCompanyOverridesSchema),
     WorkflowDefinitionControllers.replaceCompanyOverrides
+);
+
+router.delete(
+    "/:id",
+    platformValidator,
+    auth("ADMIN"),
+    requirePermission(PERMISSIONS.USERS_UPDATE),
+    WorkflowDefinitionControllers.deleteWorkflowDefinition
 );
 
 export const WorkflowDefinitionRoutes = router;

@@ -12,38 +12,81 @@ import {
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import {
-    DEFAULT_WORKFLOW_DEFINITIONS,
-    getWorkflowCatalogEntry,
+    assertWorkflowFamilySupportsStatusModel,
+    getWorkflowFamilyEntry,
+    getWorkflowStatusModelEntry,
 } from "../../utils/workflow-catalog";
 
-const ensureDefaultWorkflowDefinitions = async (platformId: string) => {
-    const existing = await db
-        .select({ code: workflowDefinitions.code })
+type WorkflowEntityType = "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST";
+type WorkflowDefinitionPayload = Partial<{
+    code: string;
+    label: string;
+    description: string | null;
+    workflow_family: string;
+    status_model_key: string;
+    allowed_entity_types: string[];
+    requester_roles: string[];
+    viewer_roles: string[];
+    actor_roles: string[];
+    priority_enabled: boolean;
+    sla_hours: number | null;
+    blocks_fulfillment_default: boolean;
+    intake_schema: Record<string, unknown>;
+    is_active: boolean;
+    sort_order: number;
+}>;
+
+const hydrateDefinition = (
+    definition: typeof workflowDefinitions.$inferSelect,
+    overrides: Array<typeof workflowDefinitionCompanyOverrides.$inferSelect>
+) => {
+    const family = getWorkflowFamilyEntry(definition.workflow_family);
+    const statusModel = getWorkflowStatusModelEntry(definition.status_model_key);
+
+    return {
+        ...definition,
+        family,
+        status_model: statusModel,
+        company_overrides: overrides.filter(
+            (override) => override.workflow_definition_id === definition.id
+        ),
+    };
+};
+
+const assertWorkflowBehavior = (workflowFamily: string, statusModelKey: string) => {
+    const family = getWorkflowFamilyEntry(workflowFamily);
+    if (!family) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Unsupported workflow family");
+    }
+
+    const statusModel = getWorkflowStatusModelEntry(statusModelKey);
+    if (!statusModel) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Unsupported workflow status model");
+    }
+
+    if (!assertWorkflowFamilySupportsStatusModel(workflowFamily, statusModelKey)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Workflow family does not support the selected status model"
+        );
+    }
+};
+
+const getDefinitionById = async (id: string, platformId: string) => {
+    const [definition] = await db
+        .select()
         .from(workflowDefinitions)
-        .where(eq(workflowDefinitions.platform_id, platformId));
-    const existingCodes = new Set(existing.map((row) => row.code));
-    const missing = DEFAULT_WORKFLOW_DEFINITIONS.filter(
-        (definition) => !existingCodes.has(definition.code)
-    );
+        .where(and(eq(workflowDefinitions.id, id), eq(workflowDefinitions.platform_id, platformId)))
+        .limit(1);
 
-    if (missing.length === 0) return;
+    if (!definition) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Workflow definition not found");
+    }
 
-    await db.insert(workflowDefinitions).values(
-        missing.map((definition) => ({
-            platform_id: platformId,
-            code: definition.code,
-            label: definition.label,
-            description: definition.description,
-            allowed_entity_types: definition.allowed_entity_types as any,
-            requester_roles: definition.requester_roles as any,
-            sort_order: definition.sort_order,
-        }))
-    );
+    return definition;
 };
 
 const listWorkflowDefinitions = async (platformId: string) => {
-    await ensureDefaultWorkflowDefinitions(platformId);
-
     const definitions = await db
         .select()
         .from(workflowDefinitions)
@@ -55,16 +98,39 @@ const listWorkflowDefinitions = async (platformId: string) => {
         .from(workflowDefinitionCompanyOverrides)
         .where(eq(workflowDefinitionCompanyOverrides.platform_id, platformId));
 
-    return definitions.map((definition) => ({
-        ...definition,
-        company_overrides: overrides.filter(
-            (override) => override.workflow_definition_id === definition.id
-        ),
-    }));
+    return definitions.map((definition) => hydrateDefinition(definition, overrides));
+};
+
+const createWorkflowDefinition = async (platformId: string, payload: WorkflowDefinitionPayload) => {
+    assertWorkflowBehavior(payload.workflow_family!, payload.status_model_key!);
+
+    const [created] = await db
+        .insert(workflowDefinitions)
+        .values({
+            platform_id: platformId,
+            code: payload.code!.trim().toUpperCase(),
+            label: payload.label!.trim(),
+            description: payload.description?.trim() || null,
+            workflow_family: payload.workflow_family!,
+            status_model_key: payload.status_model_key!,
+            allowed_entity_types: payload.allowed_entity_types as any,
+            requester_roles: payload.requester_roles as any,
+            viewer_roles: payload.viewer_roles as any,
+            actor_roles: payload.actor_roles as any,
+            priority_enabled: payload.priority_enabled ?? false,
+            sla_hours: payload.sla_hours ?? null,
+            blocks_fulfillment_default: payload.blocks_fulfillment_default ?? false,
+            intake_schema: payload.intake_schema ?? {},
+            is_active: payload.is_active ?? true,
+            sort_order: payload.sort_order ?? 0,
+        })
+        .returning();
+
+    return hydrateDefinition(created, []);
 };
 
 const getEntityCompanyId = async (
-    entityType: "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST",
+    entityType: WorkflowEntityType,
     entityId: string,
     platformId: string
 ) => {
@@ -97,10 +163,9 @@ const getEntityCompanyId = async (
 const listAvailableWorkflowDefinitions = async (
     platformId: string,
     user: AuthUser,
-    entityType: "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST",
+    entityType: WorkflowEntityType,
     entityId: string
 ) => {
-    await ensureDefaultWorkflowDefinitions(platformId);
     const companyId = await getEntityCompanyId(entityType, entityId, platformId);
     const definitions = await db
         .select()
@@ -120,52 +185,80 @@ const listAvailableWorkflowDefinitions = async (
               )
         : [];
 
-    return definitions.filter((definition) => {
-        const entityAllowed = definition.allowed_entity_types.includes(entityType as any);
-        const roleAllowed = definition.requester_roles.includes(user.role);
-        const override = overrides.find(
-            (item) => item.workflow_definition_id === definition.id && item.company_id === companyId
-        );
-        const enabled = override ? override.is_enabled : definition.is_active;
-        return entityAllowed && roleAllowed && enabled;
-    });
+    return definitions
+        .map((definition) => {
+            const override = overrides.find(
+                (item) =>
+                    item.workflow_definition_id === definition.id && item.company_id === companyId
+            );
+            return {
+                ...definition,
+                label: override?.label_override?.trim() || definition.label,
+                sort_order: override?.sort_order_override ?? definition.sort_order,
+                company_override: override ?? null,
+                family: getWorkflowFamilyEntry(definition.workflow_family),
+                status_model: getWorkflowStatusModelEntry(definition.status_model_key),
+            };
+        })
+        .filter((definition) => {
+            const entityAllowed = definition.allowed_entity_types.includes(entityType as any);
+            const roleAllowed = definition.requester_roles.includes(user.role);
+            const enabled = definition.company_override
+                ? definition.company_override.is_enabled
+                : definition.is_active;
+            return entityAllowed && roleAllowed && enabled;
+        })
+        .sort((a, b) => a.sort_order - b.sort_order || a.label.localeCompare(b.label));
 };
 
 const updateWorkflowDefinition = async (
     id: string,
     platformId: string,
-    payload: Partial<{
-        label: string;
-        description: string | null;
-        allowed_entity_types: string[];
-        requester_roles: string[];
-        is_active: boolean;
-        sort_order: number;
-    }>
+    payload: WorkflowDefinitionPayload
 ) => {
-    await ensureDefaultWorkflowDefinitions(platformId);
-    const [existing] = await db
-        .select()
-        .from(workflowDefinitions)
-        .where(and(eq(workflowDefinitions.id, id), eq(workflowDefinitions.platform_id, platformId)))
-        .limit(1);
+    const existing = await getDefinitionById(id, platformId);
 
-    if (!existing) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Workflow definition not found");
-    }
+    const workflowFamily = payload.workflow_family ?? existing.workflow_family;
+    const statusModelKey = payload.status_model_key ?? existing.status_model_key;
+    assertWorkflowBehavior(workflowFamily, statusModelKey);
 
     const [updated] = await db
         .update(workflowDefinitions)
         .set({
+            ...(payload.code !== undefined && { code: payload.code.trim().toUpperCase() }),
             ...(payload.label !== undefined && { label: payload.label.trim() }),
             ...(payload.description !== undefined && {
                 description: payload.description?.trim() || null,
+            }),
+            ...(payload.workflow_family !== undefined && {
+                workflow_family: payload.workflow_family,
+            }),
+            ...(payload.status_model_key !== undefined && {
+                status_model_key: payload.status_model_key,
             }),
             ...(payload.allowed_entity_types !== undefined && {
                 allowed_entity_types: payload.allowed_entity_types as any,
             }),
             ...(payload.requester_roles !== undefined && {
                 requester_roles: payload.requester_roles as any,
+            }),
+            ...(payload.viewer_roles !== undefined && {
+                viewer_roles: payload.viewer_roles as any,
+            }),
+            ...(payload.actor_roles !== undefined && {
+                actor_roles: payload.actor_roles as any,
+            }),
+            ...(payload.priority_enabled !== undefined && {
+                priority_enabled: payload.priority_enabled,
+            }),
+            ...(payload.sla_hours !== undefined && {
+                sla_hours: payload.sla_hours ?? null,
+            }),
+            ...(payload.blocks_fulfillment_default !== undefined && {
+                blocks_fulfillment_default: payload.blocks_fulfillment_default,
+            }),
+            ...(payload.intake_schema !== undefined && {
+                intake_schema: payload.intake_schema,
             }),
             ...(payload.is_active !== undefined && { is_active: payload.is_active }),
             ...(payload.sort_order !== undefined && { sort_order: payload.sort_order }),
@@ -174,28 +267,25 @@ const updateWorkflowDefinition = async (
         .where(eq(workflowDefinitions.id, id))
         .returning();
 
-    return updated;
+    const overrides = await db
+        .select()
+        .from(workflowDefinitionCompanyOverrides)
+        .where(eq(workflowDefinitionCompanyOverrides.workflow_definition_id, id));
+
+    return hydrateDefinition(updated, overrides);
 };
 
 const replaceCompanyOverrides = async (
     workflowDefinitionId: string,
     platformId: string,
-    overrides: Array<{ company_id: string; is_enabled: boolean }>
+    overrides: Array<{
+        company_id: string;
+        is_enabled: boolean;
+        label_override?: string | null;
+        sort_order_override?: number | null;
+    }>
 ) => {
-    const [definition] = await db
-        .select({ id: workflowDefinitions.id })
-        .from(workflowDefinitions)
-        .where(
-            and(
-                eq(workflowDefinitions.id, workflowDefinitionId),
-                eq(workflowDefinitions.platform_id, platformId)
-            )
-        )
-        .limit(1);
-
-    if (!definition) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Workflow definition not found");
-    }
+    await getDefinitionById(workflowDefinitionId, platformId);
 
     const companyIds = overrides.map((item) => item.company_id);
     if (companyIds.length > 0) {
@@ -219,6 +309,8 @@ const replaceCompanyOverrides = async (
                 workflow_definition_id: workflowDefinitionId,
                 company_id: override.company_id,
                 is_enabled: override.is_enabled,
+                label_override: override.label_override?.trim() || null,
+                sort_order_override: override.sort_order_override ?? null,
             }))
         );
     }
@@ -226,18 +318,30 @@ const replaceCompanyOverrides = async (
     return listWorkflowDefinitions(platformId);
 };
 
-const assertWorkflowStatusIsValid = (workflowCode: string, status: string) => {
-    const entry = getWorkflowCatalogEntry(workflowCode);
-    if (!entry || !entry.statuses.includes(status)) {
+const deleteWorkflowDefinition = async (id: string, platformId: string) => {
+    await getDefinitionById(id, platformId);
+    await db
+        .delete(workflowDefinitions)
+        .where(
+            and(eq(workflowDefinitions.id, id), eq(workflowDefinitions.platform_id, platformId))
+        );
+    return { id };
+};
+
+const assertWorkflowStatusIsValid = (statusModelKey: string, status: string) => {
+    const statusModel = getWorkflowStatusModelEntry(statusModelKey);
+    if (!statusModel || !statusModel.statuses.includes(status)) {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Invalid workflow status");
     }
 };
 
 export const WorkflowDefinitionServices = {
-    ensureDefaultWorkflowDefinitions,
     listWorkflowDefinitions,
+    createWorkflowDefinition,
     listAvailableWorkflowDefinitions,
     updateWorkflowDefinition,
     replaceCompanyOverrides,
+    deleteWorkflowDefinition,
+    getDefinitionById,
     assertWorkflowStatusIsValid,
 };

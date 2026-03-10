@@ -68,6 +68,7 @@ const createRule = catchAsync(async (req, res) => {
         company_id,
         sort_order,
         is_enabled,
+        conditions,
     } = NotificationRuleSchemas.createRuleSchema.parse({ body: req.body }).body;
 
     assertValidEventType(event_type);
@@ -84,6 +85,7 @@ const createRule = catchAsync(async (req, res) => {
             company_id: company_id ?? null,
             sort_order: sort_order ?? 0,
             is_enabled: is_enabled !== undefined ? is_enabled : true,
+            conditions: conditions ?? [],
         })
         .returning();
 
@@ -99,11 +101,10 @@ const createRule = catchAsync(async (req, res) => {
 const updateRule = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const { id } = NotificationRuleSchemas.ruleIdParamsSchema.parse(req.params);
-    const { is_enabled, template_key, sort_order } = NotificationRuleSchemas.updateRuleSchema.parse(
-        {
+    const { is_enabled, template_key, sort_order, conditions } =
+        NotificationRuleSchemas.updateRuleSchema.parse({
             body: req.body,
-        }
-    ).body;
+        }).body;
 
     const [existing] = await db
         .select()
@@ -127,6 +128,7 @@ const updateRule = catchAsync(async (req, res) => {
     if (is_enabled !== undefined) updates.is_enabled = is_enabled;
     if (template_key !== undefined) updates.template_key = template_key;
     if (sort_order !== undefined) updates.sort_order = sort_order;
+    if (conditions !== undefined) updates.conditions = conditions as any;
 
     const [updated] = await db
         .update(notificationRules)
