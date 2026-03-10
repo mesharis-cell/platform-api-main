@@ -132,7 +132,6 @@ const projectUser = (user: {
     email: string;
     role: "ADMIN" | "LOGISTICS" | "CLIENT";
     permissions: string[];
-    permission_template: string | null;
     access_policy_id: string | null;
     permission_grants: string[];
     permission_revokes: string[];
@@ -171,7 +170,6 @@ const projectUser = (user: {
                   is_active: user.access_policy.is_active,
               }
             : null,
-        permission_template: null,
     };
 };
 
@@ -252,7 +250,6 @@ const createUser = async (data: CreateUserPayload) => {
                 ...data,
                 password: hashedPassword,
                 permissions: [],
-                permission_template: null,
                 access_policy_id: accessPolicy?.id ?? null,
                 permission_grants: permissionGrants,
                 permission_revokes: permissionRevokes,
@@ -459,7 +456,6 @@ const updateUser = async (
         ...(data.permission_revokes !== undefined && {
             permission_revokes: permissionChecker(data.permission_revokes),
         }),
-        permission_template: null,
         updated_at: new Date(),
     };
 

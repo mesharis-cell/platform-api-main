@@ -2,7 +2,7 @@
  * @swagger
  * tags:
  *   - name: Workflow Requests
- *     description: Internal workflow escalation operations
+ *     description: Internal workflow request operations
  */
 
 /**
@@ -130,7 +130,7 @@
  * /api/operations/v1/workflow-request/{id}:
  *   patch:
  *     tags: [Workflow Requests]
- *     summary: Update workflow request
+ *     summary: Update a workflow request
  *     parameters:
  *       - $ref: '#/components/parameters/PlatformHeader'
  *       - in: path
@@ -175,18 +175,15 @@
  *           type: boolean
  *     WorkflowRequestCreateInput:
  *       type: object
- *       required: [workflow_kind, title]
+ *       required: [workflow_code, title]
  *       properties:
- *         workflow_kind:
+ *         workflow_code:
  *           type: string
- *           enum: [ARTWORK_SUPPORT]
+ *           description: Stable workflow definition code, for example CREATIVE_SUPPORT
  *         title:
  *           type: string
  *         description:
  *           type: string
- *         assigned_email:
- *           type: string
- *           format: email
  *         metadata:
  *           type: object
  *           additionalProperties: true
@@ -199,18 +196,44 @@
  *       properties:
  *         status:
  *           type: string
- *           enum: [REQUESTED, ACKNOWLEDGED, IN_PROGRESS, COMPLETED, CANCELLED]
+ *           description: Status value validated against the workflow definition status model
  *         title:
  *           type: string
  *         description:
  *           type: string
- *         assigned_email:
- *           type: string
- *           format: email
- *           nullable: true
  *         metadata:
  *           type: object
  *           additionalProperties: true
+ *     WorkflowRequestRecord:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: string
+ *           format: uuid
+ *         workflow_definition_id:
+ *           type: string
+ *           format: uuid
+ *         workflow_code:
+ *           type: string
+ *         workflow_label:
+ *           type: string
+ *         workflow_family:
+ *           type: string
+ *         status_model_key:
+ *           type: string
+ *         lifecycle_state:
+ *           type: string
+ *           enum: [OPEN, ACTIVE, DONE, CANCELLED]
+ *         status:
+ *           type: string
+ *         title:
+ *           type: string
+ *         description:
+ *           type: string
+ *           nullable: true
+ *         requested_at:
+ *           type: string
+ *           format: date-time
  */
 
 export const WorkflowRequestSwagger = {};

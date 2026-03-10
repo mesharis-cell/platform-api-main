@@ -26,12 +26,6 @@ export const userRoleEnum = pgEnum("user_role", [
     "CLIENT", // Client User (Company User)
 ]);
 
-export const permissionTemplateEnum = pgEnum("permission_template", [
-    "PLATFORM_ADMIN",
-    "LOGISTICS_STAFF",
-    "CLIENT_USER",
-]);
-
 export const hostnameTypeEnum = pgEnum("hostname_type", ["VANITY", "CUSTOM"]);
 
 export const trackingMethodEnum = pgEnum("tracking_method", ["INDIVIDUAL", "BATCH"]);
@@ -187,7 +181,6 @@ export const workflowRequestEntityTypeEnum = pgEnum("workflow_request_entity_typ
     "INBOUND_REQUEST",
     "SERVICE_REQUEST",
 ]);
-export const workflowRequestKindEnum = pgEnum("workflow_request_kind", ["ARTWORK_SUPPORT"]);
 export const workflowRequestStatusEnum = pgEnum("workflow_request_status", [
     "REQUESTED",
     "ACKNOWLEDGED",
@@ -416,7 +409,6 @@ export const users = pgTable(
             .array()
             .notNull()
             .default(sql`ARRAY[]::text[]`),
-        permission_template: permissionTemplateEnum("permission_template"),
         access_policy_id: uuid("access_policy_id").references(() => accessPolicies.id, {
             onDelete: "set null",
         }),

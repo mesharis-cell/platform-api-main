@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, count, eq, inArray } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
 import {
@@ -8,6 +8,7 @@ import {
     serviceRequests,
     workflowDefinitionCompanyOverrides,
     workflowDefinitions,
+    workflowRequests,
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
@@ -320,6 +321,29 @@ const replaceCompanyOverrides = async (
 
 const deleteWorkflowDefinition = async (id: string, platformId: string) => {
     await getDefinitionById(id, platformId);
+
+    const [existingRequests] = await db
+        .select({ count: count() })
+        .from(workflowRequests)
+        .where(
+            and(
+                eq(workflowRequests.workflow_definition_id, id),
+                eq(workflowRequests.platform_id, platformId)
+            )
+        )
+        .limit(1);
+
+    if (Number(existingRequests?.count ?? 0) > 0) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Workflow definition cannot be deleted after requests have been created"
+        );
+    }
+
+    await db
+        .delete(workflowDefinitionCompanyOverrides)
+        .where(eq(workflowDefinitionCompanyOverrides.workflow_definition_id, id));
+
     await db
         .delete(workflowDefinitions)
         .where(

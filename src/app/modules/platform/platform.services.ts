@@ -135,7 +135,6 @@ const createPlatform = async (data: CreatePlatformPayload) => {
                 role: "ADMIN",
                 permissions: [],
                 access_policy_id: adminPolicy?.id ?? null,
-                permission_template: null,
             });
         }
 

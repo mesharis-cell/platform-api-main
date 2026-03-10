@@ -193,11 +193,16 @@
  *                         type: string
  *                       description: Array of user permissions
  *                       example: ["orders.create", "orders.view", "assets.view"]
- *                     permission_template:
+ *                     access_policy_id:
  *                       type: string
+ *                       format: uuid
  *                       nullable: true
- *                       description: Permission template applied to user
- *                       example: "CLIENT_USER"
+ *                       description: Access policy assigned to the user
+ *                     effective_permissions:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                       description: Effective permissions after policy and per-user overrides
  *                     is_active:
  *                       type: boolean
  *                       description: Whether the user account is active
@@ -449,11 +454,16 @@
  *                         type: string
  *                       description: Array of user permissions
  *                       example: ["orders.create", "orders.view", "assets.view"]
- *                     permission_template:
+ *                     access_policy_id:
  *                       type: string
+ *                       format: uuid
  *                       nullable: true
- *                       description: Permission template applied to user
- *                       example: "CLIENT_USER"
+ *                       description: Access policy assigned to the user
+ *                     effective_permissions:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                       description: Effective permissions after policy and per-user overrides
  *                     is_active:
  *                       type: boolean
  *                       description: Whether the user account is active
