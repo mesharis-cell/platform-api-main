@@ -448,7 +448,7 @@ const syncSystemBaseLineItem = async (
             volume_snapshot: quantity,
             warehouse_ops_rate_snapshot: roundCurrency(params.companyOpsRate),
         },
-        client_price_visible: false,
+        client_price_visible: existing?.client_price_visible ?? false,
         is_voided: false,
         voided_at: null,
         voided_by: null,

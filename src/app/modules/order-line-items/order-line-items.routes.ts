@@ -8,12 +8,7 @@ import { LineItemsSchemas } from "./order-line-items.schemas";
 const router = Router({ mergeParams: true }); // mergeParams to access :orderId
 
 // Get line items
-router.get(
-    "/",
-    platformValidator,
-    auth("ADMIN", "LOGISTICS", "CLIENT"),
-    LineItemsControllers.getLineItems
-);
+router.get("/", platformValidator, auth("ADMIN", "LOGISTICS"), LineItemsControllers.getLineItems);
 
 // Create catalog line item
 router.post(
