@@ -183,6 +183,13 @@
             "when": 1772890800000,
             "tag": "0025_system_base_line_backfill",
             "breakpoints": true
+        },
+        {
+            "idx": 26,
+            "version": "7",
+            "when": 1773152400000,
+            "tag": "0026_live_schema_alignment",
+            "breakpoints": true
         }
     ]
 }
