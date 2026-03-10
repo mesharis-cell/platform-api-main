@@ -28,6 +28,8 @@ import { LineItemRequestsRoutes } from "../modules/line-item-requests/line-item-
 import { AttachmentTypesRoutes } from "../modules/attachment-types/attachment-types.routes";
 import { AttachmentsRoutes } from "../modules/attachments/attachments.routes";
 import { WorkflowRequestRoutes } from "../modules/workflow-request/workflow-request.routes";
+import { AccessPolicyRoutes } from "../modules/access-policy/access-policy.routes";
+import { WorkflowDefinitionRoutes } from "../modules/workflow-definition/workflow-definition.routes";
 
 const router = Router();
 
@@ -39,6 +41,10 @@ const routes = [
     {
         path: "/user",
         route: UserRoutes,
+    },
+    {
+        path: "/access-policy",
+        route: AccessPolicyRoutes,
     },
     {
         path: "/company",
@@ -123,6 +129,10 @@ const routes = [
     {
         path: "/workflow-request",
         route: WorkflowRequestRoutes,
+    },
+    {
+        path: "/workflow-definitions",
+        route: WorkflowDefinitionRoutes,
     },
     {
         path: "/order",

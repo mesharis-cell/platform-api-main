@@ -7,7 +7,12 @@ import { AttachmentTypesSchemas } from "./attachment-types.schemas";
 
 const router = Router();
 
-router.get("/", platformValidator, auth("ADMIN"), AttachmentTypesControllers.listAttachmentTypes);
+router.get(
+    "/",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    AttachmentTypesControllers.listAttachmentTypes
+);
 router.post(
     "/",
     platformValidator,

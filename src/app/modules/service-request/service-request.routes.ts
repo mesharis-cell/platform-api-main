@@ -1,7 +1,9 @@
 import { Router } from "express";
 import auth from "../../middleware/auth";
+import featureValidator from "../../middleware/feature-validator";
 import payloadValidator from "../../middleware/payload-validator";
 import platformValidator from "../../middleware/platform-validator";
+import { featureNames } from "../../constants/common";
 import { ServiceRequestControllers } from "./service-request.controllers";
 import { ServiceRequestSchemas } from "./service-request.schemas";
 import { AttachmentsControllers } from "../attachments/attachments.controllers";
@@ -29,6 +31,7 @@ router.get(
     "/:id/attachments",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
+    featureValidator(featureNames.enable_attachments),
     AttachmentsControllers.listForEntity("SERVICE_REQUEST")
 );
 
@@ -36,6 +39,7 @@ router.post(
     "/:id/attachments",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
+    featureValidator(featureNames.enable_attachments),
     payloadValidator(AttachmentsSchemas.createEntityAttachmentsSchema),
     AttachmentsControllers.createForEntity("SERVICE_REQUEST")
 );
@@ -44,13 +48,15 @@ router.get(
     "/:id/workflow-requests",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
+    featureValidator(featureNames.enable_workflows),
     WorkflowRequestControllers.listForEntity("SERVICE_REQUEST")
 );
 
 router.post(
     "/:id/workflow-requests",
     platformValidator,
-    auth("LOGISTICS"),
+    auth("ADMIN", "LOGISTICS"),
+    featureValidator(featureNames.enable_workflows),
     payloadValidator(WorkflowRequestSchemas.createWorkflowRequestSchema),
     WorkflowRequestControllers.createForEntity("SERVICE_REQUEST")
 );

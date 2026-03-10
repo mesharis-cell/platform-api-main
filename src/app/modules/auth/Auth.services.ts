@@ -7,6 +7,7 @@ import { companies, companyDomains, platforms, users, otp } from "../../../db/sc
 import config from "../../config";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
+import { computeEffectivePermissions } from "../../utils/access-policy";
 import { tokenGenerator, tokenVerifier } from "../../utils/jwt-helpers";
 import {
     ForgotPasswordPayload,
@@ -34,6 +35,9 @@ const sanitizePlatformFeatures = (features: unknown): Record<string, boolean> =>
                 : Boolean(raw.enable_kadence_invoicing),
         enable_base_operations:
             raw.enable_base_operations === undefined ? true : Boolean(raw.enable_base_operations),
+        enable_attachments:
+            raw.enable_attachments === undefined ? true : Boolean(raw.enable_attachments),
+        enable_workflows: raw.enable_workflows === undefined ? true : Boolean(raw.enable_workflows),
     };
 };
 
@@ -53,6 +57,12 @@ const sanitizeCompanyFeatureOverrides = (features: unknown): Partial<Record<stri
     if (raw.enable_base_operations !== undefined) {
         overrides.enable_base_operations = Boolean(raw.enable_base_operations);
     }
+    if (raw.enable_attachments !== undefined) {
+        overrides.enable_attachments = Boolean(raw.enable_attachments);
+    }
+    if (raw.enable_workflows !== undefined) {
+        overrides.enable_workflows = Boolean(raw.enable_workflows);
+    }
 
     return overrides;
 };
@@ -61,19 +71,32 @@ const login = async (credential: LoginCredential, platformId: string) => {
     const { email, password } = credential;
 
     // Also filtering by platformId as requested
-    const [user] = await db
-        .select()
-        .from(users)
-        .where(and(eq(users.email, email), eq(users.platform_id, platformId)));
+    const user = await db.query.users.findFirst({
+        where: and(eq(users.email, email), eq(users.platform_id, platformId)),
+        with: {
+            access_policy: {
+                columns: {
+                    permissions: true,
+                },
+            },
+        },
+    });
 
     if (!user) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "User not found");
     }
 
+    const effectivePermissions = computeEffectivePermissions({
+        accessPolicyPermissions: user.access_policy?.permissions,
+        permissionGrants: user.permission_grants,
+        permissionRevokes: user.permission_revokes,
+        legacyPermissions: user.permissions,
+    });
+
     if (
         !(
-            user.permissions.includes(PERMISSIONS.AUTH_LOGIN) ||
-            user.permissions.includes(PERMISSIONS.AUTH_ALL)
+            effectivePermissions.includes(PERMISSIONS.AUTH_LOGIN) ||
+            effectivePermissions.includes(PERMISSIONS.AUTH_ALL)
         )
     ) {
         throw new CustomizedError(httpStatus.FORBIDDEN, "You are not authorized to login");
@@ -90,7 +113,7 @@ const login = async (credential: LoginCredential, platformId: string) => {
     }
 
     // Remove password from response
-    const { password: _pass, ...userData } = user;
+    const { password: _pass, access_policy: _accessPolicy, ...userData } = user as any;
 
     const jwtPayload = {
         id: user.id,
@@ -124,6 +147,8 @@ const login = async (credential: LoginCredential, platformId: string) => {
 
     return {
         ...userData,
+        permissions: effectivePermissions,
+        effective_permissions: effectivePermissions,
         last_login_at: new Date(),
         access_token: accessToken,
         refresh_token: refreshToken,
@@ -147,16 +172,13 @@ const refresh = async (payload: RefreshTokenPayload) => {
         throw new CustomizedError(httpStatus.UNAUTHORIZED, "Invalid refresh token payload");
     }
 
-    const [user] = await db
-        .select()
-        .from(users)
-        .where(
-            and(
-                eq(users.id, verifiedUser.id),
-                eq(users.platform_id, verifiedUser.platform_id),
-                eq(users.is_active, true)
-            )
-        );
+    const user = await db.query.users.findFirst({
+        where: and(
+            eq(users.id, verifiedUser.id),
+            eq(users.platform_id, verifiedUser.platform_id),
+            eq(users.is_active, true)
+        ),
+    });
 
     if (!user) {
         throw new CustomizedError(httpStatus.UNAUTHORIZED, "User not found or inactive");

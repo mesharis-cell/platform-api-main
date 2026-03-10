@@ -1,8 +1,8 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../../../db";
-import { platforms, users } from "../../../db/schema";
+import { accessPolicies, platforms, users } from "../../../db/schema";
 import config from "../../config";
-import { permissionChecker } from "../../utils/checker";
+import { DEFAULT_ACCESS_POLICIES, DEFAULT_ACCESS_POLICY_CODES } from "../../utils/access-policy";
 import { CreatePlatformPayload } from "./platform.interfaces";
 import bcrypt from "bcrypt";
 import { UrlResolverService } from "../../services/url-resolver.service";
@@ -52,6 +52,9 @@ const sanitizePlatformFeatures = (value: unknown) => {
                 : Boolean(raw.enable_kadence_invoicing),
         enable_base_operations:
             raw.enable_base_operations === undefined ? true : Boolean(raw.enable_base_operations),
+        enable_attachments:
+            raw.enable_attachments === undefined ? true : Boolean(raw.enable_attachments),
+        enable_workflows: raw.enable_workflows === undefined ? true : Boolean(raw.enable_workflows),
     };
 };
 
@@ -70,6 +73,12 @@ const sanitizePlatformFeaturesPatch = (value: unknown) => {
     }
     if (raw.enable_base_operations !== undefined) {
         patch.enable_base_operations = Boolean(raw.enable_base_operations);
+    }
+    if (raw.enable_attachments !== undefined) {
+        patch.enable_attachments = Boolean(raw.enable_attachments);
+    }
+    if (raw.enable_workflows !== undefined) {
+        patch.enable_workflows = Boolean(raw.enable_workflows);
     }
 
     return patch;
@@ -96,8 +105,27 @@ const createPlatform = async (data: CreatePlatformPayload) => {
                 config.system_user_password,
                 config.salt_rounds
             );
+            await tx.insert(accessPolicies).values(
+                DEFAULT_ACCESS_POLICIES.map((policy) => ({
+                    platform_id: platform.id,
+                    code: policy.code,
+                    role: policy.role,
+                    name: policy.name,
+                    description: policy.description,
+                    permissions: policy.permissions,
+                }))
+            );
 
-            const permissions = permissionChecker("ADMIN", undefined, "PLATFORM_ADMIN");
+            const [adminPolicy] = await tx
+                .select({ id: accessPolicies.id })
+                .from(accessPolicies)
+                .where(
+                    and(
+                        eq(accessPolicies.platform_id, platform.id),
+                        eq(accessPolicies.code, DEFAULT_ACCESS_POLICY_CODES.ADMIN)
+                    )
+                )
+                .limit(1);
 
             await tx.insert(users).values({
                 platform_id: platform.id,
@@ -105,8 +133,9 @@ const createPlatform = async (data: CreatePlatformPayload) => {
                 email: config.system_user_email,
                 password: hashedPassword,
                 role: "ADMIN",
-                permissions,
-                permission_template: "PLATFORM_ADMIN",
+                permissions: [],
+                access_policy_id: adminPolicy?.id ?? null,
+                permission_template: null,
             });
         }
 

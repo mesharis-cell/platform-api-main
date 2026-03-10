@@ -1,5 +1,5 @@
 import z from "zod";
-import { permissionTemplateEnum, userRoleEnum } from "../../../db/schema";
+import { userRoleEnum } from "../../../db/schema";
 import { enumMessageGenerator } from "../../utils/helper";
 
 const createUser = z.object({
@@ -23,21 +23,9 @@ const createUser = z.object({
                 })
                 .optional()
                 .default("CLIENT"),
-            permissions: z
-                .array(z.string(), {
-                    error: "Permissions must be an array of strings",
-                })
-                .optional()
-                .default([]),
-            permission_template: z
-                .enum(permissionTemplateEnum.enumValues, {
-                    message: enumMessageGenerator(
-                        "Permission Template",
-                        permissionTemplateEnum.enumValues
-                    ),
-                })
-                .optional()
-                .nullable(),
+            access_policy_id: z.uuid("Access policy ID must be a valid UUID").optional().nullable(),
+            permission_grants: z.array(z.string()).optional().default([]),
+            permission_revokes: z.array(z.string()).optional().default([]),
             is_active: z.boolean().optional().default(true),
         })
         .strict()
@@ -58,20 +46,9 @@ const updateUser = z.object({
                 .min(1, "Name cannot be empty")
                 .max(100, "Name must be at most 100 characters")
                 .optional(),
-            permissions: z
-                .array(z.string(), {
-                    error: "Permissions must be an array of strings",
-                })
-                .optional(),
-            permission_template: z
-                .enum(permissionTemplateEnum.enumValues, {
-                    message: enumMessageGenerator(
-                        "Permission Template",
-                        permissionTemplateEnum.enumValues
-                    ),
-                })
-                .optional()
-                .nullable(),
+            access_policy_id: z.uuid("Access policy ID must be a valid UUID").optional().nullable(),
+            permission_grants: z.array(z.string()).optional(),
+            permission_revokes: z.array(z.string()).optional(),
             is_active: z.boolean().optional(),
             is_super_admin: z.boolean().optional(),
         })

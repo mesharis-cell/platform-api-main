@@ -96,10 +96,12 @@ const assertEntityAccess = (entity: { company_id: string | null }, user: AuthUse
 const normalizeVisibility = (
     requested: boolean | undefined,
     defaultVisible: boolean,
+    typeViewRoles: string[],
     user: AuthUser
 ) => {
-    if (user.role === "CLIENT") return true;
-    if (user.role === "LOGISTICS" && requested === true) return true;
+    const clientCanEverView = typeViewRoles.includes("CLIENT");
+    if (user.role === "CLIENT") return clientCanEverView;
+    if (!clientCanEverView) return false;
     if (requested !== undefined) return requested;
     return defaultVisible;
 };
@@ -137,6 +139,7 @@ const listEntityAttachments = async (
                 id: attachmentTypes.id,
                 code: attachmentTypes.code,
                 label: attachmentTypes.label,
+                view_roles: attachmentTypes.view_roles,
             },
             uploaded_by_user: {
                 id: users.id,
@@ -150,7 +153,7 @@ const listEntityAttachments = async (
         .where(and(...conditions))
         .orderBy(desc(entityAttachments.created_at));
 
-    return rows;
+    return rows.filter((row) => row.attachment_type.view_roles.includes(user.role));
 };
 
 const createAttachmentRecords = async (
@@ -187,6 +190,12 @@ const createAttachmentRecords = async (
                 `${type.label} is not allowed for ${entityType.replace(/_/g, " ")}`
             );
         }
+        if (!type.upload_roles.includes(user.role)) {
+            throw new CustomizedError(
+                httpStatus.FORBIDDEN,
+                `${type.label} cannot be uploaded by ${user.role}`
+            );
+        }
 
         return {
             platform_id: platformId,
@@ -201,6 +210,7 @@ const createAttachmentRecords = async (
             visible_to_client: normalizeVisibility(
                 attachment.visible_to_client,
                 type.default_visible_to_client,
+                type.view_roles,
                 user
             ),
             uploaded_by: user.id,

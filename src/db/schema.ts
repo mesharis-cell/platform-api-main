@@ -250,8 +250,11 @@ export const platforms = pgTable(
 export const platformsRelations = relations(platforms, ({ many }) => ({
     companies: many(companies),
     users: many(users),
+    access_policies: many(accessPolicies),
     warehouses: many(warehouses),
     workflow_requests: many(workflowRequests),
+    workflow_definitions: many(workflowDefinitions),
+    workflow_definition_company_overrides: many(workflowDefinitionCompanyOverrides),
     attachment_types: many(attachmentTypes),
     entity_attachments: many(entityAttachments),
 }));
@@ -346,6 +349,7 @@ export const companiesRelations = relations(companies, ({ one, many }) => ({
     service_requests: many(serviceRequests),
     users: many(users),
     line_item_requests: many(lineItemRequests),
+    workflow_definition_company_overrides: many(workflowDefinitionCompanyOverrides),
 }));
 
 export const companyDomainsRelations = relations(companyDomains, ({ one }) => ({
@@ -357,6 +361,42 @@ export const companyDomainsRelations = relations(companyDomains, ({ one }) => ({
         fields: [companyDomains.platform_id],
         references: [platforms.id],
     }),
+}));
+
+// ---------------------------------- ACCESS POLICY ---------------------------------------
+export const accessPolicies = pgTable(
+    "access_policies",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        role: userRoleEnum("role").notNull(),
+        code: varchar("code", { length: 64 }).notNull(),
+        name: varchar("name", { length: 120 }).notNull(),
+        description: text("description"),
+        permissions: text("permissions")
+            .array()
+            .notNull()
+            .default(sql`ARRAY[]::text[]`),
+        is_active: boolean("is_active").notNull().default(true),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+        updated_at: timestamp("updated_at")
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [
+        unique("access_policies_platform_code_unique").on(table.platform_id, table.code),
+        index("access_policies_platform_role_idx").on(table.platform_id, table.role),
+    ]
+);
+
+export const accessPoliciesRelations = relations(accessPolicies, ({ one, many }) => ({
+    platform: one(platforms, {
+        fields: [accessPolicies.platform_id],
+        references: [platforms.id],
+    }),
+    users: many(users),
 }));
 
 // ---------------------------------- USER ------------------------------------------------
@@ -377,6 +417,17 @@ export const users = pgTable(
             .notNull()
             .default(sql`ARRAY[]::text[]`),
         permission_template: permissionTemplateEnum("permission_template"),
+        access_policy_id: uuid("access_policy_id").references(() => accessPolicies.id, {
+            onDelete: "set null",
+        }),
+        permission_grants: text("permission_grants")
+            .array()
+            .notNull()
+            .default(sql`ARRAY[]::text[]`),
+        permission_revokes: text("permission_revokes")
+            .array()
+            .notNull()
+            .default(sql`ARRAY[]::text[]`),
         is_super_admin: boolean("is_super_admin").notNull().default(false),
         is_active: boolean("is_active").notNull().default(true),
         last_login_at: timestamp("last_login_at"),
@@ -397,6 +448,10 @@ export const userRelations = relations(users, ({ one, many }) => ({
     platform: one(platforms, {
         fields: [users.platform_id],
         references: [platforms.id],
+    }),
+    access_policy: one(accessPolicies, {
+        fields: [users.access_policy_id],
+        references: [accessPolicies.id],
     }),
     company: one(companies, {
         fields: [users.company_id],
@@ -1043,17 +1098,17 @@ export const workflowRequests = pgTable(
             .references(() => platforms.id, { onDelete: "cascade" }),
         entity_type: workflowRequestEntityTypeEnum("entity_type").notNull(),
         entity_id: uuid("entity_id").notNull(),
-        workflow_kind: workflowRequestKindEnum("workflow_kind")
+        workflow_definition_id: uuid("workflow_definition_id")
             .notNull()
-            .default("ARTWORK_SUPPORT"),
-        status: workflowRequestStatusEnum("status").notNull().default("REQUESTED"),
+            .references(() => workflowDefinitions.id, { onDelete: "restrict" }),
+        workflow_code: varchar("workflow_code", { length: 64 }).notNull(),
+        status: varchar("status", { length: 64 }).notNull(),
         title: varchar("title", { length: 200 }).notNull(),
         description: text("description"),
         requested_by: uuid("requested_by")
             .notNull()
             .references(() => users.id),
         requested_by_role: userRoleEnum("requested_by_role").notNull(),
-        assigned_email: varchar("assigned_email", { length: 255 }),
         requested_at: timestamp("requested_at").notNull().defaultNow(),
         acknowledged_at: timestamp("acknowledged_at"),
         completed_at: timestamp("completed_at"),
@@ -1073,7 +1128,7 @@ export const workflowRequests = pgTable(
             table.entity_id
         ),
         index("workflow_requests_status_idx").on(table.status),
-        index("workflow_requests_kind_idx").on(table.workflow_kind),
+        index("workflow_requests_code_idx").on(table.workflow_code),
     ]
 );
 
@@ -1082,12 +1137,102 @@ export const workflowRequestsRelations = relations(workflowRequests, ({ one, man
         fields: [workflowRequests.platform_id],
         references: [platforms.id],
     }),
+    workflow_definition: one(workflowDefinitions, {
+        fields: [workflowRequests.workflow_definition_id],
+        references: [workflowDefinitions.id],
+    }),
     requested_by_user: one(users, {
         fields: [workflowRequests.requested_by],
         references: [users.id],
     }),
     attachments: many(entityAttachments),
 }));
+
+export const workflowDefinitions = pgTable(
+    "workflow_definitions",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        code: varchar("code", { length: 64 }).notNull(),
+        label: varchar("label", { length: 120 }).notNull(),
+        description: text("description"),
+        allowed_entity_types: workflowRequestEntityTypeEnum("allowed_entity_types")
+            .array()
+            .notNull()
+            .default(sql`ARRAY[]::workflow_request_entity_type[]`),
+        requester_roles: userRoleEnum("requester_roles")
+            .array()
+            .notNull()
+            .default(sql`ARRAY['ADMIN','LOGISTICS']::user_role[]`),
+        is_active: boolean("is_active").notNull().default(true),
+        sort_order: integer("sort_order").notNull().default(0),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+        updated_at: timestamp("updated_at")
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [
+        unique("workflow_definitions_platform_code_unique").on(table.platform_id, table.code),
+        index("workflow_definitions_platform_sort_idx").on(table.platform_id, table.sort_order),
+    ]
+);
+
+export const workflowDefinitionsRelations = relations(workflowDefinitions, ({ one, many }) => ({
+    platform: one(platforms, {
+        fields: [workflowDefinitions.platform_id],
+        references: [platforms.id],
+    }),
+    requests: many(workflowRequests),
+    company_overrides: many(workflowDefinitionCompanyOverrides),
+}));
+
+export const workflowDefinitionCompanyOverrides = pgTable(
+    "workflow_definition_company_overrides",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        workflow_definition_id: uuid("workflow_definition_id")
+            .notNull()
+            .references(() => workflowDefinitions.id, { onDelete: "cascade" }),
+        company_id: uuid("company_id")
+            .notNull()
+            .references(() => companies.id, { onDelete: "cascade" }),
+        is_enabled: boolean("is_enabled").notNull(),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+        updated_at: timestamp("updated_at")
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [
+        unique("workflow_definition_company_override_unique").on(
+            table.workflow_definition_id,
+            table.company_id
+        ),
+        index("workflow_definition_company_override_platform_idx").on(table.platform_id),
+    ]
+);
+
+export const workflowDefinitionCompanyOverridesRelations = relations(
+    workflowDefinitionCompanyOverrides,
+    ({ one }) => ({
+        platform: one(platforms, {
+            fields: [workflowDefinitionCompanyOverrides.platform_id],
+            references: [platforms.id],
+        }),
+        workflow_definition: one(workflowDefinitions, {
+            fields: [workflowDefinitionCompanyOverrides.workflow_definition_id],
+            references: [workflowDefinitions.id],
+        }),
+        company: one(companies, {
+            fields: [workflowDefinitionCompanyOverrides.company_id],
+            references: [companies.id],
+        }),
+    })
+);
 
 export const attachmentTypes = pgTable(
     "attachment_types",
@@ -1102,6 +1247,14 @@ export const attachmentTypes = pgTable(
             .array()
             .notNull()
             .default(sql`ARRAY[]::attachment_entity_type[]`),
+        upload_roles: userRoleEnum("upload_roles")
+            .array()
+            .notNull()
+            .default(sql`ARRAY[]::user_role[]`),
+        view_roles: userRoleEnum("view_roles")
+            .array()
+            .notNull()
+            .default(sql`ARRAY[]::user_role[]`),
         default_visible_to_client: boolean("default_visible_to_client").notNull().default(false),
         is_active: boolean("is_active").notNull().default(true),
         sort_order: integer("sort_order").notNull().default(0),

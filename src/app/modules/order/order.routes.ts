@@ -195,6 +195,7 @@ router.get(
     "/:id/attachments",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
+    featureValidator(featureNames.enable_attachments),
     AttachmentsControllers.listForEntity("ORDER")
 );
 
@@ -202,6 +203,7 @@ router.post(
     "/:id/attachments",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
+    featureValidator(featureNames.enable_attachments),
     payloadValidator(AttachmentsSchemas.createEntityAttachmentsSchema),
     AttachmentsControllers.createForEntity("ORDER")
 );
@@ -210,13 +212,15 @@ router.get(
     "/:id/workflow-requests",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
+    featureValidator(featureNames.enable_workflows),
     WorkflowRequestControllers.listForEntity("ORDER")
 );
 
 router.post(
     "/:id/workflow-requests",
     platformValidator,
-    auth("LOGISTICS"),
+    auth("ADMIN", "LOGISTICS"),
+    featureValidator(featureNames.enable_workflows),
     payloadValidator(WorkflowRequestSchemas.createWorkflowRequestSchema),
     WorkflowRequestControllers.createForEntity("ORDER")
 );

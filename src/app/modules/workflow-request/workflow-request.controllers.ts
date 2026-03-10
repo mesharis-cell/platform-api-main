@@ -46,10 +46,34 @@ const createForEntity = (entityType: WorkflowEntityType) =>
         });
     });
 
+const listInbox = catchAsync(async (req: Request, res: Response) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+    const result = await WorkflowRequestServices.listWorkflowInbox(platformId, user, {
+        lifecycle_state:
+            typeof req.query.lifecycle_state === "string" ? req.query.lifecycle_state : undefined,
+        workflow_code:
+            typeof req.query.workflow_code === "string" ? req.query.workflow_code : undefined,
+    });
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Workflow inbox fetched successfully",
+        data: result,
+    });
+});
+
 const updateWorkflowRequest = catchAsync(async (req: Request, res: Response) => {
     const platformId = (req as any).platformId;
+    const user = (req as any).user;
     const id = getRequiredString(req.params.id, "id");
-    const result = await WorkflowRequestServices.updateWorkflowRequest(id, platformId, req.body);
+    const result = await WorkflowRequestServices.updateWorkflowRequest(
+        id,
+        platformId,
+        req.body,
+        user
+    );
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -62,5 +86,6 @@ const updateWorkflowRequest = catchAsync(async (req: Request, res: Response) => 
 export const WorkflowRequestControllers = {
     listForEntity,
     createForEntity,
+    listInbox,
     updateWorkflowRequest,
 };

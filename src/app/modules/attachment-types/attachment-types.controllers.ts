@@ -7,7 +7,10 @@ import { AttachmentTypesServices } from "./attachment-types.services";
 
 const listAttachmentTypes = catchAsync(async (req: Request, res: Response) => {
     const platformId = (req as any).platformId;
-    const result = await AttachmentTypesServices.listAttachmentTypes(platformId);
+    const user = (req as any).user;
+    const result = await AttachmentTypesServices.listAttachmentTypes(platformId, user, {
+        entity_type: typeof req.query.entity_type === "string" ? req.query.entity_type : undefined,
+    });
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

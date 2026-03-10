@@ -7,10 +7,17 @@ import { WorkflowRequestSchemas } from "./workflow-request.schemas";
 
 const router = Router();
 
+router.get(
+    "/",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    WorkflowRequestControllers.listInbox
+);
+
 router.patch(
     "/:id",
     platformValidator,
-    auth("ADMIN"),
+    auth("ADMIN", "LOGISTICS"),
     payloadValidator(WorkflowRequestSchemas.updateWorkflowRequestSchema),
     WorkflowRequestControllers.updateWorkflowRequest
 );

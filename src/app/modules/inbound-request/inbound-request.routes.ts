@@ -42,6 +42,7 @@ router.get(
     "/:id/attachments",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
+    featureValidator(featureNames.enable_attachments),
     AttachmentsControllers.listForEntity("INBOUND_REQUEST")
 );
 
@@ -49,6 +50,7 @@ router.post(
     "/:id/attachments",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
+    featureValidator(featureNames.enable_attachments),
     payloadValidator(AttachmentsSchemas.createEntityAttachmentsSchema),
     AttachmentsControllers.createForEntity("INBOUND_REQUEST")
 );
@@ -57,13 +59,15 @@ router.get(
     "/:id/workflow-requests",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
+    featureValidator(featureNames.enable_workflows),
     WorkflowRequestControllers.listForEntity("INBOUND_REQUEST")
 );
 
 router.post(
     "/:id/workflow-requests",
     platformValidator,
-    auth("LOGISTICS"),
+    auth("ADMIN", "LOGISTICS"),
+    featureValidator(featureNames.enable_workflows),
     payloadValidator(WorkflowRequestSchemas.createWorkflowRequestSchema),
     WorkflowRequestControllers.createForEntity("INBOUND_REQUEST")
 );

@@ -12,7 +12,9 @@ import { eventBus } from "../../events/event-bus";
 import { EVENT_TYPES } from "../../events/event-types";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
+import { getWorkflowLifecycleState } from "../../utils/workflow-catalog";
 import { AttachmentsServices } from "../attachments/attachments.services";
+import { WorkflowDefinitionServices } from "../workflow-definition/workflow-definition.services";
 import {
     CreateWorkflowRequestPayload,
     UpdateWorkflowRequestPayload,
@@ -31,9 +33,7 @@ const resolveEntity = async (
             .from(orders)
             .where(and(eq(orders.id, entityId), eq(orders.platform_id, platformId)))
             .limit(1);
-        if (!row) {
-            throw new CustomizedError(httpStatus.NOT_FOUND, "ORDER not found");
-        }
+        if (!row) throw new CustomizedError(httpStatus.NOT_FOUND, "ORDER not found");
         return row;
     }
 
@@ -72,28 +72,61 @@ const resolveEntity = async (
     return row;
 };
 
+const projectWorkflowRequest = (workflow: any) => ({
+    ...workflow,
+    lifecycle_state: getWorkflowLifecycleState(workflow.workflow_code, workflow.status),
+});
+
 const listWorkflowRequestsForEntity = async (
     entityType: WorkflowEntityType,
     entityId: string,
     platformId: string,
     user: AuthUser
 ) => {
-    const entity = await resolveEntity(entityType, entityId, platformId);
+    await resolveEntity(entityType, entityId, platformId);
     if (user.role === "CLIENT") {
         throw new CustomizedError(httpStatus.FORBIDDEN, "Clients cannot access internal workflows");
     }
 
-    return db
+    const rows = await db
         .select()
         .from(workflowRequests)
         .where(
             and(
                 eq(workflowRequests.platform_id, platformId),
                 eq(workflowRequests.entity_type, entityType),
-                eq(workflowRequests.entity_id, entity.id)
+                eq(workflowRequests.entity_id, entityId)
             )
         )
         .orderBy(desc(workflowRequests.requested_at));
+
+    return rows.map(projectWorkflowRequest);
+};
+
+const listWorkflowInbox = async (
+    platformId: string,
+    user: AuthUser,
+    filters?: { lifecycle_state?: string; workflow_code?: string }
+) => {
+    if (user.role === "CLIENT") {
+        throw new CustomizedError(httpStatus.FORBIDDEN, "Clients cannot access workflow inbox");
+    }
+
+    const rows = await db
+        .select()
+        .from(workflowRequests)
+        .where(eq(workflowRequests.platform_id, platformId))
+        .orderBy(desc(workflowRequests.requested_at));
+
+    return rows.map(projectWorkflowRequest).filter((workflow) => {
+        if (filters?.lifecycle_state && workflow.lifecycle_state !== filters.lifecycle_state) {
+            return false;
+        }
+        if (filters?.workflow_code && workflow.workflow_code !== filters.workflow_code) {
+            return false;
+        }
+        return true;
+    });
 };
 
 const createWorkflowRequest = async (
@@ -103,7 +136,28 @@ const createWorkflowRequest = async (
     user: AuthUser,
     payload: CreateWorkflowRequestPayload
 ) => {
+    if (user.role === "CLIENT") {
+        throw new CustomizedError(httpStatus.FORBIDDEN, "Clients cannot create internal workflows");
+    }
+
     const entity = await resolveEntity(entityType, entityId, platformId);
+    const availableDefinitions = await WorkflowDefinitionServices.listAvailableWorkflowDefinitions(
+        platformId,
+        user,
+        entityType,
+        entityId
+    );
+    const definition = availableDefinitions.find((item) => item.code === payload.workflow_code);
+
+    if (!definition) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Workflow is not enabled for this entity"
+        );
+    }
+
+    WorkflowDefinitionServices.assertWorkflowStatusIsValid(definition.code, "REQUESTED");
+
     const [company] = await db
         .select({ name: companies.name })
         .from(companies)
@@ -117,13 +171,13 @@ const createWorkflowRequest = async (
                 platform_id: platformId,
                 entity_type: entityType,
                 entity_id: entityId,
-                workflow_kind: payload.workflow_kind,
+                workflow_definition_id: definition.id,
+                workflow_code: definition.code,
                 status: "REQUESTED",
                 title: payload.title,
                 description: payload.description || null,
                 requested_by: user.id,
                 requested_by_role: user.role,
-                assigned_email: payload.assigned_email || null,
                 metadata: payload.metadata || {},
             })
             .returning();
@@ -154,21 +208,26 @@ const createWorkflowRequest = async (
             company_id: entity.company_id,
             company_name: company?.name || "",
             workflow_request_id: created.id,
-            workflow_kind: created.workflow_kind,
+            workflow_code: created.workflow_code,
             workflow_status: created.status,
             title: created.title,
             description: created.description || "",
         },
     });
 
-    return created;
+    return projectWorkflowRequest(created);
 };
 
 const updateWorkflowRequest = async (
     id: string,
     platformId: string,
-    payload: UpdateWorkflowRequestPayload
+    payload: UpdateWorkflowRequestPayload,
+    user: AuthUser
 ) => {
+    if (user.role === "CLIENT") {
+        throw new CustomizedError(httpStatus.FORBIDDEN, "Clients cannot update workflows");
+    }
+
     const [existing] = await db
         .select()
         .from(workflowRequests)
@@ -180,19 +239,19 @@ const updateWorkflowRequest = async (
     }
 
     const nextStatus = payload.status || existing.status;
+    WorkflowDefinitionServices.assertWorkflowStatusIsValid(existing.workflow_code, nextStatus);
 
     const [updated] = await db
         .update(workflowRequests)
         .set({
             ...(payload.title !== undefined && { title: payload.title }),
             ...(payload.description !== undefined && { description: payload.description || null }),
-            ...(payload.assigned_email !== undefined && { assigned_email: payload.assigned_email }),
             ...(payload.metadata !== undefined && { metadata: payload.metadata }),
             ...(payload.status !== undefined && { status: payload.status }),
             ...(payload.status === "ACKNOWLEDGED" && { acknowledged_at: new Date() }),
             ...(payload.status === "COMPLETED" && { completed_at: new Date() }),
             ...(payload.status === "CANCELLED" && { cancelled_at: new Date() }),
-            ...(["REQUESTED", "IN_PROGRESS"].includes(nextStatus)
+            ...(["REQUESTED", "ACKNOWLEDGED", "IN_PROGRESS"].includes(nextStatus)
                 ? { completed_at: null, cancelled_at: null }
                 : {}),
             updated_at: new Date(),
@@ -200,11 +259,12 @@ const updateWorkflowRequest = async (
         .where(eq(workflowRequests.id, id))
         .returning();
 
-    return updated;
+    return projectWorkflowRequest(updated);
 };
 
 export const WorkflowRequestServices = {
     listWorkflowRequestsForEntity,
+    listWorkflowInbox,
     createWorkflowRequest,
     updateWorkflowRequest,
 };

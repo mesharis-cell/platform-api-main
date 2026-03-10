@@ -253,7 +253,7 @@ export interface InboundRequestInvoiceGeneratedPayload extends BaseEventPayload 
 
 export interface WorkflowRequestSubmittedPayload extends BaseEventPayload {
     workflow_request_id: string;
-    workflow_kind: string;
+    workflow_code: string;
     workflow_status: string;
     title: string;
     description?: string;

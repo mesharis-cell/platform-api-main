@@ -8,6 +8,7 @@ import config from "../config";
 import CustomizedError from "../error/customized-error";
 import { AuthUser } from "../interface/common";
 import { UserRole } from "../modules/user/user.interfaces";
+import { computeEffectivePermissions } from "../utils/access-policy";
 import { tokenVerifier } from "../utils/jwt-helpers";
 
 const auth = (...roles: UserRole[]) => {
@@ -25,16 +26,20 @@ const auth = (...roles: UserRole[]) => {
 
             const verifiedUser = tokenVerifier(token, config.jwt_access_secret) as AuthUser;
 
-            const [user] = await db
-                .select()
-                .from(users)
-                .where(
-                    and(
-                        eq(users.platform_id, platformId),
-                        eq(users.id, verifiedUser?.id),
-                        eq(users.is_active, true)
-                    )
-                );
+            const user = await db.query.users.findFirst({
+                where: and(
+                    eq(users.platform_id, platformId),
+                    eq(users.id, verifiedUser?.id),
+                    eq(users.is_active, true)
+                ),
+                with: {
+                    access_policy: {
+                        columns: {
+                            permissions: true,
+                        },
+                    },
+                },
+            });
 
             if (!user) {
                 throw new CustomizedError(httpStatus.UNAUTHORIZED, "User not found or inactive");
@@ -47,7 +52,15 @@ const auth = (...roles: UserRole[]) => {
                 );
             }
 
-            req.user = user;
+            req.user = {
+                ...user,
+                permissions: computeEffectivePermissions({
+                    accessPolicyPermissions: user.access_policy?.permissions,
+                    permissionGrants: user.permission_grants,
+                    permissionRevokes: user.permission_revokes,
+                    legacyPermissions: user.permissions,
+                }),
+            };
 
             next();
         } catch (error: any) {

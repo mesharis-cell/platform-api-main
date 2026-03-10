@@ -20,7 +20,7 @@ export const getPlatformAdminEmails = async (platformId: string): Promise<string
             and(
                 eq(users.platform_id, platformId),
                 eq(users.role, "ADMIN"),
-                sql`${users.permission_template} = 'PLATFORM_ADMIN' AND ${users.email} NOT LIKE '%@system.internal'`
+                sql`${users.email} NOT LIKE '%@system.internal'`
             )
         );
 
@@ -37,10 +37,7 @@ export const getPlatformLogisticsStaffEmails = async (platformId: string): Promi
             and(
                 eq(users.platform_id, platformId),
                 eq(users.role, "LOGISTICS"),
-                sql`(
-                    ${users.permission_template} = 'LOGISTICS_STAFF'
-                    OR 'orders:receive_notifications' = ANY(${users.permissions})
-                ) AND ${users.email} NOT LIKE '%@system.internal'`
+                sql`${users.email} NOT LIKE '%@system.internal'`
             )
         );
 

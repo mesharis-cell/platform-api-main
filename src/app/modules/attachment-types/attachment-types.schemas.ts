@@ -1,5 +1,5 @@
 import z from "zod";
-import { attachmentEntityTypeEnum } from "../../../db/schema";
+import { attachmentEntityTypeEnum, userRoleEnum } from "../../../db/schema";
 import { enumMessageGenerator } from "../../utils/helper";
 
 const attachmentTypeBody = z
@@ -14,6 +14,22 @@ const attachmentTypeBody = z
                 )
             )
             .min(1, "At least one entity type is required"),
+        upload_roles: z
+            .array(
+                z.enum(
+                    userRoleEnum.enumValues,
+                    enumMessageGenerator("Upload role", userRoleEnum.enumValues)
+                )
+            )
+            .min(1, "At least one upload role is required"),
+        view_roles: z
+            .array(
+                z.enum(
+                    userRoleEnum.enumValues,
+                    enumMessageGenerator("View role", userRoleEnum.enumValues)
+                )
+            )
+            .optional(),
         default_visible_to_client: z.boolean().optional().default(false),
         is_active: z.boolean().optional().default(true),
         sort_order: z.number().int().optional().default(0),

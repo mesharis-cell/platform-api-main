@@ -6,9 +6,3 @@ export const userQueryValidationConfig = {
     sort_by: userSortableFields,
     sort_order: sortOrderType,
 };
-
-export const allowedTemplatesForRole: Record<string, string> = {
-    ADMIN: "PLATFORM_ADMIN",
-    LOGISTICS: "LOGISTICS_STAFF",
-    CLIENT: "CLIENT_USER",
-};
