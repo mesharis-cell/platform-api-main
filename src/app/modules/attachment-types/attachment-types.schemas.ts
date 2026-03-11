@@ -31,6 +31,7 @@ const attachmentTypeBody = z
             )
             .optional(),
         default_visible_to_client: z.boolean().optional().default(false),
+        required_note: z.boolean().optional().default(false),
         is_active: z.boolean().optional().default(true),
         sort_order: z.number().int().optional().default(0),
     })

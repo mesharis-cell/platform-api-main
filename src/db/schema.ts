@@ -1269,6 +1269,7 @@ export const attachmentTypes = pgTable(
             .notNull()
             .default(sql`ARRAY[]::user_role[]`),
         default_visible_to_client: boolean("default_visible_to_client").notNull().default(false),
+        required_note: boolean("required_note").notNull().default(false),
         is_active: boolean("is_active").notNull().default(true),
         sort_order: integer("sort_order").notNull().default(0),
         created_at: timestamp("created_at").notNull().defaultNow(),

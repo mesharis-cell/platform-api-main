@@ -46,6 +46,7 @@ const createAttachmentType = async (platformId: string, payload: CreateAttachmen
             upload_roles: uploadRoles as any,
             view_roles: viewRoles as any,
             default_visible_to_client: payload.default_visible_to_client ?? false,
+            required_note: payload.required_note ?? false,
             is_active: payload.is_active ?? true,
             sort_order: payload.sort_order ?? 0,
         })
@@ -86,6 +87,7 @@ const updateAttachmentType = async (
             ...(payload.default_visible_to_client !== undefined && {
                 default_visible_to_client: payload.default_visible_to_client,
             }),
+            ...(payload.required_note !== undefined && { required_note: payload.required_note }),
             ...(payload.is_active !== undefined && { is_active: payload.is_active }),
             ...(payload.sort_order !== undefined && { sort_order: payload.sort_order }),
             updated_at: new Date(),

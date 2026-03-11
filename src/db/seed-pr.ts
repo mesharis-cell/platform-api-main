@@ -124,8 +124,23 @@ async function seedPlatform() {
         .values({
             name: "Kadence",
             domain: "kadence.ae",
-            config: {},
-            features: {},
+            config: {
+                logo_url: "https://placehold.co/200x80/f97316/ffffff?text=Game+On",
+                primary_color: "#f97316",
+                secondary_color: "#0ea5e9",
+                from_email: "no-reply@kadence.ae",
+                currency: "AED",
+                feasibility: {
+                    minimum_lead_hours: 24,
+                    exclude_weekends: true,
+                    weekend_days: [0, 6],
+                    timezone: "Asia/Dubai",
+                },
+            },
+            features: {
+                ...companyFeatures,
+            },
+            is_active: true,
         })
         .returning();
     S.platform = platform;
@@ -342,13 +357,23 @@ async function seedAttachmentTypes() {
             },
             {
                 platform_id: S.platform.id,
+                code: "INTERNAL_REFERENCE",
+                label: "Internal Reference",
+                allowed_entity_types: ["ORDER", "INBOUND_REQUEST", "SERVICE_REQUEST"],
+                upload_roles: ["ADMIN", "LOGISTICS"],
+                view_roles: ["ADMIN", "LOGISTICS"],
+                default_visible_to_client: false,
+                sort_order: 1,
+            },
+            {
+                platform_id: S.platform.id,
                 code: "WORKFLOW_SUPPORTING_DOCUMENT",
                 label: "Workflow Supporting Document",
                 allowed_entity_types: ["WORKFLOW_REQUEST"],
                 upload_roles: ["ADMIN", "LOGISTICS"],
                 view_roles: ["ADMIN", "LOGISTICS"],
                 default_visible_to_client: false,
-                sort_order: 1,
+                sort_order: 2,
             },
         ])
         .returning();
