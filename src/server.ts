@@ -4,6 +4,7 @@ import app from "./app";
 import config from "./app/config";
 import { CronServices } from "./app/modules/cron/cron.services";
 import { registerHandlers } from "./app/events";
+import { NotificationQueueService } from "./app/services/notification-queue.service";
 
 const port = config.port || 9000;
 
@@ -13,6 +14,7 @@ async function main() {
     try {
         // Register event handlers
         registerHandlers();
+        await NotificationQueueService.start();
 
         // start server
         server.listen(port, () => {

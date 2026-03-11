@@ -2,8 +2,6 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
 import { notificationLogs, systemEvents } from "../../../db/schema";
-import { sendEmail } from "../../services/email.service";
-import { renderTemplate } from "../../events/templates";
 import catchAsync from "../../shared/catch-async";
 import sendResponse from "../../shared/send-response";
 import { getRequiredString } from "../../utils/request";
@@ -102,61 +100,24 @@ const retryNotification = catchAsync(async (req, res) => {
         });
     }
 
-    // Update to RETRYING first
+    // Re-queue for the background worker
     await db
         .update(notificationLogs)
         .set({
             status: "RETRYING",
-            attempts: log.attempts + 1,
-            last_attempt_at: new Date(),
+            next_attempt_at: new Date(),
+            processing_started_at: null,
+            worker_id: null,
+            error_message: null,
         })
         .where(eq(notificationLogs.id, id));
 
-    let subject: string | undefined;
-
-    try {
-        const rendered = renderTemplate(log.template_key, event.payload as Record<string, unknown>);
-        subject = rendered.subject;
-
-        const messageId = await sendEmail({
-            to: log.recipient_email,
-            subject: rendered.subject,
-            html: rendered.html,
-        });
-
-        await db
-            .update(notificationLogs)
-            .set({
-                status: "SENT",
-                sent_at: new Date(),
-                message_id: messageId,
-                subject,
-            })
-            .where(eq(notificationLogs.id, id));
-
-        sendResponse(res, {
-            statusCode: httpStatus.OK,
-            success: true,
-            message: "Notification retried successfully",
-            data: null,
-        });
-    } catch (err: any) {
-        await db
-            .update(notificationLogs)
-            .set({
-                status: "FAILED",
-                error_message: err?.message || "Unknown error",
-                subject: subject ?? null,
-            })
-            .where(eq(notificationLogs.id, id));
-
-        sendResponse(res, {
-            statusCode: httpStatus.INTERNAL_SERVER_ERROR,
-            success: false,
-            message: "Retry failed: " + (err?.message || "Unknown error"),
-            data: null,
-        });
-    }
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Notification queued for retry",
+        data: null,
+    });
 });
 
 export const NotificationLogControllers = {

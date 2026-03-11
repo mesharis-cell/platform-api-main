@@ -9,13 +9,11 @@ import {
     serviceRequests,
     users,
 } from "../../../db/schema";
-import { sendEmail } from "../../services/email.service";
 import {
     AppTarget,
     DeepLinkEntityType,
     UrlResolverService,
 } from "../../services/url-resolver.service";
-import { renderTemplate } from "../templates";
 import { SystemEvent } from "../event-types";
 import { sql } from "drizzle-orm";
 
@@ -31,6 +29,12 @@ type NotificationCondition = {
         | "request_type";
     operator: "equals" | "in";
     value: string | string[];
+};
+
+export type NotificationDispatchTarget = {
+    recipient_type: "ROLE" | "ENTITY_OWNER" | "EMAIL";
+    recipient_value: string | null;
+    template_key: string;
 };
 
 // ─── Recipient resolution ────────────────────────────────────────────────────
@@ -236,7 +240,7 @@ const mapEntityTypeToDeepLink = (entityType: string): DeepLinkEntityType | null 
 };
 
 const inferRuleTargetApp = (
-    rule: typeof notificationRules.$inferSelect,
+    rule: NotificationDispatchTarget,
     event: SystemEvent
 ): AppTarget | null => {
     if (rule.recipient_type === "ROLE") {
@@ -262,8 +266,8 @@ const inferRuleTargetApp = (
     return null;
 };
 
-const injectDeepLink = async (
-    rule: typeof notificationRules.$inferSelect,
+export const injectDeepLink = async (
+    rule: NotificationDispatchTarget,
     event: SystemEvent,
     entityCompanyId: string | null
 ): Promise<Record<string, unknown>> => {
@@ -298,7 +302,7 @@ const injectDeepLink = async (
 
 const UNCONFIGURED_FROM = "no-reply@unconfigured.kadence.app";
 
-async function getPlatformFromEmail(platformId: string): Promise<string> {
+export async function getPlatformFromEmail(platformId: string): Promise<string> {
     const [platform] = await db
         .select({ config: platforms.config })
         .from(platforms)
@@ -309,14 +313,7 @@ async function getPlatformFromEmail(platformId: string): Promise<string> {
 // ─── Main handler ─────────────────────────────────────────────────────────────
 
 export async function handleEmailNotifications(event: SystemEvent): Promise<void> {
-    const [rules, fromEmail] = await Promise.all([
-        getApplicableRules(event),
-        getPlatformFromEmail(event.platform_id),
-    ]);
-    const eventCompanyId =
-        event.entity_type === "USER"
-            ? null
-            : await getEntityCompanyId(event.entity_type, event.entity_id);
+    const rules = await getApplicableRules(event);
 
     for (const rule of rules) {
         if (!rule.is_enabled) continue;
@@ -325,7 +322,7 @@ export async function handleEmailNotifications(event: SystemEvent): Promise<void
         const emails = await resolveRecipients(rule, event);
 
         for (const email of emails) {
-            const [logEntry] = await db
+            await db
                 .insert(notificationLogs)
                 .values({
                     platform_id: event.platform_id,
@@ -336,40 +333,10 @@ export async function handleEmailNotifications(event: SystemEvent): Promise<void
                     recipient_value: rule.recipient_value,
                     template_key: rule.template_key,
                     status: "QUEUED",
-                    attempts: 1,
-                    last_attempt_at: new Date(),
+                    attempts: 0,
+                    next_attempt_at: new Date(),
                 })
-                .returning();
-
-            let subject: string | undefined;
-
-            try {
-                const resolvedPayload = await injectDeepLink(rule, event, eventCompanyId);
-                const rendered = renderTemplate(rule.template_key, resolvedPayload);
-                subject = rendered.subject;
-
-                const messageId = await sendEmail({
-                    to: email,
-                    subject: rendered.subject,
-                    html: rendered.html,
-                    from: fromEmail,
-                });
-
-                await db
-                    .update(notificationLogs)
-                    .set({ status: "SENT", sent_at: new Date(), message_id: messageId, subject })
-                    .where(eq(notificationLogs.id, logEntry.id));
-            } catch (err: any) {
-                console.error(`[EmailHandler] Failed to send to ${email}:`, err?.message);
-                await db
-                    .update(notificationLogs)
-                    .set({
-                        status: "FAILED",
-                        error_message: err?.message || "Unknown error",
-                        subject: subject ?? null,
-                    })
-                    .where(eq(notificationLogs.id, logEntry.id));
-            }
+                .returning({ id: notificationLogs.id });
         }
     }
 }

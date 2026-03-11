@@ -86,6 +86,7 @@ export const financialStatusEnum = pgEnum("financial_status", [
 ]);
 export const notificationStatusEnum = pgEnum("notification_status", [
     "QUEUED",
+    "PROCESSING",
     "SENT",
     "FAILED",
     "RETRYING",
@@ -1936,9 +1937,12 @@ export const notificationLogs = pgTable(
 
         status: notificationStatusEnum("status").notNull().default("QUEUED"),
         attempts: integer("attempts").notNull().default(0),
+        next_attempt_at: timestamp("next_attempt_at"),
         last_attempt_at: timestamp("last_attempt_at"),
+        processing_started_at: timestamp("processing_started_at"),
         sent_at: timestamp("sent_at"),
         message_id: varchar("message_id", { length: 255 }),
+        worker_id: varchar("worker_id", { length: 255 }),
         error_message: text("error_message"),
 
         created_at: timestamp("created_at").notNull().defaultNow(),
@@ -1946,6 +1950,11 @@ export const notificationLogs = pgTable(
     (table) => [
         index("notification_logs_event_idx").on(table.event_id),
         index("notification_logs_status_idx").on(table.status),
+        index("notification_logs_queue_idx").on(
+            table.status,
+            table.next_attempt_at,
+            table.created_at
+        ),
         index("notification_logs_recipient_idx").on(table.recipient_email),
         index("notification_logs_created_at_idx").on(table.created_at),
     ]

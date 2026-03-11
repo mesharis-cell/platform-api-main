@@ -197,10 +197,7 @@ const createAttachmentRecords = async (
             );
         }
         if (type.required_note && !attachment.note?.trim()) {
-            throw new CustomizedError(
-                httpStatus.BAD_REQUEST,
-                `${type.label} requires a note`
-            );
+            throw new CustomizedError(httpStatus.BAD_REQUEST, `${type.label} requires a note`);
         }
 
         return {

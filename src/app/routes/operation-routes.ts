@@ -19,6 +19,7 @@ import { ScanningRoutes } from "../modules/scanning/scanning.routes";
 import { UploadRoutes } from "../modules/upload/upload.route";
 import { LineItemsRoutes } from "../modules/order-line-items/order-line-items.routes";
 import { ExportRoutes } from "../modules/export/export.routes";
+import { OrderRoutes } from "../modules/order/order.routes";
 import { ServiceRequestRoutes } from "../modules/service-request/service-request.routes";
 import { SelfBookingsRoutes } from "../modules/self-bookings/self-bookings.routes";
 import { TeamRoutes } from "../modules/team/team.routes";
@@ -109,6 +110,10 @@ const routes = [
     {
         path: "/line-item",
         route: LineItemsRoutes,
+    },
+    {
+        path: "/order",
+        route: OrderRoutes,
     },
     {
         path: "/line-item-requests",

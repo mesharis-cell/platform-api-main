@@ -4,6 +4,11 @@ import path from "path";
 
 dotenv.config({ path: path.join(process.cwd(), ".env") });
 
+const asNumber = (value: string | undefined, fallback: number) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
 export default {
     node_env: process.env.NODE_ENV,
     port: process.env.PORT,
@@ -23,4 +28,8 @@ export default {
     aws_secret_access_key: process.env.AWS_SECRET_ACCESS_KEY,
     system_user_email: process.env.SYSTEM_USER_EMAIL || "unknown@system.internal",
     system_user_password: process.env.SYSTEM_USER_PASSWORD || "unknown",
+    email_rate_limit_per_second: asNumber(process.env.EMAIL_RATE_LIMIT_PER_SECOND, 2),
+    email_worker_batch_size: asNumber(process.env.EMAIL_WORKER_BATCH_SIZE, 2),
+    email_max_attempts: asNumber(process.env.EMAIL_MAX_ATTEMPTS, 8),
+    email_processing_timeout_seconds: asNumber(process.env.EMAIL_PROCESSING_TIMEOUT_SECONDS, 300),
 };

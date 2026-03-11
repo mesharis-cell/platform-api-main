@@ -30,7 +30,15 @@ export const sendEmail = async (options: EmailOptions): Promise<string> => {
 
     if (error) {
         console.error("❌ Resend error:", error);
-        throw new Error(error.message);
+        const wrappedError = new Error(error.message) as Error & {
+            statusCode?: number;
+            code?: string;
+            name?: string;
+        };
+        wrappedError.statusCode = (error as any)?.statusCode ?? (error as any)?.status;
+        wrappedError.code = (error as any)?.code;
+        wrappedError.name = (error as any)?.name || "ResendError";
+        throw wrappedError;
     }
 
     console.log("✅ Email sent:", { messageId: data!.id, to, subject });
