@@ -16,3 +16,5 @@ export type ForgotPasswordPayload = z.infer<typeof AuthSchemas.forgotPasswordSch
 
 // ----------------------------------- REFRESH TOKEN PAYLOAD ---------------------------------
 export type RefreshTokenPayload = z.infer<typeof AuthSchemas.refreshTokenSchema>["body"];
+
+export type UnsubscribePayload = z.infer<typeof AuthSchemas.unsubscribeBodySchema>["body"];

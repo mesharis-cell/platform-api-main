@@ -90,6 +90,15 @@ export const EVENT_GROUPS: EventGroup[] = [
         events: [{ key: "line_item_request.submitted", label: "Line Item Request Submitted" }],
     },
     {
+        label: "Workflow Requests",
+        events: [
+            { key: "workflow_request.submitted", label: "Workflow Request Submitted" },
+            { key: "workflow_request.status_changed", label: "Workflow Request Status Changed" },
+            { key: "workflow_request.completed", label: "Workflow Request Completed" },
+            { key: "workflow_request.cancelled", label: "Workflow Request Cancelled" },
+        ],
+    },
+    {
         label: "Auth",
         events: [{ key: "auth.password_reset_requested", label: "Password Reset" }],
     },
@@ -205,6 +214,46 @@ export const TEMPLATES_BY_EVENT: Record<string, TemplateMeta[]> = {
         {
             key: "line_item_request_submitted_admin",
             label: "Admin — Line Item Request Submitted",
+        },
+    ],
+    "workflow_request.submitted": [
+        {
+            key: "workflow_request_submitted_admin",
+            label: "Admin — Workflow Request Submitted",
+        },
+        {
+            key: "workflow_request_submitted_logistics",
+            label: "Logistics — Workflow Request Submitted",
+        },
+    ],
+    "workflow_request.status_changed": [
+        {
+            key: "workflow_request_status_changed_admin",
+            label: "Admin — Workflow Request Status Changed",
+        },
+        {
+            key: "workflow_request_status_changed_logistics",
+            label: "Logistics — Workflow Request Status Changed",
+        },
+    ],
+    "workflow_request.completed": [
+        {
+            key: "workflow_request_completed_admin",
+            label: "Admin — Workflow Request Completed",
+        },
+        {
+            key: "workflow_request_completed_logistics",
+            label: "Logistics — Workflow Request Completed",
+        },
+    ],
+    "workflow_request.cancelled": [
+        {
+            key: "workflow_request_cancelled_admin",
+            label: "Admin — Workflow Request Cancelled",
+        },
+        {
+            key: "workflow_request_cancelled_logistics",
+            label: "Logistics — Workflow Request Cancelled",
         },
     ],
     "auth.password_reset_requested": [

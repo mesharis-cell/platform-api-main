@@ -86,26 +86,25 @@ const createInboundRequest = async (
         );
     }
 
+    const totalVolume = data.items.reduce(
+        (acc, item) => acc + (item.quantity || 1) * Number(item.volume_per_unit),
+        0
+    );
+    const baseOpsTotal = Number(company.warehouse_ops_rate) * totalVolume;
+    const companyFeatureFlags = (company.features as Record<string, unknown> | null) || {};
+    const enableBaseOperations =
+        (companyFeatureFlags.enable_base_operations as boolean | undefined) ?? true;
+    const vatPercent =
+        company.vat_percent_override !== null && company.vat_percent_override !== undefined
+            ? Number(company.vat_percent_override)
+            : Number(platform?.vat_percent || 0);
+
     // Step 2: Create inbound request and items in a transaction
     const result = await db.transaction(async (tx) => {
-        // Step 2.1: Calculate total volume from items
-        const totalVolume = data.items.reduce(
-            (acc, item) => acc + (item.quantity || 1) * Number(item.volume_per_unit),
-            0
-        );
-
         const requestDbId = randomUUID();
         const requestId = await inboundRequestIdGenerator(platformId);
 
         // Step 2.2: Calculate logistics costs and margin
-        const baseOpsTotal = Number(company.warehouse_ops_rate) * totalVolume;
-        const companyFeatureFlags = (company.features as Record<string, unknown> | null) || {};
-        const enableBaseOperations =
-            (companyFeatureFlags.enable_base_operations as boolean | undefined) ?? true;
-        const vatPercent =
-            company.vat_percent_override !== null && company.vat_percent_override !== undefined
-                ? Number(company.vat_percent_override)
-                : Number(platform?.vat_percent || 0);
         const pricingDetails = PricingService.buildInitialPricing({
             platform_id: platformId,
             entity_type: "INBOUND_REQUEST",
@@ -163,6 +162,14 @@ const createInboundRequest = async (
         }
 
         return request;
+    });
+
+    await PricingService.rebuildBreakdown({
+        entity_type: "INBOUND_REQUEST",
+        entity_id: result.id,
+        platform_id: platformId,
+        calculated_by: user.id,
+        base_ops_total_override: baseOpsTotal,
     });
 
     if (result) {

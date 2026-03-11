@@ -169,6 +169,41 @@
             "when": 1772817600000,
             "tag": "0023_collection_team_identity",
             "breakpoints": true
+        },
+        {
+            "idx": 24,
+            "version": "7",
+            "when": 1772887200000,
+            "tag": "0024_workflow_attachments_permits_system_lines",
+            "breakpoints": true
+        },
+        {
+            "idx": 25,
+            "version": "7",
+            "when": 1772890800000,
+            "tag": "0025_system_base_line_backfill",
+            "breakpoints": true
+        },
+        {
+            "idx": 26,
+            "version": "7",
+            "when": 1773152400000,
+            "tag": "0026_live_schema_alignment",
+            "breakpoints": true
+        },
+        {
+            "idx": 27,
+            "version": "7",
+            "when": 1773225600000,
+            "tag": "0027_notification_queue",
+            "breakpoints": true
+        },
+        {
+            "idx": 28,
+            "version": "7",
+            "when": 1773292800000,
+            "tag": "0028_email_suppressions",
+            "breakpoints": true
         }
     ]
 }

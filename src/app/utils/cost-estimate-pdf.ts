@@ -280,22 +280,22 @@ export async function renderCostEstimatePDF(
                 lineRows.forEach((line, index) => {
                     const label = `${index + 1}. ${line.description}`;
                     const amountLabel =
-                        line.total === null
-                            ? "Included in total"
-                            : formatCurrency(String(line.total));
+                        line.total === null ? "" : formatCurrency(String(line.total));
 
                     const rowY = doc.y;
                     doc.fontSize(9)
                         .font("Helvetica")
                         .fillColor("#444")
                         .text(label, summaryX, rowY, { width: summaryWidth - 120 });
-                    doc.fontSize(9)
-                        .font("Helvetica-Bold")
-                        .fillColor("#000")
-                        .text(amountLabel, summaryX, rowY, {
-                            align: "right",
-                            width: summaryWidth,
-                        });
+                    if (amountLabel) {
+                        doc.fontSize(9)
+                            .font("Helvetica-Bold")
+                            .fillColor("#000")
+                            .text(amountLabel, summaryX, rowY, {
+                                align: "right",
+                                width: summaryWidth,
+                            });
+                    }
                     doc.moveDown(0.55);
                 });
 

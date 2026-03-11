@@ -6,6 +6,8 @@ export const featureNames = {
     show_estimate_on_order_creation: "show_estimate_on_order_creation",
     enable_kadence_invoicing: "enable_kadence_invoicing",
     enable_base_operations: "enable_base_operations",
+    enable_attachments: "enable_attachments",
+    enable_workflows: "enable_workflows",
 };
 
 export const companyFeatures = {
@@ -13,4 +15,6 @@ export const companyFeatures = {
     [featureNames.show_estimate_on_order_creation]: true,
     [featureNames.enable_kadence_invoicing]: false,
     [featureNames.enable_base_operations]: true,
+    [featureNames.enable_attachments]: true,
+    [featureNames.enable_workflows]: true,
 };

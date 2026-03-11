@@ -41,9 +41,23 @@ const refreshTokenSchema = z.object({
         .strict(),
 });
 
+const unsubscribeQuerySchema = z.object({
+    token: z.string().min(1, "token is required"),
+});
+
+const unsubscribeBodySchema = z.object({
+    body: z
+        .object({
+            token: z.string().min(1, "token is required"),
+        })
+        .strict(),
+});
+
 export const AuthSchemas = {
     loginValidationSchema,
     resetPasswordValidationSchema,
     forgotPasswordSchema,
     refreshTokenSchema,
+    unsubscribeQuerySchema,
+    unsubscribeBodySchema,
 };

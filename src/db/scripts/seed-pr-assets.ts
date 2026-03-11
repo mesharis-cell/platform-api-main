@@ -107,6 +107,14 @@ const S3_PREFIX = "assets/pr-import";
 
 type AssetCondition = "GREEN" | "ORANGE" | "RED";
 
+type AssetSizingProfile = {
+    key: string;
+    lengthRange: [number, number];
+    widthRange: [number, number];
+    heightRange: [number, number];
+    weightRange: [number, number];
+};
+
 type ImportDocRow = {
     externalKey?: string;
     docExternalKey?: string;
@@ -183,6 +191,151 @@ function buildConditionNotes(photoRows: ImportAssetRow[]): string | null {
     });
 
     return `Imported condition flags - ${summary.join("; ")}`;
+}
+
+const SIZING_PROFILES: AssetSizingProfile[] = [
+    {
+        key: "large_installation",
+        lengthRange: [180, 420],
+        widthRange: [50, 140],
+        heightRange: [180, 320],
+        weightRange: [80, 320],
+    },
+    {
+        key: "bar_or_counter",
+        lengthRange: [120, 300],
+        widthRange: [50, 90],
+        heightRange: [90, 120],
+        weightRange: [35, 140],
+    },
+    {
+        key: "table_display",
+        lengthRange: [60, 220],
+        widthRange: [60, 120],
+        heightRange: [45, 110],
+        weightRange: [8, 60],
+    },
+    {
+        key: "chair_stool",
+        lengthRange: [35, 60],
+        widthRange: [35, 60],
+        heightRange: [45, 120],
+        weightRange: [4, 18],
+    },
+    {
+        key: "shelving_display",
+        lengthRange: [60, 180],
+        widthRange: [30, 60],
+        heightRange: [120, 240],
+        weightRange: [18, 90],
+    },
+    {
+        key: "fridge_cooler",
+        lengthRange: [55, 120],
+        widthRange: [55, 90],
+        heightRange: [85, 220],
+        weightRange: [35, 140],
+    },
+    {
+        key: "sign_lighting",
+        lengthRange: [40, 180],
+        widthRange: [8, 30],
+        heightRange: [40, 160],
+        weightRange: [3, 28],
+    },
+    {
+        key: "plinth_podium",
+        lengthRange: [30, 80],
+        widthRange: [30, 80],
+        heightRange: [80, 140],
+        weightRange: [10, 45],
+    },
+    {
+        key: "small_accessory",
+        lengthRange: [15, 80],
+        widthRange: [15, 60],
+        heightRange: [5, 60],
+        weightRange: [1, 20],
+    },
+    {
+        key: "default",
+        lengthRange: [50, 180],
+        widthRange: [30, 90],
+        heightRange: [40, 180],
+        weightRange: [6, 75],
+    },
+];
+
+function getDeterministicNumber(seed: string, salt: string): number {
+    const digest = createHash("sha256").update(`${seed}:${salt}`).digest("hex").slice(0, 8);
+    return parseInt(digest, 16) / 0xffffffff;
+}
+
+function pickFromRange(
+    seed: string,
+    salt: string,
+    [min, max]: [number, number],
+    precision = 0
+): number {
+    const value = min + getDeterministicNumber(seed, salt) * (max - min);
+    const factor = 10 ** precision;
+    return Math.round(value * factor) / factor;
+}
+
+function inferSizingProfile(title: string, sourcePath?: string): AssetSizingProfile {
+    const haystack = `${title} ${sourcePath ?? ""}`.toLowerCase();
+
+    if (
+        /(backdrop|wall|arch|frame|fascia|totem|booth|stand|activation|display unit|display wall|installation|structure|gantry|portal)/.test(
+            haystack
+        )
+    ) {
+        return SIZING_PROFILES[0];
+    }
+    if (/(bar|counter|station|serve station|sampling unit)/.test(haystack)) {
+        return SIZING_PROFILES[1];
+    }
+    if (/(table|desk|console|display table)/.test(haystack)) {
+        return SIZING_PROFILES[2];
+    }
+    if (/(chair|stool|bench|seat|seating)/.test(haystack)) {
+        return SIZING_PROFILES[3];
+    }
+    if (/(shelf|shelving|rack|cabinet|bookcase|display shelf)/.test(haystack)) {
+        return SIZING_PROFILES[4];
+    }
+    if (/(fridge|cooler|freezer|ice box|chiller)/.test(haystack)) {
+        return SIZING_PROFILES[5];
+    }
+    if (/(sign|neon|lightbox|light box|lamp|lighting|led)/.test(haystack)) {
+        return SIZING_PROFILES[6];
+    }
+    if (/(plinth|podium|pedestal|cube)/.test(haystack)) {
+        return SIZING_PROFILES[7];
+    }
+    if (/(bucket|tray|crate|menu|props|prop|smallware|accessory)/.test(haystack)) {
+        return SIZING_PROFILES[8];
+    }
+
+    return SIZING_PROFILES[9];
+}
+
+function deriveAssetMeasurements(docTitle: string, docExternalKey: string, sourcePath?: string) {
+    const profile = inferSizingProfile(docTitle, sourcePath);
+    const seed = `${docExternalKey}:${docTitle}`;
+
+    const length = pickFromRange(seed, "length", profile.lengthRange);
+    const width = pickFromRange(seed, "width", profile.widthRange);
+    const height = pickFromRange(seed, "height", profile.heightRange);
+    const weight = pickFromRange(seed, "weight", profile.weightRange, 2);
+    const volume = Number(((length * width * height) / 1_000_000).toFixed(3));
+
+    return {
+        dimensions: { length, width, height },
+        weightPerUnit: weight.toFixed(2),
+        volumePerUnit: volume.toFixed(3),
+        sizingProfile: profile.key,
+    };
 }
 
 async function uploadPhoto(asset: ImportAssetRow): Promise<string | null> {
@@ -520,7 +673,8 @@ export async function seedPrAssets(opts: SeedPrAssetsOptions) {
             const refurbDaysEstimate =
                 derivedCondition === "RED" ? 7 : derivedCondition === "ORANGE" ? 3 : null;
             const derivedConditionNotes = buildConditionNotes(linkedPhotoRows);
-            const description = `Source: ${sourcePath}\n[docExternalKey:${docExternalKey}]`;
+            const description = null;
+            const measurements = deriveAssetMeasurements(docTitle, docExternalKey, sourcePath);
 
             if (isDryRun) {
                 const existing =
@@ -549,6 +703,9 @@ export async function seedPrAssets(opts: SeedPrAssetsOptions) {
                         condition: derivedCondition,
                         refurb_days_estimate: refurbDaysEstimate,
                         condition_notes: derivedConditionNotes,
+                        weight_per_unit: measurements.weightPerUnit,
+                        volume_per_unit: measurements.volumePerUnit,
+                        dimensions: measurements.dimensions,
                     })
                     .where(eq(schema.assets.id, existing.id));
                 updated++;
@@ -569,9 +726,9 @@ export async function seedPrAssets(opts: SeedPrAssetsOptions) {
                     total_quantity: 1,
                     available_quantity: 1,
                     qr_code: qrCode,
-                    weight_per_unit: "0.00",
-                    volume_per_unit: "0.000",
-                    dimensions: {},
+                    weight_per_unit: measurements.weightPerUnit,
+                    volume_per_unit: measurements.volumePerUnit,
+                    dimensions: measurements.dimensions,
                     condition: derivedCondition,
                     refurb_days_estimate: refurbDaysEstimate,
                     condition_notes: derivedConditionNotes,

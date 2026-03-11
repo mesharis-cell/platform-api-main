@@ -1,7 +1,6 @@
 import httpStatus from "http-status";
 import CustomizedError from "../error/customized-error";
-import { getAllPermissions, PERMISSION_TEMPLATES } from "../constants/permissions";
-import { allowedTemplatesForRole } from "../modules/user/user.utils";
+import { getAllPermissions } from "../constants/permissions";
 
 // ----------------------------------- DATE CHECKER ---------------------------------
 export const validDateChecker = (date: string, key: "from_date" | "to_date") => {
@@ -23,16 +22,10 @@ export const validDateChecker = (date: string, key: "from_date" | "to_date") => 
 };
 
 // ----------------------------------- PERMISSION CHECKER ---------------------------------
-export const permissionChecker = (
-    role: "ADMIN" | "LOGISTICS" | "CLIENT",
-    permissions: string[] | undefined,
-    template: "PLATFORM_ADMIN" | "LOGISTICS_STAFF" | "CLIENT_USER" | undefined | null
-): string[] => {
+export const permissionChecker = (permissions: string[] | undefined): string[] => {
     // Cache all valid permissions for performance
     const allValidPermissions = getAllPermissions();
     const validPermissionsSet = new Set<string>(allValidPermissions);
-
-    const allowedTemplate = allowedTemplatesForRole[role];
 
     const validPermissions: string[] = [];
     const invalidPermissions: string[] = [];
@@ -54,30 +47,6 @@ export const permissionChecker = (
             httpStatus.BAD_REQUEST,
             `Invalid permissions: ${invalidPermissions.join(", ")}`
         );
-    }
-
-    // Add template permissions if specified
-    if (template) {
-        if (template !== allowedTemplate) {
-            throw new CustomizedError(
-                httpStatus.BAD_REQUEST,
-                `Role '${role}' can only have '${allowedTemplate}' permission template`
-            );
-        }
-
-        const templatePermissions = PERMISSION_TEMPLATES[template];
-        if (!templatePermissions) {
-            throw new CustomizedError(httpStatus.BAD_REQUEST, `Invalid template: ${template}`);
-        }
-
-        validPermissions.push(...templatePermissions);
-    }
-
-    // Add default template permissions if no permissions and allowed template is specified
-    if (validPermissions.length === 0 && allowedTemplate) {
-        const templatePermissions =
-            PERMISSION_TEMPLATES[allowedTemplate as keyof typeof PERMISSION_TEMPLATES];
-        validPermissions.push(...templatePermissions);
     }
 
     // Remove duplicates and return

@@ -9,6 +9,7 @@ import { CountryRoutes } from "../modules/country/country.routes";
 import { NotificationLogRoutes } from "../modules/notification-logs/notification-logs.routes";
 import { NotificationRuleRoutes } from "../modules/notification-rules/notification-rules.routes";
 import { EventsRoutes } from "../modules/events/events.routes";
+import { InvoiceRoutes } from "../modules/invoice/invoice.routes";
 import { PlatformRoutes } from "../modules/platform/platform.routes";
 import { ServiceTypesRoutes } from "../modules/service-types/service-types.routes";
 import { UserRoutes } from "../modules/user/user.routes";
@@ -18,12 +19,18 @@ import { ScanningRoutes } from "../modules/scanning/scanning.routes";
 import { UploadRoutes } from "../modules/upload/upload.route";
 import { LineItemsRoutes } from "../modules/order-line-items/order-line-items.routes";
 import { ExportRoutes } from "../modules/export/export.routes";
+import { OrderRoutes } from "../modules/order/order.routes";
 import { ServiceRequestRoutes } from "../modules/service-request/service-request.routes";
 import { SelfBookingsRoutes } from "../modules/self-bookings/self-bookings.routes";
 import { TeamRoutes } from "../modules/team/team.routes";
 import { CompanyDomainRoutes } from "../modules/company-domain/company-domain.routes";
 import { OrderTransportTripsRoutes } from "../modules/order-transport-trips/order-transport-trips.routes";
 import { LineItemRequestsRoutes } from "../modules/line-item-requests/line-item-requests.routes";
+import { AttachmentTypesRoutes } from "../modules/attachment-types/attachment-types.routes";
+import { AttachmentsRoutes } from "../modules/attachments/attachments.routes";
+import { WorkflowRequestRoutes } from "../modules/workflow-request/workflow-request.routes";
+import { AccessPolicyRoutes } from "../modules/access-policy/access-policy.routes";
+import { WorkflowDefinitionRoutes } from "../modules/workflow-definition/workflow-definition.routes";
 
 const router = Router();
 
@@ -35,6 +42,10 @@ const routes = [
     {
         path: "/user",
         route: UserRoutes,
+    },
+    {
+        path: "/access-policy",
+        route: AccessPolicyRoutes,
     },
     {
         path: "/company",
@@ -101,8 +112,32 @@ const routes = [
         route: LineItemsRoutes,
     },
     {
+        path: "/order",
+        route: OrderRoutes,
+    },
+    {
         path: "/line-item-requests",
         route: LineItemRequestsRoutes,
+    },
+    {
+        path: "/attachment-types",
+        route: AttachmentTypesRoutes,
+    },
+    {
+        path: "/attachments",
+        route: AttachmentsRoutes,
+    },
+    {
+        path: "/invoice",
+        route: InvoiceRoutes,
+    },
+    {
+        path: "/workflow-request",
+        route: WorkflowRequestRoutes,
+    },
+    {
+        path: "/workflow-definitions",
+        route: WorkflowDefinitionRoutes,
     },
     {
         path: "/order",

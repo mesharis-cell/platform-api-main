@@ -11,8 +11,8 @@
  */
 
 import { companyFeatures } from "../app/constants/common";
-import { PERMISSION_TEMPLATES } from "../app/constants/permissions";
 import { lineItemIdGenerator } from "../app/modules/order-line-items/order-line-items.utils";
+import { DEFAULT_ACCESS_POLICIES, DEFAULT_ACCESS_POLICY_CODES } from "../app/utils/access-policy";
 import { db } from "./index";
 import * as schema from "./schema";
 import bcrypt from "bcrypt";
@@ -89,6 +89,7 @@ const brandLogo = (name: string) =>
 // ============================================================
 const S = {
     platform: null as any,
+    accessPolicies: [] as any[],
     companies: [] as any[],
     country: null as any,
     cities: [] as any[],
@@ -98,6 +99,8 @@ const S = {
     zones: [] as any[],
     serviceTypes: [] as any[],
     teams: [] as any[],
+    attachmentTypes: [] as any[],
+    workflowDefinitions: [] as any[],
     assets: [] as any[],
     collections: [] as any[],
     orders: [] as any[],
@@ -110,6 +113,8 @@ const S = {
 // Helper to find records
 const companyByName = (name: string) => S.companies.find((c) => c.name === name)!;
 const userByEmail = (email: string) => S.users.find((u) => u.email === email)!;
+const accessPolicyByCode = (code: string) =>
+    S.accessPolicies.find((policy) => policy.code === code)!;
 const brandByName = (name: string) => S.brands.find((b) => b.name === name)!;
 const zoneForCompany = (companyId: string) => S.zones.find((z) => z.company_id === companyId)!;
 const cityByName = (name: string) => S.cities.find((c) => c.name === name)!;
@@ -239,6 +244,26 @@ async function seedCompanyDomains() {
     console.log(`✓ ${domains.length} company domains`);
 }
 
+async function seedAccessPolicies() {
+    console.log("🔐 Seeding access policies...");
+    const policies = await db
+        .insert(schema.accessPolicies)
+        .values(
+            DEFAULT_ACCESS_POLICIES.map((policy) => ({
+                platform_id: S.platform.id,
+                code: policy.code,
+                role: policy.role,
+                name: policy.name,
+                description: policy.description,
+                permissions: policy.permissions,
+                is_active: true,
+            }))
+        )
+        .returning();
+    S.accessPolicies = policies;
+    console.log(`✓ ${policies.length} access policies`);
+}
+
 async function seedWarehouses() {
     console.log("🏭 Seeding warehouses...");
     const [wh] = await db
@@ -264,9 +289,9 @@ async function seedUsers() {
     const pr = companyByName("Pernod Ricard");
     const dg = companyByName("Diageo");
 
-    const allPerms = PERMISSION_TEMPLATES.PLATFORM_ADMIN;
-    const logisticsPerms = PERMISSION_TEMPLATES.LOGISTICS_STAFF;
-    const clientPerms = PERMISSION_TEMPLATES.CLIENT_USER;
+    const adminPolicy = accessPolicyByCode(DEFAULT_ACCESS_POLICY_CODES.ADMIN);
+    const logisticsPolicy = accessPolicyByCode(DEFAULT_ACCESS_POLICY_CODES.LOGISTICS);
+    const clientPolicy = accessPolicyByCode(DEFAULT_ACCESS_POLICY_CODES.CLIENT);
 
     const users = await db
         .insert(schema.users)
@@ -278,8 +303,8 @@ async function seedUsers() {
                 email: "admin@test.com",
                 password: pw,
                 role: "ADMIN" as const,
-                permissions: allPerms,
-                permission_template: "PLATFORM_ADMIN" as const,
+                permissions: [],
+                access_policy_id: adminPolicy.id,
                 is_super_admin: true,
                 is_active: true,
             },
@@ -290,8 +315,8 @@ async function seedUsers() {
                 email: "sarah.admin@platform.com",
                 password: pw,
                 role: "ADMIN" as const,
-                permissions: allPerms,
-                permission_template: "PLATFORM_ADMIN" as const,
+                permissions: [],
+                access_policy_id: adminPolicy.id,
                 is_active: true,
             },
             {
@@ -301,8 +326,8 @@ async function seedUsers() {
                 email: "logistics@test.com",
                 password: pw,
                 role: "LOGISTICS" as const,
-                permissions: logisticsPerms,
-                permission_template: "LOGISTICS_STAFF" as const,
+                permissions: [],
+                access_policy_id: logisticsPolicy.id,
                 is_active: true,
             },
             {
@@ -312,8 +337,8 @@ async function seedUsers() {
                 email: "ahmed.logistics@a2logistics.com",
                 password: pw,
                 role: "LOGISTICS" as const,
-                permissions: logisticsPerms,
-                permission_template: "LOGISTICS_STAFF" as const,
+                permissions: [],
+                access_policy_id: logisticsPolicy.id,
                 is_active: true,
             },
             {
@@ -323,8 +348,8 @@ async function seedUsers() {
                 email: "client@pernod-ricard.com",
                 password: pw,
                 role: "CLIENT" as const,
-                permissions: clientPerms,
-                permission_template: "CLIENT_USER" as const,
+                permissions: [],
+                access_policy_id: clientPolicy.id,
                 is_active: true,
             },
             {
@@ -334,14 +359,84 @@ async function seedUsers() {
                 email: "client@diageo.com",
                 password: pw,
                 role: "CLIENT" as const,
-                permissions: clientPerms,
-                permission_template: "CLIENT_USER" as const,
+                permissions: [],
+                access_policy_id: clientPolicy.id,
                 is_active: true,
             },
         ])
         .returning();
     S.users = users;
     console.log(`✓ ${users.length} users`);
+}
+
+async function seedAttachmentTypes() {
+    console.log("📎 Seeding attachment types...");
+    const attachmentTypes = await db
+        .insert(schema.attachmentTypes)
+        .values([
+            {
+                platform_id: S.platform.id,
+                code: "SUPPORTING_DOCUMENT",
+                label: "Supporting Document",
+                allowed_entity_types: ["ORDER", "INBOUND_REQUEST", "SERVICE_REQUEST"],
+                upload_roles: ["ADMIN", "LOGISTICS", "CLIENT"],
+                view_roles: ["ADMIN", "LOGISTICS", "CLIENT"],
+                default_visible_to_client: true,
+                sort_order: 0,
+            },
+            {
+                platform_id: S.platform.id,
+                code: "INTERNAL_REFERENCE",
+                label: "Internal Reference",
+                allowed_entity_types: ["ORDER", "INBOUND_REQUEST", "SERVICE_REQUEST"],
+                upload_roles: ["ADMIN", "LOGISTICS"],
+                view_roles: ["ADMIN", "LOGISTICS"],
+                default_visible_to_client: false,
+                sort_order: 1,
+            },
+            {
+                platform_id: S.platform.id,
+                code: "WORKFLOW_SUPPORTING_DOCUMENT",
+                label: "Workflow Supporting Document",
+                allowed_entity_types: ["WORKFLOW_REQUEST"],
+                upload_roles: ["ADMIN", "LOGISTICS"],
+                view_roles: ["ADMIN", "LOGISTICS"],
+                default_visible_to_client: false,
+                sort_order: 2,
+            },
+        ])
+        .returning();
+    S.attachmentTypes = attachmentTypes;
+    console.log(`✓ ${attachmentTypes.length} attachment types`);
+}
+
+async function seedWorkflowDefinitions() {
+    console.log("🔀 Seeding workflow definitions...");
+    const definitions = await db
+        .insert(schema.workflowDefinitions)
+        .values([
+            {
+                platform_id: S.platform.id,
+                code: "CREATIVE_SUPPORT",
+                label: "Creative Support",
+                description: "Request internal creative and design support for delivery prep.",
+                workflow_family: "simple_request",
+                status_model_key: "simple_request",
+                allowed_entity_types: ["ORDER", "INBOUND_REQUEST", "SERVICE_REQUEST"],
+                requester_roles: ["ADMIN", "LOGISTICS"],
+                viewer_roles: ["ADMIN", "LOGISTICS"],
+                actor_roles: ["ADMIN", "LOGISTICS"],
+                priority_enabled: true,
+                sla_hours: 48,
+                blocks_fulfillment_default: false,
+                intake_schema: {},
+                is_active: true,
+                sort_order: 0,
+            },
+        ])
+        .returning();
+    S.workflowDefinitions = definitions;
+    console.log(`✓ ${definitions.length} workflow definitions`);
 }
 
 async function seedBrands() {
@@ -2824,6 +2919,69 @@ async function seedNotificationRules() {
             template_key: "quote_declined_admin",
             sort_order: 0,
         },
+        // workflow_request.submitted
+        {
+            event_type: "workflow_request.submitted",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "workflow_request_submitted_admin",
+            sort_order: 0,
+        },
+        {
+            event_type: "workflow_request.submitted",
+            recipient_type: "ROLE",
+            recipient_value: "LOGISTICS",
+            template_key: "workflow_request_submitted_logistics",
+            sort_order: 1,
+        },
+
+        // workflow_request.status_changed
+        {
+            event_type: "workflow_request.status_changed",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "workflow_request_status_changed_admin",
+            sort_order: 0,
+        },
+        {
+            event_type: "workflow_request.status_changed",
+            recipient_type: "ROLE",
+            recipient_value: "LOGISTICS",
+            template_key: "workflow_request_status_changed_logistics",
+            sort_order: 1,
+        },
+
+        // workflow_request.completed
+        {
+            event_type: "workflow_request.completed",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "workflow_request_completed_admin",
+            sort_order: 0,
+        },
+        {
+            event_type: "workflow_request.completed",
+            recipient_type: "ROLE",
+            recipient_value: "LOGISTICS",
+            template_key: "workflow_request_completed_logistics",
+            sort_order: 1,
+        },
+
+        // workflow_request.cancelled
+        {
+            event_type: "workflow_request.cancelled",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "workflow_request_cancelled_admin",
+            sort_order: 0,
+        },
+        {
+            event_type: "workflow_request.cancelled",
+            recipient_type: "ROLE",
+            recipient_value: "LOGISTICS",
+            template_key: "workflow_request_cancelled_logistics",
+            sort_order: 1,
+        },
         {
             event_type: "quote.declined",
             recipient_type: "ROLE",
@@ -3430,6 +3588,13 @@ async function cleanup() {
         await safeDelete("notification_logs", () => db.delete(schema.notificationLogs));
         await safeDelete("system_events", () => db.delete(schema.systemEvents));
         await safeDelete("notification_rules", () => db.delete(schema.notificationRules));
+        await safeDelete("entity_attachments", () => db.delete(schema.entityAttachments));
+        await safeDelete("workflow_requests", () => db.delete(schema.workflowRequests));
+        await safeDelete("workflow_definition_company_overrides", () =>
+            db.delete(schema.workflowDefinitionCompanyOverrides)
+        );
+        await safeDelete("workflow_definitions", () => db.delete(schema.workflowDefinitions));
+        await safeDelete("attachment_types", () => db.delete(schema.attachmentTypes));
         await safeDelete("asset_versions", () => db.delete(schema.assetVersions));
         await safeDelete("asset_condition_history", () => db.delete(schema.assetConditionHistory));
         await safeDelete("scan_events", () => db.delete(schema.scanEvents));
@@ -3462,6 +3627,7 @@ async function cleanup() {
         await safeDelete("brands", () => db.delete(schema.brands));
         await safeDelete("company_domains", () => db.delete(schema.companyDomains));
         await safeDelete("users", () => db.delete(schema.users));
+        await safeDelete("access_policies", () => db.delete(schema.accessPolicies));
         await safeDelete("companies", () => db.delete(schema.companies));
         await safeDelete("warehouses", () => db.delete(schema.warehouses));
         await safeDelete("platforms", () => db.delete(schema.platforms));
@@ -3488,11 +3654,14 @@ async function main() {
 
         // Phase 1: Infrastructure
         await seedPlatform();
+        await seedAccessPolicies();
         await seedCompanies();
         await seedCountriesAndCities();
         await seedCompanyDomains();
         await seedWarehouses();
         await seedUsers();
+        await seedAttachmentTypes();
+        await seedWorkflowDefinitions();
         await seedBrands();
         await seedZones();
 

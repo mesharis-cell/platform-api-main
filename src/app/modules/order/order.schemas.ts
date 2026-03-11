@@ -125,6 +125,22 @@ const submitOrderSchema = z.object({
                 .string("Contact phone is required")
                 .min(1, "Contact phone is required")
                 .max(50),
+            permit_requirements: z
+                .object({
+                    requires_permit: z.boolean().default(false),
+                    permit_owner: z.enum(["CLIENT", "PLATFORM", "UNKNOWN"]).optional(),
+                    venue_contact_name: z.string().max(100).optional(),
+                    venue_contact_email: z
+                        .string()
+                        .email("Invalid email format")
+                        .max(255)
+                        .optional(),
+                    venue_contact_phone: z.string().max(50).optional(),
+                    requires_vehicle_docs: z.boolean().optional().default(false),
+                    requires_staff_ids: z.boolean().optional().default(false),
+                    notes: z.string().max(1000).optional(),
+                })
+                .optional(),
             special_instructions: z.string("Special instructions should be a text").optional(),
         })
         .strict()
@@ -146,6 +162,15 @@ const submitOrderSchema = z.object({
             {
                 message: "Event end date must be on or after start date",
                 path: ["event_end_date"],
+            }
+        )
+        .refine(
+            (data) =>
+                !data.permit_requirements?.requires_permit ||
+                !!data.permit_requirements?.permit_owner,
+            {
+                message: "Permit owner is required when permits are needed",
+                path: ["permit_requirements", "permit_owner"],
             }
         ),
 });

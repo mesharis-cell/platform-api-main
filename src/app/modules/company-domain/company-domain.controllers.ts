@@ -2,6 +2,7 @@ import httpStatus from "http-status";
 import catchAsync from "../../shared/catch-async";
 import sendResponse from "../../shared/send-response";
 import { CompanyDomainServices } from "./company-domain.services";
+import { getRequiredString } from "../../utils/request";
 
 const listCompanyDomains = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId as string;
@@ -27,7 +28,7 @@ const createCompanyDomain = catchAsync(async (req, res) => {
 
 const updateCompanyDomain = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId as string;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
     const data = await CompanyDomainServices.updateCompanyDomain(platformId, id, req.body);
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -39,7 +40,7 @@ const updateCompanyDomain = catchAsync(async (req, res) => {
 
 const deleteCompanyDomain = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId as string;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
     await CompanyDomainServices.deleteCompanyDomain(platformId, id);
     sendResponse(res, {
         statusCode: httpStatus.OK,

@@ -3,6 +3,8 @@ import swaggerJsdoc from "swagger-jsdoc";
 import config from "./app/config";
 import "./app/modules/analytics/analytics.swagger";
 import "./app/modules/asset/assets.swagger";
+import "./app/modules/attachment-types/attachment-types.swagger";
+import "./app/modules/attachments/attachments.swagger";
 import "./app/modules/auth/Auth.swagger";
 import "./app/modules/brand/brand.swagger";
 import "./app/modules/calendar/calendar.swagger";
@@ -20,6 +22,7 @@ import "./app/modules/scanning/scanning-extra.swagger";
 import "./app/modules/upload/upload.swagger";
 import "./app/modules/user/user.swagger";
 import "./app/modules/warehouse/warehouse.swagger";
+import "./app/modules/workflow-request/workflow-request.swagger";
 import "./app/modules/zone/zone.swagger";
 
 const swaggerDefinition = {
@@ -137,6 +140,15 @@ const swaggerDefinition = {
                 "Asset CRUD operations for inventory management with condition tracking and QR code generation",
         },
         {
+            name: "Attachment Types",
+            description: "Admin-managed business attachment type configuration",
+        },
+        {
+            name: "Attachments",
+            description:
+                "Business document attachment operations for orders, inbound requests, service requests, and workflow requests",
+        },
+        {
             name: "Authentication",
             description: "User authentication and authorization endpoints",
         },
@@ -193,6 +205,11 @@ const swaggerDefinition = {
         {
             name: "Warehouse Management",
             description: "Warehouse CRUD operations with multi-tenant support",
+        },
+        {
+            name: "Workflow Requests",
+            description:
+                "Internal workflow escalation operations for orders, inbound requests, and service requests",
         },
         {
             name: "Zone Management",

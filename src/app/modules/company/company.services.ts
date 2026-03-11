@@ -30,6 +30,14 @@ const sanitizeFeatureOverrides = (features: unknown) => {
             raw[featureNames.enable_base_operations] === undefined
                 ? companyFeatures[featureNames.enable_base_operations]
                 : Boolean(raw[featureNames.enable_base_operations]),
+        [featureNames.enable_attachments]:
+            raw[featureNames.enable_attachments] === undefined
+                ? companyFeatures[featureNames.enable_attachments]
+                : Boolean(raw[featureNames.enable_attachments]),
+        [featureNames.enable_workflows]:
+            raw[featureNames.enable_workflows] === undefined
+                ? companyFeatures[featureNames.enable_workflows]
+                : Boolean(raw[featureNames.enable_workflows]),
     };
 };
 

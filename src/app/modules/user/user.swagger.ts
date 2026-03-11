@@ -56,12 +56,21 @@
  *                 default: []
  *                 description: Array of specific permissions granted to the user
  *                 example: ["orders.create", "orders.view", "assets.view"]
- *               permission_template:
+ *               access_policy_id:
  *                 type: string
- *                 enum: [PLATFORM_ADMIN, LOGISTICS_STAFF, CLIENT_USER]
+ *                 format: uuid
  *                 nullable: true
- *                 description: Permission template to apply
- *                 example: "PLATFORM_ADMIN"
+ *                 description: Access policy assigned to the user
+ *               permission_grants:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: Additional permissions granted on top of the access policy
+ *               permission_revokes:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: Permissions explicitly removed from the access policy
  *               is_active:
  *                 type: boolean
  *                 default: true
@@ -116,10 +125,14 @@
  *                       items:
  *                         type: string
  *                       example: ["orders.create", "orders.view"]
- *                     permission_template:
+ *                     access_policy_id:
  *                       type: string
+ *                       format: uuid
  *                       nullable: true
- *                       example: "CLIENT_USER"
+ *                     effective_permissions:
+ *                       type: array
+ *                       items:
+ *                         type: string
  *                     is_active:
  *                       type: boolean
  *                       example: true
@@ -389,10 +402,14 @@
  *                             items:
  *                               type: string
  *                             example: ["orders.create", "orders.view"]
- *                           permission_template:
+ *                           access_policy_id:
  *                             type: string
+ *                             format: uuid
  *                             nullable: true
- *                             example: "CLIENT_USER"
+ *                           effective_permissions:
+ *                             type: array
+ *                             items:
+ *                               type: string
  *                           is_active:
  *                             type: boolean
  *                             example: true
@@ -561,10 +578,10 @@
  *                       items:
  *                         type: string
  *                       example: ["orders.create", "orders.view"]
- *                     permission_template:
+ *                     access_policy_id:
  *                       type: string
+ *                       format: uuid
  *                       nullable: true
- *                       example: "CLIENT_USER"
  *                     is_active:
  *                       type: boolean
  *                       example: true
@@ -657,10 +674,18 @@
  *                 items:
  *                   type: string
  *                 example: ["orders.view"]
- *               permission_template:
+ *               access_policy_id:
  *                 type: string
+ *                 format: uuid
  *                 nullable: true
- *                 example: "CLIENT_USER"
+ *               permission_grants:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *               permission_revokes:
+ *                 type: array
+ *                 items:
+ *                   type: string
  *               is_active:
  *                 type: boolean
  *                 description: Activate or deactivate the user
@@ -703,8 +728,9 @@
  *                       type: array
  *                       items:
  *                         type: string
- *                     permission_template:
+ *                     access_policy_id:
  *                       type: string
+ *                       format: uuid
  *                       nullable: true
  *                     is_active:
  *                       type: boolean

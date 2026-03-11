@@ -6,6 +6,10 @@ import { InboundRequestControllers } from "./inbound-request.controllers";
 import { inboundRequestSchemas } from "./inbound-request.schemas";
 import featureValidator from "../../middleware/feature-validator";
 import { featureNames } from "../../constants/common";
+import { AttachmentsControllers } from "../attachments/attachments.controllers";
+import { AttachmentsSchemas } from "../attachments/attachments.schemas";
+import { WorkflowRequestControllers } from "../workflow-request/workflow-request.controllers";
+import { WorkflowRequestSchemas } from "../workflow-request/workflow-request.schemas";
 
 const router = Router();
 
@@ -32,6 +36,40 @@ router.get(
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
     InboundRequestControllers.getInboundRequestById
+);
+
+router.get(
+    "/:id/attachments",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    featureValidator(featureNames.enable_attachments),
+    AttachmentsControllers.listForEntity("INBOUND_REQUEST")
+);
+
+router.post(
+    "/:id/attachments",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    featureValidator(featureNames.enable_attachments),
+    payloadValidator(AttachmentsSchemas.createEntityAttachmentsSchema),
+    AttachmentsControllers.createForEntity("INBOUND_REQUEST")
+);
+
+router.get(
+    "/:id/workflow-requests",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    featureValidator(featureNames.enable_workflows),
+    WorkflowRequestControllers.listForEntity("INBOUND_REQUEST")
+);
+
+router.post(
+    "/:id/workflow-requests",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    featureValidator(featureNames.enable_workflows),
+    payloadValidator(WorkflowRequestSchemas.createWorkflowRequestSchema),
+    WorkflowRequestControllers.createForEntity("INBOUND_REQUEST")
 );
 
 // Update inbound request (full update)

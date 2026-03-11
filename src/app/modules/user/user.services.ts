@@ -3,15 +3,20 @@ import { randomInt } from "crypto";
 import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, lte, or } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { companies, users } from "../../../db/schema";
+import { accessPolicies, companies, users } from "../../../db/schema";
 import config from "../../config";
 import CustomizedError from "../../error/customized-error";
+import { AuthUser } from "../../interface/common";
+import {
+    assertPolicyMatchesRole,
+    computeEffectivePermissions,
+    DEFAULT_ACCESS_POLICY_CODES,
+} from "../../utils/access-policy";
 import { permissionChecker, validDateChecker } from "../../utils/checker";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
 import { CreateUserPayload } from "./user.interfaces";
 import { userQueryValidationConfig } from "./user.utils";
-import { AuthUser } from "../../interface/common";
 
 const TEMP_PASSWORD_LENGTH = 14;
 const UPPER = "ABCDEFGHJKLMNPQRSTUVWXYZ";
@@ -56,6 +61,144 @@ const assertPasswordManagementAccess = (
     }
 };
 
+const validateCompany = async (companyId: string, platformId: string) => {
+    const [company] = await db
+        .select()
+        .from(companies)
+        .where(
+            and(
+                eq(companies.id, companyId),
+                eq(companies.platform_id, platformId),
+                isNull(companies.deleted_at)
+            )
+        );
+
+    if (!company) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found or is archived");
+    }
+};
+
+const getAccessPolicy = async (
+    accessPolicyId: string | null | undefined,
+    platformId: string,
+    role: "ADMIN" | "LOGISTICS" | "CLIENT"
+) => {
+    if (!accessPolicyId) return null;
+
+    const [policy] = await db
+        .select()
+        .from(accessPolicies)
+        .where(
+            and(eq(accessPolicies.id, accessPolicyId), eq(accessPolicies.platform_id, platformId))
+        )
+        .limit(1);
+
+    if (!policy) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Access policy not found");
+    }
+
+    assertPolicyMatchesRole(role, {
+        id: policy.id,
+        role: policy.role,
+        is_active: policy.is_active,
+    });
+
+    return policy;
+};
+
+const getDefaultAccessPolicy = async (
+    platformId: string,
+    role: "ADMIN" | "LOGISTICS" | "CLIENT"
+) => {
+    const [policy] = await db
+        .select()
+        .from(accessPolicies)
+        .where(
+            and(
+                eq(accessPolicies.platform_id, platformId),
+                eq(accessPolicies.code, DEFAULT_ACCESS_POLICY_CODES[role])
+            )
+        )
+        .limit(1);
+
+    return policy ?? null;
+};
+
+const projectUser = (user: {
+    id: string;
+    platform_id: string;
+    company_id: string | null;
+    name: string;
+    email: string;
+    role: "ADMIN" | "LOGISTICS" | "CLIENT";
+    permissions: string[];
+    access_policy_id: string | null;
+    permission_grants: string[];
+    permission_revokes: string[];
+    is_super_admin: boolean;
+    is_active: boolean;
+    last_login_at: Date | null;
+    created_at: Date;
+    updated_at: Date;
+    company?: { id: string; name: string } | null;
+    access_policy?: {
+        id: string;
+        code: string;
+        name: string;
+        role: "ADMIN" | "LOGISTICS" | "CLIENT";
+        permissions: string[];
+        is_active: boolean;
+    } | null;
+}) => {
+    const effectivePermissions = computeEffectivePermissions({
+        accessPolicyPermissions: user.access_policy?.permissions,
+        permissionGrants: user.permission_grants,
+        permissionRevokes: user.permission_revokes,
+        legacyPermissions: user.permissions,
+    });
+
+    return {
+        ...user,
+        permissions: effectivePermissions,
+        effective_permissions: effectivePermissions,
+        access_policy: user.access_policy
+            ? {
+                  id: user.access_policy.id,
+                  code: user.access_policy.code,
+                  name: user.access_policy.name,
+                  role: user.access_policy.role,
+                  is_active: user.access_policy.is_active,
+              }
+            : null,
+    };
+};
+
+const getUserQuery = (platformId: string, conditions: any[] = []) =>
+    db.query.users.findMany({
+        where: and(eq(users.platform_id, platformId), ...conditions),
+        with: {
+            company: {
+                columns: {
+                    id: true,
+                    name: true,
+                },
+            },
+            access_policy: {
+                columns: {
+                    id: true,
+                    code: true,
+                    name: true,
+                    role: true,
+                    permissions: true,
+                    is_active: true,
+                },
+            },
+        },
+        columns: {
+            password: false,
+        },
+    });
+
 const getUserForPasswordManagement = async (id: string, platformId: string) => {
     const [target] = await db
         .select({
@@ -67,7 +210,9 @@ const getUserForPasswordManagement = async (id: string, platformId: string) => {
             password: users.password,
             role: users.role,
             permissions: users.permissions,
-            permission_template: users.permission_template,
+            access_policy_id: users.access_policy_id,
+            permission_grants: users.permission_grants,
+            permission_revokes: users.permission_revokes,
             is_super_admin: users.is_super_admin,
             is_active: users.is_active,
             last_login_at: users.last_login_at,
@@ -85,71 +230,49 @@ const getUserForPasswordManagement = async (id: string, platformId: string) => {
     return target;
 };
 
-// ----------------------------------- CREATE USER ------------------------------------
 const createUser = async (data: CreateUserPayload) => {
     try {
-        // Step 1: If company_id is provided, validate it exists and is not deleted
         if (data.company_id) {
-            const [company] = await db
-                .select()
-                .from(companies)
-                .where(
-                    and(
-                        eq(companies.id, data.company_id),
-                        eq(companies.platform_id, data.platform_id),
-                        isNull(companies.deleted_at)
-                    )
-                );
-
-            if (!company) {
-                throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found or is archived");
-            }
+            await validateCompany(data.company_id, data.platform_id);
         }
 
-        // Step 2: Validate permissions
-        const permissions = permissionChecker(
-            data.role,
-            data.permissions,
-            data.permission_template
-        );
+        const accessPolicy =
+            (await getAccessPolicy(data.access_policy_id, data.platform_id, data.role)) ??
+            (await getDefaultAccessPolicy(data.platform_id, data.role));
 
-        // Step 3: Hash the password
+        const permissionGrants = permissionChecker(data.permission_grants);
+        const permissionRevokes = permissionChecker(data.permission_revokes);
         const hashedPassword = await bcrypt.hash(data.password, config.salt_rounds);
 
-        // Step 4: Prepare user data with hashed password
-        const userData = {
-            ...data,
-            password: hashedPassword,
-            permissions,
-        };
+        const [result] = await db
+            .insert(users)
+            .values({
+                ...data,
+                password: hashedPassword,
+                permissions: [],
+                access_policy_id: accessPolicy?.id ?? null,
+                permission_grants: permissionGrants,
+                permission_revokes: permissionRevokes,
+            })
+            .returning();
 
-        // Step 5: Insert user into database
-        const [result] = await db.insert(users).values(userData).returning();
-
-        // Step 6: Remove password from result
-        const { password, ...remaining } = result;
-        return remaining;
+        const [created] = await getUserQuery(data.platform_id, [eq(users.id, result.id)]);
+        return projectUser(created as any);
     } catch (error: any) {
         const pgError = error.cause || error;
 
-        if (pgError.code === "23505") {
-            if (pgError.constraint === "user_platform_email_unique") {
-                throw new CustomizedError(
-                    httpStatus.CONFLICT,
-                    "User with this email already exists"
-                );
-            }
+        if (pgError.code === "23505" && pgError.constraint === "user_platform_email_unique") {
+            throw new CustomizedError(httpStatus.CONFLICT, "User with this email already exists");
         }
+
         throw error;
     }
 };
 
-// ----------------------------------- GET USERS ------------------------------------
-const getUsers = async (platformId: string, query: Record<string, any>, user: AuthUser) => {
+const getUsers = async (platformId: string, query: Record<string, any>) => {
     const { search_term, page, limit, sort_by, sort_order, from_date, to_date, ...remainingQuery } =
         query;
 
-    // Step 1: Validate query parameters
     if (sort_by) queryValidator(userQueryValidationConfig, "sort_by", sort_by);
     if (sort_order) queryValidator(userQueryValidationConfig, "sort_order", sort_order);
 
@@ -160,10 +283,8 @@ const getUsers = async (platformId: string, query: Record<string, any>, user: Au
         sort_order,
     });
 
-    // Step 2: Build WHERE conditions
     const conditions: any[] = [eq(users.platform_id, platformId)];
 
-    // Step 3: Add date range and search filters
     if (search_term) {
         conditions.push(
             or(
@@ -172,41 +293,28 @@ const getUsers = async (platformId: string, query: Record<string, any>, user: Au
             )
         );
     }
-    if (from_date) {
-        const date = validDateChecker(from_date, "from_date");
-        conditions.push(gte(users.created_at, date));
-    }
+    if (from_date) conditions.push(gte(users.created_at, validDateChecker(from_date, "from_date")));
+    if (to_date) conditions.push(lte(users.created_at, validDateChecker(to_date, "to_date")));
 
-    if (to_date) {
-        const date = validDateChecker(to_date, "to_date");
-        conditions.push(lte(users.created_at, date));
-    }
-
-    // Step 4: Handle remaining query parameters (role, isActive, etc.)
     if (Object.keys(remainingQuery).length) {
         for (const [key, value] of Object.entries(remainingQuery)) {
             queryValidator(userQueryValidationConfig, key, value);
-
             if (key === "role") {
-                if (value.includes(",")) {
-                    conditions.push(inArray(users.role, value.split(",")));
-                } else {
-                    conditions.push(eq(users.role, value));
-                }
+                conditions.push(
+                    value.includes(",")
+                        ? inArray(users.role, value.split(","))
+                        : eq(users.role, value)
+                );
             } else if (key === "isActive" || key === "is_active") {
-                const boolValue = value === "true";
-                conditions.push(eq(users.is_active, boolValue));
-            } else if (key === "platform" || key === "platform_id") {
-                conditions.push(eq(users.platform_id, value));
+                conditions.push(eq(users.is_active, value === "true"));
             } else if (key === "company" || key === "company_id") {
                 conditions.push(eq(users.company_id, value));
-            } else if (key === "permission_template") {
-                conditions.push(eq(users.permission_template, value));
+            } else if (key === "access_policy_id") {
+                conditions.push(eq(users.access_policy_id, value));
             }
         }
     }
 
-    // Step 5: Determine sort order
     let orderByColumn: any = users.created_at;
     if (sortWith === "id") orderByColumn = users.id;
     else if (sortWith === "name") orderByColumn = users.name;
@@ -219,26 +327,33 @@ const getUsers = async (platformId: string, query: Record<string, any>, user: Au
 
     const orderDirection = sortSequence === "asc" ? asc(orderByColumn) : desc(orderByColumn);
 
-    // Step 6: Execute queries in parallel
     const [result, total] = await Promise.all([
         db.query.users.findMany({
             where: and(...conditions),
             with: {
-                company: true,
+                company: {
+                    columns: { id: true, name: true },
+                },
+                access_policy: {
+                    columns: {
+                        id: true,
+                        code: true,
+                        name: true,
+                        role: true,
+                        permissions: true,
+                        is_active: true,
+                    },
+                },
             },
             columns: {
-                company_id: false,
                 password: false,
             },
             orderBy: orderDirection,
             limit: limitNumber,
             offset: skip,
         }),
-
         db
-            .select({
-                count: count(),
-            })
+            .select({ count: count() })
             .from(users)
             .where(and(...conditions)),
     ]);
@@ -249,66 +364,68 @@ const getUsers = async (platformId: string, query: Record<string, any>, user: Au
             limit: limitNumber,
             total: total[0].count,
         },
-        data: result,
+        data: result.map((row) => projectUser(row as any)),
     };
 };
 
-// ----------------------------------- GET USER BY ID ---------------------------------
 const getUserById = async (id: string, platformId: string) => {
-    // Step 1: Build WHERE conditions
-    const conditions: any[] = [eq(users.id, id), eq(users.platform_id, platformId)];
-
-    // Step 2: Fetch user
     const user = await db.query.users.findFirst({
-        where: and(...conditions),
+        where: and(eq(users.id, id), eq(users.platform_id, platformId)),
         with: {
-            company: true,
+            company: {
+                columns: { id: true, name: true },
+            },
+            access_policy: {
+                columns: {
+                    id: true,
+                    code: true,
+                    name: true,
+                    role: true,
+                    permissions: true,
+                    is_active: true,
+                },
+            },
         },
         columns: {
-            company_id: false,
             password: false,
         },
     });
 
-    // Step 3: Handle not found
     if (!user) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "User not found");
     }
 
-    return user;
+    return projectUser(user as any);
 };
 
-// ----------------------------------- UPDATE USER ------------------------------------
 const updateUser = async (
     id: string,
     platformId: string,
     data: Partial<CreateUserPayload>,
     user: AuthUser
 ) => {
-    // Step 1: Check if user exists
     const existingUser = await getUserById(id, platformId);
 
-    // Only name, permission_template, permissions, company_id, and is_active can be updated
-    if (data.email || data.password || data.role) {
+    if ((data as any).email || (data as any).password || (data as any).role) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            "Only name, permission_template, permissions, company_id, and is_active can be updated"
+            "Only name, access_policy_id, permission_grants, permission_revokes, company_id, and is_active can be updated"
         );
     }
 
-    // Non-super-admins cannot edit their own permissions
     if (
         !user.is_super_admin &&
         user.id === id &&
-        (data.permission_template || (data.permissions && data.permissions.length > 0))
+        (data.access_policy_id !== undefined ||
+            data.permission_grants !== undefined ||
+            data.permission_revokes !== undefined)
     ) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            "You cannot update your own permissions. Ask another super admin."
+            "You cannot update your own access policy or permission overrides. Ask another super admin."
         );
     }
 
-    // Only super admins can toggle is_super_admin on others
     if ((data as any).is_super_admin !== undefined && !user.is_super_admin) {
         throw new CustomizedError(
             httpStatus.FORBIDDEN,
@@ -316,58 +433,40 @@ const updateUser = async (
         );
     }
 
-    // Handle activation/deactivation side effects
-    let finalData: any = { ...data };
-
-    // Validate company_id if provided
     if (data.company_id) {
-        const [company] = await db
-            .select()
-            .from(companies)
-            .where(
-                and(
-                    eq(companies.id, data.company_id),
-                    eq(companies.platform_id, platformId),
-                    isNull(companies.deleted_at)
-                )
-            );
-
-        if (!company) {
-            throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found or is archived");
-        }
-    }
-    if (data.is_active !== undefined) {
-        if (data.is_active === false) {
-            finalData.deleted_at = new Date();
-        } else {
-            finalData.deleted_at = null;
-        }
+        await validateCompany(data.company_id, platformId);
     }
 
-    // Step 2: Validate permissions
-    if ((data.permissions && data.permissions.length > 0) || data.permission_template) {
-        finalData.permissions = permissionChecker(
-            data.role || existingUser.role,
-            data.permissions,
-            data.permission_template
-        );
-    }
+    const accessPolicy =
+        data.access_policy_id !== undefined
+            ? await getAccessPolicy(data.access_policy_id, platformId, existingUser.role)
+            : undefined;
 
-    // Step 3: Update user
-    const [result] = await db
+    const finalData: any = {
+        ...(data.name !== undefined && { name: data.name }),
+        ...(data.company_id !== undefined && { company_id: data.company_id }),
+        ...(data.is_active !== undefined && { is_active: data.is_active }),
+        ...((data as any).is_super_admin !== undefined && {
+            is_super_admin: (data as any).is_super_admin,
+        }),
+        ...(data.access_policy_id !== undefined && { access_policy_id: accessPolicy?.id ?? null }),
+        ...(data.permission_grants !== undefined && {
+            permission_grants: permissionChecker(data.permission_grants),
+        }),
+        ...(data.permission_revokes !== undefined && {
+            permission_revokes: permissionChecker(data.permission_revokes),
+        }),
+        updated_at: new Date(),
+    };
+
+    await db
         .update(users)
-        .set({
-            ...finalData,
-            updated_at: new Date(),
-        })
-        .where(and(eq(users.id, id), eq(users.platform_id, platformId)))
-        .returning();
+        .set(finalData)
+        .where(and(eq(users.id, id), eq(users.platform_id, platformId)));
 
-    const { password, ...remaining } = result;
-    return remaining;
+    return getUserById(id, platformId);
 };
 
-// ----------------------------------- SET USER PASSWORD ------------------------------------
 const setUserPassword = async (
     id: string,
     platformId: string,
@@ -386,20 +485,17 @@ const setUserPassword = async (
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, config.salt_rounds);
-    const [updated] = await db
+    await db
         .update(users)
         .set({
             password: hashedPassword,
             updated_at: new Date(),
         })
-        .where(and(eq(users.id, id), eq(users.platform_id, platformId)))
-        .returning();
+        .where(and(eq(users.id, id), eq(users.platform_id, platformId)));
 
-    const { password, ...sanitized } = updated;
-    return sanitized;
+    return getUserById(id, platformId);
 };
 
-// ----------------------------------- GENERATE USER PASSWORD ------------------------------------
 const generateUserPassword = async (
     id: string,
     platformId: string,
@@ -415,18 +511,16 @@ const generateUserPassword = async (
     }
 
     const hashedPassword = await bcrypt.hash(temporaryPassword, config.salt_rounds);
-    const [updated] = await db
+    await db
         .update(users)
         .set({
             password: hashedPassword,
             updated_at: new Date(),
         })
-        .where(and(eq(users.id, id), eq(users.platform_id, platformId)))
-        .returning();
+        .where(and(eq(users.id, id), eq(users.platform_id, platformId)));
 
-    const { password, ...sanitized } = updated;
     return {
-        user: sanitized,
+        user: await getUserById(id, platformId),
         temporary_password: temporaryPassword,
     };
 };

@@ -28,7 +28,12 @@ const calculateEstimate = catchAsync(async (req, res) => {
 // ---------------------------- CHECK MAINTENANCE FEASIBILITY -----------------------------
 const checkMaintenanceFeasibility = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
-    const result = await OrderServices.checkMaintenanceFeasibility(platformId, req.body);
+    const user = (req as any).user;
+    const result = await OrderServices.checkMaintenanceFeasibility(
+        platformId,
+        user?.company_id || null,
+        req.body
+    );
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -147,7 +152,7 @@ const getOrderScanEvents = catchAsync(async (req, res) => {
 const saveOnSiteCapture = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
-    const { id: orderId } = req.params;
+    const orderId = getRequiredString(req.params.id, "id");
 
     const result = await OrderServices.saveOnSiteCapture(
         orderId,
@@ -481,7 +486,7 @@ const getPendingApprovalOrders = catchAsync(async (req, res) => {
 const derigCapture = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
-    const { id: orderId } = req.params;
+    const orderId = getRequiredString(req.params.id, "id");
 
     const result = await OrderServices.saveDerigCapture(orderId, platformId, req.body.items, user);
 
@@ -496,9 +501,9 @@ const derigCapture = catchAsync(async (req, res) => {
 const recalculateBaseOps = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
-    const { id } = req.params;
+    const id = getRequiredString(req.params.id, "id");
 
-    const result = await OrderServices.recalculateBaseOps(user, id as string, platformId);
+    const result = await OrderServices.recalculateBaseOps(user, id, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

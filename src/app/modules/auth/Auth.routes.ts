@@ -10,6 +10,8 @@ import { PERMISSIONS } from "../../constants/permissions";
 const router = Router();
 
 router.get("/context", AuthControllers.getPlatformByDomain);
+router.get("/unsubscribe", AuthControllers.getUnsubscribePage);
+router.post("/unsubscribe", AuthControllers.unsubscribe);
 
 router.post(
     "/login",

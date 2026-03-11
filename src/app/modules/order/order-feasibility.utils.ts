@@ -1,7 +1,7 @@
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { assets, platforms } from "../../../db/schema";
+import { assets, companies, platforms } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 
 type FeasibilityConfig = {
@@ -79,6 +79,17 @@ const resolveFeasibilityConfig = (config: unknown): FeasibilityConfig => {
     };
 };
 
+const resolveCompanyLeadTimeOverride = (settings: unknown): number | null => {
+    const feasibility = (settings as any)?.feasibility || {};
+    if (feasibility.minimum_lead_hours === undefined || feasibility.minimum_lead_hours === null) {
+        return null;
+    }
+    return toPositiveNumber(
+        feasibility.minimum_lead_hours,
+        DEFAULT_FEASIBILITY_CONFIG.minimum_lead_hours
+    );
+};
+
 const getWeekdayInTimezone = (date: Date, timezone: string): number => {
     const shortName = new Intl.DateTimeFormat("en-US", {
         timeZone: timezone,
@@ -113,19 +124,37 @@ const formatDateInTimezone = (date: Date, timezone: string): string =>
     }).format(date);
 
 export const getPlatformFeasibilityConfig = async (
-    platformId: string
+    platformId: string,
+    companyId?: string | null
 ): Promise<FeasibilityConfig> => {
-    const [platform] = await db
-        .select({ config: platforms.config })
-        .from(platforms)
-        .where(eq(platforms.id, platformId))
-        .limit(1);
+    const [platformRows, companyRows] = await Promise.all([
+        db
+            .select({ config: platforms.config })
+            .from(platforms)
+            .where(eq(platforms.id, platformId))
+            .limit(1),
+        companyId
+            ? db
+                  .select({ settings: companies.settings })
+                  .from(companies)
+                  .where(and(eq(companies.id, companyId), eq(companies.platform_id, platformId)))
+                  .limit(1)
+            : Promise.resolve([] as Array<{ settings: unknown }>),
+    ]);
+    const platform = platformRows[0];
 
     if (!platform) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Platform not found");
     }
 
-    return resolveFeasibilityConfig(platform.config);
+    const resolved = resolveFeasibilityConfig(platform.config);
+    const override = companyRows[0]
+        ? resolveCompanyLeadTimeOverride(companyRows[0].settings)
+        : null;
+    if (override !== null) {
+        resolved.minimum_lead_hours = override;
+    }
+    return resolved;
 };
 
 const buildFeasibilityIssue = (
@@ -179,6 +208,7 @@ const normalizeFeasibilityItems = (
 
 export const validateMaintenanceFeasibilityForAssets = async (
     platformId: string,
+    companyId: string | null | undefined,
     items: MaintenanceFeasibilityInputItem[],
     eventStartDate: Date
 ): Promise<{
@@ -189,12 +219,12 @@ export const validateMaintenanceFeasibilityForAssets = async (
     if (items.length === 0) {
         return {
             feasible: true,
-            config: await getPlatformFeasibilityConfig(platformId),
+            config: await getPlatformFeasibilityConfig(platformId, companyId),
             issues: [],
         };
     }
 
-    const config = await getPlatformFeasibilityConfig(platformId);
+    const config = await getPlatformFeasibilityConfig(platformId, companyId);
 
     const normalizedItems = normalizeFeasibilityItems(items);
     const uniqueAssetIds = normalizedItems.map((item) => item.asset_id);
@@ -261,6 +291,7 @@ export const validateRedFeasibilityForAssets = async (
 ) =>
     validateMaintenanceFeasibilityForAssets(
         platformId,
+        null,
         assetIds.map((asset_id) => ({ asset_id })),
         eventStartDate
     );

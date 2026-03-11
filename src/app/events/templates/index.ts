@@ -7,6 +7,24 @@ export interface EmailTemplate {
     html: (payload: Record<string, unknown>) => string;
 }
 
+const htmlToText = (html: string) =>
+    html
+        .replace(/<style[\s\S]*?<\/style>/gi, "")
+        .replace(/<script[\s\S]*?<\/script>/gi, "")
+        .replace(/<\/(p|div|tr|h1|h2|h3|h4|h5|h6|li|br|table|section)>/gi, "\n")
+        .replace(/<li[^>]*>/gi, "• ")
+        .replace(/<a [^>]*href=["']([^"']+)["'][^>]*>(.*?)<\/a>/gi, "$2 ($1)")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/g, " ")
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/\r/g, "")
+        .replace(/[ \t]+\n/g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .replace(/[ \t]{2,}/g, " ")
+        .trim();
+
 // Order templates
 import {
     fabricationCompletedAdmin,
@@ -82,6 +100,16 @@ import {
 // Auth templates
 import { passwordResetOtp } from "./auth";
 import { lineItemRequestSubmittedAdmin } from "./line-item-request";
+import {
+    workflowRequestCancelledAdmin,
+    workflowRequestCancelledLogistics,
+    workflowRequestCompletedAdmin,
+    workflowRequestCompletedLogistics,
+    workflowRequestStatusChangedAdmin,
+    workflowRequestStatusChangedLogistics,
+    workflowRequestSubmittedAdmin,
+    workflowRequestSubmittedLogistics,
+} from "./workflow-request";
 
 const registry: Record<string, EmailTemplate> = {
     // Orders
@@ -153,16 +181,26 @@ const registry: Record<string, EmailTemplate> = {
 
     // Line item requests
     line_item_request_submitted_admin: lineItemRequestSubmittedAdmin,
+    workflow_request_submitted_admin: workflowRequestSubmittedAdmin,
+    workflow_request_submitted_logistics: workflowRequestSubmittedLogistics,
+    workflow_request_status_changed_admin: workflowRequestStatusChangedAdmin,
+    workflow_request_status_changed_logistics: workflowRequestStatusChangedLogistics,
+    workflow_request_completed_admin: workflowRequestCompletedAdmin,
+    workflow_request_completed_logistics: workflowRequestCompletedLogistics,
+    workflow_request_cancelled_admin: workflowRequestCancelledAdmin,
+    workflow_request_cancelled_logistics: workflowRequestCancelledLogistics,
 };
 
 export function renderTemplate(
     templateKey: string,
     payload: Record<string, unknown>
-): { subject: string; html: string } {
+): { subject: string; html: string; text: string } {
     const template = registry[templateKey];
     if (!template) throw new Error(`Unknown email template: "${templateKey}"`);
+    const html = template.html(payload);
     return {
         subject: template.subject(payload),
-        html: template.html(payload),
+        html,
+        text: htmlToText(html),
     };
 }

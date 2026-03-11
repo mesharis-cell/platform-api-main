@@ -48,6 +48,10 @@ export const EVENT_TYPES = {
     LINE_ITEM_UPDATED: "line_item.updated",
     LINE_ITEM_VOIDED: "line_item.voided",
     LINE_ITEM_REQUEST_SUBMITTED: "line_item_request.submitted",
+    WORKFLOW_REQUEST_SUBMITTED: "workflow_request.submitted",
+    WORKFLOW_REQUEST_STATUS_CHANGED: "workflow_request.status_changed",
+    WORKFLOW_REQUEST_COMPLETED: "workflow_request.completed",
+    WORKFLOW_REQUEST_CANCELLED: "workflow_request.cancelled",
 
     // Pricing lifecycle (vacant — no listeners yet)
     PRICING_RECALCULATED: "pricing.recalculated",
@@ -250,6 +254,20 @@ export interface InboundRequestInvoiceGeneratedPayload extends BaseEventPayload 
     request_url: string;
 }
 
+export interface WorkflowRequestSubmittedPayload extends BaseEventPayload {
+    workflow_request_id: string;
+    workflow_code: string;
+    workflow_label: string;
+    workflow_family: string;
+    workflow_status: string;
+    lifecycle_state: string;
+    old_status?: string;
+    new_status?: string;
+    title: string;
+    description?: string;
+    request_url?: string;
+}
+
 // ============================================================
 // Service Request Event Payloads
 // ============================================================
@@ -340,7 +358,7 @@ export interface AuthPasswordResetRequestedPayload {
 
 export interface LineItemAddedPayload extends BaseEventPayload {
     line_item_id: string;
-    line_item_type: "CATALOG" | "CUSTOM";
+    line_item_type: "CATALOG" | "CUSTOM" | "SYSTEM";
     category: string;
     description: string;
     quantity: number;
@@ -351,7 +369,7 @@ export interface LineItemAddedPayload extends BaseEventPayload {
 
 export interface LineItemUpdatedPayload extends BaseEventPayload {
     line_item_id: string;
-    line_item_type: "CATALOG" | "CUSTOM";
+    line_item_type: "CATALOG" | "CUSTOM" | "SYSTEM";
     category: string;
     description: string;
     quantity: number;
