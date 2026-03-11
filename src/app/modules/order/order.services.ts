@@ -178,6 +178,56 @@ const hasUnresolvedBlockingServiceRequests = async (orderDbId: string, platformI
     });
 };
 
+const getUnresolvedMaintenanceReadinessItems = async (orderDbId: string, platformId: string) => {
+    const items = await db
+        .select({
+            id: orderItems.id,
+            asset_name: orderItems.asset_name,
+            requires_maintenance: orderItems.requires_maintenance,
+            maintenance_decision: orderItems.maintenance_decision,
+        })
+        .from(orderItems)
+        .where(and(eq(orderItems.order_id, orderDbId), eq(orderItems.platform_id, platformId)));
+
+    const candidateItems = items.filter(
+        (item) => item.requires_maintenance && item.maintenance_decision !== "USE_AS_IS"
+    );
+
+    if (candidateItems.length === 0) {
+        return [];
+    }
+
+    const serviceRequestRows = await db
+        .select({
+            related_order_item_id: serviceRequests.related_order_item_id,
+            request_status: serviceRequests.request_status,
+            concession_applied_at: serviceRequests.concession_applied_at,
+        })
+        .from(serviceRequests)
+        .where(
+            and(
+                eq(serviceRequests.platform_id, platformId),
+                eq(serviceRequests.related_order_id, orderDbId),
+                eq(serviceRequests.request_type, "MAINTENANCE")
+            )
+        );
+
+    return candidateItems.filter((item) => {
+        const linkedRequests = serviceRequestRows.filter(
+            (request) => request.related_order_item_id === item.id
+        );
+
+        if (linkedRequests.length === 0) {
+            return true;
+        }
+
+        return linkedRequests.some((request) => {
+            if (request.concession_applied_at) return false;
+            return !["COMPLETED", "CANCELLED"].includes(request.request_status);
+        });
+    });
+};
+
 const autoApproveBundledServiceRequests = async (
     orderDbId: string,
     platformId: string,
@@ -1468,9 +1518,27 @@ const progressOrderStatus = async (
         );
     }
 
+    const unresolvedMaintenanceItems =
+        currentStatus === "CONFIRMED" && new_status === "IN_PREPARATION"
+            ? await getUnresolvedMaintenanceReadinessItems(order.id, platformId)
+            : [];
+
     if (FULFILLMENT_READINESS_STATUSES.has(new_status)) {
         const hasBlockingSR = await hasUnresolvedBlockingServiceRequests(order.id, platformId);
         if (hasBlockingSR) {
+            if (unresolvedMaintenanceItems.length > 0) {
+                const assetNames = unresolvedMaintenanceItems
+                    .map((item) => item.asset_name)
+                    .filter(Boolean)
+                    .join(", ");
+
+                throw new CustomizedError(
+                    httpStatus.BAD_REQUEST,
+                    assetNames
+                        ? `Cannot progress order to IN_PREPARATION while maintenance-required items remain unresolved: ${assetNames}`
+                        : "Cannot progress order to IN_PREPARATION while maintenance-required items remain unresolved"
+                );
+            }
             throw new CustomizedError(
                 httpStatus.BAD_REQUEST,
                 "Cannot progress order while blocking linked service requests are unresolved"
@@ -1481,22 +1549,18 @@ const progressOrderStatus = async (
     // Step 4.5: Validate date-based transitions
     const today = dayjs().startOf("day");
 
-    if (currentStatus === "CONFIRMED") {
-        // Verify all assets are GREEN before logistics can start preparation
-        const assetsList = await db
-            .select()
-            .from(orderItems)
-            .innerJoin(assets, eq(orderItems.asset_id, assets.id))
-            .where(eq(orderItems.order_id, order.id));
+    if (currentStatus === "CONFIRMED" && new_status === "IN_PREPARATION") {
+        if (unresolvedMaintenanceItems.length > 0) {
+            const assetNames = unresolvedMaintenanceItems
+                .map((item) => item.asset_name)
+                .filter(Boolean)
+                .join(", ");
 
-        const allAssetsConditionGreen = assetsList.every(
-            (asset) => asset.assets.condition === "GREEN"
-        );
-
-        if (!allAssetsConditionGreen) {
             throw new CustomizedError(
                 httpStatus.BAD_REQUEST,
-                "All assets condition must be GREEN before transitioning from CONFIRMED to IN_PREPARATION"
+                assetNames
+                    ? `Cannot progress order to IN_PREPARATION while maintenance-required items remain unresolved: ${assetNames}`
+                    : "Cannot progress order to IN_PREPARATION while maintenance-required items remain unresolved"
             );
         }
     }

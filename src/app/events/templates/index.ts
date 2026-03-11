@@ -7,6 +7,24 @@ export interface EmailTemplate {
     html: (payload: Record<string, unknown>) => string;
 }
 
+const htmlToText = (html: string) =>
+    html
+        .replace(/<style[\s\S]*?<\/style>/gi, "")
+        .replace(/<script[\s\S]*?<\/script>/gi, "")
+        .replace(/<\/(p|div|tr|h1|h2|h3|h4|h5|h6|li|br|table|section)>/gi, "\n")
+        .replace(/<li[^>]*>/gi, "• ")
+        .replace(/<a [^>]*href=["']([^"']+)["'][^>]*>(.*?)<\/a>/gi, "$2 ($1)")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/g, " ")
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/\r/g, "")
+        .replace(/[ \t]+\n/g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .replace(/[ \t]{2,}/g, " ")
+        .trim();
+
 // Order templates
 import {
     fabricationCompletedAdmin,
@@ -176,11 +194,13 @@ const registry: Record<string, EmailTemplate> = {
 export function renderTemplate(
     templateKey: string,
     payload: Record<string, unknown>
-): { subject: string; html: string } {
+): { subject: string; html: string; text: string } {
     const template = registry[templateKey];
     if (!template) throw new Error(`Unknown email template: "${templateKey}"`);
+    const html = template.html(payload);
     return {
         subject: template.subject(payload),
-        html: template.html(payload),
+        html,
+        text: htmlToText(html),
     };
 }

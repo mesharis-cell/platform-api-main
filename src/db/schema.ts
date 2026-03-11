@@ -90,6 +90,7 @@ export const notificationStatusEnum = pgEnum("notification_status", [
     "SENT",
     "FAILED",
     "RETRYING",
+    "SKIPPED",
 ]);
 export const entityTypeEnum = pgEnum("entity_type", [
     "ORDER",
@@ -1972,6 +1973,35 @@ export const notificationLogsRelations = relations(notificationLogs, ({ one }) =
     rule: one(notificationRules, {
         fields: [notificationLogs.rule_id],
         references: [notificationRules.id],
+    }),
+}));
+
+export const emailSuppressions = pgTable(
+    "email_suppressions",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        email: varchar("email", { length: 255 }).notNull(),
+        reason: varchar("reason", { length: 100 }).notNull().default("UNSUBSCRIBED"),
+        unsubscribed_at: timestamp("unsubscribed_at").notNull().defaultNow(),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+        updated_at: timestamp("updated_at")
+            .$onUpdate(() => new Date())
+            .notNull()
+            .defaultNow(),
+    },
+    (table) => [
+        uniqueIndex("email_suppressions_platform_email_idx").on(table.platform_id, table.email),
+        index("email_suppressions_email_idx").on(table.email),
+    ]
+);
+
+export const emailSuppressionsRelations = relations(emailSuppressions, ({ one }) => ({
+    platform: one(platforms, {
+        fields: [emailSuppressions.platform_id],
+        references: [platforms.id],
     }),
 }));
 

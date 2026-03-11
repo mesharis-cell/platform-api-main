@@ -10,6 +10,18 @@ const listAttachmentTypes = catchAsync(async (req: Request, res: Response) => {
     const user = (req as any).user;
     const result = await AttachmentTypesServices.listAttachmentTypes(platformId, user, {
         entity_type: typeof req.query.entity_type === "string" ? req.query.entity_type : undefined,
+        mode: req.query.mode === "upload" || req.query.mode === "view" ? req.query.mode : undefined,
+        entity_id: typeof req.query.entity_id === "string" ? req.query.entity_id : undefined,
+        context_entity_type:
+            req.query.context_entity_type === "ORDER" ||
+            req.query.context_entity_type === "INBOUND_REQUEST" ||
+            req.query.context_entity_type === "SERVICE_REQUEST"
+                ? req.query.context_entity_type
+                : undefined,
+        context_entity_id:
+            typeof req.query.context_entity_id === "string"
+                ? req.query.context_entity_id
+                : undefined,
     });
 
     sendResponse(res, {

@@ -5,7 +5,10 @@ interface EmailOptions {
     to: string;
     subject: string;
     html: string;
+    text?: string;
     from?: string;
+    replyTo?: string;
+    headers?: Record<string, string>;
     attachments?: Array<{ filename: string; content: Buffer | string }>;
 }
 
@@ -14,19 +17,24 @@ export const sendEmail = async (options: EmailOptions): Promise<string> => {
     if (!apiKey) throw new Error("RESEND_API_KEY is not configured");
 
     const resend = new Resend(apiKey);
-    const { to, subject, html, from, attachments } = options;
+    const { to, subject, html, text, from, replyTo, headers, attachments } = options;
     const fromAddress = from || "no-reply@unconfigured.kadence.app";
 
-    const { data, error } = await resend.emails.send({
+    const payload = {
         from: fromAddress,
         to,
         subject,
         html,
+        text,
+        replyTo,
+        headers,
         attachments: attachments?.map((a) => ({
             filename: a.filename,
             content: a.content,
         })),
-    });
+    } as unknown as Parameters<typeof resend.emails.send>[0];
+
+    const { data, error } = await resend.emails.send(payload);
 
     if (error) {
         console.error("❌ Resend error:", error);

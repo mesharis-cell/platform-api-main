@@ -197,6 +197,13 @@
             "when": 1773225600000,
             "tag": "0027_notification_queue",
             "breakpoints": true
+        },
+        {
+            "idx": 28,
+            "version": "7",
+            "when": 1773292800000,
+            "tag": "0028_email_suppressions",
+            "breakpoints": true
         }
     ]
 }

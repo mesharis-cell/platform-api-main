@@ -6,10 +6,12 @@ import { notificationLogs, systemEvents } from "../../db/schema";
 import { sendEmail } from "./email.service";
 import { renderTemplate } from "../events/templates";
 import {
-    getPlatformFromEmail,
+    getPlatformEmailSettings,
     injectDeepLink,
     type NotificationDispatchTarget,
 } from "../events/handlers/email.handler";
+import { EmailSuppressionService } from "./email-suppression.service";
+import { EmailPreferencesService } from "./email-preferences.service";
 
 type ClaimedNotificationLog = {
     id: string;
@@ -42,6 +44,22 @@ const getRetryDelayMs = (attempts: number) => {
     if (attempts === 3) return 15_000;
     return Math.min(300_000, 15_000 * 2 ** Math.max(0, attempts - 3));
 };
+
+const appendHtmlFooter = (html: string, unsubscribeUrl: string, supportEmail: string) => {
+    const footer = `<div style="max-width:600px;margin:0 auto;padding:0 24px 24px;color:#666;font-family:Arial,sans-serif;font-size:12px;line-height:1.5;">
+  <p style="margin:16px 0 8px;">If you no longer want to receive these emails, <a href="${unsubscribeUrl}" style="color:#2563eb;">unsubscribe here</a>.</p>
+  <p style="margin:0;">Need help? Contact <a href="mailto:${supportEmail}" style="color:#2563eb;">${supportEmail}</a>.</p>
+</div>`;
+
+    if (html.includes("</body>")) {
+        return html.replace("</body>", `${footer}</body>`);
+    }
+
+    return `${html}${footer}`;
+};
+
+const appendTextFooter = (text: string, unsubscribeUrl: string, supportEmail: string) =>
+    `${text}\n\nUnsubscribe: ${unsubscribeUrl}\nSupport: ${supportEmail}`;
 
 const getErrorMetadata = (error: unknown) => {
     const err = error as Error & {
@@ -176,6 +194,20 @@ const markNotificationFailed = async (id: string, message: string, subject?: str
         .where(eq(notificationLogs.id, id));
 };
 
+const markNotificationSkipped = async (id: string, message: string, subject?: string) => {
+    await db
+        .update(notificationLogs)
+        .set({
+            status: "SKIPPED",
+            error_message: message,
+            subject: subject ?? null,
+            processing_started_at: null,
+            worker_id: workerId,
+            next_attempt_at: null,
+        })
+        .where(eq(notificationLogs.id, id));
+};
+
 const scheduleNotificationRetry = async (
     id: string,
     message: string,
@@ -217,15 +249,51 @@ const processClaimedNotification = async (log: ClaimedNotificationLog) => {
     let subject: string | undefined;
 
     try {
+        const isSuppressed = await EmailSuppressionService.isSuppressed(
+            log.platform_id,
+            log.recipient_email
+        );
+        if (isSuppressed) {
+            await markNotificationSkipped(log.id, "Recipient unsubscribed from future emails");
+            console.log(
+                `[NotificationWorker] Skipped suppressed recipient ${log.recipient_email} (${log.id})`
+            );
+            return;
+        }
+
         const resolvedPayload = await injectDeepLink(dispatchTarget, event as any, eventCompanyId);
         const rendered = renderTemplate(log.template_key, resolvedPayload);
         subject = rendered.subject;
-        const fromEmail = await getPlatformFromEmail(log.platform_id);
+        const emailSettings = await getPlatformEmailSettings(log.platform_id);
+        const unsubscribe = EmailPreferencesService.buildUnsubscribeUrl(
+            log.platform_id,
+            log.recipient_email
+        );
+        const html = unsubscribe.url
+            ? appendHtmlFooter(rendered.html, unsubscribe.url, emailSettings.supportEmail)
+            : rendered.html;
+        const text = unsubscribe.url
+            ? appendTextFooter(rendered.text, unsubscribe.url, emailSettings.supportEmail)
+            : rendered.text;
+        const headers: Record<string, string> = {
+            "X-Entity-Ref-ID": String(
+                (resolvedPayload.entity_id_readable as string | undefined) ||
+                    event.entity_id ||
+                    log.id
+            ),
+        };
+        if (unsubscribe.url) {
+            headers["List-Unsubscribe"] = `<${unsubscribe.url}>`;
+            headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
+        }
         const messageId = await sendEmail({
             to: log.recipient_email,
             subject: rendered.subject,
-            html: rendered.html,
-            from: fromEmail,
+            html,
+            text,
+            from: emailSettings.fromEmail,
+            replyTo: emailSettings.supportEmail || config.email_reply_to || emailSettings.fromEmail,
+            headers,
         });
 
         await markNotificationSent(log.id, messageId, rendered.subject);

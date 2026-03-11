@@ -1,7 +1,14 @@
 import { and, asc, eq } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { attachmentTypes } from "../../../db/schema";
+import {
+    attachmentTypes,
+    companies,
+    inboundRequests,
+    orders,
+    platforms,
+    serviceRequests,
+} from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import {
@@ -9,11 +16,140 @@ import {
     UpdateAttachmentTypePayload,
 } from "./attachment-types.interfaces";
 
+type AttachmentTypeListFilters = {
+    entity_type?: string;
+    mode?: "view" | "upload";
+    entity_id?: string;
+    context_entity_type?: "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST";
+    context_entity_id?: string;
+};
+
+const sanitizePlatformAttachmentFeature = (features: unknown) => {
+    const raw = (features || {}) as Record<string, unknown>;
+    return raw.enable_attachments === undefined ? true : Boolean(raw.enable_attachments);
+};
+
+const sanitizeCompanyAttachmentOverride = (features: unknown) => {
+    const raw = (features || {}) as Record<string, unknown>;
+    return raw.enable_attachments === undefined ? undefined : Boolean(raw.enable_attachments);
+};
+
+const resolveAttachmentFeatureState = async (
+    platformId: string,
+    filters?: AttachmentTypeListFilters
+) => {
+    if (!filters?.entity_type && !filters?.context_entity_type) {
+        return true;
+    }
+
+    const [platform] = await db
+        .select({ features: platforms.features })
+        .from(platforms)
+        .where(eq(platforms.id, platformId))
+        .limit(1);
+
+    let enabled = sanitizePlatformAttachmentFeature(platform?.features);
+
+    const contextEntityType = filters?.context_entity_type;
+    const contextEntityId = filters?.context_entity_id;
+    const entityType = filters?.entity_type as
+        | "ORDER"
+        | "INBOUND_REQUEST"
+        | "SERVICE_REQUEST"
+        | undefined;
+    const entityId = filters?.entity_id;
+
+    let companyId: string | null = null;
+
+    if (contextEntityType && contextEntityId) {
+        if (contextEntityType === "ORDER") {
+            const [row] = await db
+                .select({ company_id: orders.company_id })
+                .from(orders)
+                .where(and(eq(orders.id, contextEntityId), eq(orders.platform_id, platformId)))
+                .limit(1);
+            companyId = row?.company_id ?? null;
+        } else if (contextEntityType === "INBOUND_REQUEST") {
+            const [row] = await db
+                .select({ company_id: inboundRequests.company_id })
+                .from(inboundRequests)
+                .where(
+                    and(
+                        eq(inboundRequests.id, contextEntityId),
+                        eq(inboundRequests.platform_id, platformId)
+                    )
+                )
+                .limit(1);
+            companyId = row?.company_id ?? null;
+        } else if (contextEntityType === "SERVICE_REQUEST") {
+            const [row] = await db
+                .select({ company_id: serviceRequests.company_id })
+                .from(serviceRequests)
+                .where(
+                    and(
+                        eq(serviceRequests.id, contextEntityId),
+                        eq(serviceRequests.platform_id, platformId)
+                    )
+                )
+                .limit(1);
+            companyId = row?.company_id ?? null;
+        }
+    } else if (entityType && entityId) {
+        if (entityType === "ORDER") {
+            const [row] = await db
+                .select({ company_id: orders.company_id })
+                .from(orders)
+                .where(and(eq(orders.id, entityId), eq(orders.platform_id, platformId)))
+                .limit(1);
+            companyId = row?.company_id ?? null;
+        } else if (entityType === "INBOUND_REQUEST") {
+            const [row] = await db
+                .select({ company_id: inboundRequests.company_id })
+                .from(inboundRequests)
+                .where(
+                    and(
+                        eq(inboundRequests.id, entityId),
+                        eq(inboundRequests.platform_id, platformId)
+                    )
+                )
+                .limit(1);
+            companyId = row?.company_id ?? null;
+        } else if (entityType === "SERVICE_REQUEST") {
+            const [row] = await db
+                .select({ company_id: serviceRequests.company_id })
+                .from(serviceRequests)
+                .where(
+                    and(
+                        eq(serviceRequests.id, entityId),
+                        eq(serviceRequests.platform_id, platformId)
+                    )
+                )
+                .limit(1);
+            companyId = row?.company_id ?? null;
+        }
+    }
+
+    if (companyId) {
+        const [company] = await db
+            .select({ features: companies.features })
+            .from(companies)
+            .where(and(eq(companies.id, companyId), eq(companies.platform_id, platformId)))
+            .limit(1);
+        const override = sanitizeCompanyAttachmentOverride(company?.features);
+        if (override !== undefined) {
+            enabled = override;
+        }
+    }
+
+    return enabled;
+};
+
 const listAttachmentTypes = async (
     platformId: string,
     user: AuthUser,
-    filters?: { entity_type?: string }
+    filters?: AttachmentTypeListFilters
 ) => {
+    const attachmentsEnabled = await resolveAttachmentFeatureState(platformId, filters);
     const rows = await db
         .select()
         .from(attachmentTypes)
@@ -24,12 +160,21 @@ const listAttachmentTypes = async (
         return rows;
     }
 
+    if (!attachmentsEnabled) {
+        return [];
+    }
+
+    const mode = filters?.mode || "view";
+
     return rows.filter((row) => {
         const entityMatch = filters?.entity_type
             ? row.allowed_entity_types.includes(filters.entity_type as any)
             : true;
-        const viewMatch = row.view_roles.includes(user.role);
-        return entityMatch && viewMatch && row.is_active;
+        const roleMatch =
+            mode === "upload"
+                ? row.upload_roles.includes(user.role)
+                : row.view_roles.includes(user.role);
+        return entityMatch && roleMatch && row.is_active;
     });
 };
 

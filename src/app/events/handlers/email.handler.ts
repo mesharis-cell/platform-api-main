@@ -302,12 +302,21 @@ export const injectDeepLink = async (
 
 const UNCONFIGURED_FROM = "no-reply@unconfigured.kadence.app";
 
-export async function getPlatformFromEmail(platformId: string): Promise<string> {
+export async function getPlatformEmailSettings(platformId: string): Promise<{
+    fromEmail: string;
+    supportEmail: string;
+}> {
     const [platform] = await db
         .select({ config: platforms.config })
         .from(platforms)
         .where(eq(platforms.id, platformId));
-    return (platform?.config as any)?.from_email ?? UNCONFIGURED_FROM;
+    const config = (platform?.config || {}) as Record<string, unknown>;
+    const fromEmail =
+        (typeof config.from_email === "string" && config.from_email) || UNCONFIGURED_FROM;
+    const supportEmail =
+        (typeof config.support_email === "string" && config.support_email) || fromEmail;
+
+    return { fromEmail, supportEmail };
 }
 
 // ─── Main handler ─────────────────────────────────────────────────────────────
