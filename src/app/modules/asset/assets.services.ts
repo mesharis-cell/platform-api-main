@@ -23,7 +23,6 @@ import {
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
-import { CSVFileParser, CSVStructureValidator } from "../../utils/csv-utility";
 import paginationMaker from "../../utils/pagination-maker";
 import { qrCodeGenerator } from "../../utils/qr-code-generator";
 import queryValidator from "../../utils/query-validator";
@@ -35,13 +34,7 @@ import {
     SingleAssetAvailabilityResponse,
     UnavailableItem,
 } from "./assets.interfaces";
-import {
-    ASSET_ALL_COLUMNS,
-    ASSET_REQUIRED_COLUMNS,
-    assetQueryValidationConfig,
-    assetSortableFields,
-} from "./assets.utils";
-import { RowValidationResult, validateReferences } from "./assets.validators";
+import { assetQueryValidationConfig, assetSortableFields } from "./assets.utils";
 
 // Moves any draft S3 images to permanent {companyId}/assets/ path
 const promoteDraftImages = async (
@@ -1376,150 +1369,6 @@ export const getAssetAvailabilitySummary = async (
     };
 };
 
-// ----------------------------------- BULK UPLOAD ASSETS ---------------------------------
-const bulkUploadAssets = async (file: Express.Multer.File, user: AuthUser, platformId: string) => {
-    // Step 1: Parse CSV file
-    const parseResult = await CSVFileParser(file);
-
-    if (parseResult.errors.length > 0) {
-        throw new CustomizedError(httpStatus.INTERNAL_SERVER_ERROR, "Failed to parse CSV file");
-    }
-
-    const rows = parseResult.data;
-
-    // Step 2: Validate CSV structure
-    const { errors, valid_rows } = CSVStructureValidator(
-        rows,
-        ASSET_ALL_COLUMNS,
-        ASSET_REQUIRED_COLUMNS
-    );
-
-    if (errors.length > 0) {
-        return {
-            statusCode: httpStatus.BAD_REQUEST,
-            success: false,
-            message: "Invalid CSV structure",
-            data: errors,
-        };
-    }
-
-    // Step 3: Validate reference IDs for each row
-    const validationErrors: RowValidationResult[] = [];
-
-    for (const row of valid_rows) {
-        const rowErrors = await validateReferences(row, platformId);
-
-        if (rowErrors.length > 0) {
-            validationErrors.push({
-                rowNumber: row.rowNumber,
-                name: row.name || "Unknown",
-                errors: rowErrors,
-            });
-        }
-    }
-
-    // If any validation errors, return them
-    if (validationErrors.length > 0) {
-        return {
-            statusCode: httpStatus.BAD_REQUEST,
-            success: false,
-            message: "Reference validation failed",
-            data: validationErrors,
-        };
-    }
-
-    // Step 4: Transform and prepare data for insertion
-    const assetsToInsert = await Promise.all(
-        valid_rows.map(async (row) => {
-            // Remove rowNumber and any other non-schema fields
-            const { rowNumber, ...assetData } = row;
-
-            // Helper function to parse JSON strings or return default
-            const parseJsonField = (field: any, defaultValue: any) => {
-                if (!field || field === "") return defaultValue;
-                if (typeof field === "string") {
-                    try {
-                        return JSON.parse(field);
-                    } catch {
-                        return defaultValue;
-                    }
-                }
-                return field;
-            };
-
-            // Helper function to handle empty strings for optional fields
-            const handleOptionalField = (field: any) => {
-                return field === "" || field === null || field === undefined ? undefined : field;
-            };
-
-            const qrCode = await qrCodeGenerator(assetData.company_id);
-
-            // Parse JSON fields
-            assetData.qr_code = qrCode;
-            assetData.images = parseJsonField(assetData.images, []);
-            assetData.dimensions = parseJsonField(assetData.dimensions, {});
-            assetData.handling_tags = parseJsonField(assetData.handling_tags, []);
-            assetData.condition_history = parseJsonField(assetData.condition_history, []);
-
-            // Convert numeric fields from strings to numbers
-            if (assetData.total_quantity) {
-                assetData.total_quantity = parseInt(assetData.total_quantity.toString());
-            }
-            if (assetData.available_quantity) {
-                assetData.available_quantity = parseInt(assetData.available_quantity.toString());
-            }
-
-            // Handle decimal fields (keep as strings for Drizzle)
-            if (assetData.weight_per_unit) {
-                assetData.weight_per_unit = assetData.weight_per_unit.toString();
-            }
-            if (assetData.volume_per_unit) {
-                assetData.volume_per_unit = assetData.volume_per_unit.toString();
-            }
-
-            // Handle optional numeric fields
-            assetData.refurb_days_estimate =
-                assetData.refurb_days_estimate && assetData.refurb_days_estimate !== ""
-                    ? parseInt(assetData.refurb_days_estimate.toString())
-                    : undefined;
-
-            // Handle optional string fields (convert empty strings to undefined)
-            assetData.brand_id = handleOptionalField(assetData.brand_id);
-            assetData.description = handleOptionalField(assetData.description);
-            assetData.packaging = handleOptionalField(assetData.packaging);
-            assetData.condition_notes = handleOptionalField(assetData.condition_notes);
-
-            // Handle optional timestamp fields
-            assetData.last_scanned_at = handleOptionalField(assetData.last_scanned_at);
-            assetData.last_scanned_by = handleOptionalField(assetData.last_scanned_by);
-            assetData.deleted_at = handleOptionalField(assetData.deleted_at);
-
-            // Remove timestamp fields that should be auto-generated
-            delete assetData.created_at;
-            delete assetData.updated_at;
-            delete assetData.id;
-
-            // Ensure platform_id is set
-            assetData.platform_id = platformId;
-
-            return assetData;
-        })
-    );
-
-    // Step 5: Insert assets into database
-    const insertedAssets = (await db
-        .insert(assets)
-        .values(assetsToInsert as any)
-        .returning()) as Array<typeof assets.$inferSelect>;
-
-    return {
-        statusCode: httpStatus.CREATED,
-        success: true,
-        message: `${insertedAssets.length} asset(s) uploaded successfully`,
-        data: insertedAssets,
-    };
-};
-
 // ----------------------------------- ADD CONDITION HISTORY ------------------------------
 const addConditionHistory = async (
     data: AddConditionHistoryPayload,
@@ -2272,7 +2121,6 @@ export const AssetServices = {
     getBatchAvailability,
     checkAssetAvailability,
     getSingleAssetAvailability,
-    bulkUploadAssets,
     addConditionHistory,
     generateQRCode,
     sentAssetToMaintenance,

@@ -233,6 +233,11 @@ export const platforms = pgTable(
         config: jsonb("config").default({}).notNull(),
         features: jsonb("features").default({}).notNull(),
         vat_percent: decimal("vat_percent", { precision: 5, scale: 2 }).notNull().default("0.00"),
+        maintenance_mode: boolean("maintenance_mode").notNull().default(false),
+        maintenance_message: text("maintenance_message"),
+        maintenance_until: timestamp("maintenance_until"),
+        maintenance_updated_at: timestamp("maintenance_updated_at"),
+        maintenance_updated_by: uuid("maintenance_updated_by"),
         is_active: boolean("is_active").default(true).notNull(),
         created_at: timestamp("created_at").notNull().defaultNow(),
         updated_at: timestamp("updated_at")

@@ -2,11 +2,12 @@ import { Router } from "express";
 import auth from "../../middleware/auth";
 import payloadValidator from "../../middleware/payload-validator";
 import platformValidator from "../../middleware/platform-validator";
-import { fileUploader } from "../../middleware/upload";
 import { AssetSchemas } from "./asset.schemas";
 import { AssetControllers } from "./assets.controllers";
 import requirePermission from "../../middleware/permission";
 import { PERMISSIONS } from "../../constants/permissions";
+import featureValidator from "../../middleware/feature-validator";
+import { featureNames } from "../../constants/common";
 
 const router = Router();
 
@@ -25,8 +26,8 @@ router.post(
     "/bulk-upload",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
+    featureValidator(featureNames.enable_asset_bulk_upload),
     requirePermission(PERMISSIONS.ASSETS_BULK_UPLOAD),
-    fileUploader.singleUpload.single("file"),
     AssetControllers.bulkUploadAssets
 );
 

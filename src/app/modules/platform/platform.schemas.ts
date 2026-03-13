@@ -37,6 +37,9 @@ const featureSchema = z.object({
     show_estimate_on_order_creation: z.boolean().optional().default(true),
     enable_kadence_invoicing: z.boolean().optional().default(false),
     enable_base_operations: z.boolean().optional().default(true),
+    enable_asset_bulk_upload: z.boolean().optional().default(false),
+    enable_attachments: z.boolean().optional().default(true),
+    enable_workflows: z.boolean().optional().default(true),
 });
 
 const featurePatchSchema = z.object({
@@ -44,6 +47,9 @@ const featurePatchSchema = z.object({
     show_estimate_on_order_creation: z.boolean().optional(),
     enable_kadence_invoicing: z.boolean().optional(),
     enable_base_operations: z.boolean().optional(),
+    enable_asset_bulk_upload: z.boolean().optional(),
+    enable_attachments: z.boolean().optional(),
+    enable_workflows: z.boolean().optional(),
 });
 
 const createPlatform = z.object({

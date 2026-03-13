@@ -35,6 +35,10 @@ const sanitizePlatformFeatures = (features: unknown): Record<string, boolean> =>
                 : Boolean(raw.enable_kadence_invoicing),
         enable_base_operations:
             raw.enable_base_operations === undefined ? true : Boolean(raw.enable_base_operations),
+        enable_asset_bulk_upload:
+            raw.enable_asset_bulk_upload === undefined
+                ? false
+                : Boolean(raw.enable_asset_bulk_upload),
         enable_attachments:
             raw.enable_attachments === undefined ? true : Boolean(raw.enable_attachments),
         enable_workflows: raw.enable_workflows === undefined ? true : Boolean(raw.enable_workflows),
@@ -56,6 +60,9 @@ const sanitizeCompanyFeatureOverrides = (features: unknown): Partial<Record<stri
     }
     if (raw.enable_base_operations !== undefined) {
         overrides.enable_base_operations = Boolean(raw.enable_base_operations);
+    }
+    if (raw.enable_asset_bulk_upload !== undefined) {
+        overrides.enable_asset_bulk_upload = Boolean(raw.enable_asset_bulk_upload);
     }
     if (raw.enable_attachments !== undefined) {
         overrides.enable_attachments = Boolean(raw.enable_attachments);
@@ -122,6 +129,7 @@ const login = async (credential: LoginCredential, platformId: string) => {
         role: user.role,
         company_id: user.company_id,
         platform_id: user.platform_id,
+        is_super_admin: user.is_super_admin,
     };
 
     const accessToken = tokenGenerator(
@@ -191,6 +199,7 @@ const refresh = async (payload: RefreshTokenPayload) => {
         role: user.role,
         company_id: user.company_id,
         platform_id: user.platform_id,
+        is_super_admin: user.is_super_admin,
     };
 
     const accessToken = tokenGenerator(
