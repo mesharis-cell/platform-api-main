@@ -52,6 +52,10 @@ const sanitizePlatformFeatures = (value: unknown) => {
                 : Boolean(raw.enable_kadence_invoicing),
         enable_base_operations:
             raw.enable_base_operations === undefined ? true : Boolean(raw.enable_base_operations),
+        enable_asset_bulk_upload:
+            raw.enable_asset_bulk_upload === undefined
+                ? false
+                : Boolean(raw.enable_asset_bulk_upload),
         enable_attachments:
             raw.enable_attachments === undefined ? true : Boolean(raw.enable_attachments),
         enable_workflows: raw.enable_workflows === undefined ? true : Boolean(raw.enable_workflows),
@@ -73,6 +77,9 @@ const sanitizePlatformFeaturesPatch = (value: unknown) => {
     }
     if (raw.enable_base_operations !== undefined) {
         patch.enable_base_operations = Boolean(raw.enable_base_operations);
+    }
+    if (raw.enable_asset_bulk_upload !== undefined) {
+        patch.enable_asset_bulk_upload = Boolean(raw.enable_asset_bulk_upload);
     }
     if (raw.enable_attachments !== undefined) {
         patch.enable_attachments = Boolean(raw.enable_attachments);

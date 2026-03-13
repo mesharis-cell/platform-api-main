@@ -239,161 +239,29 @@
  *   post:
  *     tags:
  *       - Asset Management
- *     summary: Upload assets in bulk via CSV
+ *     summary: Asset bulk upload is intentionally stubbed
  *     description: |
- *       Allows ADMIN and LOGISTICS users to upload multiple assets at once using a CSV file.
- *
- *       **CSV Structure:**
- *       The CSV file must contain the following columns (exact names):
- *
- *       **Required Columns:**
- *       - `platform_id` - UUID of the platform
- *       - `company_id` - UUID of the company
- *       - `warehouse_id` - UUID of the warehouse
- *       - `zone_id` - UUID of the zone
- *       - `name` - Asset name (max 200 characters)
- *       - `category` - Asset category (e.g., "Installation", "Furniture", "Glassware", "Decor", "Other")
- *       - `tracking_method` - Either "INDIVIDUAL" or "BATCH"
- *       - `qr_code` - Unique QR code identifier (max 100 characters)
- *       - `weight_per_unit` - Weight in kilograms (decimal as string, e.g., "3.00")
- *       - `dimensions` - JSON string with width, height, length in cm (e.g., '{"width":60,"height":75,"length":200}')
- *       - `volume_per_unit` - Volume in cubic meters (decimal as string, e.g., "0.900")
- *
- *       **Optional Columns:**
- *       - `id` - Auto-generated if not provided
- *       - `brand_id` - UUID of the brand (nullable)
- *       - `description` - Asset description text
- *       - `images` - JSON array of image URLs (e.g., '["https://example.com/image.jpg"]')
- *       - `total_quantity` - Integer, defaults to 1
- *       - `available_quantity` - Integer, defaults to 1
- *       - `packaging` - Packaging description
- *       - `condition` - "GREEN", "ORANGE", or "RED" (defaults to "GREEN")
- *       - `condition_notes` - Notes about the condition
- *       - `refurb_days_estimate` - Integer, days until refurbishment complete
- *       - `condition_history` - JSON array (e.g., '[]')
- *       - `handling_tags` - JSON array of tags (e.g., '["HeavyLift","Fragile"]')
- *       - `status` - "AVAILABLE", "BOOKED", "OUT", or "MAINTENANCE" (defaults to "AVAILABLE")
- *       - `last_scanned_at` - Timestamp (auto-managed)
- *       - `last_scanned_by` - UUID (auto-managed)
- *       - `created_at` - Auto-generated
- *       - `updated_at` - Auto-generated
- *       - `deleted_at` - Soft delete timestamp
- *
- *       **Validation Process:**
- *       1. CSV file is parsed and structure is validated
- *       2. All required columns must be present
- *       3. Each row is validated for reference IDs (company_id, warehouse_id, zone_id, brand_id)
- *       4. Data types are converted (JSON strings parsed, numbers converted, empty strings to null)
- *       5. All assets are inserted in a single transaction
- *
- *       **Important Notes:**
- *       - JSON fields (images, dimensions, handling_tags, condition_history) must be valid JSON strings
- *       - Empty strings for optional fields are converted to null/undefined
- *       - QR codes must be unique across all assets
- *       - If any validation fails, no assets are created and detailed errors are returned
+ *       Bulk asset upload is intentionally disabled in this branch while the batch and individual asset model is redesigned.
+ *       The endpoint remains reserved behind a feature flag and currently returns `501 Not Implemented`.
  *     parameters:
  *       - $ref: '#/components/parameters/PlatformHeader'
- *     requestBody:
- *       required: true
- *       content:
- *         multipart/form-data:
- *           schema:
- *             type: object
- *             required:
- *               - file
- *             properties:
- *               file:
- *                 type: string
- *                 format: binary
- *                 description: CSV file containing asset data (max 5MB)
  *     responses:
- *       201:
- *         description: Assets created successfully
+ *       501:
+ *         description: Not implemented
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 statusCode:
- *                   type: integer
- *                   example: 201
  *                 success:
  *                   type: boolean
- *                   example: true
+ *                   example: false
  *                 message:
  *                   type: string
- *                   example: "5 asset(s) uploaded successfully"
+ *                   example: "Asset bulk upload is intentionally stubbed pending the redesigned batch and individual asset model."
  *                 data:
- *                   type: array
- *                   description: Array of created assets
- *                   items:
- *                     $ref: '#/components/schemas/Asset'
- *       400:
- *         description: Bad Request - CSV structure validation failed or reference validation failed
- *         content:
- *           application/json:
- *             schema:
- *               oneOf:
- *                 - type: object
- *                   description: CSV structure errors
- *                   properties:
- *                     statusCode:
- *                       type: integer
- *                       example: 400
- *                     success:
- *                       type: boolean
- *                       example: false
- *                     message:
- *                       type: string
- *                       example: "Invalid CSV structure"
- *                     data:
- *                       type: array
- *                       items:
- *                         type: object
- *                         properties:
- *                           type:
- *                             type: string
- *                             example: "MISSING_COLUMNS"
- *                           message:
- *                             type: string
- *                             example: "Missing required columns: company_id, warehouse_id"
- *                 - type: object
- *                   description: Reference validation errors
- *                   properties:
- *                     statusCode:
- *                       type: integer
- *                       example: 400
- *                     success:
- *                       type: boolean
- *                       example: false
- *                     message:
- *                       type: string
- *                       example: "Reference validation failed"
- *                     data:
- *                       type: array
- *                       items:
- *                         type: object
- *                         properties:
- *                           rowNumber:
- *                             type: integer
- *                             example: 3
- *                           name:
- *                             type: string
- *                             example: "Premium bar"
- *                           errors:
- *                             type: array
- *                             items:
- *                               type: string
- *                             example: ["Company with ID '...' not found", "Warehouse with ID '...' not found"]
- *                 - type: object
- *                   description: File validation error
- *                   properties:
- *                     success:
- *                       type: boolean
- *                       example: false
- *                     message:
- *                       type: string
- *                       example: "File must be a CSV (.csv)"
+ *                   nullable: true
+ *                   example: null
  *       401:
  *         description: Unauthorized
  *         content:
@@ -422,7 +290,7 @@
  *                   example: false
  *                 message:
  *                   type: string
- *                   example: "Failed to parse CSV file"
+ *                   example: "Something went wrong!"
  *     security:
  *       - BearerAuth: []
  */

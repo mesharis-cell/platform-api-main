@@ -4,6 +4,7 @@ import httpStatus from "http-status";
 import config from "./app/config";
 import globalErrorHandler from "./app/middleware/global-error-handler";
 import notFoundHandler from "./app/middleware/not-found-handler";
+import platformMaintenanceGuard from "./app/middleware/platform-maintenance";
 import { corsMiddleware, corsPreflightHandler } from "./app/middleware/cors";
 import router from "./app/routes";
 import swaggerRoutes from "./app/routes/swagger.routes";
@@ -68,6 +69,7 @@ app.get("/", (req: Request, res: Response) => {
 });
 
 // main routes
+app.use(platformMaintenanceGuard);
 app.use("/", router);
 app.use("/api-docs", swaggerRoutes);
 

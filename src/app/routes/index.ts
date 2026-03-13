@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { AuthRoutes } from "../modules/auth/Auth.routes";
+import { SuperAdminRoutes } from "../modules/super-admin/super-admin.routes";
 import { ClientRoutes } from "./client-routes";
 import { OperationRoutes } from "./operation-routes";
 
@@ -13,6 +14,10 @@ const routes = [
     {
         path: "/auth",
         route: AuthRoutes,
+    },
+    {
+        path: "/super-admin",
+        route: SuperAdminRoutes,
     },
     {
         path: "/client/v1",

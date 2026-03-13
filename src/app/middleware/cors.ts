@@ -35,7 +35,7 @@ const DEV_ORIGINS = [
 ];
 
 // Canonical app subdomains for platform domains
-const SUBDOMAIN_PREFIXES = ["admin", "warehouse", "api"];
+const SUBDOMAIN_PREFIXES = ["admin", "warehouse", "api", "control"];
 
 // Environment prefixes that can appear before any subdomain (e.g. staging.admin.kadence.ae)
 const ENV_PREFIXES = ["staging", "dev", "preview", "test"];

@@ -77,6 +77,26 @@
  *                     default: false
  *                     description: Enable invoice generation and payment flows
  *                     example: false
+ *                   enable_base_operations:
+ *                     type: boolean
+ *                     default: true
+ *                     description: Enable picking and handling base operations pricing
+ *                     example: true
+ *                   enable_asset_bulk_upload:
+ *                     type: boolean
+ *                     default: false
+ *                     description: Expose the reserved asset bulk upload stub surface
+ *                     example: false
+ *                   enable_attachments:
+ *                     type: boolean
+ *                     default: true
+ *                     description: Enable typed attachments across supported entities
+ *                     example: true
+ *                   enable_workflows:
+ *                     type: boolean
+ *                     default: true
+ *                     description: Enable internal workflow definitions and requests
+ *                     example: true
  *               is_active:
  *                 type: boolean
  *                 default: true
@@ -137,6 +157,18 @@
  *                         enable_kadence_invoicing:
  *                           type: boolean
  *                           example: false
+ *                         enable_base_operations:
+ *                           type: boolean
+ *                           example: true
+ *                         enable_asset_bulk_upload:
+ *                           type: boolean
+ *                           example: false
+ *                         enable_attachments:
+ *                           type: boolean
+ *                           example: true
+ *                         enable_workflows:
+ *                           type: boolean
+ *                           example: true
  *                     is_active:
  *                       type: boolean
  *                       example: true
