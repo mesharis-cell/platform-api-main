@@ -1,4 +1,4 @@
-import { and, asc, count, eq, ilike, isNull, sql } from "drizzle-orm";
+import { and, asc, count, eq, ilike, inArray, isNull, sql } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
 import { assetFamilies, assets, brands, companies, teams } from "../../../db/schema";
@@ -160,6 +160,31 @@ const listAssetFamilies = async (
     user: { role: string; company_id?: string | null },
     query: Record<string, unknown>
 ) => {
+    const companyId =
+        typeof query.company_id === "string"
+            ? query.company_id
+            : typeof query.company === "string"
+              ? query.company
+              : undefined;
+    const brandId =
+        typeof query.brand_id === "string"
+            ? query.brand_id
+            : typeof query.brand === "string"
+              ? query.brand
+              : undefined;
+    const warehouseId =
+        typeof query.warehouse_id === "string"
+            ? query.warehouse_id
+            : typeof query.warehouse === "string"
+              ? query.warehouse
+              : undefined;
+    const zoneId =
+        typeof query.zone_id === "string"
+            ? query.zone_id
+            : typeof query.zone === "string"
+              ? query.zone
+              : undefined;
+
     const conditions = [
         eq(assetFamilies.platform_id, platformId),
         isNull(assetFamilies.deleted_at),
@@ -170,12 +195,12 @@ const listAssetFamilies = async (
             throw new CustomizedError(httpStatus.UNAUTHORIZED, "Company not found");
         }
         conditions.push(eq(assetFamilies.company_id, user.company_id));
-    } else if (typeof query.company_id === "string" && query.company_id) {
-        conditions.push(eq(assetFamilies.company_id, query.company_id));
+    } else if (companyId) {
+        conditions.push(eq(assetFamilies.company_id, companyId));
     }
 
-    if (typeof query.brand_id === "string" && query.brand_id) {
-        conditions.push(eq(assetFamilies.brand_id, query.brand_id));
+    if (brandId) {
+        conditions.push(eq(assetFamilies.brand_id, brandId));
     }
 
     if (typeof query.category === "string" && query.category) {
@@ -188,6 +213,31 @@ const listAssetFamilies = async (
 
     if (typeof query.search_term === "string" && query.search_term.trim()) {
         conditions.push(ilike(assetFamilies.name, `%${query.search_term.trim()}%`));
+    }
+
+    if (warehouseId) {
+        conditions.push(eq(assets.warehouse_id, warehouseId));
+    }
+
+    if (zoneId) {
+        conditions.push(eq(assets.zone_id, zoneId));
+    }
+
+    if (typeof query.status === "string" && query.status) {
+        conditions.push(eq(assets.status, query.status as any));
+    }
+
+    if (typeof query.condition === "string" && query.condition.trim()) {
+        const conditionValues = query.condition
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean);
+
+        if (conditionValues.length === 1) {
+            conditions.push(eq(assets.condition, conditionValues[0] as any));
+        } else if (conditionValues.length > 1) {
+            conditions.push(inArray(assets.condition, conditionValues as any));
+        }
     }
 
     if (query.include_inactive !== "true") {
