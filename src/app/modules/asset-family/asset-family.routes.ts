@@ -25,6 +25,14 @@ router.get(
     AssetFamilyControllers.getAssetFamilyById
 );
 
+router.get(
+    "/:id/availability-stats",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    requirePermission(PERMISSIONS.ASSETS_READ),
+    AssetFamilyControllers.getAssetFamilyAvailabilityStats
+);
+
 router.post(
     "/",
     platformValidator,

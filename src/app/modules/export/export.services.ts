@@ -4,6 +4,7 @@ import Papa from "papaparse";
 import { db } from "../../../db";
 import {
     assets,
+    assetFamilies,
     brands,
     cities,
     companies,
@@ -346,6 +347,7 @@ const exportStockReportService = async (
         .select({
             asset: {
                 id: assets.id,
+                family_id: assets.family_id,
                 name: assets.name,
                 category: assets.category,
                 condition: assets.condition,
@@ -356,11 +358,16 @@ const exportStockReportService = async (
                 last_scanned_at: assets.last_scanned_at,
             },
             company: { name: companies.name },
+            family: {
+                name: assetFamilies.name,
+                stock_mode: assetFamilies.stock_mode,
+            },
             warehouse: { name: warehouses.name },
             zone: { name: zones.name },
         })
         .from(assets)
         .leftJoin(companies, eq(assets.company_id, companies.id))
+        .leftJoin(assetFamilies, eq(assets.family_id, assetFamilies.id))
         .leftJoin(warehouses, eq(assets.warehouse_id, warehouses.id))
         .leftJoin(zones, eq(assets.zone_id, zones.id))
         .where(and(...conditions))
@@ -369,6 +376,9 @@ const exportStockReportService = async (
     return Papa.unparse(
         rows.map((row) => ({
             "Asset ID": row.asset.id,
+            "Family ID": row.asset.family_id || "",
+            "Family Name": row.family?.name || "",
+            "Stock Mode": row.family?.stock_mode || "",
             "Asset Name": row.asset.name,
             Company: row.company?.name || "",
             Category: row.asset.category,
@@ -649,6 +659,7 @@ const exportAssetUtilizationService = async (
         .select({
             asset: {
                 id: assets.id,
+                family_id: assets.family_id,
                 name: assets.name,
                 category: assets.category,
                 status: assets.status,
@@ -657,9 +668,14 @@ const exportAssetUtilizationService = async (
                 available_quantity: assets.available_quantity,
             },
             company: { name: companies.name },
+            family: {
+                name: assetFamilies.name,
+                stock_mode: assetFamilies.stock_mode,
+            },
         })
         .from(assets)
         .leftJoin(companies, eq(assets.company_id, companies.id))
+        .leftJoin(assetFamilies, eq(assets.family_id, assetFamilies.id))
         .where(and(...conditions))
         .orderBy(asc(assets.name));
 
@@ -702,6 +718,9 @@ const exportAssetUtilizationService = async (
 
         csvRows.push({
             "Asset ID": row.asset.id,
+            "Family ID": row.asset.family_id || "",
+            "Family Name": row.family?.name || "",
+            "Stock Mode": row.family?.stock_mode || "",
             "Asset Name": row.asset.name,
             Company: row.company?.name || "",
             Category: row.asset.category,

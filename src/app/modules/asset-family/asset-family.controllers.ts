@@ -31,6 +31,20 @@ const getAssetFamilyById = catchAsync(async (req, res) => {
     });
 });
 
+const getAssetFamilyAvailabilityStats = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+    const id = getRequiredString(req.params.id, "id");
+    const result = await AssetFamilyServices.getAssetFamilyAvailabilityStats(id, platformId, user);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Asset family availability stats fetched successfully",
+        data: result,
+    });
+});
+
 const createAssetFamily = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const result = await AssetFamilyServices.createAssetFamily(platformId, req.body);
@@ -72,6 +86,7 @@ const deleteAssetFamily = catchAsync(async (req, res) => {
 export const AssetFamilyControllers = {
     listAssetFamilies,
     getAssetFamilyById,
+    getAssetFamilyAvailabilityStats,
     createAssetFamily,
     updateAssetFamily,
     deleteAssetFamily,

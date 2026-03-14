@@ -1,7 +1,17 @@
 import { and, asc, count, eq, ilike, inArray, isNull, sql } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { assetFamilies, assets, brands, companies, teams } from "../../../db/schema";
+import {
+    assetBookings,
+    assetFamilies,
+    assets,
+    brands,
+    companies,
+    orders,
+    scanEvents,
+    selfBookingItems,
+    teams,
+} from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { CreateAssetFamilyPayload, UpdateAssetFamilyPayload } from "./asset-family.interfaces";
 
@@ -287,6 +297,130 @@ const getAssetFamilyById = async (
     return result;
 };
 
+const getAssetFamilyAvailabilityStats = async (
+    id: string,
+    platformId: string,
+    user?: { role?: string; company_id?: string | null }
+) => {
+    const family = await getAssetFamilyById(id, platformId, user);
+
+    const familyAssets = await db
+        .select({
+            id: assets.id,
+            total_quantity: assets.total_quantity,
+            condition: assets.condition,
+        })
+        .from(assets)
+        .where(
+            and(
+                eq(assets.family_id, id),
+                eq(assets.platform_id, platformId),
+                isNull(assets.deleted_at)
+            )
+        );
+
+    const assetIds = familyAssets.map((asset) => asset.id);
+    const totalQuantity = familyAssets.reduce(
+        (sum, asset) => sum + Number(asset.total_quantity || 0),
+        0
+    );
+
+    if (assetIds.length === 0) {
+        return {
+            family_id: family.id,
+            total_quantity: totalQuantity,
+            available_quantity: totalQuantity,
+            booked_quantity: 0,
+            out_quantity: 0,
+            in_maintenance_quantity: 0,
+            self_booked_quantity: 0,
+            stock_record_count: 0,
+            breakdown: {
+                active_bookings_count: 0,
+                outbound_scans_total: 0,
+                inbound_scans_total: 0,
+            },
+        };
+    }
+
+    const activeBookings = await db
+        .select({
+            quantity: assetBookings.quantity,
+        })
+        .from(assetBookings)
+        .innerJoin(orders, eq(assetBookings.order_id, orders.id))
+        .where(
+            and(
+                inArray(assetBookings.asset_id, assetIds),
+                inArray(orders.order_status, [
+                    "CONFIRMED",
+                    "IN_PREPARATION",
+                    "READY_FOR_DELIVERY",
+                    "IN_TRANSIT",
+                    "DELIVERED",
+                    "IN_USE",
+                    "AWAITING_RETURN",
+                ])
+            )
+        );
+
+    const outboundScans = await db
+        .select({
+            quantity: scanEvents.quantity,
+        })
+        .from(scanEvents)
+        .where(and(inArray(scanEvents.asset_id, assetIds), eq(scanEvents.scan_type, "OUTBOUND")));
+
+    const inboundScans = await db
+        .select({
+            quantity: scanEvents.quantity,
+        })
+        .from(scanEvents)
+        .where(and(inArray(scanEvents.asset_id, assetIds), eq(scanEvents.scan_type, "INBOUND")));
+
+    const [selfBookedRow] = await db
+        .select({
+            total: sql<number>`COALESCE(SUM(${selfBookingItems.quantity} - ${selfBookingItems.returned_quantity}), 0)`,
+        })
+        .from(selfBookingItems)
+        .where(
+            and(inArray(selfBookingItems.asset_id, assetIds), eq(selfBookingItems.status, "OUT"))
+        );
+
+    const bookedQuantity = activeBookings.reduce(
+        (sum, booking) => sum + Number(booking.quantity || 0),
+        0
+    );
+    const totalOutbound = outboundScans.reduce((sum, scan) => sum + Number(scan.quantity || 0), 0);
+    const totalInbound = inboundScans.reduce((sum, scan) => sum + Number(scan.quantity || 0), 0);
+    const outQuantity = Math.max(0, totalOutbound - totalInbound);
+    const inMaintenanceQuantity = familyAssets.reduce(
+        (sum, asset) => (asset.condition === "RED" ? sum + Number(asset.total_quantity || 0) : sum),
+        0
+    );
+    const selfBookedQuantity = Number(selfBookedRow?.total ?? 0);
+    const availableQuantity = Math.max(
+        0,
+        totalQuantity - bookedQuantity - outQuantity - inMaintenanceQuantity - selfBookedQuantity
+    );
+
+    return {
+        family_id: family.id,
+        total_quantity: totalQuantity,
+        available_quantity: availableQuantity,
+        booked_quantity: bookedQuantity,
+        out_quantity: outQuantity,
+        in_maintenance_quantity: inMaintenanceQuantity,
+        self_booked_quantity: selfBookedQuantity,
+        stock_record_count: assetIds.length,
+        breakdown: {
+            active_bookings_count: activeBookings.length,
+            outbound_scans_total: totalOutbound,
+            inbound_scans_total: totalInbound,
+        },
+    };
+};
+
 const createAssetFamily = async (platformId: string, payload: CreateAssetFamilyPayload) => {
     await validateFamilyScope(platformId, payload);
 
@@ -405,6 +539,7 @@ const deleteAssetFamily = async (id: string, platformId: string) => {
 export const AssetFamilyServices = {
     listAssetFamilies,
     getAssetFamilyById,
+    getAssetFamilyAvailabilityStats,
     createAssetFamily,
     updateAssetFamily,
     deleteAssetFamily,
