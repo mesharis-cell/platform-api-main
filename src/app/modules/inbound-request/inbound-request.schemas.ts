@@ -159,6 +159,15 @@ const completeInboundRequestSchema = z.object({
         .object({
             warehouse_id: z.uuid({ message: "Warehouse ID is required" }),
             zone_id: z.uuid({ message: "Zone ID is required" }),
+            item_family_assignments: z
+                .array(
+                    z.object({
+                        item_id: z.uuid({ message: "Item ID is required" }),
+                        family_id: z.uuid({ message: "Family ID must be a valid UUID" }).nullable(),
+                    })
+                )
+                .optional()
+                .default([]),
         })
         .strict(),
 });

@@ -6,6 +6,7 @@ import { db } from "../../../db";
 import {
     assetBookings,
     assetConditionHistory,
+    assetFamilies,
     assetVersions,
     assets,
     brands,
@@ -51,6 +52,54 @@ const promoteDraftImages = async (
             return { ...img, url: newUrl };
         })
     );
+};
+
+const validateAssetFamily = async ({
+    familyId,
+    platformId,
+    companyId,
+    brandId,
+    teamId,
+}: {
+    familyId?: string | null;
+    platformId: string;
+    companyId: string;
+    brandId?: string | null;
+    teamId?: string | null;
+}) => {
+    if (!familyId) return null;
+
+    const [family] = await db
+        .select()
+        .from(assetFamilies)
+        .where(
+            and(
+                eq(assetFamilies.id, familyId),
+                eq(assetFamilies.platform_id, platformId),
+                eq(assetFamilies.company_id, companyId),
+                isNull(assetFamilies.deleted_at)
+            )
+        );
+
+    if (!family) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Asset family not found");
+    }
+
+    if (brandId && family.brand_id && family.brand_id !== brandId) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Asset family brand does not match the selected brand"
+        );
+    }
+
+    if (teamId && family.team_id && family.team_id !== teamId) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Asset family team does not match the selected team"
+        );
+    }
+
+    return family;
 };
 
 // ----------------------------------- CREATE ASSET ---------------------------------------
@@ -134,6 +183,14 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
             }
         }
 
+        await validateAssetFamily({
+            familyId: data.family_id,
+            platformId: data.platform_id,
+            companyId: data.company_id,
+            brandId: data.brand_id,
+            teamId: data.team_id,
+        });
+
         // Promote any draft S3 images to permanent paths
         if (data.images && data.images.length > 0)
             data.images = await promoteDraftImages(
@@ -170,6 +227,7 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
                         warehouse_id: data.warehouse_id,
                         zone_id: data.zone_id,
                         brand_id: data.brand_id || null,
+                        family_id: data.family_id || null,
                         team_id: data.team_id ?? null,
                         name: `${data.name} #${i + 1}`, // Add unit number to name
                         description: data.description || null,
@@ -230,6 +288,7 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
             weight_per_unit: data.weight_per_unit.toString(),
             volume_per_unit: data.volume_per_unit.toString(),
             brand_id: data.brand_id || null,
+            family_id: data.family_id || null,
             team_id: data.team_id ?? null,
             description: data.description || null,
             images: data.images || [],
@@ -288,6 +347,7 @@ const getAssets = async (query: Record<string, any>, user: AuthUser, platformId:
         sort_by,
         sort_order,
         company_id,
+        family_id,
         warehouse_id,
         zone_id,
         brand_id,
@@ -332,32 +392,37 @@ const getAssets = async (query: Record<string, any>, user: AuthUser, platformId:
         conditions.push(eq(assets.company_id, company_id));
     }
 
-    // Step 3d: Filter by warehouse ID
+    // Step 3d: Filter by family ID
+    if (family_id) {
+        conditions.push(eq(assets.family_id, family_id));
+    }
+
+    // Step 3e: Filter by warehouse ID
     if (warehouse_id) {
         conditions.push(eq(assets.warehouse_id, warehouse_id));
     }
 
-    // Step 3e: Filter by zone ID
+    // Step 3f: Filter by zone ID
     if (zone_id) {
         conditions.push(eq(assets.zone_id, zone_id));
     }
 
-    // Step 3f: Filter by brand ID
+    // Step 3g: Filter by brand ID
     if (brand_id) {
         conditions.push(eq(assets.brand_id, brand_id));
     }
 
-    // Step 3g: Filter by category
+    // Step 3h: Filter by category
     if (category) {
         conditions.push(eq(assets.category, category));
     }
 
-    // Step 3h: Filter by tracking method
+    // Step 3i: Filter by tracking method
     if (tracking_method) {
         conditions.push(eq(assets.tracking_method, tracking_method));
     }
 
-    // Step 3i: Filter by condition (supports multiple values: GREEN,ORANGE,RED)
+    // Step 3j: Filter by condition (supports multiple values: GREEN,ORANGE,RED)
     if (condition) {
         // Check if condition contains comma (multiple values)
         if (condition.includes(",")) {
@@ -370,12 +435,12 @@ const getAssets = async (query: Record<string, any>, user: AuthUser, platformId:
         }
     }
 
-    // Step 3j: Filter by status
+    // Step 3k: Filter by status
     if (status) {
         conditions.push(eq(assets.status, status));
     }
 
-    // Step 3k: Filter by deleted status (default: only active assets)
+    // Step 3l: Filter by deleted status (default: only active assets)
     if (include_inactive !== "true") {
         conditions.push(isNull(assets.deleted_at));
     }
@@ -698,6 +763,17 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
             }
         }
 
+        if (data.family_id !== undefined) {
+            await validateAssetFamily({
+                familyId: data.family_id,
+                platformId,
+                companyId: data.company_id || existingAsset.company_id,
+                brandId:
+                    data.brand_id === undefined ? existingAsset.brand_id : (data.brand_id ?? null),
+                teamId: data.team_id === undefined ? existingAsset.team_id : (data.team_id ?? null),
+            });
+        }
+
         // Step 6: Validate quantity constraints if either is being updated
         if (data.total_quantity !== undefined || data.available_quantity !== undefined) {
             const finalTotalQty =
@@ -847,6 +923,7 @@ const addAssetUnits = async (
                     warehouse_id: sourceAsset.warehouse_id,
                     zone_id: sourceAsset.zone_id,
                     brand_id: sourceAsset.brand_id,
+                    family_id: sourceAsset.family_id,
                     team_id: sourceAsset.team_id,
                     name: unitName,
                     description: sourceAsset.description,
@@ -1624,6 +1701,7 @@ const createAssetVersionSnapshot = async (
         where: and(eq(assets.id, assetId), eq(assets.platform_id, platformId)),
         with: {
             brand: { columns: { id: true, name: true } },
+            family: { columns: { id: true, name: true, stock_mode: true } },
             warehouse: { columns: { id: true, name: true } },
             zone: { columns: { id: true, name: true } },
         },
@@ -1639,6 +1717,9 @@ const createAssetVersionSnapshot = async (
 
     const snapshot = {
         name: asset.name,
+        family_id: asset.family_id,
+        family_name: asset.family?.name || null,
+        stock_mode: asset.family?.stock_mode || null,
         brand_id: asset.brand_id,
         brand_name: asset.brand?.name || null,
         category: asset.category,

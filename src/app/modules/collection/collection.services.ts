@@ -277,6 +277,7 @@ const getCollectionById = async (id: string, user: AuthUser, platformId: string)
                     asset: {
                         columns: {
                             id: true,
+                            family_id: true,
                             name: true,
                             category: true,
                             images: true,
@@ -289,6 +290,15 @@ const getCollectionById = async (id: string, user: AuthUser, platformId: string)
                             available_quantity: true,
                             total_quantity: true,
                             handling_tags: true,
+                        },
+                        with: {
+                            family: {
+                                columns: {
+                                    id: true,
+                                    name: true,
+                                    stock_mode: true,
+                                },
+                            },
                         },
                     },
                 },

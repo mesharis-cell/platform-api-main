@@ -18,6 +18,13 @@
         "db:rebuild": "tsx src/db/scripts/rebuild-schema.ts",
         "db:reset": "bun run db:rebuild && bun run db:seed",
         "db:reset:pr": "bun run db:rebuild && bun run db:seed:pr",
+        "dbops:fingerprint:prod": "bash scripts/dbops/fingerprint-db.sh prod",
+        "dbops:fingerprint:staging": "bash scripts/dbops/fingerprint-db.sh staging",
+        "dbops:refresh-staging:dry": "bash scripts/dbops/refresh-staging-from-prod.sh dry-run",
+        "dbops:refresh-staging": "bash scripts/dbops/refresh-staging-from-prod.sh apply",
+        "asset-family:backfill:report": "tsx src/db/scripts/generate-asset-family-backfill.ts",
+        "asset-family:backfill:apply": "tsx src/db/scripts/apply-asset-family-backfill.ts",
+        "asset-family:backfill:validate": "tsx src/db/scripts/validate-asset-family-backfill.ts",
         "import:pr-assets": "bun run src/db/scripts/seed-pr-assets.ts",
         "import:pr-assets:dry": "bun run src/db/scripts/seed-pr-assets.ts --dry-run",
         "import:pr-assets:no-photos": "bun run src/db/scripts/seed-pr-assets.ts --skip-photos"

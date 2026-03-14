@@ -18,6 +18,7 @@ const createAssetSchema = z.object({
                 .uuid("Invalid warehouse ID format"),
             zone_id: z.string({ message: "Zone ID is required" }).uuid("Invalid zone ID format"),
             brand_id: z.string().uuid("Invalid brand ID format").optional(),
+            family_id: z.string().uuid("Invalid family ID format").optional().nullable(),
             name: z
                 .string({ message: "Name is required" })
                 .min(1, "Name is required")
@@ -108,6 +109,7 @@ const updateAssetSchema = z.object({
         warehouse_id: z.string().uuid("Invalid warehouse ID format").optional(),
         zone_id: z.string().uuid("Invalid zone ID format").optional(),
         brand_id: z.string().uuid("Invalid brand ID format").optional().nullable(),
+        family_id: z.string().uuid("Invalid family ID format").optional().nullable(),
         name: z
             .string()
             .min(1, "Name cannot be empty")
