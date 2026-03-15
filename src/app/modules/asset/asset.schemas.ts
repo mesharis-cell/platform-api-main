@@ -10,9 +10,7 @@ const assetImageSchema = z.object({
 const createAssetSchema = z.object({
     body: z
         .object({
-            company_id: z
-                .string({ message: "Company ID is required" })
-                .uuid("Invalid company ID format"),
+            company_id: z.string().uuid("Invalid company ID format").optional(),
             warehouse_id: z
                 .string({ message: "Warehouse ID is required" })
                 .uuid("Invalid warehouse ID format"),
@@ -24,20 +22,24 @@ const createAssetSchema = z.object({
                 .min(1, "Name is required")
                 .max(200, "Name must be under 200 characters"),
             description: z.string().optional(),
-            category: z
-                .string()
-                .min(1, "Category is required")
-                .max(100, "Category must be under 100 characters"),
+            category: z.string().min(1, "Category is required").max(100).optional(),
             images: z.array(assetImageSchema).optional().default([]),
             on_display_image: z.string().url("Invalid on display image URL").optional(),
-            tracking_method: z.enum(trackingMethodEnum.enumValues, {
-                message: enumMessageGenerator("Tracking method", trackingMethodEnum.enumValues),
-            }),
+            tracking_method: z
+                .enum(trackingMethodEnum.enumValues, {
+                    message: enumMessageGenerator("Tracking method", trackingMethodEnum.enumValues),
+                })
+                .optional(),
+            quantity: z
+                .number({ message: "Quantity must be a number" })
+                .int("Quantity must be an integer")
+                .min(1, "Quantity must be at least 1")
+                .optional(),
             total_quantity: z
                 .number({ message: "Total quantity must be a number" })
                 .int("Total quantity must be an integer")
                 .min(1, "Total quantity must be at least 1")
-                .default(1),
+                .optional(),
             available_quantity: z
                 .number({ message: "Available quantity must be a number" })
                 .int("Available quantity must be an integer")
@@ -46,7 +48,8 @@ const createAssetSchema = z.object({
             packaging: z.string().max(100, "Packaging must be under 100 characters").optional(),
             weight_per_unit: z
                 .number({ message: "Weight per unit must be a number" })
-                .positive("Weight per unit must be positive"),
+                .positive("Weight per unit must be positive")
+                .optional(),
             dimensions: z
                 .object({
                     length: z.number().positive().optional(),
@@ -57,7 +60,8 @@ const createAssetSchema = z.object({
                 .default({}),
             volume_per_unit: z
                 .number({ message: "Volume per unit must be a number" })
-                .positive("Volume per unit must be positive"),
+                .positive("Volume per unit must be positive")
+                .optional(),
             condition: z
                 .enum(assetConditionEnum.enumValues, {
                     message: enumMessageGenerator("Condition", assetConditionEnum.enumValues),
@@ -83,24 +87,69 @@ const createAssetSchema = z.object({
                 .optional()
                 .default([]),
         })
-        .refine((data) => data.available_quantity <= data.total_quantity, {
-            message: "Available quantity cannot exceed total quantity",
-            path: ["available_quantity"],
-        })
         .refine(
             (data) => {
-                if (data.tracking_method === "BATCH") {
-                    if (!data.packaging) return false;
-                    return true;
-                } else {
-                    return true;
-                }
+                const resolvedTotal = data.total_quantity ?? data.quantity ?? 1;
+                return data.available_quantity <= resolvedTotal;
             },
             {
-                message: "Packaging description is required for BATCH tracking method",
+                message: "Available quantity cannot exceed total quantity",
+                path: ["available_quantity"],
+            }
+        )
+        .superRefine((data, ctx) => {
+            if (!data.family_id && !data.company_id) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: "Company ID is required when asset family is not provided",
+                    path: ["company_id"],
+                });
+            }
+
+            if (!data.family_id && !data.category) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: "Category is required when asset family is not provided",
+                    path: ["category"],
+                });
+            }
+
+            if (!data.family_id && !data.tracking_method) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: "Tracking method is required when asset family is not provided",
+                    path: ["tracking_method"],
+                });
+            }
+
+            if (!data.family_id && data.weight_per_unit === undefined) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: "Weight per unit is required when asset family is not provided",
+                    path: ["weight_per_unit"],
+                });
+            }
+
+            if (!data.family_id && data.volume_per_unit === undefined) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: "Volume per unit is required when asset family is not provided",
+                    path: ["volume_per_unit"],
+                });
+            }
+        })
+        .refine(
+            (data) => data.tracking_method !== "BATCH" || !!data.packaging || !!data.family_id,
+            {
+                message:
+                    "Packaging description is required for BATCH tracking method unless inherited from asset family",
                 path: ["packaging"],
             }
-        ),
+        )
+        .transform((data) => ({
+            ...data,
+            total_quantity: data.total_quantity ?? data.quantity ?? 1,
+        })),
 });
 
 const updateAssetSchema = z.object({

@@ -54,6 +54,36 @@ const promoteDraftImages = async (
     );
 };
 
+const mapStockModeToTrackingMethod = (stockMode: "SERIALIZED" | "POOLED") =>
+    stockMode === "SERIALIZED" ? "INDIVIDUAL" : "BATCH";
+
+const getAssetFamilyForCreate = async ({
+    familyId,
+    platformId,
+}: {
+    familyId?: string | null;
+    platformId: string;
+}) => {
+    if (!familyId) return null;
+
+    const [family] = await db
+        .select()
+        .from(assetFamilies)
+        .where(
+            and(
+                eq(assetFamilies.id, familyId),
+                eq(assetFamilies.platform_id, platformId),
+                isNull(assetFamilies.deleted_at)
+            )
+        );
+
+    if (!family) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Asset family not found");
+    }
+
+    return family;
+};
+
 const validateAssetFamily = async ({
     familyId,
     platformId,
@@ -102,9 +132,128 @@ const validateAssetFamily = async ({
     return family;
 };
 
+const resolveCreateAssetData = async (data: CreateAssetPayload) => {
+    const family = await getAssetFamilyForCreate({
+        familyId: data.family_id,
+        platformId: data.platform_id,
+    });
+
+    const companyId = data.company_id ?? family?.company_id;
+    if (!companyId) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "company_id is required when asset family is not provided"
+        );
+    }
+
+    if (family && data.company_id && family.company_id !== data.company_id) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Asset family company does not match the selected company"
+        );
+    }
+
+    const brandId =
+        data.brand_id !== undefined ? (data.brand_id ?? null) : (family?.brand_id ?? null);
+    if (family && data.brand_id && family.brand_id && family.brand_id !== data.brand_id) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Asset family brand does not match the selected brand"
+        );
+    }
+
+    const teamId = data.team_id !== undefined ? (data.team_id ?? null) : (family?.team_id ?? null);
+    if (family && data.team_id && family.team_id && family.team_id !== data.team_id) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Asset family team does not match the selected team"
+        );
+    }
+
+    const trackingMethod =
+        data.tracking_method ??
+        (family ? mapStockModeToTrackingMethod(family.stock_mode) : undefined);
+    if (!trackingMethod) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "tracking_method is required when asset family is not provided"
+        );
+    }
+
+    const category = data.category ?? family?.category;
+    if (!category) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "category is required when asset family is not provided"
+        );
+    }
+
+    const weightPerUnit =
+        data.weight_per_unit ??
+        (family?.weight_per_unit === null || family?.weight_per_unit === undefined
+            ? undefined
+            : Number(family.weight_per_unit));
+    if (weightPerUnit === undefined) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "weight_per_unit is required when it is not defined on the asset family"
+        );
+    }
+
+    const volumePerUnit =
+        data.volume_per_unit ??
+        (family?.volume_per_unit === null || family?.volume_per_unit === undefined
+            ? undefined
+            : Number(family.volume_per_unit));
+    if (volumePerUnit === undefined) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "volume_per_unit is required when it is not defined on the asset family"
+        );
+    }
+
+    const totalQuantity = data.total_quantity ?? 1;
+    const availableQuantity = data.available_quantity ?? totalQuantity;
+    const packaging = data.packaging ?? family?.packaging ?? null;
+    if (trackingMethod === "BATCH" && !packaging) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Packaging description is required for BATCH tracking method"
+        );
+    }
+
+    return {
+        ...data,
+        company_id: companyId,
+        brand_id: brandId,
+        family_id: family?.id ?? data.family_id ?? null,
+        team_id: teamId,
+        category,
+        description: data.description ?? family?.description ?? undefined,
+        images: data.images?.length ? data.images : (family?.images ?? []),
+        on_display_image: data.on_display_image ?? family?.on_display_image ?? null,
+        tracking_method: trackingMethod,
+        total_quantity: totalQuantity,
+        available_quantity: availableQuantity,
+        packaging,
+        weight_per_unit: weightPerUnit,
+        dimensions:
+            data.dimensions && Object.keys(data.dimensions).length > 0
+                ? data.dimensions
+                : ((family?.dimensions as Record<string, unknown> | undefined) ?? {}),
+        volume_per_unit: volumePerUnit,
+        handling_tags:
+            data.handling_tags && data.handling_tags.length > 0
+                ? data.handling_tags
+                : (family?.handling_tags ?? []),
+    };
+};
+
 // ----------------------------------- CREATE ASSET ---------------------------------------
-const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
+const createAsset = async (input: CreateAssetPayload, user: AuthUser) => {
     try {
+        const data = await resolveCreateAssetData(input);
+
         // Step 1: Validate company, warehouse and zone exists and is not archived
         const [[company], [warehouse], [zone]] = await Promise.all([
             db
@@ -192,7 +341,7 @@ const createAsset = async (data: CreateAssetPayload, user: AuthUser) => {
         });
 
         // Promote any draft S3 images to permanent paths
-        if (data.images && data.images.length > 0)
+        if (Array.isArray(data.images) && data.images.length > 0)
             data.images = await promoteDraftImages(
                 data.images as { url: string; note?: string }[],
                 data.company_id
@@ -581,6 +730,26 @@ const getAssetById = async (id: string, user: AuthUser, platformId: string) => {
                     id: true,
                     name: true,
                     logo_url: true,
+                },
+            },
+            family: {
+                columns: {
+                    id: true,
+                    company_id: true,
+                    brand_id: true,
+                    team_id: true,
+                    name: true,
+                    description: true,
+                    category: true,
+                    images: true,
+                    on_display_image: true,
+                    stock_mode: true,
+                    packaging: true,
+                    weight_per_unit: true,
+                    dimensions: true,
+                    volume_per_unit: true,
+                    handling_tags: true,
+                    is_active: true,
                 },
             },
         },

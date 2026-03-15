@@ -13,6 +13,7 @@ import {
     teams,
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
+import paginationMaker from "../../utils/pagination-maker";
 import { CreateAssetFamilyPayload, UpdateAssetFamilyPayload } from "./asset-family.interfaces";
 
 const validateFamilyScope = async (
@@ -73,68 +74,96 @@ const validateFamilyScope = async (
     }
 };
 
-const stockRecordCountExpr = sql<number>`cast(count(${assets.id}) as integer)`;
-const totalQuantityExpr = sql<number>`cast(coalesce(sum(${assets.total_quantity}), 0) as integer)`;
-const availableQuantityExpr = sql<number>`cast(coalesce(sum(${assets.available_quantity}), 0) as integer)`;
-const availableCountExpr = sql<number>`cast(coalesce(sum(case when ${assets.status} = 'AVAILABLE' then 1 else 0 end), 0) as integer)`;
-const bookedCountExpr = sql<number>`cast(coalesce(sum(case when ${assets.status} = 'BOOKED' then 1 else 0 end), 0) as integer)`;
-const outCountExpr = sql<number>`cast(coalesce(sum(case when ${assets.status} = 'OUT' then 1 else 0 end), 0) as integer)`;
-const maintenanceCountExpr = sql<number>`cast(coalesce(sum(case when ${assets.status} = 'MAINTENANCE' then 1 else 0 end), 0) as integer)`;
-const transformedCountExpr = sql<number>`cast(coalesce(sum(case when ${assets.status} = 'TRANSFORMED' then 1 else 0 end), 0) as integer)`;
-const greenCountExpr = sql<number>`cast(coalesce(sum(case when ${assets.condition} = 'GREEN' then 1 else 0 end), 0) as integer)`;
-const orangeCountExpr = sql<number>`cast(coalesce(sum(case when ${assets.condition} = 'ORANGE' then 1 else 0 end), 0) as integer)`;
-const redCountExpr = sql<number>`cast(coalesce(sum(case when ${assets.condition} = 'RED' then 1 else 0 end), 0) as integer)`;
+const buildAggregatePredicate = (stockFilterPredicate?: any, extraPredicate?: any) => {
+    const predicates = [sql`${assets.id} is not null`];
 
-const assetFamilySelect = {
-    id: assetFamilies.id,
-    platform_id: assetFamilies.platform_id,
-    company_id: assetFamilies.company_id,
-    brand_id: assetFamilies.brand_id,
-    team_id: assetFamilies.team_id,
-    name: assetFamilies.name,
-    description: assetFamilies.description,
-    category: assetFamilies.category,
-    images: assetFamilies.images,
-    on_display_image: assetFamilies.on_display_image,
-    stock_mode: assetFamilies.stock_mode,
-    packaging: assetFamilies.packaging,
-    weight_per_unit: assetFamilies.weight_per_unit,
-    dimensions: assetFamilies.dimensions,
-    volume_per_unit: assetFamilies.volume_per_unit,
-    handling_tags: assetFamilies.handling_tags,
-    is_active: assetFamilies.is_active,
-    created_at: assetFamilies.created_at,
-    updated_at: assetFamilies.updated_at,
-    deleted_at: assetFamilies.deleted_at,
-    company: {
-        id: companies.id,
-        name: companies.name,
-    },
-    brand: {
-        id: brands.id,
-        name: brands.name,
-    },
-    team: {
-        id: teams.id,
-        name: teams.name,
-    },
-    stock_record_count: stockRecordCountExpr,
-    asset_count: stockRecordCountExpr,
-    total_quantity: totalQuantityExpr,
-    available_quantity: availableQuantityExpr,
-    status_summary: {
-        available: availableCountExpr,
-        booked: bookedCountExpr,
-        out: outCountExpr,
-        maintenance: maintenanceCountExpr,
-        transformed: transformedCountExpr,
-    },
-    condition_summary: {
-        green: greenCountExpr,
-        orange: orangeCountExpr,
-        red: redCountExpr,
-    },
-} as const;
+    if (stockFilterPredicate) {
+        predicates.push(stockFilterPredicate);
+    }
+
+    if (extraPredicate) {
+        predicates.push(extraPredicate);
+    }
+
+    return predicates.length === 1 ? predicates[0] : and(...predicates);
+};
+
+const buildCountExpr = (predicate?: any) =>
+    sql<number>`cast(coalesce(sum(case when ${predicate} then 1 else 0 end), 0) as integer)`;
+
+const buildQuantityExpr = (column: any, predicate?: any) =>
+    sql<number>`cast(coalesce(sum(case when ${predicate} then coalesce(${column}, 0) else 0 end), 0) as integer)`;
+
+const buildAssetFamilySelect = (stockFilterPredicate?: any) => {
+    const stockMatchPredicate = buildAggregatePredicate(stockFilterPredicate);
+
+    return {
+        id: assetFamilies.id,
+        platform_id: assetFamilies.platform_id,
+        company_id: assetFamilies.company_id,
+        brand_id: assetFamilies.brand_id,
+        team_id: assetFamilies.team_id,
+        name: assetFamilies.name,
+        description: assetFamilies.description,
+        category: assetFamilies.category,
+        images: assetFamilies.images,
+        on_display_image: assetFamilies.on_display_image,
+        stock_mode: assetFamilies.stock_mode,
+        packaging: assetFamilies.packaging,
+        weight_per_unit: assetFamilies.weight_per_unit,
+        dimensions: assetFamilies.dimensions,
+        volume_per_unit: assetFamilies.volume_per_unit,
+        handling_tags: assetFamilies.handling_tags,
+        is_active: assetFamilies.is_active,
+        created_at: assetFamilies.created_at,
+        updated_at: assetFamilies.updated_at,
+        deleted_at: assetFamilies.deleted_at,
+        company: {
+            id: companies.id,
+            name: companies.name,
+        },
+        brand: {
+            id: brands.id,
+            name: brands.name,
+        },
+        team: {
+            id: teams.id,
+            name: teams.name,
+        },
+        stock_record_count: buildCountExpr(stockMatchPredicate),
+        asset_count: buildCountExpr(stockMatchPredicate),
+        total_quantity: buildQuantityExpr(assets.total_quantity, stockMatchPredicate),
+        available_quantity: buildQuantityExpr(assets.available_quantity, stockMatchPredicate),
+        status_summary: {
+            available: buildCountExpr(
+                buildAggregatePredicate(stockFilterPredicate, eq(assets.status, "AVAILABLE"))
+            ),
+            booked: buildCountExpr(
+                buildAggregatePredicate(stockFilterPredicate, eq(assets.status, "BOOKED"))
+            ),
+            out: buildCountExpr(
+                buildAggregatePredicate(stockFilterPredicate, eq(assets.status, "OUT"))
+            ),
+            maintenance: buildCountExpr(
+                buildAggregatePredicate(stockFilterPredicate, eq(assets.status, "MAINTENANCE"))
+            ),
+            transformed: buildCountExpr(
+                buildAggregatePredicate(stockFilterPredicate, eq(assets.status, "TRANSFORMED"))
+            ),
+        },
+        condition_summary: {
+            green: buildCountExpr(
+                buildAggregatePredicate(stockFilterPredicate, eq(assets.condition, "GREEN"))
+            ),
+            orange: buildCountExpr(
+                buildAggregatePredicate(stockFilterPredicate, eq(assets.condition, "ORANGE"))
+            ),
+            red: buildCountExpr(
+                buildAggregatePredicate(stockFilterPredicate, eq(assets.condition, "RED"))
+            ),
+        },
+    } as const;
+};
 
 const assetFamilyGroupBy = [
     assetFamilies.id,
@@ -170,6 +199,10 @@ const listAssetFamilies = async (
     user: { role: string; company_id?: string | null },
     query: Record<string, unknown>
 ) => {
+    const { pageNumber, limitNumber, skip } = paginationMaker({
+        page: Number(query.page),
+        limit: Number(query.limit),
+    });
     const companyId =
         typeof query.company_id === "string"
             ? query.company_id
@@ -181,6 +214,12 @@ const listAssetFamilies = async (
             ? query.brand_id
             : typeof query.brand === "string"
               ? query.brand
+              : undefined;
+    const teamId =
+        typeof query.team_id === "string"
+            ? query.team_id
+            : typeof query.team === "string"
+              ? query.team
               : undefined;
     const warehouseId =
         typeof query.warehouse_id === "string"
@@ -195,7 +234,7 @@ const listAssetFamilies = async (
               ? query.zone
               : undefined;
 
-    const conditions = [
+    const familyConditions = [
         eq(assetFamilies.platform_id, platformId),
         isNull(assetFamilies.deleted_at),
     ];
@@ -204,39 +243,41 @@ const listAssetFamilies = async (
         if (!user.company_id) {
             throw new CustomizedError(httpStatus.UNAUTHORIZED, "Company not found");
         }
-        conditions.push(eq(assetFamilies.company_id, user.company_id));
+        familyConditions.push(eq(assetFamilies.company_id, user.company_id));
     } else if (companyId) {
-        conditions.push(eq(assetFamilies.company_id, companyId));
+        familyConditions.push(eq(assetFamilies.company_id, companyId));
     }
 
     if (brandId) {
-        conditions.push(eq(assetFamilies.brand_id, brandId));
+        familyConditions.push(eq(assetFamilies.brand_id, brandId));
+    }
+
+    if (teamId) {
+        familyConditions.push(eq(assetFamilies.team_id, teamId));
     }
 
     if (typeof query.category === "string" && query.category) {
-        conditions.push(eq(assetFamilies.category, query.category));
+        familyConditions.push(eq(assetFamilies.category, query.category));
     }
 
     if (typeof query.stock_mode === "string" && query.stock_mode) {
-        conditions.push(eq(assetFamilies.stock_mode, query.stock_mode as any));
+        familyConditions.push(eq(assetFamilies.stock_mode, query.stock_mode as any));
     }
 
     if (typeof query.search_term === "string" && query.search_term.trim()) {
-        conditions.push(ilike(assetFamilies.name, `%${query.search_term.trim()}%`));
+        familyConditions.push(ilike(assetFamilies.name, `%${query.search_term.trim()}%`));
     }
 
+    const stockFilterConditions: any[] = [];
     if (warehouseId) {
-        conditions.push(eq(assets.warehouse_id, warehouseId));
+        stockFilterConditions.push(eq(assets.warehouse_id, warehouseId));
     }
-
     if (zoneId) {
-        conditions.push(eq(assets.zone_id, zoneId));
+        stockFilterConditions.push(eq(assets.zone_id, zoneId));
     }
-
     if (typeof query.status === "string" && query.status) {
-        conditions.push(eq(assets.status, query.status as any));
+        stockFilterConditions.push(eq(assets.status, query.status as any));
     }
-
     if (typeof query.condition === "string" && query.condition.trim()) {
         const conditionValues = query.condition
             .split(",")
@@ -244,26 +285,50 @@ const listAssetFamilies = async (
             .filter(Boolean);
 
         if (conditionValues.length === 1) {
-            conditions.push(eq(assets.condition, conditionValues[0] as any));
+            stockFilterConditions.push(eq(assets.condition, conditionValues[0] as any));
         } else if (conditionValues.length > 1) {
-            conditions.push(inArray(assets.condition, conditionValues as any));
+            stockFilterConditions.push(inArray(assets.condition, conditionValues as any));
         }
     }
 
     if (query.include_inactive !== "true") {
-        conditions.push(eq(assetFamilies.is_active, true));
+        familyConditions.push(eq(assetFamilies.is_active, true));
     }
 
-    return db
-        .select(assetFamilySelect)
-        .from(assetFamilies)
-        .leftJoin(companies, eq(companies.id, assetFamilies.company_id))
-        .leftJoin(brands, eq(brands.id, assetFamilies.brand_id))
-        .leftJoin(teams, eq(teams.id, assetFamilies.team_id))
-        .leftJoin(assets, and(eq(assets.family_id, assetFamilies.id), isNull(assets.deleted_at)))
-        .where(and(...conditions))
-        .groupBy(...assetFamilyGroupBy)
-        .orderBy(asc(assetFamilies.name));
+    const stockFilterPredicate =
+        stockFilterConditions.length > 0 ? and(...stockFilterConditions) : undefined;
+    const assetFamilySelect = buildAssetFamilySelect(stockFilterPredicate);
+
+    const [result, total] = await Promise.all([
+        db
+            .select(assetFamilySelect)
+            .from(assetFamilies)
+            .leftJoin(companies, eq(companies.id, assetFamilies.company_id))
+            .leftJoin(brands, eq(brands.id, assetFamilies.brand_id))
+            .leftJoin(teams, eq(teams.id, assetFamilies.team_id))
+            .leftJoin(
+                assets,
+                and(eq(assets.family_id, assetFamilies.id), isNull(assets.deleted_at))
+            )
+            .where(and(...familyConditions))
+            .groupBy(...assetFamilyGroupBy)
+            .orderBy(asc(assetFamilies.name))
+            .limit(limitNumber)
+            .offset(skip),
+        db
+            .select({ count: count() })
+            .from(assetFamilies)
+            .where(and(...familyConditions)),
+    ]);
+
+    return {
+        meta: {
+            page: pageNumber,
+            limit: limitNumber,
+            total: total[0]?.count ?? 0,
+        },
+        data: result,
+    };
 };
 
 const getAssetFamilyById = async (
@@ -271,7 +336,11 @@ const getAssetFamilyById = async (
     platformId: string,
     user?: { role?: string; company_id?: string | null }
 ) => {
-    const conditions = [eq(assetFamilies.id, id), eq(assetFamilies.platform_id, platformId)];
+    const conditions = [
+        eq(assetFamilies.id, id),
+        eq(assetFamilies.platform_id, platformId),
+        isNull(assetFamilies.deleted_at),
+    ];
 
     if (user?.role === "CLIENT") {
         if (!user.company_id) {
@@ -281,7 +350,7 @@ const getAssetFamilyById = async (
     }
 
     const [result] = await db
-        .select(assetFamilySelect)
+        .select(buildAssetFamilySelect())
         .from(assetFamilies)
         .leftJoin(companies, eq(companies.id, assetFamilies.company_id))
         .leftJoin(brands, eq(brands.id, assetFamilies.brand_id))
