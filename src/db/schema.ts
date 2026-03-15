@@ -933,6 +933,7 @@ export const orders = pgTable(
             .notNull()
             .references(() => users.id),
         job_number: varchar("job_number", { length: 50 }),
+        po_number: varchar("po_number", { length: 100 }),
 
         // Contact information
         contact_name: varchar("contact_name", { length: 100 }).notNull(),

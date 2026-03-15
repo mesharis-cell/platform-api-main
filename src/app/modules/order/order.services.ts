@@ -908,6 +908,7 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
         brand: r.brand,
         created_by: r.order.created_by,
         job_number: r.order.job_number,
+        po_number: r.order.po_number,
         contact_name: r.order.contact_name,
         contact_email: r.order.contact_email,
         contact_phone: r.order.contact_phone,
@@ -1868,7 +1869,7 @@ const approveQuote = async (
     platformId: string,
     payload: ApproveQuotePayload
 ) => {
-    const { notes } = payload;
+    const { notes, po_number } = payload;
     // Step 1: Fetch order with company and pricing details
     const order = await db.query.orders.findFirst({
         where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
@@ -1958,6 +1959,7 @@ const approveQuote = async (
             .set({
                 order_status: nextStatus,
                 financial_status: "QUOTE_ACCEPTED",
+                po_number: po_number.trim(),
                 updated_at: new Date(),
             })
             .where(eq(orders.id, orderId));
@@ -1999,6 +2001,7 @@ const approveQuote = async (
         order_id: order.order_id,
         order_status: nextStatus,
         financial_status: "QUOTE_ACCEPTED",
+        po_number: po_number.trim(),
         updated_at: new Date(),
     };
 };
