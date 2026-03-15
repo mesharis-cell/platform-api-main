@@ -4,6 +4,21 @@ import catchAsync from "../../shared/catch-async";
 import sendResponse from "../../shared/send-response";
 import { OrderServices } from "./order.services";
 import { getRequiredString } from "../../utils/request";
+import { getPlatformFeasibilityConfig } from "./order-feasibility.utils";
+
+// ----------------------------------- FEASIBILITY CONFIG ----------------------------------
+const getFeasibilityConfig = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+    const config = await getPlatformFeasibilityConfig(platformId, user?.company_id || null);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Feasibility config fetched successfully",
+        data: config,
+    });
+});
 
 // ----------------------------------- CALCULATE ESTIMATE ---------------------------------
 const calculateEstimate = catchAsync(async (req, res) => {
@@ -514,6 +529,7 @@ const recalculateBaseOps = catchAsync(async (req, res) => {
 });
 
 export const OrderControllers = {
+    getFeasibilityConfig,
     calculateEstimate,
     checkMaintenanceFeasibility,
     submitOrderFromCart,

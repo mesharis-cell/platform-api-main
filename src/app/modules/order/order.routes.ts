@@ -15,6 +15,14 @@ import { WorkflowRequestSchemas } from "../workflow-request/workflow-request.sch
 
 const router = Router();
 
+// Get resolved feasibility config for the current platform/company
+router.get(
+    "/feasibility-config",
+    platformValidator,
+    auth("CLIENT", "ADMIN", "LOGISTICS"),
+    OrderControllers.getFeasibilityConfig
+);
+
 // Calculate order estimate (NEW)
 router.post(
     "/estimate",

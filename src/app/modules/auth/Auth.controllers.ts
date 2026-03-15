@@ -5,6 +5,7 @@ import { AuthServices } from "./Auth.services";
 import { AuthSchemas } from "./Auth.schemas";
 import { EmailPreferencesService } from "../../services/email-preferences.service";
 import CustomizedError from "../../error/customized-error";
+import config from "../../config";
 
 const login = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
@@ -20,10 +21,20 @@ const login = catchAsync(async (req, res) => {
 });
 
 const getPlatformByDomain = catchAsync(async (req, res) => {
+    // In non-production, allow explicit host override via x-dev-host header
+    // This lets local frontends (localhost:3000) resolve platform context
+    // by pretending to be a real domain (e.g., kadence.ae or pernod-ricard.kadence.ae)
+    const devHostOverride =
+        config.node_env !== "production"
+            ? (req.headers["x-dev-host"] as string | undefined)
+            : undefined;
+
     const origin = req.headers.origin as string | undefined;
     const forwardedHost = req.headers["x-forwarded-host"] as string | undefined;
     const host = req.headers.host as string | undefined;
-    const result = await AuthServices.getConfigByHostname(origin || forwardedHost || host);
+    const result = await AuthServices.getConfigByHostname(
+        devHostOverride || origin || forwardedHost || host
+    );
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

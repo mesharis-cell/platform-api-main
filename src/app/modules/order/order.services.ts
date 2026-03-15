@@ -94,10 +94,7 @@ const FULFILLMENT_READINESS_STATUSES = new Set([
     "CLOSED",
 ]);
 
-const isClientPoRequiredForQuoteApproval = async (
-    platformId: string,
-    companyFeatures: unknown
-) => {
+const isClientPoRequiredForQuoteApproval = async (platformId: string, companyFeatures: unknown) => {
     const [platform] = await db
         .select({ features: platforms.features })
         .from(platforms)
@@ -1994,10 +1991,7 @@ const approveQuote = async (
 
     await db.transaction(async (tx) => {
         // Update order status based on reskins
-        await tx
-            .update(orders)
-            .set(orderUpdateData)
-            .where(eq(orders.id, orderId));
+        await tx.update(orders).set(orderUpdateData).where(eq(orders.id, orderId));
 
         // Log status change
         await tx.insert(orderStatusHistory).values({
