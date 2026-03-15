@@ -46,6 +46,10 @@ const sanitizePlatformFeatures = (value: unknown) => {
             raw.show_estimate_on_order_creation === undefined
                 ? true
                 : Boolean(raw.show_estimate_on_order_creation),
+        require_client_po_number_on_quote_approval:
+            raw.require_client_po_number_on_quote_approval === undefined
+                ? true
+                : Boolean(raw.require_client_po_number_on_quote_approval),
         enable_kadence_invoicing:
             raw.enable_kadence_invoicing === undefined
                 ? false
@@ -71,6 +75,11 @@ const sanitizePlatformFeaturesPatch = (value: unknown) => {
     }
     if (raw.show_estimate_on_order_creation !== undefined) {
         patch.show_estimate_on_order_creation = Boolean(raw.show_estimate_on_order_creation);
+    }
+    if (raw.require_client_po_number_on_quote_approval !== undefined) {
+        patch.require_client_po_number_on_quote_approval = Boolean(
+            raw.require_client_po_number_on_quote_approval
+        );
     }
     if (raw.enable_kadence_invoicing !== undefined) {
         patch.enable_kadence_invoicing = Boolean(raw.enable_kadence_invoicing);

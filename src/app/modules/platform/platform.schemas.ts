@@ -35,6 +35,7 @@ const configSchema = z.object({
 const featureSchema = z.object({
     enable_inbound_requests: z.boolean().optional().default(true),
     show_estimate_on_order_creation: z.boolean().optional().default(true),
+    require_client_po_number_on_quote_approval: z.boolean().optional().default(true),
     enable_kadence_invoicing: z.boolean().optional().default(false),
     enable_base_operations: z.boolean().optional().default(true),
     enable_asset_bulk_upload: z.boolean().optional().default(false),
@@ -45,6 +46,7 @@ const featureSchema = z.object({
 const featurePatchSchema = z.object({
     enable_inbound_requests: z.boolean().optional(),
     show_estimate_on_order_creation: z.boolean().optional(),
+    require_client_po_number_on_quote_approval: z.boolean().optional(),
     enable_kadence_invoicing: z.boolean().optional(),
     enable_base_operations: z.boolean().optional(),
     enable_asset_bulk_upload: z.boolean().optional(),

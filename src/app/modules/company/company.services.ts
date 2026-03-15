@@ -22,6 +22,10 @@ const sanitizeFeatureOverrides = (features: unknown) => {
             raw[featureNames.show_estimate_on_order_creation] === undefined
                 ? companyFeatures[featureNames.show_estimate_on_order_creation]
                 : Boolean(raw[featureNames.show_estimate_on_order_creation]),
+        [featureNames.require_client_po_number_on_quote_approval]:
+            raw[featureNames.require_client_po_number_on_quote_approval] === undefined
+                ? companyFeatures[featureNames.require_client_po_number_on_quote_approval]
+                : Boolean(raw[featureNames.require_client_po_number_on_quote_approval]),
         [featureNames.enable_kadence_invoicing]:
             raw[featureNames.enable_kadence_invoicing] === undefined
                 ? companyFeatures[featureNames.enable_kadence_invoicing]
