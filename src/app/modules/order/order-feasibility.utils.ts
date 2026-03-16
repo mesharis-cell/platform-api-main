@@ -261,7 +261,20 @@ export const validateMaintenanceFeasibilityForAssets = async (
         .map((asset) => {
             const refurbDays = Number(asset.refurb_days_estimate || 0);
             const readyDate = addBusinessDays(leadWindowStart, refurbDays, config);
-            const isFeasible = eventStartDate.getTime() >= readyDate.getTime();
+            // Compare calendar dates only — ignore time-of-day to avoid
+            // edge cases where readyDate has a time component (e.g. 14:30)
+            // but eventStartDate is midnight (from a date-only input).
+            const eventDay = new Date(
+                eventStartDate.getFullYear(),
+                eventStartDate.getMonth(),
+                eventStartDate.getDate()
+            ).getTime();
+            const readyDay = new Date(
+                readyDate.getFullYear(),
+                readyDate.getMonth(),
+                readyDate.getDate()
+            ).getTime();
+            const isFeasible = eventDay >= readyDay;
 
             if (isFeasible) return null;
             return buildFeasibilityIssue(
