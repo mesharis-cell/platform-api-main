@@ -63,6 +63,14 @@ const sanitizePlatformFeatures = (value: unknown) => {
         enable_attachments:
             raw.enable_attachments === undefined ? true : Boolean(raw.enable_attachments),
         enable_workflows: raw.enable_workflows === undefined ? true : Boolean(raw.enable_workflows),
+        enable_service_requests:
+            raw.enable_service_requests === undefined ? true : Boolean(raw.enable_service_requests),
+        enable_event_calendar:
+            raw.enable_event_calendar === undefined ? true : Boolean(raw.enable_event_calendar),
+        enable_client_stock_requests:
+            raw.enable_client_stock_requests === undefined
+                ? true
+                : Boolean(raw.enable_client_stock_requests),
     };
 };
 
@@ -95,6 +103,15 @@ const sanitizePlatformFeaturesPatch = (value: unknown) => {
     }
     if (raw.enable_workflows !== undefined) {
         patch.enable_workflows = Boolean(raw.enable_workflows);
+    }
+    if (raw.enable_service_requests !== undefined) {
+        patch.enable_service_requests = Boolean(raw.enable_service_requests);
+    }
+    if (raw.enable_event_calendar !== undefined) {
+        patch.enable_event_calendar = Boolean(raw.enable_event_calendar);
+    }
+    if (raw.enable_client_stock_requests !== undefined) {
+        patch.enable_client_stock_requests = Boolean(raw.enable_client_stock_requests);
     }
 
     return patch;
