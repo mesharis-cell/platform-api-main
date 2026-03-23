@@ -17,20 +17,22 @@ The Kadence platform implements continuous security monitoring across all applic
 **Tool:** [Snyk](https://snyk.io) (industry-leading SCA tool)
 **Coverage:** All 4 platform repositories
 
-| Repository | Stack | Scan Frequency |
-|------------|-------|----------------|
-| platform-api | Express.js 5, TypeScript, PostgreSQL | Continuous (every push) |
-| platform-admin | Next.js, React, TanStack Query | Continuous (every push) |
-| platform-client | Next.js, Better Auth | Continuous (every push) |
-| platform-warehouse | Next.js PWA | Continuous (every push) |
+| Repository         | Stack                                | Scan Frequency          |
+| ------------------ | ------------------------------------ | ----------------------- |
+| platform-api       | Express.js 5, TypeScript, PostgreSQL | Continuous (every push) |
+| platform-admin     | Next.js, React, TanStack Query       | Continuous (every push) |
+| platform-client    | Next.js, Better Auth                 | Continuous (every push) |
+| platform-warehouse | Next.js PWA                          | Continuous (every push) |
 
 **What it checks:**
+
 - All npm dependencies against the Snyk vulnerability database (170,000+ known vulnerabilities)
 - Transitive (indirect) dependency chains
 - License compliance issues
 - Publicly disclosed CVEs with severity ratings (Critical / High / Medium / Low)
 
 **Outputs:**
+
 - Per-repository vulnerability report with CVE references
 - Affected package versions and upgrade paths
 - Remediation recommendations (auto-fix PRs where possible)
@@ -45,6 +47,7 @@ The Kadence platform implements continuous security monitoring across all applic
 **Scan Type:** Baseline + Active scanning against staging environments
 
 **What it checks (OWASP Top 10):**
+
 - A01: Broken Access Control
 - A02: Cryptographic Failures
 - A03: Injection (SQL, NoSQL, Command, XSS)
@@ -57,6 +60,7 @@ The Kadence platform implements continuous security monitoring across all applic
 - A10: Server-Side Request Forgery (SSRF)
 
 **Outputs:**
+
 - Formal HTML report with executive summary
 - Risk ratings per finding (High / Medium / Low / Informational)
 - Affected URLs, parameters, and evidence
@@ -77,12 +81,12 @@ The Kadence platform implements continuous security monitoring across all applic
 
 ## Remediation Process
 
-| Severity | Response Time | Action |
-|----------|--------------|--------|
-| Critical | Within 24 hours | Immediate patch or mitigation deployed |
-| High | Within 48 hours | Patch scheduled and deployed within sprint |
-| Medium | Within 1 sprint | Included in next development cycle |
-| Low / Informational | Monthly review | Assessed and addressed as appropriate |
+| Severity            | Response Time   | Action                                     |
+| ------------------- | --------------- | ------------------------------------------ |
+| Critical            | Within 24 hours | Immediate patch or mitigation deployed     |
+| High                | Within 48 hours | Patch scheduled and deployed within sprint |
+| Medium              | Within 1 sprint | Included in next development cycle         |
+| Low / Informational | Monthly review  | Assessed and addressed as appropriate      |
 
 All findings are tracked in our internal issue tracker. Critical and high severity findings trigger immediate developer notification.
 
@@ -113,4 +117,4 @@ For report requests, contact: support@kadence.ae
 
 ---
 
-*This document is confidential and intended for authorized recipients only.*
+_This document is confidential and intended for authorized recipients only._

@@ -21,10 +21,10 @@ Step-by-step guide to connect all 4 Kadence repos to Snyk for free, continuous d
 2. Select **Bitbucket Cloud**
 3. If not already connected, click **Connect to Bitbucket Cloud** and authorize the OAuth
 4. You'll see a list of your Bitbucket repos. Select:
-   - `platform-api`
-   - `platform-admin`
-   - `platform-client`
-   - `platform-warehouse`
+    - `platform-api`
+    - `platform-admin`
+    - `platform-client`
+    - `platform-warehouse`
 5. Click **Add selected repositories**
 6. Snyk will auto-detect `package.json` in each repo and start the initial scan (takes 1-2 minutes)
 
@@ -87,6 +87,7 @@ Snyk can auto-generate fix PRs:
 4. Review and merge as normal
 
 For vulnerabilities without auto-fix:
+
 - Check if a newer version of the package resolves it
 - If no fix exists, click **Ignore** with a reason (e.g., "No fix available, not exploitable in our context")
 
@@ -94,15 +95,15 @@ For vulnerabilities without auto-fix:
 
 ## Quick Reference
 
-| Action | How |
-|--------|-----|
-| View all projects | Dashboard → Projects |
-| Run manual scan | Project → ⋮ → Retest now |
-| Export PDF report | Project → ⋮ → View report → Export → PDF |
-| See PR check results | Bitbucket PR → Snyk status check |
-| Configure severity threshold | Settings → Integrations → Bitbucket Cloud |
-| View scan history | Project → History tab |
-| Get API token (if needed later) | Settings → General → API Token |
+| Action                          | How                                       |
+| ------------------------------- | ----------------------------------------- |
+| View all projects               | Dashboard → Projects                      |
+| Run manual scan                 | Project → ⋮ → Retest now                  |
+| Export PDF report               | Project → ⋮ → View report → Export → PDF  |
+| See PR check results            | Bitbucket PR → Snyk status check          |
+| Configure severity threshold    | Settings → Integrations → Bitbucket Cloud |
+| View scan history               | Project → History tab                     |
+| Get API token (if needed later) | Settings → General → API Token            |
 
 ---
 

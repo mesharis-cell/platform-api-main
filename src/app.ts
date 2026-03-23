@@ -27,7 +27,12 @@ app.use(cookiePerser());
 
 // CRITICAL: Set headers to prevent Vercel Edge/CDN from caching responses with wrong origin
 // This middleware runs BEFORE cors middleware to ensure headers are set first
+// Security headers
+app.disable("x-powered-by");
 app.use((req, res, next) => {
+    res.header("X-Content-Type-Options", "nosniff");
+    res.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+
     // Tell caches to vary response by Origin - different origins = different cached responses
     res.header("Vary", "Origin, Accept-Encoding");
 
