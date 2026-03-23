@@ -10,3 +10,6 @@ dist
 
 
 seed/
+
+# Security scan reports
+reports/
