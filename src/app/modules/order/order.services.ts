@@ -74,7 +74,7 @@ import {
 import { LineItemsServices } from "../order-line-items/order-line-items.services";
 import { eventBus, EVENT_TYPES } from "../../events";
 import { orderIdGenerator } from "./order.utils";
-import { uuidRegex } from "../../constants/common";
+import { featureNames, uuidRegex } from "../../constants/common";
 import config from "../../config";
 import { formatDateForEmail } from "../../utils/date-time";
 import { DocumentService } from "../../services/document.service";
@@ -93,6 +93,25 @@ const FULFILLMENT_READINESS_STATUSES = new Set([
     "RETURN_IN_TRANSIT",
     "CLOSED",
 ]);
+
+const isClientPoRequiredForQuoteApproval = async (platformId: string, companyFeatures: unknown) => {
+    const [platform] = await db
+        .select({ features: platforms.features })
+        .from(platforms)
+        .where(eq(platforms.id, platformId))
+        .limit(1);
+
+    const platformRaw = (platform?.features || {}) as Record<string, unknown>;
+    const companyRaw = (companyFeatures || {}) as Record<string, unknown>;
+    const featureName = featureNames.require_client_po_number_on_quote_approval;
+
+    const platformEnabled =
+        platformRaw[featureName] === undefined ? true : Boolean(platformRaw[featureName]);
+
+    return Object.prototype.hasOwnProperty.call(companyRaw, featureName)
+        ? Boolean(companyRaw[featureName])
+        : platformEnabled;
+};
 
 const getLinkedServiceRequestSummaries = async (
     orderDbId: string,
@@ -908,6 +927,7 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
         brand: r.brand,
         created_by: r.order.created_by,
         job_number: r.order.job_number,
+        po_number: r.order.po_number,
         contact_name: r.order.contact_name,
         contact_email: r.order.contact_email,
         contact_phone: r.order.contact_phone,
@@ -1868,7 +1888,8 @@ const approveQuote = async (
     platformId: string,
     payload: ApproveQuotePayload
 ) => {
-    const { notes } = payload;
+    const { notes, po_number } = payload;
+    const normalizedPoNumber = po_number?.trim() || null;
     // Step 1: Fetch order with company and pricing details
     const order = await db.query.orders.findFirst({
         where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
@@ -1905,6 +1926,14 @@ const approveQuote = async (
     // Step 3: Verify order has event dates
     if (!order.event_start_date || !order.event_end_date) {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Order must have event dates");
+    }
+
+    const poRequired = await isClientPoRequiredForQuoteApproval(platformId, order.company.features);
+    if (poRequired && !normalizedPoNumber) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "PO number is required before accepting the quote"
+        );
     }
 
     // Step 4: Check assets availability
@@ -1950,17 +1979,19 @@ const approveQuote = async (
         }
     });
     const nextStatus = "CONFIRMED";
+    const orderUpdateData: Record<string, unknown> = {
+        order_status: nextStatus,
+        financial_status: "QUOTE_ACCEPTED",
+        updated_at: new Date(),
+    };
+
+    if (normalizedPoNumber) {
+        orderUpdateData.po_number = normalizedPoNumber;
+    }
 
     await db.transaction(async (tx) => {
         // Update order status based on reskins
-        await tx
-            .update(orders)
-            .set({
-                order_status: nextStatus,
-                financial_status: "QUOTE_ACCEPTED",
-                updated_at: new Date(),
-            })
-            .where(eq(orders.id, orderId));
+        await tx.update(orders).set(orderUpdateData).where(eq(orders.id, orderId));
 
         // Log status change
         await tx.insert(orderStatusHistory).values({
@@ -1999,6 +2030,7 @@ const approveQuote = async (
         order_id: order.order_id,
         order_status: nextStatus,
         financial_status: "QUOTE_ACCEPTED",
+        po_number: normalizedPoNumber ?? order.po_number ?? null,
         updated_at: new Date(),
     };
 };

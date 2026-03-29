@@ -46,6 +46,10 @@ const sanitizePlatformFeatures = (value: unknown) => {
             raw.show_estimate_on_order_creation === undefined
                 ? true
                 : Boolean(raw.show_estimate_on_order_creation),
+        require_client_po_number_on_quote_approval:
+            raw.require_client_po_number_on_quote_approval === undefined
+                ? true
+                : Boolean(raw.require_client_po_number_on_quote_approval),
         enable_kadence_invoicing:
             raw.enable_kadence_invoicing === undefined
                 ? false
@@ -59,6 +63,14 @@ const sanitizePlatformFeatures = (value: unknown) => {
         enable_attachments:
             raw.enable_attachments === undefined ? true : Boolean(raw.enable_attachments),
         enable_workflows: raw.enable_workflows === undefined ? true : Boolean(raw.enable_workflows),
+        enable_service_requests:
+            raw.enable_service_requests === undefined ? true : Boolean(raw.enable_service_requests),
+        enable_event_calendar:
+            raw.enable_event_calendar === undefined ? true : Boolean(raw.enable_event_calendar),
+        enable_client_stock_requests:
+            raw.enable_client_stock_requests === undefined
+                ? true
+                : Boolean(raw.enable_client_stock_requests),
     };
 };
 
@@ -71,6 +83,11 @@ const sanitizePlatformFeaturesPatch = (value: unknown) => {
     }
     if (raw.show_estimate_on_order_creation !== undefined) {
         patch.show_estimate_on_order_creation = Boolean(raw.show_estimate_on_order_creation);
+    }
+    if (raw.require_client_po_number_on_quote_approval !== undefined) {
+        patch.require_client_po_number_on_quote_approval = Boolean(
+            raw.require_client_po_number_on_quote_approval
+        );
     }
     if (raw.enable_kadence_invoicing !== undefined) {
         patch.enable_kadence_invoicing = Boolean(raw.enable_kadence_invoicing);
@@ -86,6 +103,15 @@ const sanitizePlatformFeaturesPatch = (value: unknown) => {
     }
     if (raw.enable_workflows !== undefined) {
         patch.enable_workflows = Boolean(raw.enable_workflows);
+    }
+    if (raw.enable_service_requests !== undefined) {
+        patch.enable_service_requests = Boolean(raw.enable_service_requests);
+    }
+    if (raw.enable_event_calendar !== undefined) {
+        patch.enable_event_calendar = Boolean(raw.enable_event_calendar);
+    }
+    if (raw.enable_client_stock_requests !== undefined) {
+        patch.enable_client_stock_requests = Boolean(raw.enable_client_stock_requests);
     }
 
     return patch;

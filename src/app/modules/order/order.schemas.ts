@@ -284,6 +284,15 @@ const approvePlatformPricingSchema = z.object({
 const approveQuoteSchema = z.object({
     body: z
         .object({
+            po_number: z
+                .string("PO number should be a text")
+                .trim()
+                .max(100, "PO number must be at most 100 characters")
+                .regex(
+                    /^[A-Za-z0-9][A-Za-z0-9\-_/ ]*$/,
+                    "PO number must be alphanumeric and may include spaces, hyphens, underscores, or slashes"
+                )
+                .optional(),
             notes: z.string("Notes should be a text").optional(),
         })
         .strict(),

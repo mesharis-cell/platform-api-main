@@ -29,6 +29,10 @@ const sanitizePlatformFeatures = (features: unknown): Record<string, boolean> =>
             raw.show_estimate_on_order_creation === undefined
                 ? true
                 : Boolean(raw.show_estimate_on_order_creation),
+        require_client_po_number_on_quote_approval:
+            raw.require_client_po_number_on_quote_approval === undefined
+                ? true
+                : Boolean(raw.require_client_po_number_on_quote_approval),
         enable_kadence_invoicing:
             raw.enable_kadence_invoicing === undefined
                 ? false
@@ -54,6 +58,11 @@ const sanitizeCompanyFeatureOverrides = (features: unknown): Partial<Record<stri
     }
     if (raw.show_estimate_on_order_creation !== undefined) {
         overrides.show_estimate_on_order_creation = Boolean(raw.show_estimate_on_order_creation);
+    }
+    if (raw.require_client_po_number_on_quote_approval !== undefined) {
+        overrides.require_client_po_number_on_quote_approval = Boolean(
+            raw.require_client_po_number_on_quote_approval
+        );
     }
     if (raw.enable_kadence_invoicing !== undefined) {
         overrides.enable_kadence_invoicing = Boolean(raw.enable_kadence_invoicing);

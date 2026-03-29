@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { AnalyticsRoutes } from "../modules/analytics/analytics.routes";
 import { AssetRoutes } from "../modules/asset/asset.routes";
+import { AssetFamilyRoutes } from "../modules/asset-family/asset-family.routes";
 import { BrandRoutes } from "../modules/brand/brand.routes";
 import { CityRoutes } from "../modules/city/city.routes";
 import { CollectionRoutes } from "../modules/collection/collection.routes";
@@ -82,6 +83,10 @@ const routes = [
     {
         path: "/asset",
         route: AssetRoutes,
+    },
+    {
+        path: "/asset-family",
+        route: AssetFamilyRoutes,
     },
     {
         path: "/scanning",

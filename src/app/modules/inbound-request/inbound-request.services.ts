@@ -2,6 +2,7 @@ import httpStatus from "http-status";
 import { randomUUID } from "crypto";
 import { db } from "../../../db";
 import {
+    assetFamilies,
     assets,
     companies,
     inboundRequestItems,
@@ -402,6 +403,8 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
         .select({
             item: inboundRequestItems,
             asset: {
+                id: assets.id,
+                family_id: assets.family_id,
                 name: assets.name,
                 images: assets.images,
                 qr_code: assets.qr_code,
@@ -410,10 +413,14 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
                 status: assets.status,
                 total_quantity: assets.total_quantity,
                 available_quantity: assets.available_quantity,
+                family_ref_id: assetFamilies.id,
+                family_name: assetFamilies.name,
+                family_stock_mode: assetFamilies.stock_mode,
             },
         })
         .from(inboundRequestItems)
         .leftJoin(assets, eq(inboundRequestItems.asset_id, assets.id))
+        .leftJoin(assetFamilies, eq(assets.family_id, assetFamilies.id))
         .where(eq(inboundRequestItems.inbound_request_id, requestId));
 
     // Step 5: Fetch line items for this request
@@ -444,10 +451,35 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
             lineItemsData,
             user.role
         ),
-        items: items.map((item) => ({
-            ...item.item,
-            asset: item.asset,
-        })),
+        items: items.map((item) => {
+            const inboundItem = item.item as typeof inboundRequestItems.$inferSelect;
+            const asset = item.asset?.id
+                ? {
+                      id: item.asset.id,
+                      family_id: item.asset.family_id,
+                      name: item.asset.name,
+                      images: item.asset.images,
+                      qr_code: item.asset.qr_code,
+                      tracking_method: item.asset.tracking_method,
+                      category: item.asset.category,
+                      status: item.asset.status,
+                      total_quantity: item.asset.total_quantity,
+                      available_quantity: item.asset.available_quantity,
+                      family: item.asset.family_ref_id
+                          ? {
+                                id: item.asset.family_ref_id,
+                                name: item.asset.family_name,
+                                stock_mode: item.asset.family_stock_mode,
+                            }
+                          : null,
+                  }
+                : null;
+
+            return {
+                ...inboundItem,
+                asset,
+            };
+        }),
         line_items: lineItemsData,
         invoice: invoice || null,
         created_at: result.request.created_at,
@@ -991,7 +1023,7 @@ const completeInboundRequest = async (
     user: AuthUser,
     payload: CompleteInboundRequestPayload
 ) => {
-    const { warehouse_id, zone_id } = payload;
+    const { warehouse_id, zone_id, item_family_assignments = [] } = payload;
 
     // Step 1: Fetch the inbound request to validate access and status
     const [result] = await db
@@ -1086,12 +1118,67 @@ const completeInboundRequest = async (
         );
     }
 
+    const requestedFamilyIds = Array.from(
+        new Set(
+            item_family_assignments
+                .map((assignment) => assignment.family_id)
+                .filter((familyId): familyId is string => Boolean(familyId))
+        )
+    );
+
+    const familyRecords =
+        requestedFamilyIds.length > 0
+            ? await db
+                  .select({
+                      id: assetFamilies.id,
+                      company_id: assetFamilies.company_id,
+                      brand_id: assetFamilies.brand_id,
+                      team_id: assetFamilies.team_id,
+                  })
+                  .from(assetFamilies)
+                  .where(
+                      and(
+                          eq(assetFamilies.platform_id, platformId),
+                          eq(assetFamilies.company_id, inboundRequest.company_id),
+                          isNull(assetFamilies.deleted_at),
+                          inArray(assetFamilies.id, requestedFamilyIds)
+                      )
+                  )
+            : [];
+
+    if (familyRecords.length !== requestedFamilyIds.length) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "One or more selected asset families are invalid for this company"
+        );
+    }
+
+    const familyById = new Map(familyRecords.map((family) => [family.id, family]));
+    const familyAssignmentByItemId = new Map(
+        item_family_assignments.map((assignment) => [assignment.item_id, assignment.family_id])
+    );
+
     // Step 6: Create/update assets from items in a transaction
     const processedAssets = await db.transaction(async (tx) => {
         const resultAssets: { asset: any; action: "created" | "updated"; quantityAdded: number }[] =
             [];
 
         for (const item of items) {
+            const assignedFamilyId = familyAssignmentByItemId.get(item.id) || null;
+            const assignedFamily = assignedFamilyId ? familyById.get(assignedFamilyId) : null;
+
+            if (
+                assignedFamily &&
+                item.brand_id &&
+                assignedFamily.brand_id &&
+                assignedFamily.brand_id !== item.brand_id
+            ) {
+                throw new CustomizedError(
+                    httpStatus.CONFLICT,
+                    `Selected asset family does not match the brand for item "${item.name}"`
+                );
+            }
+
             if (item.tracking_method === "BATCH") {
                 // For BATCH items, search for existing asset by id in the same company
                 let existingAsset: typeof assets.$inferSelect | undefined;
@@ -1142,7 +1229,9 @@ const completeInboundRequest = async (
                             company_id: inboundRequest.company_id,
                             warehouse_id,
                             zone_id,
-                            brand_id: item.brand_id,
+                            brand_id: assignedFamily?.brand_id ?? item.brand_id,
+                            family_id: assignedFamily?.id ?? null,
+                            team_id: assignedFamily?.team_id ?? null,
                             name: item.name,
                             description: item.description,
                             category: item.category,
@@ -1181,7 +1270,9 @@ const completeInboundRequest = async (
                         company_id: inboundRequest.company_id,
                         warehouse_id: warehouse_id,
                         zone_id: zone_id,
-                        brand_id: item.brand_id,
+                        brand_id: assignedFamily?.brand_id ?? item.brand_id,
+                        family_id: assignedFamily?.id ?? null,
+                        team_id: assignedFamily?.team_id ?? null,
                         name: item.name,
                         description: item.description,
                         category: item.category,

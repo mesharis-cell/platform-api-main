@@ -29,6 +29,7 @@ export const userRoleEnum = pgEnum("user_role", [
 export const hostnameTypeEnum = pgEnum("hostname_type", ["VANITY", "CUSTOM"]);
 
 export const trackingMethodEnum = pgEnum("tracking_method", ["INDIVIDUAL", "BATCH"]);
+export const stockModeEnum = pgEnum("stock_mode", ["SERIALIZED", "POOLED"]);
 export const assetConditionEnum = pgEnum("asset_condition", ["GREEN", "ORANGE", "RED"]);
 export const assetStatusEnum = pgEnum("asset_status", [
     "AVAILABLE",
@@ -252,6 +253,7 @@ export const platformsRelations = relations(platforms, ({ many }) => ({
     users: many(users),
     access_policies: many(accessPolicies),
     warehouses: many(warehouses),
+    asset_families: many(assetFamilies),
     workflow_requests: many(workflowRequests),
     workflow_definitions: many(workflowDefinitions),
     workflow_definition_company_overrides: many(workflowDefinitionCompanyOverrides),
@@ -342,6 +344,7 @@ export const companiesRelations = relations(companies, ({ one, many }) => ({
     domains: many(companyDomains),
     brands: many(brands),
     zones: many(zones),
+    asset_families: many(assetFamilies),
     assets: many(assets),
     collections: many(collections),
     orders: many(orders),
@@ -492,6 +495,7 @@ export const brandsRelations = relations(brands, ({ one, many }) => ({
         fields: [brands.company_id],
         references: [companies.id],
     }),
+    asset_families: many(assetFamilies),
     assets: many(assets),
     collections: many(collections),
 }));
@@ -575,6 +579,78 @@ export const zonesRelations = relations(zones, ({ one, many }) => ({
     assets: many(assets),
 }));
 
+// ---------------------------------- ASSET FAMILY -----------------------------------------
+export const assetFamilies = pgTable(
+    "asset_families",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        company_id: uuid("company_id")
+            .notNull()
+            .references(() => companies.id, { onDelete: "cascade" }),
+        brand_id: uuid("brand_id").references(() => brands.id, { onDelete: "set null" }),
+        team_id: uuid("team_id").references((): AnyPgColumn => teams.id, { onDelete: "set null" }),
+        name: varchar("name", { length: 200 }).notNull(),
+        description: text("description"),
+        category: varchar("category", { length: 100 }).notNull(),
+        images: jsonb("images")
+            .notNull()
+            .default(sql`'[]'::jsonb`),
+        on_display_image: text("on_display_image"),
+        stock_mode: stockModeEnum("stock_mode").notNull(),
+        packaging: varchar("packaging", { length: 100 }),
+        weight_per_unit: decimal("weight_per_unit", { precision: 8, scale: 2 }),
+        dimensions: jsonb("dimensions")
+            .notNull()
+            .default(sql`'{}'::jsonb`),
+        volume_per_unit: decimal("volume_per_unit", { precision: 8, scale: 3 }),
+        handling_tags: text("handling_tags")
+            .array()
+            .notNull()
+            .default(sql`ARRAY[]::text[]`),
+        is_active: boolean("is_active").notNull().default(true),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+        updated_at: timestamp("updated_at")
+            .$onUpdate(() => new Date())
+            .notNull(),
+        deleted_at: timestamp("deleted_at"),
+    },
+    (table) => [
+        index("asset_families_platform_idx").on(table.platform_id),
+        index("asset_families_company_idx").on(table.company_id),
+        index("asset_families_brand_idx").on(table.brand_id),
+        index("asset_families_team_idx").on(table.team_id),
+        index("asset_families_stock_mode_idx").on(table.stock_mode),
+        unique("asset_families_platform_company_name_unique").on(
+            table.platform_id,
+            table.company_id,
+            table.name
+        ),
+    ]
+);
+
+export const assetFamiliesRelations = relations(assetFamilies, ({ one, many }) => ({
+    platform: one(platforms, {
+        fields: [assetFamilies.platform_id],
+        references: [platforms.id],
+    }),
+    company: one(companies, {
+        fields: [assetFamilies.company_id],
+        references: [companies.id],
+    }),
+    brand: one(brands, {
+        fields: [assetFamilies.brand_id],
+        references: [brands.id],
+    }),
+    team: one(teams, {
+        fields: [assetFamilies.team_id],
+        references: [teams.id],
+    }),
+    assets: many(assets),
+}));
+
 // ---------------------------------- ASSET -----------------------------------------------
 export const assets = pgTable(
     "assets",
@@ -593,6 +669,7 @@ export const assets = pgTable(
             .notNull()
             .references(() => zones.id),
         brand_id: uuid("brand_id").references(() => brands.id),
+        family_id: uuid("family_id").references(() => assetFamilies.id, { onDelete: "set null" }),
         name: varchar("name", { length: 200 }).notNull(),
         description: text("description"),
         category: varchar("category", { length: 100 }).notNull(),
@@ -650,6 +727,7 @@ export const assetsRelations = relations(assets, ({ one, many }) => ({
     company: one(companies, { fields: [assets.company_id], references: [companies.id] }),
     platform: one(platforms, { fields: [assets.platform_id], references: [platforms.id] }),
     brand: one(brands, { fields: [assets.brand_id], references: [brands.id] }),
+    family: one(assetFamilies, { fields: [assets.family_id], references: [assetFamilies.id] }),
     warehouse: one(warehouses, { fields: [assets.warehouse_id], references: [warehouses.id] }),
     zone: one(zones, { fields: [assets.zone_id], references: [zones.id] }),
     last_scanned_by_user: one(users, { fields: [assets.last_scanned_by], references: [users.id] }),
@@ -692,6 +770,7 @@ export const teamsRelations = relations(teams, ({ one, many }) => ({
     company: one(companies, { fields: [teams.company_id], references: [companies.id] }),
     platform: one(platforms, { fields: [teams.platform_id], references: [platforms.id] }),
     members: many(teamMembers),
+    asset_families: many(assetFamilies),
     assets: many(assets),
 }));
 
@@ -854,6 +933,7 @@ export const orders = pgTable(
             .notNull()
             .references(() => users.id),
         job_number: varchar("job_number", { length: 50 }),
+        po_number: varchar("po_number", { length: 100 }),
 
         // Contact information
         contact_name: varchar("contact_name", { length: 100 }).notNull(),
