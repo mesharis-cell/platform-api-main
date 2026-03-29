@@ -314,7 +314,7 @@ export async function getPlatformEmailSettings(platformId: string): Promise<{
     const fromEmail =
         (typeof config.from_email === "string" && config.from_email) || UNCONFIGURED_FROM;
     const supportEmail =
-        (typeof config.support_email === "string" && config.support_email) || fromEmail;
+        (typeof config.support_email === "string" && config.support_email.trim()) || "";
 
     return { fromEmail, supportEmail };
 }

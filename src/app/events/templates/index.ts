@@ -110,6 +110,7 @@ import {
     workflowRequestSubmittedAdmin,
     workflowRequestSubmittedLogistics,
 } from "./workflow-request";
+import { clearTemplateSupportEmail, setTemplateSupportEmail } from "./base";
 
 const registry: Record<string, EmailTemplate> = {
     // Orders
@@ -197,10 +198,17 @@ export function renderTemplate(
 ): { subject: string; html: string; text: string } {
     const template = registry[templateKey];
     if (!template) throw new Error(`Unknown email template: "${templateKey}"`);
-    const html = template.html(payload);
-    return {
-        subject: template.subject(payload),
-        html,
-        text: htmlToText(html),
-    };
+    setTemplateSupportEmail(
+        typeof payload.support_email === "string" ? payload.support_email : undefined
+    );
+    try {
+        const html = template.html(payload);
+        return {
+            subject: template.subject(payload),
+            html,
+            text: htmlToText(html),
+        };
+    } finally {
+        clearTemplateSupportEmail();
+    }
 }

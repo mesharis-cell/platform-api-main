@@ -21,9 +21,29 @@ const configSchema = z.object({
         .email("From email must be a valid email address")
         .optional()
         .describe("Verified sender email address used in the 'From' field for all platform emails"),
+    support_email: z
+        .string()
+        .email("Support email must be a valid email address")
+        .optional()
+        .describe("Support email shown in email template footers and used for replies"),
     currency: z
         .string()
         .length(3, "Currency must be a 3-letter ISO code (e.g., USD, EUR)")
+        .optional(),
+    feasibility: z
+        .object({
+            minimum_lead_hours: z
+                .number("Minimum lead hours must be a number")
+                .int("Minimum lead hours must be a whole number")
+                .min(0, "Minimum lead hours must be 0 or greater")
+                .optional(),
+            exclude_weekends: z.boolean().optional(),
+            weekend_days: z
+                .array(z.number().int().min(0).max(6))
+                .max(7, "Weekend days can contain at most 7 values")
+                .optional(),
+            timezone: z.string().optional(),
+        })
         .optional(),
     vat_percent: z
         .number("VAT percent must be a number")

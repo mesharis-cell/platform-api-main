@@ -9,12 +9,36 @@ import { UrlResolverService } from "../../services/url-resolver.service";
 
 const sanitizePlatformConfig = (value: unknown) => {
     const raw = (value || {}) as Record<string, unknown>;
+    const feasibility =
+        raw.feasibility && typeof raw.feasibility === "object"
+            ? (raw.feasibility as Record<string, unknown>)
+            : undefined;
+
     return {
         logo_url: typeof raw.logo_url === "string" ? raw.logo_url : undefined,
         primary_color: typeof raw.primary_color === "string" ? raw.primary_color : undefined,
         secondary_color: typeof raw.secondary_color === "string" ? raw.secondary_color : undefined,
         from_email: typeof raw.from_email === "string" ? raw.from_email : undefined,
+        support_email: typeof raw.support_email === "string" ? raw.support_email : undefined,
         currency: typeof raw.currency === "string" ? raw.currency : undefined,
+        feasibility: feasibility
+            ? {
+                  minimum_lead_hours:
+                      typeof feasibility.minimum_lead_hours === "number"
+                          ? feasibility.minimum_lead_hours
+                          : undefined,
+                  exclude_weekends:
+                      typeof feasibility.exclude_weekends === "boolean"
+                          ? feasibility.exclude_weekends
+                          : undefined,
+                  weekend_days: Array.isArray(feasibility.weekend_days)
+                      ? feasibility.weekend_days
+                            .map((day) => Number(day))
+                            .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6)
+                      : undefined,
+                  timezone: typeof feasibility.timezone === "string" ? feasibility.timezone : undefined,
+              }
+            : undefined,
     };
 };
 
@@ -32,7 +56,9 @@ const sanitizePlatformConfigPatch = (value: unknown) => {
     if (raw.primary_color !== undefined) patch.primary_color = raw.primary_color;
     if (raw.secondary_color !== undefined) patch.secondary_color = raw.secondary_color;
     if (raw.from_email !== undefined) patch.from_email = raw.from_email;
+    if (raw.support_email !== undefined) patch.support_email = raw.support_email;
     if (raw.currency !== undefined) patch.currency = raw.currency;
+    if (raw.feasibility !== undefined) patch.feasibility = sanitizePlatformConfig({ feasibility: raw.feasibility }).feasibility;
 
     return patch;
 };
