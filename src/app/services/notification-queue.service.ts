@@ -45,10 +45,9 @@ const getRetryDelayMs = (attempts: number) => {
     return Math.min(300_000, 15_000 * 2 ** Math.max(0, attempts - 3));
 };
 
-const appendHtmlFooter = (html: string, unsubscribeUrl: string, supportEmail: string) => {
+const appendHtmlFooter = (html: string, unsubscribeUrl: string) => {
     const footer = `<div style="max-width:600px;margin:0 auto;padding:0 24px 24px;color:#666;font-family:Arial,sans-serif;font-size:12px;line-height:1.5;">
   <p style="margin:16px 0 8px;">If you no longer want to receive these emails, <a href="${unsubscribeUrl}" style="color:#2563eb;">unsubscribe here</a>.</p>
-  <p style="margin:0;">Need help? Contact <a href="mailto:${supportEmail}" style="color:#2563eb;">${supportEmail}</a>.</p>
 </div>`;
 
     if (html.includes("</body>")) {
@@ -58,8 +57,8 @@ const appendHtmlFooter = (html: string, unsubscribeUrl: string, supportEmail: st
     return `${html}${footer}`;
 };
 
-const appendTextFooter = (text: string, unsubscribeUrl: string, supportEmail: string) =>
-    `${text}\n\nUnsubscribe: ${unsubscribeUrl}\nSupport: ${supportEmail}`;
+const appendTextFooter = (text: string, unsubscribeUrl: string) =>
+    `${text}\n\nUnsubscribe: ${unsubscribeUrl}`;
 
 const getErrorMetadata = (error: unknown) => {
     const err = error as Error & {
@@ -261,19 +260,22 @@ const processClaimedNotification = async (log: ClaimedNotificationLog) => {
             return;
         }
 
-        const resolvedPayload = await injectDeepLink(dispatchTarget, event as any, eventCompanyId);
-        const rendered = renderTemplate(log.template_key, resolvedPayload);
-        subject = rendered.subject;
         const emailSettings = await getPlatformEmailSettings(log.platform_id);
+        const resolvedPayload = await injectDeepLink(dispatchTarget, event as any, eventCompanyId);
+        const rendered = renderTemplate(log.template_key, {
+            ...resolvedPayload,
+            support_email: emailSettings.supportEmail || undefined,
+        });
+        subject = rendered.subject;
         const unsubscribe = EmailPreferencesService.buildUnsubscribeUrl(
             log.platform_id,
             log.recipient_email
         );
         const html = unsubscribe.url
-            ? appendHtmlFooter(rendered.html, unsubscribe.url, emailSettings.supportEmail)
+            ? appendHtmlFooter(rendered.html, unsubscribe.url)
             : rendered.html;
         const text = unsubscribe.url
-            ? appendTextFooter(rendered.text, unsubscribe.url, emailSettings.supportEmail)
+            ? appendTextFooter(rendered.text, unsubscribe.url)
             : rendered.text;
         const headers: Record<string, string> = {
             "X-Entity-Ref-ID": String(

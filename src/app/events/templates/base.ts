@@ -1,5 +1,15 @@
 export const baseStyle = `margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #f6f9fc; color: #111827;`;
 
+let currentSupportEmail: string | null = null;
+
+export function setTemplateSupportEmail(value?: string | null) {
+    currentSupportEmail = typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+export function clearTemplateSupportEmail() {
+    currentSupportEmail = null;
+}
+
 export const formatAmount = (value?: number | string | null) =>
     value === undefined || value === null ? "—" : Number(value).toFixed(2);
 
@@ -21,8 +31,12 @@ export function wrap(content: string): string {
 </body></html>`;
 }
 
-export function footer(supportEmail = "support@platform.com"): string {
-    return `<p style="margin: 24px 0 0; font-size: 13px; color: #6b7280;">Questions? Contact us at <a href="mailto:${supportEmail}" style="color: #2563eb;">${supportEmail}</a></p>
+export function footer(supportEmail = currentSupportEmail): string {
+    const supportLine = supportEmail
+        ? `<p style="margin: 24px 0 0; font-size: 13px; color: #6b7280;">Questions? Contact us at <a href="mailto:${supportEmail}" style="color: #2563eb;">${supportEmail}</a></p>`
+        : "";
+
+    return `${supportLine}
 <p style="margin: 8px 0 0; font-size: 11px; color: #9ca3af;">This is an automated platform notification. Replies may not be monitored.</p>`;
 }
 
