@@ -11,54 +11,39 @@ import { companyQueryValidationConfig, companySortableFields } from "./company.u
 import { PERMISSIONS } from "../../constants/permissions";
 import { companyFeatures, featureNames } from "../../constants/common";
 
-const sanitizeFeatureOverrides = (features: unknown) => {
+const featureKeys = Object.values(featureNames);
+
+const sanitizeFeatureOverrides = (features: unknown): Partial<Record<string, boolean>> => {
     const raw = (features || {}) as Record<string, unknown>;
-    return {
-        [featureNames.enable_inbound_requests]:
-            raw[featureNames.enable_inbound_requests] === undefined
-                ? companyFeatures[featureNames.enable_inbound_requests]
-                : Boolean(raw[featureNames.enable_inbound_requests]),
-        [featureNames.show_estimate_on_order_creation]:
-            raw[featureNames.show_estimate_on_order_creation] === undefined
-                ? companyFeatures[featureNames.show_estimate_on_order_creation]
-                : Boolean(raw[featureNames.show_estimate_on_order_creation]),
-        [featureNames.require_client_po_number_on_quote_approval]:
-            raw[featureNames.require_client_po_number_on_quote_approval] === undefined
-                ? companyFeatures[featureNames.require_client_po_number_on_quote_approval]
-                : Boolean(raw[featureNames.require_client_po_number_on_quote_approval]),
-        [featureNames.enable_kadence_invoicing]:
-            raw[featureNames.enable_kadence_invoicing] === undefined
-                ? companyFeatures[featureNames.enable_kadence_invoicing]
-                : Boolean(raw[featureNames.enable_kadence_invoicing]),
-        [featureNames.enable_base_operations]:
-            raw[featureNames.enable_base_operations] === undefined
-                ? companyFeatures[featureNames.enable_base_operations]
-                : Boolean(raw[featureNames.enable_base_operations]),
-        [featureNames.enable_asset_bulk_upload]:
-            raw[featureNames.enable_asset_bulk_upload] === undefined
-                ? companyFeatures[featureNames.enable_asset_bulk_upload]
-                : Boolean(raw[featureNames.enable_asset_bulk_upload]),
-        [featureNames.enable_attachments]:
-            raw[featureNames.enable_attachments] === undefined
-                ? companyFeatures[featureNames.enable_attachments]
-                : Boolean(raw[featureNames.enable_attachments]),
-        [featureNames.enable_workflows]:
-            raw[featureNames.enable_workflows] === undefined
-                ? companyFeatures[featureNames.enable_workflows]
-                : Boolean(raw[featureNames.enable_workflows]),
-        [featureNames.enable_service_requests]:
-            raw[featureNames.enable_service_requests] === undefined
-                ? companyFeatures[featureNames.enable_service_requests]
-                : Boolean(raw[featureNames.enable_service_requests]),
-        [featureNames.enable_event_calendar]:
-            raw[featureNames.enable_event_calendar] === undefined
-                ? companyFeatures[featureNames.enable_event_calendar]
-                : Boolean(raw[featureNames.enable_event_calendar]),
-        [featureNames.enable_client_stock_requests]:
-            raw[featureNames.enable_client_stock_requests] === undefined
-                ? companyFeatures[featureNames.enable_client_stock_requests]
-                : Boolean(raw[featureNames.enable_client_stock_requests]),
-    };
+    return featureKeys.reduce<Partial<Record<string, boolean>>>((acc, key) => {
+        if (raw[key] !== undefined) {
+            acc[key] = Boolean(raw[key]);
+        }
+        return acc;
+    }, {});
+};
+
+const resolveCompanyFeatures = (
+    companyFeatureOverrides: unknown,
+    platformFeatureValues: unknown
+): Record<string, boolean> => {
+    const overrides = sanitizeFeatureOverrides(companyFeatureOverrides);
+    const platformRaw = (platformFeatureValues || {}) as Record<string, unknown>;
+
+    return featureKeys.reduce<Record<string, boolean>>((acc, key) => {
+        if (overrides[key] !== undefined) {
+            acc[key] = Boolean(overrides[key]);
+            return acc;
+        }
+
+        if (platformRaw[key] !== undefined) {
+            acc[key] = Boolean(platformRaw[key]);
+            return acc;
+        }
+
+        acc[key] = companyFeatures[key as keyof typeof companyFeatures];
+        return acc;
+    }, {});
 };
 
 const toVatOverrideDbValue = (value: unknown) => {
@@ -79,15 +64,22 @@ const getPrimaryDomainHostname = (
 const projectCompany = <
     T extends {
         features: unknown;
+        platform?: { features: unknown };
         domains?: Array<{ hostname: string; is_active: boolean; is_primary: boolean }>;
     },
 >(
     company: T
-) => ({
-    ...company,
-    features: sanitizeFeatureOverrides(company.features),
-    primary_domain_hostname: getPrimaryDomainHostname(company.domains ?? []),
-});
+) => {
+    const { platform, ...rest } = company;
+    const featureOverrides = sanitizeFeatureOverrides(company.features);
+
+    return {
+        ...rest,
+        features: resolveCompanyFeatures(company.features, platform?.features),
+        feature_overrides: featureOverrides,
+        primary_domain_hostname: getPrimaryDomainHostname(company.domains ?? []),
+    };
+};
 
 // ----------------------------------- CREATE COMPANY -----------------------------------
 const createCompany = async (data: CreateCompanyPayload) => {
@@ -172,6 +164,7 @@ const createCompany = async (data: CreateCompanyPayload) => {
             return projectCompany({
                 ...company,
                 domains: createdDomains,
+                platform,
             });
         });
 
@@ -253,6 +246,11 @@ const getCompanies = async (query: Record<string, any>, platformId: string) => {
             where: and(...conditions),
             with: {
                 domains: true, // Include all related company domains
+                platform: {
+                    columns: {
+                        features: true,
+                    },
+                },
             },
             orderBy: orderDirection,
             limit: limitNumber,
@@ -302,6 +300,11 @@ const getCompanyById = async (id: string, platformId: string, user: AuthUser) =>
         where: and(...conditions),
         with: {
             domains: true,
+            platform: {
+                columns: {
+                    features: true,
+                },
+            },
         },
     });
 
@@ -373,6 +376,11 @@ const updateCompany = async (id: string, data: any, platformId: string, user: Au
             where: and(eq(companies.id, id), eq(companies.platform_id, platformId)),
             with: {
                 domains: true,
+                platform: {
+                    columns: {
+                        features: true,
+                    },
+                },
             },
         });
 
