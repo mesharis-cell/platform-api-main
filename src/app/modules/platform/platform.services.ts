@@ -36,7 +36,8 @@ const sanitizePlatformConfig = (value: unknown) => {
                             .map((day) => Number(day))
                             .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6)
                       : undefined,
-                  timezone: typeof feasibility.timezone === "string" ? feasibility.timezone : undefined,
+                  timezone:
+                      typeof feasibility.timezone === "string" ? feasibility.timezone : undefined,
               }
             : undefined,
     };
@@ -58,7 +59,8 @@ const sanitizePlatformConfigPatch = (value: unknown) => {
     if (raw.from_email !== undefined) patch.from_email = raw.from_email;
     if (raw.support_email !== undefined) patch.support_email = raw.support_email;
     if (raw.currency !== undefined) patch.currency = raw.currency;
-    if (raw.feasibility !== undefined) patch.feasibility = sanitizePlatformConfig({ feasibility: raw.feasibility }).feasibility;
+    if (raw.feasibility !== undefined)
+        patch.feasibility = sanitizePlatformConfig({ feasibility: raw.feasibility }).feasibility;
 
     return patch;
 };
