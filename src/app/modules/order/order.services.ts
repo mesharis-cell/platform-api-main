@@ -2241,6 +2241,7 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
                 platform_margin_percent: companies.platform_margin_percent,
                 warehouse_ops_rate: companies.warehouse_ops_rate,
             },
+            venue_city_name: cities.name,
             order_pricing: {
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
@@ -2252,6 +2253,7 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
         })
         .from(orders)
         .leftJoin(companies, eq(orders.company_id, companies.id))
+        .leftJoin(cities, eq(orders.venue_city_id, cities.id))
         .leftJoin(prices, eq(orders.order_pricing_id, prices.id))
         .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)))
         .limit(1);
@@ -2259,6 +2261,7 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
     const order = result.order;
     const company = result.company;
     const orderPricing = result.order_pricing;
+    const venueCityLabel = result.venue_city_name || "—";
 
     if (!order) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
@@ -2302,6 +2305,48 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
             notes: "Logistics submitted for Admin approval",
             updated_by: user.id,
         });
+    });
+
+    const [freshPricing] = await db
+        .select({
+            breakdown_lines: prices.breakdown_lines,
+            margin_percent: prices.margin_percent,
+            vat_percent: prices.vat_percent,
+            margin_is_override: prices.margin_is_override,
+            margin_override_reason: prices.margin_override_reason,
+            calculated_at: prices.calculated_at,
+        })
+        .from(prices)
+        .where(eq(prices.id, order.order_pricing_id!))
+        .limit(1);
+
+    const projectedAdmin = freshPricing
+        ? (PricingService.projectByRole(freshPricing as any, "ADMIN") as any)
+        : null;
+    const pendingTotal =
+        projectedAdmin?.final_total != null ? String(projectedAdmin.final_total) : undefined;
+
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: EVENT_TYPES.ORDER_PENDING_APPROVAL,
+        entity_type: "ORDER",
+        entity_id: order.id,
+        actor_id: user.id,
+        actor_role: user.role,
+        payload: {
+            entity_id_readable: order.order_id,
+            company_id: order.company_id,
+            company_name: company.name || "N/A",
+            contact_name: order.contact_name,
+            contact_email: order.contact_email,
+            event_start_date: formatDateForEmail(order.event_start_date),
+            event_end_date: formatDateForEmail(order.event_end_date),
+            venue_name: order.venue_name,
+            venue_city: venueCityLabel,
+            submitted_by_name: user.name,
+            ...(pendingTotal ? { pending_total: pendingTotal } : {}),
+            order_url: "",
+        },
     });
 
     // Step 6: Return updated order

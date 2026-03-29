@@ -36,6 +36,7 @@ export const EVENT_GROUPS: EventGroup[] = [
             { key: "order.ready_for_delivery", label: "Ready for Delivery" },
             { key: "order.pickup_reminder", label: "Pickup Reminder" },
             { key: "order.time_windows_updated", label: "Time Windows Updated" },
+            { key: "order.pending_approval", label: "Logistics submitted — pending admin approval" },
         ],
     },
     {
@@ -139,6 +140,12 @@ export const TEMPLATES_BY_EVENT: Record<string, TemplateMeta[]> = {
     "order.time_windows_updated": [
         { key: "time_windows_updated_client", label: "Client — Time Windows Updated" },
         { key: "time_windows_updated_admin", label: "Admin — Time Windows Updated" },
+    ],
+    "order.pending_approval": [
+        {
+            key: "order_pending_approval_admin",
+            label: "Admin — Logistics submitted pricing (pending approval)",
+        },
     ],
     "quote.sent": [
         { key: "quote_sent_client", label: "Client — Quote Sent" },

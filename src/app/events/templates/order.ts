@@ -46,6 +46,33 @@ export const orderSubmittedAdmin: EmailTemplate = {
     },
 };
 
+// ─── order_pending_approval_admin (logistics → admin review) ─────────────────
+export const orderPendingApprovalAdmin: EmailTemplate = {
+    subject: (payload) =>
+        `Pricing ready for review: ${p(payload).entity_id_readable}`,
+    html: (payload) => {
+        const d = p(payload);
+        const totalLine =
+            d.pending_total != null && String(d.pending_total).length > 0
+                ? infoRow("Indicative total (admin view)", `${formatAmount(d.pending_total)} AED`)
+                : "";
+        return wrap(`
+            <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Pricing submitted for your review</h1>
+            <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Logistics (${d.submitted_by_name || "team"}) has submitted pricing for this order. Please review margin and approve to send the quote to the client.</p>
+            ${infoBox(`
+                ${infoRow("Order ID", d.entity_id_readable)}
+                ${infoRow("Company", d.company_name)}
+                ${infoRow("Event", `${d.event_start_date} – ${d.event_end_date}`)}
+                ${infoRow("Venue", `${d.venue_name}, ${d.venue_city}`)}
+                ${infoRow("Contact", `${d.contact_name} (${d.contact_email})`)}
+                ${totalLine}
+            `)}
+            ${actionButton("Review & approve", d.order_url)}
+            ${footer()}
+        `);
+    },
+};
+
 // ─── order_submitted_logistics ───────────────────────────────────────────────
 export const orderSubmittedLogistics: EmailTemplate = {
     subject: (payload) => `New Order for Review: ${p(payload).entity_id_readable}`,

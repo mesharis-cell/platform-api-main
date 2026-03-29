@@ -2863,6 +2863,15 @@ async function seedNotificationRules() {
             sort_order: 2,
         },
 
+        // order.pending_approval (logistics submitted pricing → admin review)
+        {
+            event_type: "order.pending_approval",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "order_pending_approval_admin",
+            sort_order: 0,
+        },
+
         // quote.sent
         {
             event_type: "quote.sent",
