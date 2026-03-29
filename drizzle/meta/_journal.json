@@ -211,6 +211,41 @@
             "when": 1773388800000,
             "tag": "0029_platform_maintenance_control_plane",
             "breakpoints": true
+        },
+        {
+            "idx": 30,
+            "version": "7",
+            "when": 1773491100000,
+            "tag": "0030_asset_family_foundation",
+            "breakpoints": true
+        },
+        {
+            "idx": 31,
+            "version": "7",
+            "when": 1773594000000,
+            "tag": "0031_asset_family_polish",
+            "breakpoints": true
+        },
+        {
+            "idx": 32,
+            "version": "7",
+            "when": 1773601200000,
+            "tag": "0032_order_po_number",
+            "breakpoints": true
+        },
+        {
+            "idx": 33,
+            "version": "7",
+            "when": 1774815600000,
+            "tag": "0033_order_status_derig_alignment",
+            "breakpoints": true
+        },
+        {
+            "idx": 34,
+            "version": "7",
+            "when": 1774820400000,
+            "tag": "0034_cleanup_import_descriptions",
+            "breakpoints": true
         }
     ]
 }
