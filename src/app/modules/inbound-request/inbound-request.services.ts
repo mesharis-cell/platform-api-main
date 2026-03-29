@@ -727,7 +727,7 @@ const approveInboundRequestByAdmin = async (
             company_name: company?.name || "N/A",
             contact_name: requester.name,
             final_total: String(finalTotal),
-            cost_estimate_url: `${config.server_url}/client/v1/invoice/download-ir-cost-estimate-pdf/${inboundRequest.inbound_request_id}?pid=${platformId}`,
+            cost_estimate_url: `${config.server_url}/api/client/v1/invoice/download-ir-cost-estimate-pdf/${inboundRequest.inbound_request_id}?pid=${platformId}`,
             request_url: "",
         },
     });

@@ -56,7 +56,7 @@ export const srQuotedClient: EmailTemplate = {
                 ${infoRow("Company", d.company_name)}
                 <p style="margin: 8px 0; font-size: 18px; font-weight: bold; color: #111827;">Total: ${formatAmount(d.final_total)} AED</p>
             `)}
-            <p style="margin: 16px 0; color: #dc2626; font-weight: 600;">⚠️ Action Required: Please review and approve or decline the quote.</p>
+            <p style="margin: 16px 0; color: #dc2626; font-weight: 600;">Action Required: Please review and approve or decline the quote.</p>
             ${actionButton("View Quote", d.request_url)}
             ${footer()}
         `);
@@ -77,7 +77,7 @@ export const srQuoteRevisedClient: EmailTemplate = {
                 ${infoRow("Reason", d.revision_reason || "Quote updated")}
                 <p style="margin: 8px 0; font-size: 18px; font-weight: bold; color: #111827;">Total: ${formatAmount(d.final_total)} AED</p>
             `)}
-            <p style="margin: 16px 0; color: #dc2626; font-weight: 600;">⚠️ Action Required: Please review the revised quote.</p>
+            <p style="margin: 16px 0; color: #dc2626; font-weight: 600;">Action Required: Please review the revised quote.</p>
             ${actionButton("Review Revised Quote", d.request_url)}
             ${footer()}
         `);

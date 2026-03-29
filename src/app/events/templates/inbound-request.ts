@@ -78,7 +78,7 @@ export const irQuotedClient: EmailTemplate = {
                 ${infoRow("Company", d.company_name)}
                 <p style="margin: 8px 0; font-size: 18px; font-weight: bold; color: #111827;">Estimated Total: ${formatAmount(d.final_total)} AED</p>
             `)}
-            <p style="margin: 16px 0; color: #dc2626; font-weight: 600;">⚠️ Action Required: Please review and approve or decline the cost estimate.</p>
+            <p style="margin: 16px 0; color: #dc2626; font-weight: 600;">Action Required: Please review and approve or decline the cost estimate.</p>
             ${actionButton("View Estimate", d.request_url)}
             ${d.cost_estimate_url ? `<p style="margin: 8px 0;"><a href="${d.cost_estimate_url}" style="color: #2563eb;">Download Cost Estimate PDF</a></p>` : ""}
             ${footer()}

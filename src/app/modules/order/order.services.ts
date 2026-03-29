@@ -2502,7 +2502,7 @@ const adminApproveQuote = async (
                 margin_amount: marginAmountForEvent,
                 final_total: finalTotal,
             },
-            cost_estimate_url: `${config.server_url}/client/v1/invoice/download-cost-estimate-pdf/${order.order_id}?pid=${platformId}`,
+            cost_estimate_url: `${config.server_url}/api/client/v1/invoice/download-cost-estimate-pdf/${order.order_id}?pid=${platformId}`,
             order_url: "",
         },
     });

@@ -129,7 +129,7 @@ export const quoteSentClient: EmailTemplate = {
                 <p style="margin: 6px 0;"><strong>Margin Adjustment:</strong> ${formatAmount(pricing.margin_amount)} AED</p>
                 <p style="margin: 8px 0; font-size: 18px; font-weight: bold; color: #111827;">Total: ${formatAmount(d.final_total)} AED</p>
             `)}
-            <p style="margin: 16px 0; color: #dc2626; font-weight: 600;">⚠️ Action Required: Please review and approve or decline the quote.</p>
+            <p style="margin: 16px 0; color: #dc2626; font-weight: 600;">Action Required: Please review and approve or decline the quote.</p>
             ${actionButton("View Quote", d.order_url)}
             ${d.cost_estimate_url ? `<p style="margin: 8px 0;"><a href="${d.cost_estimate_url}" style="color: #2563eb;">Download Cost Estimate PDF</a></p>` : ""}
             ${footer()}
@@ -169,7 +169,7 @@ export const quoteRevisedClient: EmailTemplate = {
                 ${infoRow("New Total", `${formatAmount(d.new_total)} AED`)}
                 ${d.revision_reason ? infoRow("Reason", d.revision_reason) : ""}
             `)}
-            <p style="margin: 16px 0; color: #dc2626; font-weight: 600;">⚠️ Action Required: Please review and approve or decline the revised quote.</p>
+            <p style="margin: 16px 0; color: #dc2626; font-weight: 600;">Action Required: Please review and approve or decline the revised quote.</p>
             ${actionButton("View Revised Quote", d.order_url)}
             ${footer()}
         `);
