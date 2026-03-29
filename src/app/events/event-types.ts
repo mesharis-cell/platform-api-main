@@ -13,6 +13,8 @@ export const EVENT_TYPES = {
     ORDER_PICKUP_REMINDER: "order.pickup_reminder",
     ORDER_CLOSED: "order.closed",
     ORDER_TIME_WINDOWS_UPDATED: "order.time_windows_updated",
+    /** Logistics submitted pricing; order is awaiting platform admin approval */
+    ORDER_PENDING_APPROVAL: "order.pending_approval",
 
     // Quote lifecycle (order-scoped)
     QUOTE_SENT: "quote.sent",
@@ -91,6 +93,20 @@ export interface OrderSubmittedPayload extends BaseEventPayload {
     venue_city: string;
     item_count: number;
     total_volume: string;
+    order_url: string;
+}
+
+export interface OrderPendingApprovalPayload extends BaseEventPayload {
+    contact_name: string;
+    contact_email: string;
+    event_start_date: string;
+    event_end_date: string;
+    venue_name: string;
+    venue_city: string;
+    /** Display name of the logistics user who submitted for approval */
+    submitted_by_name: string;
+    /** Optional quote total (admin-projected) after recalculation */
+    pending_total?: string;
     order_url: string;
 }
 

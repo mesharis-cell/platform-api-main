@@ -600,6 +600,13 @@ async function seedNotificationRules() {
             sort_order: 2,
         },
         {
+            event_type: "order.pending_approval",
+            recipient_type: "ROLE",
+            recipient_value: "ADMIN",
+            template_key: "order_pending_approval_admin",
+            sort_order: 0,
+        },
+        {
             event_type: "quote.sent",
             recipient_type: "ENTITY_OWNER",
             recipient_value: null,

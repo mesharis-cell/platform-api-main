@@ -246,6 +246,13 @@
             "when": 1774820400000,
             "tag": "0034_cleanup_import_descriptions",
             "breakpoints": true
+        },
+        {
+            "idx": 35,
+            "version": "7",
+            "when": 1774900000000,
+            "tag": "0035_order_pending_approval_notification_rule",
+            "breakpoints": true
         }
     ]
 }
