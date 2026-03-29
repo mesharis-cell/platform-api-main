@@ -70,7 +70,7 @@ const deleteServiceType = async (req: Request, res: Response) => {
 
     return res.status(httpStatus.OK).json({
         success: true,
-        message: "Service type deactivated successfully",
+        message: "Service type deleted successfully",
     });
 };
 

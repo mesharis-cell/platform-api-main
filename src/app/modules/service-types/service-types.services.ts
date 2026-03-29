@@ -14,7 +14,7 @@ const formatServiceType = (type: any) => ({
 
 // ----------------------------------- LIST SERVICE TYPES -----------------------------------
 const listServiceTypes = async (query: Record<string, any>, platformId: string) => {
-    const { page, limit, category, include_inactive, search_term } = query;
+    const { page, limit, category, include_inactive, is_active, search_term } = query;
 
     // Setup pagination
     const { pageNumber, limitNumber, skip } = paginationMaker({
@@ -29,7 +29,11 @@ const listServiceTypes = async (query: Record<string, any>, platformId: string) 
         conditions.push(eq(serviceTypes.category, category as any));
     }
 
-    if (!include_inactive) {
+    if (is_active === "true") {
+        conditions.push(eq(serviceTypes.is_active, true));
+    } else if (is_active === "false") {
+        conditions.push(eq(serviceTypes.is_active, false));
+    } else if (!include_inactive) {
         conditions.push(eq(serviceTypes.is_active, true));
     }
 
@@ -175,18 +179,29 @@ const updateServiceType = async (
 
 // ----------------------------------- DELETE SERVICE TYPE -----------------------------------
 const deleteServiceType = async (id: string, platformId: string) => {
-    const [existing] = await db
-        .select()
-        .from(serviceTypes)
-        .where(and(eq(serviceTypes.id, id), eq(serviceTypes.platform_id, platformId)))
-        .limit(1);
+    try {
+        const [existing] = await db
+            .select()
+            .from(serviceTypes)
+            .where(and(eq(serviceTypes.id, id), eq(serviceTypes.platform_id, platformId)))
+            .limit(1);
 
-    if (!existing) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Service type not found");
+        if (!existing) {
+            throw new CustomizedError(httpStatus.NOT_FOUND, "Service type not found");
+        }
+
+        await db.delete(serviceTypes).where(eq(serviceTypes.id, id));
+    } catch (error: any) {
+        const pgError = error?.cause || error;
+        if (pgError?.code === "23503") {
+            throw new CustomizedError(
+                httpStatus.CONFLICT,
+                "Service type cannot be deleted because it is already in use. Disable it instead."
+            );
+        }
+
+        throw error;
     }
-
-    // Soft delete by setting is_active to false
-    await db.update(serviceTypes).set({ is_active: false }).where(eq(serviceTypes.id, id));
 
     return null;
 };
