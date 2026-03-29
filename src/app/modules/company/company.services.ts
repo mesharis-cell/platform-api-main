@@ -46,6 +46,18 @@ const sanitizeFeatureOverrides = (features: unknown) => {
             raw[featureNames.enable_workflows] === undefined
                 ? companyFeatures[featureNames.enable_workflows]
                 : Boolean(raw[featureNames.enable_workflows]),
+        [featureNames.enable_service_requests]:
+            raw[featureNames.enable_service_requests] === undefined
+                ? companyFeatures[featureNames.enable_service_requests]
+                : Boolean(raw[featureNames.enable_service_requests]),
+        [featureNames.enable_event_calendar]:
+            raw[featureNames.enable_event_calendar] === undefined
+                ? companyFeatures[featureNames.enable_event_calendar]
+                : Boolean(raw[featureNames.enable_event_calendar]),
+        [featureNames.enable_client_stock_requests]:
+            raw[featureNames.enable_client_stock_requests] === undefined
+                ? companyFeatures[featureNames.enable_client_stock_requests]
+                : Boolean(raw[featureNames.enable_client_stock_requests]),
     };
 };
 
