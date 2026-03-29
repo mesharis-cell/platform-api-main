@@ -41,6 +41,9 @@ const featureSchema = z.object({
     enable_asset_bulk_upload: z.boolean().optional().default(false),
     enable_attachments: z.boolean().optional().default(true),
     enable_workflows: z.boolean().optional().default(true),
+    enable_service_requests: z.boolean().optional().default(true),
+    enable_event_calendar: z.boolean().optional().default(true),
+    enable_client_stock_requests: z.boolean().optional().default(true),
 });
 
 const featurePatchSchema = z.object({
@@ -52,6 +55,9 @@ const featurePatchSchema = z.object({
     enable_asset_bulk_upload: z.boolean().optional(),
     enable_attachments: z.boolean().optional(),
     enable_workflows: z.boolean().optional(),
+    enable_service_requests: z.boolean().optional(),
+    enable_event_calendar: z.boolean().optional(),
+    enable_client_stock_requests: z.boolean().optional(),
 });
 
 const createPlatform = z.object({

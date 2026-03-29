@@ -371,8 +371,6 @@ export const findExistingFamily = async (
     proposal: {
         platform_id: string;
         company_id: string;
-        brand_id: string | null;
-        category: string;
         name: string;
     }
 ) =>
@@ -386,10 +384,6 @@ export const findExistingFamily = async (
             and(
                 eq(assetFamilies.platform_id, proposal.platform_id),
                 eq(assetFamilies.company_id, proposal.company_id),
-                proposal.brand_id === null
-                    ? isNull(assetFamilies.brand_id)
-                    : eq(assetFamilies.brand_id, proposal.brand_id),
-                eq(assetFamilies.category, proposal.category),
                 eq(assetFamilies.name, proposal.name),
                 isNull(assetFamilies.deleted_at)
             )

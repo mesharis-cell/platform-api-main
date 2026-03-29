@@ -51,8 +51,6 @@ async function main() {
             const existing = await findExistingFamily(tx, {
                 platform_id: family.platform_id,
                 company_id: family.company_id,
-                brand_id: family.brand_id,
-                category: family.category,
                 name: family.final_family_name,
             });
 
