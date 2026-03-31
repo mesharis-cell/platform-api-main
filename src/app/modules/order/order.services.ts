@@ -113,6 +113,17 @@ const isClientPoRequiredForQuoteApproval = async (platformId: string, companyFea
         : platformEnabled;
 };
 
+const assertClientOwnsOrder = (
+    user: AuthUser,
+    order: { company_id: string | null; created_by: string | null | undefined },
+    message = "You don't have access to this order"
+) => {
+    if (user.role !== "CLIENT") return;
+    if (!user.company_id || user.company_id !== order.company_id || user.id !== order.created_by) {
+        throw new CustomizedError(httpStatus.FORBIDDEN, message);
+    }
+};
+
 const getLinkedServiceRequestSummaries = async (
     orderDbId: string,
     platformId: string,
@@ -792,6 +803,7 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
     if (user.role === "CLIENT") {
         if (user.company_id) {
             conditions.push(eq(orders.company_id, user.company_id));
+            conditions.push(eq(orders.created_by, user.id));
         } else {
             throw new CustomizedError(httpStatus.UNAUTHORIZED, "Company not found");
         }
@@ -1169,9 +1181,7 @@ const getOrderById = async (
 
     // Check access based on user role
     if (user.role === "CLIENT") {
-        if (user.company_id !== orderData.order.company_id) {
-            throw new CustomizedError(httpStatus.FORBIDDEN, "You don't have access to this order");
-        }
+        assertClientOwnsOrder(user, orderData.order);
     }
 
     if (
@@ -1364,6 +1374,7 @@ const getOrderScanEvents = async (orderId: string, platformId: string, user: Aut
             id: orders.id,
             order_id: orders.order_id,
             company_id: orders.company_id,
+            created_by: orders.created_by,
         })
         .from(orders)
         .where(and(eq(orders.order_id, orderId), eq(orders.platform_id, platformId)));
@@ -1372,9 +1383,7 @@ const getOrderScanEvents = async (orderId: string, platformId: string, user: Aut
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
     }
 
-    if (user.role === "CLIENT" && user.company_id !== order.company_id) {
-        throw new CustomizedError(httpStatus.FORBIDDEN, "You don't have access to this order");
-    }
+    assertClientOwnsOrder(user, order);
 
     // Step 2: Fetch canonical scan events with linked media/assets.
     const events = await db.query.scanEvents.findMany({
@@ -1711,6 +1720,7 @@ const getOrderStatusHistory = async (orderId: string, user: AuthUser, platformId
             order_id: orders.order_id,
             order_status: orders.order_status,
             company_id: orders.company_id,
+            created_by: orders.created_by,
         })
         .from(orders)
         .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)));
@@ -1720,11 +1730,7 @@ const getOrderStatusHistory = async (orderId: string, user: AuthUser, platformId
     }
 
     // Step 2: Check company access (clients can only see own company)
-    if (user.role === "CLIENT") {
-        if (user.company_id !== order.company_id) {
-            throw new CustomizedError(httpStatus.FORBIDDEN, "You do not have access to this order");
-        }
-    }
+    assertClientOwnsOrder(user, order, "You do not have access to this order");
 
     // Step 3: Fetch status history
     const history = await db
@@ -1917,6 +1923,7 @@ const approveQuote = async (
             "Order not found or you do not have access to this order"
         );
     }
+    assertClientOwnsOrder(user, order, "Order not found or you do not have access to this order");
 
     // Step 2: Verify order is in QUOTED status
     if (order.order_status !== "QUOTED") {
@@ -2058,6 +2065,7 @@ const declineQuote = async (
             "Order not found or you do not have access to this order"
         );
     }
+    assertClientOwnsOrder(user, order, "Order not found or you do not have access to this order");
 
     // Step 2: Verify order is in QUOTED status
     if (order.order_status !== "QUOTED") {
@@ -2124,7 +2132,12 @@ const declineQuote = async (
 };
 
 // ----------------------------------- GET CLIENT ORDER STATISTICS ----------------------------
-const getClientOrderStatistics = async (companyId: string, platformId: string) => {
+const getClientOrderStatistics = async (user: AuthUser, platformId: string) => {
+    const companyId = user.company_id;
+    if (!companyId) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Company ID is required");
+    }
+
     // Get today's date for upcoming events filter
     const today = new Date().toISOString().split("T")[0];
 
@@ -2132,6 +2145,7 @@ const getClientOrderStatistics = async (companyId: string, platformId: string) =
     const baseCondition = and(
         eq(orders.company_id, companyId),
         eq(orders.platform_id, platformId),
+        eq(orders.created_by, user.id),
         isNull(orders.deleted_at)
     );
 

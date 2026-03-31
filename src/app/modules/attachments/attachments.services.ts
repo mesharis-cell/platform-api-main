@@ -28,17 +28,27 @@ const resolveEntity = async (
     entityType: AttachmentEntityType,
     entityId: string,
     platformId: string
-): Promise<{ entity_type: AttachmentEntityType; entity_id: string; company_id: string | null }> => {
+): Promise<{
+    entity_type: AttachmentEntityType;
+    entity_id: string;
+    company_id: string | null;
+    created_by?: string | null;
+}> => {
     if (entityType === "ORDER") {
         const [row] = await executor
-            .select({ id: orders.id, company_id: orders.company_id })
+            .select({ id: orders.id, company_id: orders.company_id, created_by: orders.created_by })
             .from(orders)
             .where(and(eq(orders.id, entityId), eq(orders.platform_id, platformId)))
             .limit(1);
         if (!row) {
             throw new CustomizedError(httpStatus.NOT_FOUND, "ORDER not found");
         }
-        return { entity_type: entityType, entity_id: row.id, company_id: row.company_id };
+        return {
+            entity_type: entityType,
+            entity_id: row.id,
+            company_id: row.company_id,
+            created_by: row.created_by,
+        };
     }
 
     if (entityType === "INBOUND_REQUEST") {
@@ -86,9 +96,19 @@ const resolveEntity = async (
     };
 };
 
-const assertEntityAccess = (entity: { company_id: string | null }, user: AuthUser) => {
+const assertEntityAccess = (
+    entity: {
+        entity_type: AttachmentEntityType;
+        company_id: string | null;
+        created_by?: string | null;
+    },
+    user: AuthUser
+) => {
     if (user.role !== "CLIENT") return;
     if (!user.company_id || entity.company_id !== user.company_id) {
+        throw new CustomizedError(httpStatus.FORBIDDEN, "You do not have access to this entity");
+    }
+    if (entity.entity_type === "ORDER" && entity.created_by !== user.id) {
         throw new CustomizedError(httpStatus.FORBIDDEN, "You do not have access to this entity");
     }
 };

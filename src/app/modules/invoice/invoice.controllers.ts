@@ -29,6 +29,16 @@ const assertClientEntityAccess = (
     }
 };
 
+const assertClientOrderOwnership = (
+    user: any,
+    order: { company_id: string | null | undefined; created_by: string | null | undefined }
+) => {
+    if (user?.role !== "CLIENT") return;
+    if (!user.company_id || user.company_id !== order.company_id || user.id !== order.created_by) {
+        throw new CustomizedError(httpStatus.FORBIDDEN, "You do not have access to this order");
+    }
+};
+
 const isUuid = (value: string) =>
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
@@ -89,7 +99,7 @@ const downloadCostEstimatePDF = catchAsync(async (req, res) => {
     if (!order) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
     }
-    assertClientEntityAccess(user, order.company_id, "order");
+    assertClientOrderOwnership(user, order);
 
     const company = order.company as typeof companies.$inferSelect | null;
     const companySlug = (company?.name || "unknown-company").replace(/\s/g, "-").toLowerCase();

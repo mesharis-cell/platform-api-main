@@ -36,7 +36,10 @@ export const EVENT_GROUPS: EventGroup[] = [
             { key: "order.ready_for_delivery", label: "Ready for Delivery" },
             { key: "order.pickup_reminder", label: "Pickup Reminder" },
             { key: "order.time_windows_updated", label: "Time Windows Updated" },
-            { key: "order.pending_approval", label: "Logistics submitted — pending admin approval" },
+            {
+                key: "order.pending_approval",
+                label: "Logistics submitted — pending admin approval",
+            },
         ],
     },
     {

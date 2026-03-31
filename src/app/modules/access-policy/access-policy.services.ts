@@ -4,29 +4,9 @@ import { db } from "../../../db";
 import { accessPolicies, users } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { permissionChecker } from "../../utils/checker";
-import { DEFAULT_ACCESS_POLICIES } from "../../utils/access-policy";
 import { CreateAccessPolicyPayload, UpdateAccessPolicyPayload } from "./access-policy.interfaces";
 
 const listAccessPolicies = async (platformId: string, role?: string) => {
-    const existing = await db
-        .select({ code: accessPolicies.code })
-        .from(accessPolicies)
-        .where(eq(accessPolicies.platform_id, platformId));
-    const existingCodes = new Set(existing.map((row) => row.code));
-    const missing = DEFAULT_ACCESS_POLICIES.filter((policy) => !existingCodes.has(policy.code));
-    if (missing.length > 0) {
-        await db.insert(accessPolicies).values(
-            missing.map((policy) => ({
-                platform_id: platformId,
-                code: policy.code,
-                role: policy.role,
-                name: policy.name,
-                description: policy.description,
-                permissions: policy.permissions,
-            }))
-        );
-    }
-
     const rows = await db
         .select({
             id: accessPolicies.id,

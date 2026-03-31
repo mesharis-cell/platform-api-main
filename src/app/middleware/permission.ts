@@ -2,6 +2,17 @@ import { NextFunction, Request, Response } from "express";
 import httpStatus from "http-status";
 import CustomizedError from "../error/customized-error";
 
+const isPermissionRevoked = (user: any, requiredPermission: string): boolean => {
+    const revokes: string[] = user.permission_revokes || [];
+
+    if (revokes.includes(requiredPermission)) {
+        return true;
+    }
+
+    const [module, action] = requiredPermission.split(":");
+    return Boolean(action && revokes.includes(`${module}:*`));
+};
+
 const requirePermission = (...requiredPermissions: string[]) => {
     return async (req: Request, res: Response, next: NextFunction) => {
         try {
@@ -20,6 +31,10 @@ const requirePermission = (...requiredPermissions: string[]) => {
 
             // Step 3: Check if user has permission
             const hasPermission = requiredPermissions.some((requiredPermission) => {
+                if (isPermissionRevoked(user, requiredPermission)) {
+                    return false;
+                }
+
                 // Check for exact permission match
                 if (userPermissions.includes(requiredPermission)) {
                     return true;

@@ -12,7 +12,8 @@
 
 import { companyFeatures } from "../app/constants/common";
 import { lineItemIdGenerator } from "../app/modules/order-line-items/order-line-items.utils";
-import { DEFAULT_ACCESS_POLICIES, DEFAULT_ACCESS_POLICY_CODES } from "../app/utils/access-policy";
+import { PlatformBootstrapService } from "../app/services/platform-bootstrap.service";
+import { DEFAULT_ACCESS_POLICY_CODES } from "../app/utils/access-policy";
 import { db } from "./index";
 import * as schema from "./schema";
 import bcrypt from "bcrypt";
@@ -246,22 +247,12 @@ async function seedCompanyDomains() {
 
 async function seedAccessPolicies() {
     console.log("🔐 Seeding access policies...");
-    const policies = await db
-        .insert(schema.accessPolicies)
-        .values(
-            DEFAULT_ACCESS_POLICIES.map((policy) => ({
-                platform_id: S.platform.id,
-                code: policy.code,
-                role: policy.role,
-                name: policy.name,
-                description: policy.description,
-                permissions: policy.permissions,
-                is_active: true,
-            }))
-        )
-        .returning();
-    S.accessPolicies = policies;
-    console.log(`✓ ${policies.length} access policies`);
+    const bootstrap = await PlatformBootstrapService.bootstrapPlatform({
+        platformId: S.platform.id,
+        createSystemUser: true,
+    });
+    S.accessPolicies = bootstrap.policies;
+    console.log(`✓ ${bootstrap.policies.length} access policies`);
 }
 
 async function seedWarehouses() {

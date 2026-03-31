@@ -38,18 +38,14 @@ export type EffectivePermissionInput = {
     accessPolicyPermissions?: string[] | null;
     permissionGrants?: string[] | null;
     permissionRevokes?: string[] | null;
-    legacyPermissions?: string[] | null;
 };
 
 export const computeEffectivePermissions = ({
     accessPolicyPermissions,
     permissionGrants,
     permissionRevokes,
-    legacyPermissions,
 }: EffectivePermissionInput): string[] => {
-    const base = accessPolicyPermissions?.length
-        ? accessPolicyPermissions
-        : (legacyPermissions ?? []);
+    const base = accessPolicyPermissions ?? [];
     const granted = permissionGrants ?? [];
     const revokedSet = new Set(permissionRevokes ?? []);
 

@@ -3,16 +3,6 @@ import catchAsync from "../../shared/catch-async";
 import sendResponse from "../../shared/send-response";
 import { PlatformServices } from "./platform.services";
 
-const createPlatform = catchAsync(async (req, res) => {
-    const result = await PlatformServices.createPlatform(req.body);
-    sendResponse(res, {
-        statusCode: httpStatus.CREATED,
-        success: true,
-        message: "Platform created successfully",
-        data: result,
-    });
-});
-
 const getMyPlatform = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId as string;
     const result = await PlatformServices.getPlatform(platformId);
@@ -69,7 +59,6 @@ const getPlatformUrlDiagnostics = catchAsync(async (req, res) => {
 });
 
 export const PlatformControllers = {
-    createPlatform,
     getMyPlatform,
     updatePlatformConfig,
     updatePlatformFeatures,

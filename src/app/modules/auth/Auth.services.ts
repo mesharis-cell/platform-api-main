@@ -109,6 +109,7 @@ const login = async (credential: LoginCredential, platformId: string) => {
         with: {
             access_policy: {
                 columns: {
+                    code: true,
                     permissions: true,
                 },
             },
@@ -123,7 +124,6 @@ const login = async (credential: LoginCredential, platformId: string) => {
         accessPolicyPermissions: user.access_policy?.permissions,
         permissionGrants: user.permission_grants,
         permissionRevokes: user.permission_revokes,
-        legacyPermissions: user.permissions,
     });
 
     if (

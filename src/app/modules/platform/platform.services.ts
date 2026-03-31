@@ -1,10 +1,7 @@
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "../../../db";
-import { accessPolicies, platforms, users } from "../../../db/schema";
-import config from "../../config";
-import { DEFAULT_ACCESS_POLICIES, DEFAULT_ACCESS_POLICY_CODES } from "../../utils/access-policy";
+import { platforms } from "../../../db/schema";
 import { CreatePlatformPayload } from "./platform.interfaces";
-import bcrypt from "bcrypt";
 import { UrlResolverService } from "../../services/url-resolver.service";
 
 const sanitizePlatformConfig = (value: unknown) => {
@@ -151,56 +148,14 @@ const createPlatform = async (data: CreatePlatformPayload) => {
         (data.config as Record<string, unknown> | undefined)?.vat_percent
     );
     const configWithoutVat = sanitizePlatformConfig(data.config);
-    const result = await db.transaction(async (tx) => {
-        const [platform] = await tx
-            .insert(platforms)
-            .values({
-                ...data,
-                config: configWithoutVat,
-                vat_percent: vatPercent.toFixed(2),
-            })
-            .returning();
-
-        if (platform?.id) {
-            const hashedPassword = await bcrypt.hash(
-                config.system_user_password,
-                config.salt_rounds
-            );
-            await tx.insert(accessPolicies).values(
-                DEFAULT_ACCESS_POLICIES.map((policy) => ({
-                    platform_id: platform.id,
-                    code: policy.code,
-                    role: policy.role,
-                    name: policy.name,
-                    description: policy.description,
-                    permissions: policy.permissions,
-                }))
-            );
-
-            const [adminPolicy] = await tx
-                .select({ id: accessPolicies.id })
-                .from(accessPolicies)
-                .where(
-                    and(
-                        eq(accessPolicies.platform_id, platform.id),
-                        eq(accessPolicies.code, DEFAULT_ACCESS_POLICY_CODES.ADMIN)
-                    )
-                )
-                .limit(1);
-
-            await tx.insert(users).values({
-                platform_id: platform.id,
-                name: "System User",
-                email: config.system_user_email,
-                password: hashedPassword,
-                role: "ADMIN",
-                permissions: [],
-                access_policy_id: adminPolicy?.id ?? null,
-            });
-        }
-
-        return platform;
-    });
+    const [result] = await db
+        .insert(platforms)
+        .values({
+            ...data,
+            config: configWithoutVat,
+            vat_percent: vatPercent.toFixed(2),
+        })
+        .returning();
 
     return {
         ...result,

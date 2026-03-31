@@ -2,6 +2,8 @@ import { Router } from "express";
 import auth from "../../middleware/auth";
 import payloadValidator from "../../middleware/payload-validator";
 import platformValidator from "../../middleware/platform-validator";
+import requirePermission from "../../middleware/permission";
+import { PERMISSIONS } from "../../constants/permissions";
 import { ServiceTypesControllers } from "./service-types.controllers";
 import { ServiceTypesSchemas } from "./service-types.schemas";
 
@@ -30,7 +32,7 @@ router.post(
     "/",
     platformValidator,
     auth("ADMIN"),
-    // requirePermission(PERMISSIONS.SERVICE_TYPES_MANAGE),
+    requirePermission(PERMISSIONS.SERVICE_TYPES_MANAGE),
     payloadValidator(ServiceTypesSchemas.createServiceTypeSchema),
     ServiceTypesControllers.createServiceType
 );
@@ -40,7 +42,7 @@ router.put(
     "/:id",
     platformValidator,
     auth("ADMIN"),
-    // requirePermission(PERMISSIONS.SERVICE_TYPES_MANAGE),
+    requirePermission(PERMISSIONS.SERVICE_TYPES_MANAGE),
     payloadValidator(ServiceTypesSchemas.updateServiceTypeSchema),
     ServiceTypesControllers.updateServiceType
 );
@@ -50,7 +52,7 @@ router.delete(
     "/:id",
     platformValidator,
     auth("ADMIN"),
-    // requirePermission(PERMISSIONS.SERVICE_TYPES_MANAGE),
+    requirePermission(PERMISSIONS.SERVICE_TYPES_MANAGE),
     ServiceTypesControllers.deleteServiceType
 );
 

@@ -13,7 +13,7 @@ router.get(
     "/",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.USERS_READ),
+    requirePermission(PERMISSIONS.ACCESS_POLICIES_READ, PERMISSIONS.ACCESS_POLICIES_UPDATE),
     AccessPolicyControllers.listAccessPolicies
 );
 
@@ -21,7 +21,7 @@ router.get(
     "/:id",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.USERS_READ),
+    requirePermission(PERMISSIONS.ACCESS_POLICIES_READ, PERMISSIONS.ACCESS_POLICIES_UPDATE),
     AccessPolicyControllers.getAccessPolicyById
 );
 
@@ -29,7 +29,7 @@ router.post(
     "/",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.USERS_UPDATE),
+    requirePermission(PERMISSIONS.ACCESS_POLICIES_UPDATE),
     payloadValidator(AccessPolicySchemas.createAccessPolicySchema),
     AccessPolicyControllers.createAccessPolicy
 );
@@ -38,7 +38,7 @@ router.patch(
     "/:id",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.USERS_UPDATE),
+    requirePermission(PERMISSIONS.ACCESS_POLICIES_UPDATE),
     payloadValidator(AccessPolicySchemas.updateAccessPolicySchema),
     AccessPolicyControllers.updateAccessPolicy
 );
@@ -47,7 +47,7 @@ router.delete(
     "/:id",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.USERS_UPDATE),
+    requirePermission(PERMISSIONS.ACCESS_POLICIES_UPDATE),
     AccessPolicyControllers.deleteAccessPolicy
 );
 

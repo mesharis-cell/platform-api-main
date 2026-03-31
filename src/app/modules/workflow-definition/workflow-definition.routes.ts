@@ -13,15 +13,22 @@ router.get(
     "/meta",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.USERS_READ),
+    requirePermission(
+        PERMISSIONS.WORKFLOW_DEFINITIONS_READ,
+        PERMISSIONS.WORKFLOW_DEFINITIONS_UPDATE
+    ),
     WorkflowDefinitionControllers.getWorkflowDefinitionMeta
 );
 
 router.get(
     "/",
     platformValidator,
-    auth("ADMIN"),
-    requirePermission(PERMISSIONS.USERS_READ),
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(
+        PERMISSIONS.WORKFLOW_DEFINITIONS_READ,
+        PERMISSIONS.WORKFLOW_DEFINITIONS_UPDATE,
+        PERMISSIONS.WORKFLOW_REQUESTS_READ
+    ),
     WorkflowDefinitionControllers.listWorkflowDefinitions
 );
 
@@ -29,6 +36,7 @@ router.get(
     "/available",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.WORKFLOW_DEFINITIONS_READ, PERMISSIONS.WORKFLOW_REQUESTS_READ),
     WorkflowDefinitionControllers.listAvailableWorkflowDefinitions
 );
 
@@ -36,7 +44,7 @@ router.post(
     "/",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.USERS_CREATE),
+    requirePermission(PERMISSIONS.WORKFLOW_DEFINITIONS_UPDATE),
     payloadValidator(WorkflowDefinitionSchemas.createWorkflowDefinitionSchema),
     WorkflowDefinitionControllers.createWorkflowDefinition
 );
@@ -45,7 +53,7 @@ router.patch(
     "/:id",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.USERS_UPDATE),
+    requirePermission(PERMISSIONS.WORKFLOW_DEFINITIONS_UPDATE),
     payloadValidator(WorkflowDefinitionSchemas.updateWorkflowDefinitionSchema),
     WorkflowDefinitionControllers.updateWorkflowDefinition
 );
@@ -54,7 +62,7 @@ router.put(
     "/:id/company-overrides",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.USERS_UPDATE),
+    requirePermission(PERMISSIONS.WORKFLOW_DEFINITIONS_UPDATE),
     payloadValidator(WorkflowDefinitionSchemas.replaceCompanyOverridesSchema),
     WorkflowDefinitionControllers.replaceCompanyOverrides
 );
@@ -63,7 +71,7 @@ router.delete(
     "/:id",
     platformValidator,
     auth("ADMIN"),
-    requirePermission(PERMISSIONS.USERS_UPDATE),
+    requirePermission(PERMISSIONS.WORKFLOW_DEFINITIONS_UPDATE),
     WorkflowDefinitionControllers.deleteWorkflowDefinition
 );
 

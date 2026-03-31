@@ -48,8 +48,7 @@ export const orderSubmittedAdmin: EmailTemplate = {
 
 // ─── order_pending_approval_admin (logistics → admin review) ─────────────────
 export const orderPendingApprovalAdmin: EmailTemplate = {
-    subject: (payload) =>
-        `Pricing ready for review: ${p(payload).entity_id_readable}`,
+    subject: (payload) => `Pricing ready for review: ${p(payload).entity_id_readable}`,
     html: (payload) => {
         const d = p(payload);
         const totalLine =
