@@ -31,3 +31,4 @@ cache:
 artifacts:
     files:
         - Dockerrun.aws.json
+        - .platform/**/*
