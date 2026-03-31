@@ -58,7 +58,6 @@ const auth = (...roles: UserRole[]) => {
                     accessPolicyPermissions: user.access_policy?.permissions,
                     permissionGrants: user.permission_grants,
                     permissionRevokes: user.permission_revokes,
-                    legacyPermissions: user.permissions,
                 }),
             };
 

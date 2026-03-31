@@ -3,7 +3,9 @@ import auth from "../../middleware/auth";
 import featureValidator from "../../middleware/feature-validator";
 import payloadValidator from "../../middleware/payload-validator";
 import platformValidator from "../../middleware/platform-validator";
+import requirePermission from "../../middleware/permission";
 import { featureNames } from "../../constants/common";
+import { PERMISSIONS } from "../../constants/permissions";
 import { ServiceRequestControllers } from "./service-request.controllers";
 import { ServiceRequestSchemas } from "./service-request.schemas";
 import { AttachmentsControllers } from "../attachments/attachments.controllers";
@@ -17,6 +19,7 @@ router.get(
     "/",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
+    requirePermission(PERMISSIONS.SERVICE_REQUESTS_READ),
     ServiceRequestControllers.listServiceRequests
 );
 
@@ -24,6 +27,7 @@ router.get(
     "/:id",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
+    requirePermission(PERMISSIONS.SERVICE_REQUESTS_READ),
     ServiceRequestControllers.getServiceRequestById
 );
 
@@ -65,6 +69,7 @@ router.post(
     "/",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
+    requirePermission(PERMISSIONS.SERVICE_REQUESTS_CREATE),
     payloadValidator(ServiceRequestSchemas.createServiceRequestSchema),
     ServiceRequestControllers.createServiceRequest
 );
@@ -73,6 +78,7 @@ router.patch(
     "/:id",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.SERVICE_REQUESTS_UPDATE),
     payloadValidator(ServiceRequestSchemas.updateServiceRequestSchema),
     ServiceRequestControllers.updateServiceRequest
 );
@@ -81,6 +87,7 @@ router.post(
     "/:id/status",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.SERVICE_REQUESTS_UPDATE),
     payloadValidator(ServiceRequestSchemas.updateServiceRequestStatusSchema),
     ServiceRequestControllers.updateServiceRequestStatus
 );
@@ -89,6 +96,7 @@ router.post(
     "/:id/cancel",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.SERVICE_REQUESTS_UPDATE),
     payloadValidator(ServiceRequestSchemas.cancelServiceRequestSchema),
     ServiceRequestControllers.cancelServiceRequest
 );
@@ -97,6 +105,7 @@ router.post(
     "/:id/commercial-status",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.SERVICE_REQUESTS_UPDATE),
     payloadValidator(ServiceRequestSchemas.updateServiceRequestCommercialStatusSchema),
     ServiceRequestControllers.updateServiceRequestCommercialStatus
 );
@@ -121,6 +130,7 @@ router.post(
     "/:id/concession",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.SERVICE_REQUESTS_UPDATE),
     payloadValidator(ServiceRequestSchemas.applyServiceRequestConcessionSchema),
     ServiceRequestControllers.applyServiceRequestConcession
 );

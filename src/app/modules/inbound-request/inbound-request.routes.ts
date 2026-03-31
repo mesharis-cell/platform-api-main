@@ -2,10 +2,12 @@ import { Router } from "express";
 import auth from "../../middleware/auth";
 import payloadValidator from "../../middleware/payload-validator";
 import platformValidator from "../../middleware/platform-validator";
+import requirePermission from "../../middleware/permission";
 import { InboundRequestControllers } from "./inbound-request.controllers";
 import { inboundRequestSchemas } from "./inbound-request.schemas";
 import featureValidator from "../../middleware/feature-validator";
 import { featureNames } from "../../constants/common";
+import { PERMISSIONS } from "../../constants/permissions";
 import { AttachmentsControllers } from "../attachments/attachments.controllers";
 import { AttachmentsSchemas } from "../attachments/attachments.schemas";
 import { WorkflowRequestControllers } from "../workflow-request/workflow-request.controllers";
@@ -18,6 +20,7 @@ router.post(
     "/",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
+    requirePermission(PERMISSIONS.INBOUND_REQUESTS_CREATE),
     featureValidator(featureNames.enable_inbound_requests),
     payloadValidator(inboundRequestSchemas.createInboundRequestSchema),
     InboundRequestControllers.createInboundRequest
@@ -27,6 +30,7 @@ router.get(
     "/",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
+    requirePermission(PERMISSIONS.INBOUND_REQUESTS_READ),
     InboundRequestControllers.getInboundRequests
 );
 
@@ -35,6 +39,7 @@ router.get(
     "/:id",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
+    requirePermission(PERMISSIONS.INBOUND_REQUESTS_READ),
     InboundRequestControllers.getInboundRequestById
 );
 
@@ -77,6 +82,7 @@ router.patch(
     "/:id",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
+    requirePermission(PERMISSIONS.INBOUND_REQUESTS_UPDATE),
     payloadValidator(inboundRequestSchemas.updateInboundRequestSchema),
     InboundRequestControllers.updateInboundRequest
 );
@@ -86,6 +92,7 @@ router.post(
     "/:id/submit-for-approval",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.INBOUND_REQUESTS_UPDATE),
     InboundRequestControllers.submitForApproval
 );
 
@@ -94,6 +101,7 @@ router.post(
     "/:id/approve-request",
     platformValidator,
     auth("ADMIN"),
+    requirePermission(PERMISSIONS.INBOUND_REQUESTS_UPDATE),
     payloadValidator(inboundRequestSchemas.approveInboundRequestSchema),
     InboundRequestControllers.approveInboundRequestByAdmin
 );
@@ -112,6 +120,7 @@ router.put(
     "/:id/items/:itemId",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
+    requirePermission(PERMISSIONS.INBOUND_REQUESTS_UPDATE),
     payloadValidator(inboundRequestSchemas.updateInboundRequestItemSchema),
     InboundRequestControllers.updateInboundRequestItem
 );
@@ -121,6 +130,7 @@ router.post(
     "/:id/complete",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.INBOUND_REQUESTS_UPDATE),
     payloadValidator(inboundRequestSchemas.completeInboundRequestSchema),
     InboundRequestControllers.completeInboundRequest
 );
@@ -130,6 +140,7 @@ router.post(
     "/:id/cancel",
     platformValidator,
     auth("ADMIN"),
+    requirePermission(PERMISSIONS.INBOUND_REQUESTS_UPDATE),
     payloadValidator(inboundRequestSchemas.cancelInboundRequestSchema),
     InboundRequestControllers.cancelInboundRequest
 );

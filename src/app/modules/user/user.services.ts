@@ -154,7 +154,6 @@ const projectUser = (user: {
         accessPolicyPermissions: user.access_policy?.permissions,
         permissionGrants: user.permission_grants,
         permissionRevokes: user.permission_revokes,
-        legacyPermissions: user.permissions,
     });
 
     return {

@@ -253,6 +253,13 @@
             "when": 1774900000000,
             "tag": "0035_order_pending_approval_notification_rule",
             "breakpoints": true
+        },
+        {
+            "idx": 36,
+            "version": "7",
+            "when": 1774903600000,
+            "tag": "0036_admin_view_page_policy_backfill",
+            "breakpoints": true
         }
     ]
 }
