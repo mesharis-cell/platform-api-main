@@ -24,6 +24,8 @@
         "db:redbull:ensure-teams": "tsx src/db/scripts/ensure-redbull-alignment-teams.ts",
         "db:redbull:export-snapshot": "tsx src/db/scripts/export-redbull-alignment-snapshot.ts",
         "db:redbull:apply-alignment": "tsx src/db/scripts/apply-redbull-alignment-results.ts",
+        "db:access:cleanup-stale-default-overrides": "tsx src/db/scripts/cleanup-stale-default-overrides.ts",
+        "db:access:cleanup-stale-default-overrides:apply": "tsx src/db/scripts/cleanup-stale-default-overrides.ts --apply",
         "dbops:fingerprint:prod": "bash scripts/dbops/fingerprint-db.sh prod",
         "dbops:fingerprint:staging": "bash scripts/dbops/fingerprint-db.sh staging",
         "dbops:refresh-staging:dry": "bash scripts/dbops/refresh-staging-from-prod.sh dry-run",
