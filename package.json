@@ -21,6 +21,8 @@
         "db:platform:create": "tsx src/db/scripts/platform-create.ts",
         "db:platform:bootstrap": "tsx src/db/scripts/platform-bootstrap.ts",
         "db:access:audit": "tsx src/db/scripts/audit-admin-access.ts",
+        "db:access:cleanup-stale-default-overrides": "tsx src/db/scripts/cleanup-stale-default-overrides.ts",
+        "db:access:cleanup-stale-default-overrides:apply": "tsx src/db/scripts/cleanup-stale-default-overrides.ts --apply",
         "dbops:fingerprint:prod": "bash scripts/dbops/fingerprint-db.sh prod",
         "dbops:fingerprint:staging": "bash scripts/dbops/fingerprint-db.sh staging",
         "dbops:refresh-staging:dry": "bash scripts/dbops/refresh-staging-from-prod.sh dry-run",
