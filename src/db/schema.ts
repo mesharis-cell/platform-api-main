@@ -593,6 +593,7 @@ export const assetFamilies = pgTable(
         brand_id: uuid("brand_id").references(() => brands.id, { onDelete: "set null" }),
         team_id: uuid("team_id").references((): AnyPgColumn => teams.id, { onDelete: "set null" }),
         name: varchar("name", { length: 200 }).notNull(),
+        company_item_code: varchar("company_item_code", { length: 150 }),
         description: text("description"),
         category: varchar("category", { length: 100 }).notNull(),
         images: jsonb("images")
@@ -622,11 +623,17 @@ export const assetFamilies = pgTable(
         index("asset_families_company_idx").on(table.company_id),
         index("asset_families_brand_idx").on(table.brand_id),
         index("asset_families_team_idx").on(table.team_id),
+        index("asset_families_company_item_code_idx").on(table.company_item_code),
         index("asset_families_stock_mode_idx").on(table.stock_mode),
         unique("asset_families_platform_company_name_unique").on(
             table.platform_id,
             table.company_id,
             table.name
+        ),
+        unique("asset_families_platform_company_item_code_unique").on(
+            table.platform_id,
+            table.company_id,
+            table.company_item_code
         ),
     ]
 );

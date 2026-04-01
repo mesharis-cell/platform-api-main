@@ -1,4 +1,4 @@
-import { and, asc, count, eq, ilike, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, count, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
 import {
@@ -104,6 +104,7 @@ const buildAssetFamilySelect = (stockFilterPredicate?: any) => {
         brand_id: assetFamilies.brand_id,
         team_id: assetFamilies.team_id,
         name: assetFamilies.name,
+        company_item_code: assetFamilies.company_item_code,
         description: assetFamilies.description,
         category: assetFamilies.category,
         images: assetFamilies.images,
@@ -172,6 +173,7 @@ const assetFamilyGroupBy = [
     assetFamilies.brand_id,
     assetFamilies.team_id,
     assetFamilies.name,
+    assetFamilies.company_item_code,
     assetFamilies.description,
     assetFamilies.category,
     assetFamilies.images,
@@ -265,7 +267,13 @@ const listAssetFamilies = async (
     }
 
     if (typeof query.search_term === "string" && query.search_term.trim()) {
-        familyConditions.push(ilike(assetFamilies.name, `%${query.search_term.trim()}%`));
+        const searchTerm = query.search_term.trim();
+        familyConditions.push(
+            or(
+                ilike(assetFamilies.name, `%${searchTerm}%`),
+                ilike(assetFamilies.company_item_code, `%${searchTerm}%`)
+            )!
+        );
     }
 
     const stockFilterConditions: any[] = [];
@@ -501,6 +509,7 @@ const createAssetFamily = async (platformId: string, payload: CreateAssetFamilyP
             brand_id: payload.brand_id ?? null,
             team_id: payload.team_id ?? null,
             name: payload.name.trim(),
+            company_item_code: payload.company_item_code?.trim() || null,
             description: payload.description ?? null,
             category: payload.category.trim(),
             images: payload.images ?? [],
@@ -544,6 +553,9 @@ const updateAssetFamily = async (
             ...(payload.brand_id !== undefined && { brand_id: payload.brand_id ?? null }),
             ...(payload.team_id !== undefined && { team_id: payload.team_id ?? null }),
             ...(payload.name !== undefined && { name: payload.name.trim() }),
+            ...(payload.company_item_code !== undefined && {
+                company_item_code: payload.company_item_code?.trim() || null,
+            }),
             ...(payload.description !== undefined && { description: payload.description ?? null }),
             ...(payload.category !== undefined && { category: payload.category.trim() }),
             ...(payload.images !== undefined && { images: payload.images }),

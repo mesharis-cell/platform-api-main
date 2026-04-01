@@ -16,6 +16,12 @@ const createAssetFamilySchema = z.object({
             .string({ message: "Name is required" })
             .min(1, "Name is required")
             .max(200, "Name must be under 200 characters"),
+        company_item_code: z
+            .string()
+            .trim()
+            .max(150, "Company item code must be under 150 characters")
+            .optional()
+            .nullable(),
         description: z.string().optional().nullable(),
         category: z
             .string({ message: "Category is required" })
@@ -60,6 +66,12 @@ const updateAssetFamilySchema = z.object({
         brand_id: z.string().uuid("Invalid brand ID").optional().nullable(),
         team_id: z.string().uuid("Invalid team ID").optional().nullable(),
         name: z.string().min(1, "Name cannot be empty").max(200).optional(),
+        company_item_code: z
+            .string()
+            .trim()
+            .max(150, "Company item code must be under 150 characters")
+            .optional()
+            .nullable(),
         description: z.string().optional().nullable(),
         category: z.string().min(1, "Category cannot be empty").max(100).optional(),
         images: z.array(assetImageSchema).optional(),
