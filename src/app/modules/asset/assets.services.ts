@@ -1946,8 +1946,11 @@ const getAssetVersions = async (assetId: string, platformId: string) => {
 
 // ----------------------------------- GET ASSET ORDER HISTORY -----------------------------------
 const getAssetOrderHistory = async (assetId: string, platformId: string) => {
-    // Get all bookings for this asset
-    const bookings = await db
+    // Get all bookings for this asset. asset_bookings.order_id is now nullable because
+    // bookings are polymorphic (order_id XOR self_pickup_id) — but the inner join to orders
+    // below guarantees we only see order-linked bookings here, so runtime values are
+    // non-null. We narrow the type explicitly after the query for TypeScript.
+    const rawBookings = await db
         .select({
             order_id: assetBookings.order_id,
             blocked_from: assetBookings.blocked_from,
@@ -1957,6 +1960,10 @@ const getAssetOrderHistory = async (assetId: string, platformId: string) => {
         .innerJoin(orders, eq(assetBookings.order_id, orders.id))
         .where(and(eq(assetBookings.asset_id, assetId), eq(orders.platform_id, platformId)))
         .orderBy(desc(assetBookings.blocked_from));
+
+    const bookings = rawBookings.filter(
+        (b): b is typeof b & { order_id: string } => b.order_id !== null
+    );
 
     if (bookings.length === 0) return [];
 
@@ -1977,7 +1984,9 @@ const getAssetOrderHistory = async (assetId: string, platformId: string) => {
         .where(inArray(orders.id, orderIds));
 
     // Fetch canonical scan events linked to this asset directly or via scan_event_assets.
-    const scans = await db
+    // scan_events.order_id is now nullable (polymorphic with self_pickup_id); the inArray
+    // filter below restricts to order-linked scans, so runtime order_id is non-null.
+    const rawScans = await db
         .select({
             id: scanEvents.id,
             order_id: scanEvents.order_id,
@@ -2004,6 +2013,10 @@ const getAssetOrderHistory = async (assetId: string, platformId: string) => {
             )
         )
         .orderBy(desc(scanEvents.scanned_at));
+
+    const scans = rawScans.filter(
+        (s): s is typeof s & { order_id: string } => s.order_id !== null
+    );
 
     const scanEventIds = [...new Set(scans.map((scan) => scan.id))];
     const mediaRows =

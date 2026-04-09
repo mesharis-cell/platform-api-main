@@ -267,6 +267,13 @@
             "when": 1774959307093,
             "tag": "0037_asset_family_company_item_code",
             "breakpoints": true
+        },
+        {
+            "idx": 38,
+            "version": "7",
+            "when": 1775752759911,
+            "tag": "0038_redbull_build",
+            "breakpoints": true
         }
     ]
 }
