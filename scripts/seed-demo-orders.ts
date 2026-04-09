@@ -33,6 +33,7 @@ const WAREHOUSE_ID = "c34290d7-0526-4117-8446-33bc36295ab7";
 const ZONE_ID = "e994352e-4429-4b92-bfe1-926040d5f0db";
 const CITY_DUBAI = "e3413850-4fa6-402e-a7ca-ed36c6e88ce0";
 const LOGISTICS_USER = "12a1e7fd-d580-4c58-aebf-0fdfc24fbd74";
+const CLIENT_USER = "2c88c0b3-db63-4806-90bd-623b66828045"; // client@redbull.test
 
 const MOCK_TRUCK_OUT = "https://placehold.co/800x600/111827/fff?text=OUTBOUND+TRUCK+LOADING";
 const MOCK_TRUCK_OUT2 = "https://placehold.co/800x600/111827/fff?text=OUTBOUND+TRUCK+SIDE+VIEW";
@@ -54,6 +55,12 @@ function uuid() {
 function daysAgo(n: number) {
     const d = new Date();
     d.setDate(d.getDate() - n);
+    return d;
+}
+
+function daysFromNow(n: number) {
+    const d = new Date();
+    d.setDate(d.getDate() + n);
     return d;
 }
 
@@ -174,6 +181,11 @@ async function main() {
     const a8 = await getAssetByQR("ASSET-RED-20260313-33BBA8"); // Premium Paddle Seats #5
     const a9 = await getAssetByQR("ASSET-RED-20260309-8DA7BE"); // Coolman Boxes #7
 
+    // Assets for the pending-approval quote (Order 4) — Barrel Tents, a future event
+    const a10 = await getAssetByQR("ASSET-RED-20260316-AC8F80"); // Barrel Tent #1
+    const a11 = await getAssetByQR("ASSET-RED-20260316-6F4589"); // Barrel Tent #2
+    const a12 = await getAssetByQR("ASSET-RED-20260316-6DB89E"); // Barrel Tent #3
+
     // ================================================================
     // ORDER 1: DELIVERED — "Red Bull Rooftop Sessions 2026"
     // ================================================================
@@ -224,7 +236,7 @@ async function main() {
         order_id: orderRef1,
         company_id: RB_COMPANY,
         brand_id: RB_BRAND,
-        created_by: LOGISTICS_USER,
+        created_by: CLIENT_USER,
         order_status: "DELIVERED",
         financial_status: "QUOTE_ACCEPTED",
         event_name: "Red Bull Rooftop Sessions 2026",
@@ -386,7 +398,7 @@ async function main() {
         order_id: orderRef2,
         company_id: RB_COMPANY,
         brand_id: RB_BRAND,
-        created_by: LOGISTICS_USER,
+        created_by: CLIENT_USER,
         order_status: "DERIG",
         financial_status: "QUOTE_ACCEPTED",
         event_name: "Red Bull Night Race Activation 2026",
@@ -589,7 +601,7 @@ async function main() {
         order_id: orderRef3,
         company_id: RB_COMPANY,
         brand_id: RB_BRAND,
-        created_by: LOGISTICS_USER,
+        created_by: CLIENT_USER,
         order_status: "CLOSED",
         financial_status: "PENDING_INVOICE",
         event_name: "Red Bull Sound Clash 2026",
@@ -798,10 +810,165 @@ async function main() {
         `  ✓ ${orderRef3} — CLOSED — 3 assets, full lifecycle with inbound scans + condition reports\n`
     );
 
-    console.log("=== Done! 3 demo orders created ===");
+    // ================================================================
+    // ORDER 4: PENDING_APPROVAL — "Red Bull Desert Festival 2026" (future)
+    // A fresh quote awaiting the client's review/approval.
+    // ================================================================
+    console.log("Creating Order 4: PENDING_APPROVAL...");
+    const orderId4 = uuid();
+    const orderRef4 = `ORD-${dateStr(new Date()).replace(/-/g, "")}-${String(parseInt(orderRef1.split("-")[2]) + 3).padStart(3, "0")}`;
+    const priceId4 = uuid();
+    const eventStart4 = daysFromNow(14);
+    const eventEnd4 = daysFromNow(16);
+
+    await db.insert(prices).values({
+        id: priceId4,
+        platform_id: PLATFORM_ID,
+        entity_type: "ORDER",
+        entity_id: orderId4,
+        breakdown_lines: [
+            {
+                line_kind: "BASE_OPS",
+                description: "Picking & Handling",
+                buy_unit_price: 60,
+                buy_total: 180,
+                sell_unit_price: 75,
+                sell_total: 225,
+                billing_mode: "BILLABLE",
+            },
+            {
+                line_kind: "RATE_CARD",
+                description: "Barrel Tent Installation (3 units)",
+                buy_unit_price: 450,
+                buy_total: 450,
+                sell_unit_price: 560,
+                sell_total: 560,
+                billing_mode: "BILLABLE",
+            },
+            {
+                line_kind: "RATE_CARD",
+                description: "Transport — Round Trip (Desert Venue)",
+                buy_unit_price: 400,
+                buy_total: 400,
+                sell_unit_price: 500,
+                sell_total: 500,
+                billing_mode: "BILLABLE",
+            },
+        ],
+        margin_percent: "25",
+        vat_percent: "5",
+        created_by: LOGISTICS_USER,
+        calculated_by: LOGISTICS_USER,
+        updated_at: new Date(),
+    });
+
+    await db.insert(orders).values({
+        id: orderId4,
+        platform_id: PLATFORM_ID,
+        order_id: orderRef4,
+        company_id: RB_COMPANY,
+        brand_id: RB_BRAND,
+        created_by: CLIENT_USER,
+        order_status: "PENDING_APPROVAL",
+        financial_status: "QUOTE_SENT",
+        event_name: "Red Bull Desert Festival 2026",
+        event_start_date: eventStart4,
+        event_end_date: eventEnd4,
+        venue_name: "Al Qudra Lakes",
+        venue_city_id: CITY_DUBAI,
+        venue_address: "Al Qudra Desert, Dubai",
+        venue_location: { lat: 24.8131, lng: 55.3425 },
+        contact_name: "Layla Al Mansoori",
+        contact_email: "layla@redbull.com",
+        contact_phone: "+971505551234",
+        order_pricing_id: priceId4,
+        delivery_window: { date: dateStr(daysFromNow(13)), time_from: "07:00", time_to: "11:00" },
+        pickup_window: { date: dateStr(daysFromNow(17)), time_from: "14:00", time_to: "18:00" },
+        calculated_totals: { total_volume: 4.5, total_weight: 240 },
+        scanning_data: {
+            outbound: { total: 3, scanned: 0, complete: false },
+            inbound: { total: 3, scanned: 0, complete: false },
+        },
+        special_instructions:
+            "Desert terrain — vehicles must be 4x4 capable. Installation crew needs sand-resistant equipment.",
+        updated_at: new Date(),
+    });
+
+    for (const asset of [a10, a11, a12]) {
+        await db.insert(orderItems).values({
+            id: uuid(),
+            platform_id: PLATFORM_ID,
+            order_id: orderId4,
+            asset_id: asset.id,
+            asset_name: asset.name,
+            quantity: 1,
+            volume_per_unit: String(asset.volume_per_unit || 0),
+            weight_per_unit: String(asset.weight_per_unit || 0),
+            total_volume: String(asset.volume_per_unit || 0),
+            total_weight: String(asset.weight_per_unit || 0),
+        });
+    }
+
+    // Status history: DRAFT → SUBMITTED → PRICING_REVIEW → PENDING_APPROVAL
+    await insertStatusHistory(
+        orderId4,
+        ["SUBMITTED", "PRICING_REVIEW", "PENDING_APPROVAL"],
+        daysAgo(2)
+    );
+    // Financial history: quote has been sent, waiting for client approval
+    await insertFinancialHistory(
+        orderId4,
+        ["PENDING_QUOTE", "QUOTE_SENT"],
+        daysAgo(2)
+    );
+
+    // Line items reflecting the quoted scope
+    await db.insert(lineItems).values({
+        id: uuid(),
+        line_item_id: `LI-${Math.random().toString(36).slice(2, 7).toUpperCase()}`,
+        platform_id: PLATFORM_ID,
+        order_id: orderId4,
+        purpose_type: "ORDER",
+        line_item_type: "CATALOG",
+        category: "EQUIPMENT",
+        billing_mode: "BILLABLE",
+        description: "Barrel Tent Installation — 3 units",
+        quantity: 3,
+        unit: "each",
+        unit_rate: "560",
+        total: "1680",
+        added_by: LOGISTICS_USER,
+        created_by: LOGISTICS_USER,
+        updated_at: new Date(),
+    });
+    await db.insert(lineItems).values({
+        id: uuid(),
+        line_item_id: `LI-${Math.random().toString(36).slice(2, 7).toUpperCase()}`,
+        platform_id: PLATFORM_ID,
+        order_id: orderId4,
+        purpose_type: "ORDER",
+        line_item_type: "CATALOG",
+        category: "TRANSPORT",
+        billing_mode: "BILLABLE",
+        description: "Transport — Desert Round Trip",
+        quantity: 1,
+        unit: "trip",
+        unit_rate: "500",
+        total: "500",
+        added_by: LOGISTICS_USER,
+        created_by: LOGISTICS_USER,
+        updated_at: new Date(),
+    });
+
+    console.log(
+        `  ✓ ${orderRef4} — PENDING_APPROVAL — 3 Barrel Tents, quote awaiting client approval\n`
+    );
+
+    console.log("=== Done! 4 demo orders created ===");
     console.log(`  1. ${orderRef1} — DELIVERED`);
     console.log(`  2. ${orderRef2} — DERIG`);
     console.log(`  3. ${orderRef3} — CLOSED`);
+    console.log(`  4. ${orderRef4} — PENDING_APPROVAL (review me!)`);
 
     process.exit(0);
 }

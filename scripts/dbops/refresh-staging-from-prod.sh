@@ -248,6 +248,76 @@ staging_psql -f "$IMPORT_SQL" >/dev/null
 restore_fk_deferrability
 trap - EXIT
 
+# ----------------------------------------------------------------------------
+# Staging rewrites: sanitize emails and platform settings so staging is safe
+# to operate without leaking into prod channels.
+#
+# - Users: append "-staging" before @ (excluding well-known seed accounts).
+# - Companies: same treatment on contact_email.
+# - Platform from_email: inject "staging." into the domain so outbound mail
+#   obviously comes from a staging environment.
+#
+# All transforms are idempotent: re-running them on an already-rewritten
+# database is a no-op. Exclusions are hardcoded below — edit if seed accounts
+# change.
+# ----------------------------------------------------------------------------
+STAGING_REWRITES_SQL="$RUN_DIR/staging-rewrites.sql"
+cat > "$STAGING_REWRITES_SQL" <<'SQL'
+BEGIN;
+
+-- Report state before rewrites
+\echo '--- BEFORE staging rewrites ---'
+select 'users_total' as label, count(*) from public.users;
+select 'users_with_staging_suffix' as label, count(*) from public.users where email like '%-staging@%';
+select 'companies_with_staging_suffix' as label, count(*) from public.companies where contact_email like '%-staging@%';
+
+-- 1) User emails -> append "-staging" before @, except seed/test accounts.
+--    Idempotent: already-staging emails are skipped.
+update public.users
+set email = regexp_replace(email, '^([^@]+)@(.+)$', '\1-staging@\2')
+where email is not null
+  and email not like '%-staging@%'
+  and email not in (
+      'admin@test.com',
+      'sarah.admin@platform.com',
+      'logistics@test.com',
+      'ahmed.logistics@a2logistics.com',
+      'client@pernod-ricard.com',
+      'client@diageo.com'
+  );
+
+-- 2) Company contact_email -> same -staging suffix. No exclusions.
+update public.companies
+set contact_email = regexp_replace(contact_email, '^([^@]+)@(.+)$', '\1-staging@\2')
+where contact_email is not null
+  and contact_email not like '%-staging@%';
+
+-- 3) Platform config.from_email -> inject "staging." into domain.
+--    e.g. no-reply@kadence.ae -> no-reply@staging.kadence.ae
+--    Idempotent: domains already starting with "staging." are skipped.
+update public.platforms
+set config = jsonb_set(
+    config,
+    '{from_email}',
+    to_jsonb(regexp_replace(config->>'from_email', '^([^@]+)@(.+)$', '\1@staging.\2'))
+)
+where config is not null
+  and config ? 'from_email'
+  and config->>'from_email' is not null
+  and (config->>'from_email') !~ '@staging\.';
+
+-- Report state after rewrites
+\echo '--- AFTER staging rewrites ---'
+select 'users_with_staging_suffix' as label, count(*) from public.users where email like '%-staging@%';
+select 'companies_with_staging_suffix' as label, count(*) from public.companies where contact_email like '%-staging@%';
+select 'platforms_from_email' as label, id::text as platform_id, config->>'from_email' as from_email from public.platforms where config ? 'from_email';
+
+COMMIT;
+SQL
+
+echo "Applying staging rewrites from $STAGING_REWRITES_SQL"
+staging_psql -f "$STAGING_REWRITES_SQL" | tee "$RUN_DIR/staging-rewrites.log"
+
 capture_fingerprint "staging" "$RUN_DIR/staging-fingerprint-after.tsv"
 
 printf "table\tprod_rows_after_source\tstaging_rows_after_refresh\n" > "$RUN_DIR/row-counts-after.tsv"
