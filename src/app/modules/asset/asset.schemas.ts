@@ -21,7 +21,7 @@ const createAssetSchema = z.object({
                 .string({ message: "Name is required" })
                 .min(1, "Name is required")
                 .max(200, "Name must be under 200 characters"),
-            description: z.string().optional(),
+            description: z.string().optional().nullable(),
             category: z.string().min(1, "Category is required").max(100).optional(),
             images: z.array(assetImageSchema).optional().default([]),
             on_display_image: z.string().url("Invalid on display image URL").optional(),
