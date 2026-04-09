@@ -6,7 +6,11 @@ import CustomizedError from "../error/customized-error";
 import { roundCurrency } from "./pricing-engine";
 import { PricingService } from "../services/pricing.service";
 
-export type CommercialDocumentContextType = "ORDER" | "SERVICE_REQUEST" | "INBOUND_REQUEST";
+export type CommercialDocumentContextType =
+    | "ORDER"
+    | "SERVICE_REQUEST"
+    | "INBOUND_REQUEST"
+    | "SELF_PICKUP";
 export type CommercialDocumentAudience = "SELL_SIDE" | "BUY_SIDE";
 
 type NormalizedCompany = {

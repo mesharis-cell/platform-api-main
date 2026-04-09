@@ -3,7 +3,12 @@ import { db } from "../../db";
 import { companies, companyDomains, platforms } from "../../db/schema";
 
 export type AppTarget = "ADMIN" | "WAREHOUSE" | "CLIENT";
-export type DeepLinkEntityType = "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_BOOKING";
+export type DeepLinkEntityType =
+    | "ORDER"
+    | "INBOUND_REQUEST"
+    | "SERVICE_REQUEST"
+    | "SELF_BOOKING"
+    | "SELF_PICKUP";
 
 type ResolveEntityDeepLinkInput = {
     platformId: string;

@@ -21,7 +21,7 @@ import {
     UpdateWorkflowRequestPayload,
 } from "./workflow-request.interfaces";
 
-export type WorkflowEntityType = "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST";
+export type WorkflowEntityType = "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP";
 
 const resolveEntity = async (
     entityType: WorkflowEntityType,

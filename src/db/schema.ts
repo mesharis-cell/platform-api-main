@@ -99,6 +99,7 @@ export const entityTypeEnum = pgEnum("entity_type", [
     "SERVICE_REQUEST",
     "USER",
     "SELF_BOOKING",
+    "SELF_PICKUP",
 ]);
 export const recipientTypeEnum = pgEnum("recipient_type", ["ROLE", "ENTITY_OWNER", "EMAIL"]);
 export const scanTypeEnum = pgEnum("scan_type", [
@@ -1137,6 +1138,9 @@ export const lineItems = pgTable(
         service_request_id: uuid("service_request_id").references(() => serviceRequests.id, {
             onDelete: "cascade",
         }),
+        self_pickup_id: uuid("self_pickup_id").references((): AnyPgColumn => selfPickups.id, {
+            onDelete: "cascade",
+        }),
         purpose_type: invoiceTypeEnum("purpose_type").notNull(),
         // Type linkage (one or neither, not both)
         service_type_id: uuid("service_type_id").references(() => serviceTypes.id), // NULL for custom items
@@ -1546,6 +1550,9 @@ export const lineItemRequests = pgTable(
         service_request_id: uuid("service_request_id").references(() => serviceRequests.id, {
             onDelete: "cascade",
         }),
+        self_pickup_id: uuid("self_pickup_id").references((): AnyPgColumn => selfPickups.id, {
+            onDelete: "cascade",
+        }),
         status: lineItemRequestStatusEnum("status").notNull().default("REQUESTED"),
         description: varchar("description", { length: 200 }).notNull(),
         category: serviceCategoryEnum("category").notNull(),
@@ -1709,6 +1716,9 @@ export const invoices = pgTable(
             onDelete: "cascade",
         }),
         service_request_id: uuid("service_request_id").references(() => serviceRequests.id, {
+            onDelete: "cascade",
+        }),
+        self_pickup_id: uuid("self_pickup_id").references((): AnyPgColumn => selfPickups.id, {
             onDelete: "cascade",
         }),
         type: invoiceTypeEnum("type").notNull(),

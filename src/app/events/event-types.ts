@@ -68,7 +68,13 @@ export const EVENT_TYPES = {
 } as const;
 
 export type EventType = (typeof EVENT_TYPES)[keyof typeof EVENT_TYPES];
-export type EntityType = "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "USER" | "SELF_BOOKING";
+export type EntityType =
+    | "ORDER"
+    | "INBOUND_REQUEST"
+    | "SERVICE_REQUEST"
+    | "USER"
+    | "SELF_BOOKING"
+    | "SELF_PICKUP";
 
 // ============================================================
 // Base Payload (all events)
@@ -380,7 +386,7 @@ export interface LineItemAddedPayload extends BaseEventPayload {
     quantity: number;
     unit_rate: number;
     total: number;
-    purpose_type: "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST";
+    purpose_type: "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP";
 }
 
 export interface LineItemUpdatedPayload extends BaseEventPayload {
@@ -392,13 +398,13 @@ export interface LineItemUpdatedPayload extends BaseEventPayload {
     unit_rate: number;
     total: number;
     previous_total: number;
-    purpose_type: "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST";
+    purpose_type: "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP";
 }
 
 export interface LineItemVoidedPayload extends BaseEventPayload {
     line_item_id: string;
     void_reason: string;
-    purpose_type: "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST";
+    purpose_type: "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP";
 }
 
 // ============================================================

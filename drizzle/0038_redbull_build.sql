@@ -19,6 +19,9 @@ ALTER TYPE "public"."workflow_request_entity_type" ADD VALUE IF NOT EXISTS 'SELF
 --> statement-breakpoint
 ALTER TYPE "public"."attachment_entity_type" ADD VALUE IF NOT EXISTS 'SELF_PICKUP';
 --> statement-breakpoint
+-- entity_type enum is used by system_events for audit/event bus logging
+ALTER TYPE "public"."entity_type" ADD VALUE IF NOT EXISTS 'SELF_PICKUP';
+--> statement-breakpoint
 
 -- ============================================================================
 -- 2. NEW ENUMS
@@ -99,6 +102,16 @@ DO $$ BEGIN
         ON DELETE no action
         ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+--> statement-breakpoint
+
+-- line_items / line_item_requests / invoices: add self_pickup_id FK so the new entity
+-- type participates in the polymorphic-per-column pattern alongside order_id /
+-- inbound_request_id / service_request_id.
+ALTER TABLE "line_items" ADD COLUMN IF NOT EXISTS "self_pickup_id" uuid;
+--> statement-breakpoint
+ALTER TABLE "line_item_requests" ADD COLUMN IF NOT EXISTS "self_pickup_id" uuid;
+--> statement-breakpoint
+ALTER TABLE "invoices" ADD COLUMN IF NOT EXISTS "self_pickup_id" uuid;
 --> statement-breakpoint
 
 -- ============================================================================

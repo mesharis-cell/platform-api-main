@@ -20,7 +20,7 @@ import { eventBus } from "../../events/event-bus";
 import { EVENT_TYPES } from "../../events/event-types";
 import { LineItemsServices } from "../order-line-items/order-line-items.services";
 
-type SupportedPurpose = "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST";
+type SupportedPurpose = "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP";
 
 type ResolvedTarget = {
     purpose_type: SupportedPurpose;

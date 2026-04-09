@@ -18,7 +18,7 @@ import { EVENT_TYPES } from "../events/event-types";
 import { applyMarginPerLine, roundCurrency } from "../utils/pricing-engine";
 import { lineItemIdGenerator } from "../modules/order-line-items/order-line-items.utils";
 
-export type PricedEntityType = "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST";
+export type PricedEntityType = "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP";
 type PricingRole = "ADMIN" | "LOGISTICS" | "CLIENT";
 
 type BreakdownLineKind = "BASE_OPS" | "RATE_CARD" | "CUSTOM";
