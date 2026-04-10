@@ -607,6 +607,16 @@ export const getCommercialDocumentContext = async (
     if (contextType === "ORDER") return getOrderCommercialContext(contextId, platformId);
     if (contextType === "INBOUND_REQUEST")
         return getInboundRequestCommercialContext(contextId, platformId);
+    if (contextType === "SELF_PICKUP") {
+        // Self-pickup cost estimate/invoice generation reuses the order commercial context
+        // pattern. Full implementation will be added when the self-pickup estimate flow is
+        // exercised end-to-end. For now, throw explicitly so any unexpected call site is
+        // caught rather than silently falling through.
+        throw new CustomizedError(
+            httpStatus.NOT_IMPLEMENTED,
+            "Self-pickup commercial document context not yet implemented"
+        );
+    }
     return getServiceRequestCommercialContext(contextId, platformId);
 };
 
@@ -700,6 +710,8 @@ export const buildInvoiceS3Key = (
     if (context.context_type === "ORDER") return `invoices/${slug}/${invoiceNumber}.pdf`;
     if (context.context_type === "INBOUND_REQUEST")
         return `invoices/inbound-request/${slug}/${invoiceNumber}.pdf`;
+    if (context.context_type === "SELF_PICKUP")
+        return `invoices/self-pickup/${slug}/${invoiceNumber}.pdf`;
     return `invoices/service-request/${slug}/${invoiceNumber}.pdf`;
 };
 
@@ -709,5 +721,7 @@ export const buildCostEstimateS3Key = (context: NormalizedCommercialDocumentCont
         return `cost-estimates/${slug}/${context.reference_id}.pdf`;
     if (context.context_type === "INBOUND_REQUEST")
         return `cost-estimates/inbound-request/${slug}/${context.reference_id}.pdf`;
+    if (context.context_type === "SELF_PICKUP")
+        return `cost-estimates/self-pickup/${slug}/${context.reference_id}.pdf`;
     return `cost-estimates/service-request/${slug}/${context.reference_id}.pdf`;
 };
