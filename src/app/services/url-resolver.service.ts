@@ -47,16 +47,19 @@ const entityRouteMap: Record<
         INBOUND_REQUEST: (id) => `/inbound-request/${id}`,
         SERVICE_REQUEST: (id) => `/service-requests/${id}`,
         SELF_BOOKING: (id) => `/self-bookings/${id}`,
+        SELF_PICKUP: (id) => `/self-pickups/${id}`,
     },
     WAREHOUSE: {
         ORDER: (id) => `/orders/${id}`,
         INBOUND_REQUEST: (id) => `/inbound-request/${id}`,
         SERVICE_REQUEST: (id) => `/service-requests/${id}`,
+        SELF_PICKUP: (id) => `/self-pickups/${id}`,
     },
     CLIENT: {
         ORDER: (id) => `/orders/${id}`,
         INBOUND_REQUEST: (id) => `/assets-inbound/${id}`,
         SERVICE_REQUEST: (id) => `/service-requests/${id}`,
+        SELF_PICKUP: (id) => `/self-pickups/${id}`,
     },
 };
 
