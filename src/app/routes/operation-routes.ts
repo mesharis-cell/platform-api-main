@@ -33,6 +33,7 @@ import { WorkflowRequestRoutes } from "../modules/workflow-request/workflow-requ
 import { AccessPolicyRoutes } from "../modules/access-policy/access-policy.routes";
 import { WorkflowDefinitionRoutes } from "../modules/workflow-definition/workflow-definition.routes";
 import { SelfPickupOperationRoutes } from "../modules/self-pickup/self-pickup.routes";
+import { StockMovementsRoutes } from "../modules/stock-movements/stock-movements.routes";
 
 const router = Router();
 
@@ -172,6 +173,10 @@ const routes = [
     {
         path: "/self-pickup",
         route: SelfPickupOperationRoutes,
+    },
+    {
+        path: "/stock-movements",
+        route: StockMovementsRoutes,
     },
 ];
 
