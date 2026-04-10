@@ -205,6 +205,32 @@ CREATE INDEX IF NOT EXISTS "self_pickups_created_at_idx"
     ON "self_pickups" USING btree ("created_at");
 --> statement-breakpoint
 
+-- FK constraints for line_items / line_item_requests / invoices self_pickup_id
+-- (columns were added earlier, but FKs must come after self_pickups table exists)
+DO $$ BEGIN
+    ALTER TABLE "line_items"
+        ADD CONSTRAINT "line_items_self_pickup_id_self_pickups_id_fk"
+        FOREIGN KEY ("self_pickup_id") REFERENCES "public"."self_pickups"("id")
+        ON DELETE cascade ON UPDATE no action;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+--> statement-breakpoint
+
+DO $$ BEGIN
+    ALTER TABLE "line_item_requests"
+        ADD CONSTRAINT "line_item_requests_self_pickup_id_self_pickups_id_fk"
+        FOREIGN KEY ("self_pickup_id") REFERENCES "public"."self_pickups"("id")
+        ON DELETE cascade ON UPDATE no action;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+--> statement-breakpoint
+
+DO $$ BEGIN
+    ALTER TABLE "invoices"
+        ADD CONSTRAINT "invoices_self_pickup_id_self_pickups_id_fk"
+        FOREIGN KEY ("self_pickup_id") REFERENCES "public"."self_pickups"("id")
+        ON DELETE cascade ON UPDATE no action;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+--> statement-breakpoint
+
 -- ============================================================================
 -- 5. NEW TABLE: self_pickup_items
 -- ============================================================================

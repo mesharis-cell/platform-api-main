@@ -1217,6 +1217,10 @@ export const lineItemsRelations = relations(lineItems, ({ one }) => ({
         fields: [lineItems.service_request_id],
         references: [serviceRequests.id],
     }),
+    self_pickup: one(selfPickups, {
+        fields: [lineItems.self_pickup_id],
+        references: [selfPickups.id],
+    }),
     service_type: one(serviceTypes, {
         fields: [lineItems.service_type_id],
         references: [serviceTypes.id],
@@ -1617,6 +1621,10 @@ export const lineItemRequestsRelations = relations(lineItemRequests, ({ one }) =
         fields: [lineItemRequests.service_request_id],
         references: [serviceRequests.id],
     }),
+    self_pickup: one(selfPickups, {
+        fields: [lineItemRequests.self_pickup_id],
+        references: [selfPickups.id],
+    }),
     requested_by_user: one(users, {
         fields: [lineItemRequests.requested_by],
         references: [users.id],
@@ -1754,6 +1762,10 @@ export const invoicesRelations = relations(invoices, ({ one }) => ({
         fields: [invoices.service_request_id],
         references: [serviceRequests.id],
     }),
+    self_pickup: one(selfPickups, {
+        fields: [invoices.self_pickup_id],
+        references: [selfPickups.id],
+    }),
     platform: one(platforms, { fields: [invoices.platform_id], references: [platforms.id] }),
     generated_by_user: one(users, { fields: [invoices.generated_by], references: [users.id] }),
     updated_by_user: one(users, { fields: [invoices.updated_by], references: [users.id] }),
@@ -1852,6 +1864,11 @@ export const selfPickupsRelations = relations(selfPickups, ({ one, many }) => ({
     }),
     items: many(selfPickupItems),
     status_history: many(selfPickupStatusHistory),
+    line_items: many(lineItems),
+    line_item_requests: many(lineItemRequests),
+    invoices: many(invoices),
+    asset_bookings: many(assetBookings),
+    scan_events: many(scanEvents),
 }));
 
 export const selfPickupItems = pgTable(
