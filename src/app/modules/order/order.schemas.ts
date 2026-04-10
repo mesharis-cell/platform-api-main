@@ -125,6 +125,22 @@ const submitOrderSchema = z.object({
                 .string("Contact phone is required")
                 .min(1, "Contact phone is required")
                 .max(50),
+            // Venue contact — first-class top-level (no longer nested in permit_requirements)
+            venue_contact: z
+                .object({
+                    name: z.string().max(100).optional(),
+                    email: z.string().email("Invalid email").max(255).optional(),
+                    phone: z.string().max(50).optional(),
+                })
+                .optional(),
+            // Client-requested delivery window — immutable after submit.
+            // Separate from delivery_window (logistics-authoritative).
+            requested_delivery_window: z
+                .object({
+                    start: z.string(),
+                    end: z.string(),
+                })
+                .optional(),
             permit_requirements: z
                 .object({
                     requires_permit: z.boolean().default(false),
