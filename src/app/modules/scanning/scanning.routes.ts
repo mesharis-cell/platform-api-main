@@ -28,12 +28,13 @@ router.get(
     ScanningControllers.getInboundProgress
 );
 
-// Complete inbound scan
+// Complete inbound scan (accepts optional settlements[] for pooled items)
 router.post(
     "/inbound/:order_id/complete",
     platformValidator,
     auth("LOGISTICS"),
     requirePermission(PERMISSIONS.SCANNING_SCAN_IN),
+    payloadValidator(ScanningSchemas.completeInboundScanSchema),
     ScanningControllers.completeInboundScan
 );
 

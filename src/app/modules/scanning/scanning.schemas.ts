@@ -54,8 +54,36 @@ export const uploadTruckPhotosSchema = z.object({
     }),
 });
 
+const completeInboundScanSchema = z.object({
+    body: z
+        .object({
+            settlements: z
+                .array(
+                    z.object({
+                        line_id: z.string().uuid("Invalid line item ID"),
+                        returned_quantity: z
+                            .number()
+                            .int()
+                            .min(0, "Returned quantity cannot be negative"),
+                        reason: z.enum([
+                            "POOLED_SETTLEMENT_CONSUMED",
+                            "POOLED_SETTLEMENT_LOST",
+                            "POOLED_SETTLEMENT_DAMAGED",
+                            "POOLED_SETTLEMENT_OTHER",
+                        ]),
+                        note: z.string().max(500).optional(),
+                    })
+                )
+                .optional()
+                .default([]),
+        })
+        .optional()
+        .default({ settlements: [] }),
+});
+
 export const ScanningSchemas = {
     inboundScanSchema,
     outboundScanSchema,
     uploadTruckPhotosSchema,
+    completeInboundScanSchema,
 };

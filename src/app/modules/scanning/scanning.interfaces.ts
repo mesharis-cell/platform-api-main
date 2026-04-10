@@ -55,10 +55,31 @@ export interface OrderProgressResponse {
     assets: AssetProgress[];
 }
 
+export interface PooledSettlementEntry {
+    line_id: string; // order_items.id or self_pickup_items.id
+    returned_quantity: number;
+    reason:
+        | "POOLED_SETTLEMENT_CONSUMED"
+        | "POOLED_SETTLEMENT_LOST"
+        | "POOLED_SETTLEMENT_DAMAGED"
+        | "POOLED_SETTLEMENT_OTHER";
+    note?: string;
+}
+
+export interface UnsettledPooledLine {
+    line_id: string;
+    asset_id: string;
+    asset_name: string;
+    outbound_qty: number;
+    scanned_qty: number;
+    delta: number;
+}
+
 export interface CompleteInboundScanResponse {
     message: string;
     order_id: string;
     new_status: string;
+    requires_settlement?: UnsettledPooledLine[];
 }
 
 // ====================== OUTBOUND SCANNING INTERFACES ======================

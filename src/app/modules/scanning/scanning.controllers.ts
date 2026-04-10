@@ -51,12 +51,22 @@ const getInboundProgress = catchAsync(async (req, res) => {
 });
 
 // ----------------------------------- COMPLETE INBOUND SCAN ------------------------------
+// Accepts optional body.settlements[] for pooled items with return shortfalls.
+// If pooled shortfalls exist without matching settlements, returns 400 with
+// requires_settlement list — frontend shows the settlement modal and retries
+// with settlements attached.
 const completeInboundScan = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
     const orderId = getRequiredString(req.params.order_id, "order_id");
+    const settlements = req.body?.settlements ?? [];
 
-    const result = await ScanningServices.completeInboundScan(orderId, user, platformId);
+    const result = await ScanningServices.completeInboundScan(
+        orderId,
+        user,
+        platformId,
+        settlements
+    );
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
