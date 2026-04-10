@@ -9,6 +9,7 @@ import {
     orders,
     platforms,
     prices,
+    selfPickups,
     serviceRequests,
     serviceTypes,
 } from "../../db/schema";
@@ -261,6 +262,7 @@ const calculateBreakdownTotals = (lines: BreakdownLine[], vatPercent = 0): Break
 const getLineItemCondition = (entityType: PricedEntityType, entityId: string) => {
     if (entityType === "ORDER") return eq(lineItems.order_id, entityId);
     if (entityType === "INBOUND_REQUEST") return eq(lineItems.inbound_request_id, entityId);
+    if (entityType === "SELF_PICKUP") return eq(lineItems.self_pickup_id, entityId);
     return eq(lineItems.service_request_id, entityId);
 };
 
@@ -396,10 +398,7 @@ const syncSystemBaseLineItem = async (
         params.baseOpsTotalOverride !== undefined
             ? roundCurrency(params.baseOpsTotalOverride)
             : computeBaseOpsTotal(params.volume, params.companyOpsRate);
-    const condition =
-        params.entityType === "ORDER"
-            ? eq(lineItems.order_id, params.entityId)
-            : eq(lineItems.inbound_request_id, params.entityId);
+    const condition = getLineItemCondition(params.entityType, params.entityId);
 
     const [existing] = await executor
         .select()
@@ -473,7 +472,8 @@ const syncSystemBaseLineItem = async (
             line_item_id: lineItemId,
             order_id: params.entityType === "ORDER" ? params.entityId : null,
             inbound_request_id: params.entityType === "INBOUND_REQUEST" ? params.entityId : null,
-            service_request_id: null,
+            service_request_id: null, // SERVICE_REQUEST returns early at top of fn
+            self_pickup_id: params.entityType === "SELF_PICKUP" ? params.entityId : null,
             purpose_type: params.entityType,
             service_type_id: null,
             line_item_type: "SYSTEM",
@@ -573,6 +573,48 @@ const resolveEntityContext = async (
         };
     }
 
+    if (entityType === "SELF_PICKUP") {
+        const [row] = await executor
+            .select({
+                entity_id: selfPickups.id,
+                pricing_id: selfPickups.self_pickup_pricing_id,
+                company_margin: companies.platform_margin_percent,
+                company_ops_rate: companies.warehouse_ops_rate,
+                company_vat_percent_override: companies.vat_percent_override,
+                company_features: companies.features,
+                platform_vat_percent: platforms.vat_percent,
+                created_by: selfPickups.created_by,
+                calculated_totals: selfPickups.calculated_totals,
+            })
+            .from(selfPickups)
+            .leftJoin(companies, eq(selfPickups.company_id, companies.id))
+            .leftJoin(platforms, eq(selfPickups.platform_id, platforms.id))
+            .where(
+                and(eq(selfPickups.id, entityId), eq(selfPickups.platform_id, platformId))
+            )
+            .limit(1);
+        if (!row)
+            throw new CustomizedError(httpStatus.NOT_FOUND, "Self-pickup not found");
+        return {
+            entity_id: row.entity_id,
+            pricing_id: row.pricing_id as string | null,
+            company_margin: toNum(row.company_margin),
+            company_ops_rate: toNum(row.company_ops_rate),
+            vat_percent:
+                row.company_vat_percent_override !== null &&
+                row.company_vat_percent_override !== undefined
+                    ? toNum(row.company_vat_percent_override)
+                    : toNum(row.platform_vat_percent),
+            created_by: String(row.created_by),
+            volume: toNum(
+                (row.calculated_totals as Record<string, unknown> | null)?.volume
+            ),
+            enable_base_operations:
+                ((row.company_features as Record<string, unknown> | null)
+                    ?.enable_base_operations as boolean | undefined) ?? true,
+        };
+    }
+
     const [row] = await executor
         .select({
             entity_id: serviceRequests.id,
@@ -659,6 +701,11 @@ const ensurePricingRow = async (
             .update(inboundRequests)
             .set({ request_pricing_id: created.id, updated_at: new Date() })
             .where(eq(inboundRequests.id, params.entityId));
+    } else if (params.entityType === "SELF_PICKUP") {
+        await executor
+            .update(selfPickups)
+            .set({ self_pickup_pricing_id: created.id, updated_at: new Date() })
+            .where(eq(selfPickups.id, params.entityId));
     } else {
         await executor
             .update(serviceRequests)
