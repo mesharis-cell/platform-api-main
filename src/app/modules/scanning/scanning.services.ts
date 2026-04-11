@@ -245,6 +245,16 @@ const inboundScan = async (
     await insertScanEventMedia(scanEvent.id, normalizedReturnMedia, "RETURN_WIDE");
     await insertScanEventMedia(scanEvent.id, normalizedDamageMedia, "DAMAGE");
 
+    // Audit: record inbound movement for BATCH items
+    if (asset.tracking_method === "BATCH") {
+        await StockMovementService.record(null, {
+            platformId, assetId: asset.id, familyId: asset.family_id,
+            delta: scanQuantity, movementType: "INBOUND",
+            linkedEntityType: "ORDER", linkedEntityId: orderId,
+            scanEventId: scanEvent.id, userId: user.id,
+        });
+    }
+
     // Step 8: Update asset condition if changed
     if (asset.condition !== condition) {
         const updateData: any = {
@@ -715,6 +725,16 @@ const outboundScan = async (
         .returning({ id: scanEvents.id });
 
     await insertScanEventAssets(scanEvent.id, [{ asset_id: asset.id, quantity: scanQuantity }]);
+
+    // Audit: record outbound movement for BATCH items
+    if (asset.tracking_method === "BATCH") {
+        await StockMovementService.record(null, {
+            platformId, assetId: asset.id, familyId: asset.family_id,
+            delta: -scanQuantity, movementType: "OUTBOUND",
+            linkedEntityType: "ORDER", linkedEntityId: orderId,
+            scanEventId: scanEvent.id, userId: user.id,
+        });
+    }
 
     // Step 9: Mark asset as physically out.
     // NOTE: available_quantity is booking-driven and is not mutated by scans.

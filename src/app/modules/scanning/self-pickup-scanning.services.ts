@@ -108,6 +108,15 @@ const selfPickupOutboundScan = async (
 
     await insertScanEventAssets(scanEvent.id, [{ asset_id: asset.id, quantity: scanQuantity }]);
 
+    if (asset.tracking_method === "BATCH") {
+        await StockMovementService.record(null, {
+            platformId, assetId: asset.id, familyId: asset.family_id,
+            delta: -scanQuantity, movementType: "OUTBOUND",
+            linkedEntityType: "SELF_PICKUP", linkedEntityId: selfPickupId,
+            scanEventId: scanEvent.id, userId: user.id,
+        });
+    }
+
     await db
         .update(assets)
         .set({ status: "OUT", last_scanned_at: new Date(), last_scanned_by: user.id })
@@ -235,6 +244,15 @@ const selfPickupInboundScan = async (
         .returning({ id: scanEvents.id });
 
     await insertScanEventAssets(scanEvent.id, [{ asset_id: asset.id, quantity: scanQuantity }]);
+
+    if (asset.tracking_method === "BATCH") {
+        await StockMovementService.record(null, {
+            platformId, assetId: asset.id, familyId: (asset as any).family_id,
+            delta: scanQuantity, movementType: "INBOUND",
+            linkedEntityType: "SELF_PICKUP", linkedEntityId: selfPickupId,
+            scanEventId: scanEvent.id, userId: user.id,
+        });
+    }
 
     await db.update(assets).set({ status: "AVAILABLE", last_scanned_at: new Date(), last_scanned_by: user.id }).where(eq(assets.id, asset.id));
 
