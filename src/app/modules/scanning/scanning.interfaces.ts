@@ -58,11 +58,7 @@ export interface OrderProgressResponse {
 export interface PooledSettlementEntry {
     line_id: string; // order_items.id or self_pickup_items.id
     returned_quantity: number;
-    reason:
-        | "POOLED_SETTLEMENT_CONSUMED"
-        | "POOLED_SETTLEMENT_LOST"
-        | "POOLED_SETTLEMENT_DAMAGED"
-        | "POOLED_SETTLEMENT_OTHER";
+    write_off_reason: "CONSUMED" | "LOST" | "DAMAGED" | "OTHER";
     note?: string;
 }
 

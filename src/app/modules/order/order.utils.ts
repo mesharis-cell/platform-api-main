@@ -200,7 +200,8 @@ export async function releaseBookingsAndRestoreAvailability(
     tx: any,
     parentType: "ORDER" | "SELF_PICKUP",
     parentId: string,
-    platformId: string
+    platformId: string,
+    returnedByAsset?: Map<string, number> // assetId → actual returned qty (net restore)
 ): Promise<void> {
     const parentCondition =
         parentType === "ORDER"
@@ -226,7 +227,12 @@ export async function releaseBookingsAndRestoreAvailability(
     const affectedAssetIds = bookedByAsset.map((row: any) => row.asset_id);
 
     for (const row of bookedByAsset) {
-        const restoreQty = Number(row.booked_quantity || 0);
+        const bookedQty = Number(row.booked_quantity || 0);
+        // Net restore: if returnedByAsset is provided, restore only what came back.
+        // Fallback to full booked amount for cancellations and serialized items.
+        const restoreQty = returnedByAsset
+            ? Math.min(bookedQty, returnedByAsset.get(row.asset_id) ?? bookedQty)
+            : bookedQty;
         if (restoreQty <= 0) continue;
 
         await tx

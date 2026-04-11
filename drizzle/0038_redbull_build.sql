@@ -47,21 +47,23 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 --> statement-breakpoint
 
 DO $$ BEGIN
-    CREATE TYPE "public"."stock_movement_reason" AS ENUM (
-        'INITIAL_STOCK',
-        'POOLED_OUTBOUND',
-        'POOLED_INBOUND',
-        'POOLED_SETTLEMENT_CONSUMED',
-        'POOLED_SETTLEMENT_LOST',
-        'POOLED_SETTLEMENT_DAMAGED',
-        'POOLED_SETTLEMENT_OTHER',
-        'MANUAL_ADJUSTMENT'
+    CREATE TYPE "public"."stock_movement_type" AS ENUM (
+        'OUTBOUND',
+        'INBOUND',
+        'WRITE_OFF',
+        'ADJUSTMENT',
+        'INITIAL'
     );
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 --> statement-breakpoint
 
 DO $$ BEGIN
-    CREATE TYPE "public"."stock_movement_parent_type" AS ENUM ('ORDER');
+    CREATE TYPE "public"."stock_write_off_reason" AS ENUM (
+        'CONSUMED',
+        'LOST',
+        'DAMAGED',
+        'OTHER'
+    );
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 --> statement-breakpoint
 
@@ -423,9 +425,10 @@ CREATE TABLE IF NOT EXISTS "stock_movements" (
     "asset_id" uuid,
     "asset_family_id" uuid,
     "delta" integer NOT NULL,
-    "reason" "stock_movement_reason" NOT NULL,
-    "reason_note" text,
-    "linked_entity_type" "stock_movement_parent_type",
+    "movement_type" "stock_movement_type" NOT NULL,
+    "write_off_reason" "stock_write_off_reason",
+    "note" text,
+    "linked_entity_type" varchar(20),
     "linked_entity_id" uuid,
     "linked_scan_event_id" uuid,
     "created_by" uuid NOT NULL,

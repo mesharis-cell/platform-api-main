@@ -643,19 +643,9 @@ const submitOrderFromCart = async (
                 contact_email: contact_email,
                 contact_phone: contact_phone,
                 // Venue contact (on-site coordinator — first-class, not nested in permits)
-                // Support both new top-level venue_contact AND legacy permit_requirements nesting
-                venue_contact_name:
-                    venue_contact?.name ||
-                    (permit_requirements as any)?.venue_contact_name ||
-                    null,
-                venue_contact_email:
-                    venue_contact?.email ||
-                    (permit_requirements as any)?.venue_contact_email ||
-                    null,
-                venue_contact_phone:
-                    venue_contact?.phone ||
-                    (permit_requirements as any)?.venue_contact_phone ||
-                    null,
+                venue_contact_name: venue_contact?.name || null,
+                venue_contact_email: venue_contact?.email || null,
+                venue_contact_phone: venue_contact?.phone || null,
                 // Client-requested delivery window (immutable after submit)
                 requested_delivery_window: requested_delivery_window || null,
                 event_start_date: eventStartDate,

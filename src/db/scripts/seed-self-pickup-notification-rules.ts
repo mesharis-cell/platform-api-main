@@ -10,7 +10,7 @@
 
 import { db } from "..";
 import { notificationRules, platforms } from "../schema";
-import { eq } from "drizzle-orm";
+// drizzle-orm not needed for this script
 
 const SELF_PICKUP_RULES = [
     {

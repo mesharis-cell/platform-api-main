@@ -10,7 +10,6 @@ import {
     scanEventAssets,
     scanEventMedia,
     scanEvents,
-    stockMovements,
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
@@ -28,6 +27,7 @@ import {
 } from "./scanning.interfaces";
 import { eventBus, EVENT_TYPES } from "../../events";
 import { releaseBookingsAndRestoreAvailability } from "../order/order.utils";
+import { StockMovementService } from "../../services/stock-movement.service";
 
 type NormalizedMediaEntry = {
     url: string;
@@ -495,21 +495,34 @@ const completeInboundScan = async (
         } as any);
     }
 
-    await db.transaction(async (tx) => {
-        // Step 5: Release bookings and restore available quantities.
-        await releaseBookingsAndRestoreAvailability(tx, "ORDER", orderId, platformId);
+    // Build returnedByAsset map for net restore
+    const returnedByAsset = new Map<string, number>();
+    for (const item of order.items) {
+        const scannedQty = inboundScans
+            .filter((s) => s.asset_id === item.asset_id)
+            .reduce((sum, s) => sum + s.quantity, 0);
+        returnedByAsset.set(item.asset_id, scannedQty);
+    }
 
-        // Step 6: Apply pooled settlements — stock_movements + mark settled
+    await db.transaction(async (tx) => {
+        // Step 5: Release bookings with NET restore (only what actually came back)
+        await releaseBookingsAndRestoreAvailability(
+            tx, "ORDER", orderId, platformId, returnedByAsset
+        );
+
+        // Step 6: Apply write-offs via StockMovementService + mark settled
         for (const { item, settlement, delta } of settlementsToApply) {
-            await tx.insert(stockMovements).values({
-                platform_id: platformId,
-                asset_id: item.asset_id,
-                delta, // negative for shortfall
-                reason: settlement.reason,
-                reason_note: settlement.note || null,
-                linked_entity_type: "ORDER",
-                linked_entity_id: orderId,
-                created_by: user.id,
+            await StockMovementService.record(tx, {
+                platformId,
+                assetId: item.asset_id,
+                familyId: (item.asset as any)?.family_id || null,
+                delta,
+                movementType: "WRITE_OFF",
+                writeOffReason: settlement.write_off_reason,
+                note: settlement.note,
+                linkedEntityType: "ORDER",
+                linkedEntityId: orderId,
+                userId: user.id,
             });
 
             await tx

@@ -14,7 +14,7 @@
 
 import { db } from "..";
 import { accessPolicies } from "../schema";
-import { sql, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 const SELF_PICKUP_PERMISSIONS_ADMIN = [
     "self_pickups:create",

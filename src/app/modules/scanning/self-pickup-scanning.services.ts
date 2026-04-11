@@ -8,12 +8,12 @@ import {
     selfPickupItems,
     selfPickupStatusHistory,
     selfPickups,
-    stockMovements,
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { eventBus } from "../../events";
 import { releaseBookingsAndRestoreAvailability } from "../order/order.utils";
+import { StockMovementService } from "../../services/stock-movement.service";
 import type { PooledSettlementEntry, UnsettledPooledLine } from "./scanning.interfaces";
 
 // Reuse shared helpers from scanning.services.ts
@@ -302,19 +302,32 @@ const completeSelfPickupReturn = async (
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Pooled items require settlement", { requires_settlement: unsettledLines } as any);
     }
 
+    // Build returnedByAsset map for net restore
+    const returnedByAsset = new Map<string, number>();
+    for (const item of pickup.items) {
+        const scannedQty = inboundScans
+            .filter((s) => s.asset_id === item.asset_id)
+            .reduce((sum, s) => sum + s.quantity, 0);
+        returnedByAsset.set(item.asset_id, scannedQty);
+    }
+
     await db.transaction(async (tx) => {
-        await releaseBookingsAndRestoreAvailability(tx, "SELF_PICKUP", selfPickupId, platformId);
+        await releaseBookingsAndRestoreAvailability(
+            tx, "SELF_PICKUP", selfPickupId, platformId, returnedByAsset
+        );
 
         for (const { item, settlement, delta } of settlementsToApply) {
-            await tx.insert(stockMovements).values({
-                platform_id: platformId,
-                asset_id: item.asset_id,
+            await StockMovementService.record(tx, {
+                platformId,
+                assetId: item.asset_id,
+                familyId: (item.asset as any)?.family_id || null,
                 delta,
-                reason: settlement.reason,
-                reason_note: settlement.note || null,
-                linked_entity_type: "ORDER", // v1: ORDER-only linked_entity_type per user decision
-                linked_entity_id: selfPickupId,
-                created_by: user.id,
+                movementType: "WRITE_OFF",
+                writeOffReason: settlement.write_off_reason,
+                note: settlement.note,
+                linkedEntityType: "SELF_PICKUP",
+                linkedEntityId: selfPickupId,
+                userId: user.id,
             });
 
             await tx.update(selfPickupItems).set({ settled_at: new Date(), settled_by: user.id }).where(eq(selfPickupItems.id, item.id));

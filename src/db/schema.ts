@@ -219,18 +219,20 @@ export const selfPickupStatusEnum = pgEnum("self_pickup_status", [
     "CANCELLED",
 ]);
 
-export const stockMovementReasonEnum = pgEnum("stock_movement_reason", [
-    "INITIAL_STOCK",
-    "POOLED_OUTBOUND",
-    "POOLED_INBOUND",
-    "POOLED_SETTLEMENT_CONSUMED",
-    "POOLED_SETTLEMENT_LOST",
-    "POOLED_SETTLEMENT_DAMAGED",
-    "POOLED_SETTLEMENT_OTHER",
-    "MANUAL_ADJUSTMENT",
+export const stockMovementTypeEnum = pgEnum("stock_movement_type", [
+    "OUTBOUND",
+    "INBOUND",
+    "WRITE_OFF",
+    "ADJUSTMENT",
+    "INITIAL",
 ]);
 
-export const stockMovementParentTypeEnum = pgEnum("stock_movement_parent_type", ["ORDER"]);
+export const stockWriteOffReasonEnum = pgEnum("stock_write_off_reason", [
+    "CONSUMED",
+    "LOST",
+    "DAMAGED",
+    "OTHER",
+]);
 
 // ---------------------------------- PLATFORM -------------------------------------------
 // Config structure:
@@ -2838,9 +2840,10 @@ export const stockMovements = pgTable(
             onDelete: "set null",
         }),
         delta: integer("delta").notNull(), // positive (stock in) or negative (stock out)
-        reason: stockMovementReasonEnum("reason").notNull(),
-        reason_note: text("reason_note"),
-        linked_entity_type: stockMovementParentTypeEnum("linked_entity_type"),
+        movement_type: stockMovementTypeEnum("movement_type").notNull(),
+        write_off_reason: stockWriteOffReasonEnum("write_off_reason"), // only when movement_type = WRITE_OFF
+        note: text("note"),
+        linked_entity_type: varchar("linked_entity_type", { length: 20 }), // "ORDER", "SELF_PICKUP"
         linked_entity_id: uuid("linked_entity_id"),
         linked_scan_event_id: uuid("linked_scan_event_id").references(() => scanEvents.id, {
             onDelete: "set null",

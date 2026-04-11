@@ -9,7 +9,7 @@ import {
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
-import { eventBus } from "../../events";
+// eventBus no longer needed here — threshold check moved to StockMovementService
 
 // ----------------------------------- GET ASSET STOCK HISTORY ------------------------------
 
@@ -25,8 +25,9 @@ const getAssetStockHistory = async (
         .select({
             id: stockMovements.id,
             delta: stockMovements.delta,
-            reason: stockMovements.reason,
-            reason_note: stockMovements.reason_note,
+            movement_type: stockMovements.movement_type,
+            write_off_reason: stockMovements.write_off_reason,
+            note: stockMovements.note,
             linked_entity_type: stockMovements.linked_entity_type,
             linked_entity_id: stockMovements.linked_entity_id,
             created_by_name: users.name,
@@ -60,8 +61,9 @@ const getFamilyStockHistory = async (
             asset_id: stockMovements.asset_id,
             asset_name: assets.name,
             delta: stockMovements.delta,
-            reason: stockMovements.reason,
-            reason_note: stockMovements.reason_note,
+            movement_type: stockMovements.movement_type,
+            write_off_reason: stockMovements.write_off_reason,
+            note: stockMovements.note,
             linked_entity_type: stockMovements.linked_entity_type,
             linked_entity_id: stockMovements.linked_entity_id,
             created_by_name: users.name,
@@ -145,71 +147,28 @@ const createManualAdjustment = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found");
     }
 
-    // Create stock movement record
-    const [movement] = await db
-        .insert(stockMovements)
-        .values({
-            platform_id: platformId,
-            asset_id,
-            asset_family_id: asset.family_id,
-            delta,
-            reason: "MANUAL_ADJUSTMENT",
-            reason_note,
-            created_by: user.id,
-        })
-        .returning();
+    // Delegate to StockMovementService — handles ledger write, qty adjustment, threshold check
+    const { StockMovementService } = await import("../../services/stock-movement.service");
+    const movement = await StockMovementService.record(null, {
+        platformId,
+        assetId: asset_id,
+        familyId: asset.family_id,
+        delta,
+        movementType: "ADJUSTMENT",
+        note: reason_note,
+        userId: user.id,
+    });
 
-    // Update the asset's available_quantity
-    const newAvailable = Math.max(0, asset.available_quantity + delta);
-    await db
-        .update(assets)
-        .set({ available_quantity: newAvailable })
-        .where(eq(assets.id, asset_id));
-
-    // If delta is negative, update total_quantity too
-    if (delta < 0) {
-        const newTotal = Math.max(0, asset.total_quantity + delta);
-        await db
-            .update(assets)
-            .set({ total_quantity: newTotal })
-            .where(eq(assets.id, asset_id));
-    }
-
-    // Check low-stock threshold after adjustment
-    if (asset.family_id) {
-        const family = await db.query.assetFamilies.findFirst({
-            where: eq(assetFamilies.id, asset.family_id),
-        });
-
-        if (
-            family?.low_stock_threshold &&
-            newAvailable < family.low_stock_threshold
-        ) {
-            await eventBus.emit({
-                platform_id: platformId,
-                event_type: "stock.below_threshold",
-                entity_type: "SELF_PICKUP", // Using SELF_PICKUP as closest entity type for stock events
-                entity_id: asset_id,
-                actor_id: user.id,
-                actor_role: user.role,
-                payload: {
-                    entity_id_readable: asset.name,
-                    company_id: asset.company_id,
-                    company_name: "",
-                    asset_name: asset.name,
-                    family_name: family.name,
-                    available_quantity: newAvailable,
-                    low_stock_threshold: family.low_stock_threshold,
-                },
-            });
-        }
-    }
+    const updatedAsset = await db.query.assets.findFirst({
+        where: eq(assets.id, asset_id),
+        columns: { available_quantity: true },
+    });
 
     return {
         movement_id: movement.id,
         asset_id,
         delta,
-        new_available_quantity: newAvailable,
+        new_available_quantity: updatedAsset?.available_quantity ?? 0,
     };
 };
 
