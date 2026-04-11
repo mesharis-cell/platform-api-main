@@ -1,5 +1,6 @@
--- Red Bull build: self-pickups, stock movements, venue contact split, pooled settlement.
--- See plan: /home/mshari696/.claude/plans/tender-knitting-avalanche.md
+-- Self-pickups, stock movements, venue contact split, pooled settlement.
+-- Adds the fourth entity in the shared pattern (self_pickups) alongside orders,
+-- inbound_requests, and service_requests. Introduces the stock_movements audit ledger.
 --
 -- Safety properties:
 --   - Fully additive: no DROP, no NOT NULL tightening, no column renames.
