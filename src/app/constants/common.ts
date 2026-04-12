@@ -13,6 +13,7 @@ export const featureNames = {
     enable_service_requests: "enable_service_requests",
     enable_event_calendar: "enable_event_calendar",
     enable_client_stock_requests: "enable_client_stock_requests",
+    enable_self_pickup: "enable_self_pickup",
 };
 
 export const companyFeatures = {
@@ -27,4 +28,5 @@ export const companyFeatures = {
     [featureNames.enable_service_requests]: true,
     [featureNames.enable_event_calendar]: true,
     [featureNames.enable_client_stock_requests]: true,
+    [featureNames.enable_self_pickup]: false, // Platform default OFF — enable per-company
 };

@@ -27,6 +27,7 @@ async function main() {
             try {
                 await CronServices.transitionOrdersBasedOnEventDates();
                 await CronServices.sendPickupReminders();
+                await CronServices.transitionSelfPickupReturns();
                 await CronServices.deleteExpiredOTPs();
             } catch (error) {
                 console.error("❌ Cron job failed:", error);

@@ -1,12 +1,16 @@
 import { and, asc, eq, gte, lte } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../db";
-import { orders, serviceRequests, inboundRequests } from "../../db/schema";
+import { orders, serviceRequests, inboundRequests, selfPickups } from "../../db/schema";
 import CustomizedError from "../error/customized-error";
 import { roundCurrency } from "./pricing-engine";
 import { PricingService } from "../services/pricing.service";
 
-export type CommercialDocumentContextType = "ORDER" | "SERVICE_REQUEST" | "INBOUND_REQUEST";
+export type CommercialDocumentContextType =
+    | "ORDER"
+    | "SERVICE_REQUEST"
+    | "INBOUND_REQUEST"
+    | "SELF_PICKUP";
 export type CommercialDocumentAudience = "SELL_SIDE" | "BUY_SIDE";
 
 type NormalizedCompany = {
@@ -595,6 +599,74 @@ export const listAllCommercialContexts = async (
     );
 };
 
+const getSelfPickupCommercialContext = async (
+    selfPickupId: string,
+    platformId: string
+): Promise<NormalizedCommercialDocumentContext> => {
+    const pickup = await db.query.selfPickups.findFirst({
+        where: and(eq(selfPickups.id, selfPickupId), eq(selfPickups.platform_id, platformId)),
+        with: {
+            company: true,
+            self_pickup_pricing: true,
+            items: true,
+        },
+    });
+
+    if (!pickup) throw new CustomizedError(httpStatus.NOT_FOUND, "Self-pickup not found");
+    if (!pickup.company)
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found for this self-pickup");
+    if (!pickup.self_pickup_pricing)
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Self-pickup pricing is missing");
+
+    const projectedPricing = toAdminProjection(pickup.self_pickup_pricing);
+    if (!projectedPricing)
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Pricing projection is missing");
+    const pricing = mapPricing(projectedPricing);
+    const lineItemsData = mapLineItems(projectedPricing);
+
+    const pickupWindow = (pickup.pickup_window as any) || {};
+
+    return {
+        context_type: "SELF_PICKUP",
+        context_id: pickup.id,
+        reference_id: pickup.self_pickup_id,
+        platform_id: pickup.platform_id,
+        created_by: pickup.created_by,
+        company: {
+            id: pickup.company.id,
+            name: pickup.company.name || "Unknown Company",
+            contact_email: pickup.company.contact_email || pickup.collector_email || "N/A",
+            contact_phone: pickup.company.contact_phone || pickup.collector_phone || "N/A",
+        },
+        contact: {
+            name: pickup.collector_name || "N/A",
+            email: pickup.collector_email || pickup.company.contact_email || "N/A",
+            phone: pickup.collector_phone || pickup.company.contact_phone || "N/A",
+        },
+        timeline: {
+            start: pickupWindow.start ? new Date(pickupWindow.start) : new Date(),
+            end: pickupWindow.end ? new Date(pickupWindow.end) : new Date(),
+        },
+        venue: {
+            name: "Self Pickup (Warehouse)",
+            country: "N/A",
+            city: "N/A",
+            address: "Collected from warehouse",
+        },
+        operational_status: pickup.self_pickup_status,
+        commercial_status: pickup.financial_status,
+        billing_mode: null,
+        pricing,
+        items: pickup.items.map((item) => ({
+            asset_name: item.asset_name,
+            quantity: toNumber(item.quantity),
+            handling_tags: Array.isArray(item.handling_tags) ? (item.handling_tags as any) : [],
+            from_collection_name: item.from_collection_name || undefined,
+        })),
+        line_items: lineItemsData,
+    };
+};
+
 export const getCommercialDocumentContext = async (
     contextType: CommercialDocumentContextType,
     contextId: string,
@@ -603,6 +675,8 @@ export const getCommercialDocumentContext = async (
     if (contextType === "ORDER") return getOrderCommercialContext(contextId, platformId);
     if (contextType === "INBOUND_REQUEST")
         return getInboundRequestCommercialContext(contextId, platformId);
+    if (contextType === "SELF_PICKUP")
+        return getSelfPickupCommercialContext(contextId, platformId);
     return getServiceRequestCommercialContext(contextId, platformId);
 };
 
@@ -696,6 +770,8 @@ export const buildInvoiceS3Key = (
     if (context.context_type === "ORDER") return `invoices/${slug}/${invoiceNumber}.pdf`;
     if (context.context_type === "INBOUND_REQUEST")
         return `invoices/inbound-request/${slug}/${invoiceNumber}.pdf`;
+    if (context.context_type === "SELF_PICKUP")
+        return `invoices/self-pickup/${slug}/${invoiceNumber}.pdf`;
     return `invoices/service-request/${slug}/${invoiceNumber}.pdf`;
 };
 
@@ -705,5 +781,7 @@ export const buildCostEstimateS3Key = (context: NormalizedCommercialDocumentCont
         return `cost-estimates/${slug}/${context.reference_id}.pdf`;
     if (context.context_type === "INBOUND_REQUEST")
         return `cost-estimates/inbound-request/${slug}/${context.reference_id}.pdf`;
+    if (context.context_type === "SELF_PICKUP")
+        return `cost-estimates/self-pickup/${slug}/${context.reference_id}.pdf`;
     return `cost-estimates/service-request/${slug}/${context.reference_id}.pdf`;
 };

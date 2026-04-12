@@ -3,7 +3,12 @@ import { db } from "../../db";
 import { companies, companyDomains, platforms } from "../../db/schema";
 
 export type AppTarget = "ADMIN" | "WAREHOUSE" | "CLIENT";
-export type DeepLinkEntityType = "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_BOOKING";
+export type DeepLinkEntityType =
+    | "ORDER"
+    | "INBOUND_REQUEST"
+    | "SERVICE_REQUEST"
+    | "SELF_BOOKING"
+    | "SELF_PICKUP";
 
 type ResolveEntityDeepLinkInput = {
     platformId: string;
@@ -42,16 +47,19 @@ const entityRouteMap: Record<
         INBOUND_REQUEST: (id) => `/inbound-request/${id}`,
         SERVICE_REQUEST: (id) => `/service-requests/${id}`,
         SELF_BOOKING: (id) => `/self-bookings/${id}`,
+        SELF_PICKUP: (id) => `/self-pickups/${id}`,
     },
     WAREHOUSE: {
         ORDER: (id) => `/orders/${id}`,
         INBOUND_REQUEST: (id) => `/inbound-request/${id}`,
         SERVICE_REQUEST: (id) => `/service-requests/${id}`,
+        SELF_PICKUP: (id) => `/self-pickups/${id}`,
     },
     CLIENT: {
         ORDER: (id) => `/orders/${id}`,
         INBOUND_REQUEST: (id) => `/assets-inbound/${id}`,
         SERVICE_REQUEST: (id) => `/service-requests/${id}`,
+        SELF_PICKUP: (id) => `/self-pickups/${id}`,
     },
 };
 

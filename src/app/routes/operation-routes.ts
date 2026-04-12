@@ -32,6 +32,8 @@ import { AttachmentsRoutes } from "../modules/attachments/attachments.routes";
 import { WorkflowRequestRoutes } from "../modules/workflow-request/workflow-request.routes";
 import { AccessPolicyRoutes } from "../modules/access-policy/access-policy.routes";
 import { WorkflowDefinitionRoutes } from "../modules/workflow-definition/workflow-definition.routes";
+import { SelfPickupOperationRoutes } from "../modules/self-pickup/self-pickup.routes";
+import { StockMovementsRoutes } from "../modules/stock-movements/stock-movements.routes";
 
 const router = Router();
 
@@ -167,6 +169,14 @@ const routes = [
     {
         path: "/company-domain",
         route: CompanyDomainRoutes,
+    },
+    {
+        path: "/self-pickup",
+        route: SelfPickupOperationRoutes,
+    },
+    {
+        path: "/stock-movements",
+        route: StockMovementsRoutes,
     },
 ];
 

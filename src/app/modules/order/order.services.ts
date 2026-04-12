@@ -419,6 +419,8 @@ const submitOrderFromCart = async (
         venue_access_notes,
         permit_requirements,
         special_instructions,
+        venue_contact,
+        requested_delivery_window,
     } = payload;
 
     const eventStartDate = dayjs(event_start_date).toDate();
@@ -636,9 +638,16 @@ const submitOrderFromCart = async (
                 company_id: companyId,
                 brand_id: brand_id || null,
                 created_by: user.id,
+                // Execution contact (the client-side runner)
                 contact_name: contact_name,
                 contact_email: contact_email,
                 contact_phone: contact_phone,
+                // Venue contact (on-site coordinator — first-class, not nested in permits)
+                venue_contact_name: venue_contact?.name || null,
+                venue_contact_email: venue_contact?.email || null,
+                venue_contact_phone: venue_contact?.phone || null,
+                // Client-requested delivery window (immutable after submit)
+                requested_delivery_window: requested_delivery_window || null,
                 event_start_date: eventStartDate,
                 event_end_date: eventEndDate,
                 venue_name: venue_name,

@@ -35,7 +35,11 @@ const listWorkflowDefinitions = catchAsync(async (req, res) => {
 const listAvailableWorkflowDefinitions = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
-    const entityType = req.query.entity_type as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST";
+    const entityType = req.query.entity_type as
+        | "ORDER"
+        | "INBOUND_REQUEST"
+        | "SERVICE_REQUEST"
+        | "SELF_PICKUP";
     const entityId = req.query.entity_id as string;
     const result = await WorkflowDefinitionServices.listAvailableWorkflowDefinitions(
         platformId,

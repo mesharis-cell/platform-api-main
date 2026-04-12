@@ -20,7 +20,7 @@ type AttachmentTypeListFilters = {
     entity_type?: string;
     mode?: "view" | "upload";
     entity_id?: string;
-    context_entity_type?: "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST";
+    context_entity_type?: "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP";
     context_entity_id?: string;
 };
 

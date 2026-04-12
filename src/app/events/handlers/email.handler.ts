@@ -6,6 +6,7 @@ import {
     notificationRules,
     orders,
     platforms,
+    selfPickups,
     serviceRequests,
     users,
 } from "../../../db/schema";
@@ -48,6 +49,7 @@ async function resolveEntityOwnerEmail(
         ORDER: orders,
         INBOUND_REQUEST: inboundRequests,
         SERVICE_REQUEST: serviceRequests,
+        SELF_PICKUP: selfPickups,
     };
 
     const table = tableMap[entityType];
@@ -112,6 +114,7 @@ async function getEntityCompanyId(entityType: string, entityId: string): Promise
         ORDER: orders,
         INBOUND_REQUEST: inboundRequests,
         SERVICE_REQUEST: serviceRequests,
+        SELF_PICKUP: selfPickups,
     };
 
     const table = tableMap[entityType];
@@ -234,6 +237,8 @@ const mapEntityTypeToDeepLink = (entityType: string): DeepLinkEntityType | null 
             return "SERVICE_REQUEST";
         case "SELF_BOOKING":
             return "SELF_BOOKING";
+        case "SELF_PICKUP":
+            return "SELF_PICKUP";
         default:
             return null;
     }
@@ -294,6 +299,7 @@ export const injectDeepLink = async (
         payload.request_url = link;
     }
     if (event.entity_type === "SELF_BOOKING") payload.self_booking_url = link;
+    if (event.entity_type === "SELF_PICKUP") payload.self_pickup_url = link;
 
     return payload;
 };

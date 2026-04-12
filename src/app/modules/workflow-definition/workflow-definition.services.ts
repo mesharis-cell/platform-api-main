@@ -18,7 +18,7 @@ import {
     getWorkflowStatusModelEntry,
 } from "../../utils/workflow-catalog";
 
-type WorkflowEntityType = "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST";
+type WorkflowEntityType = "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP";
 type WorkflowDefinitionPayload = Partial<{
     code: string;
     label: string;

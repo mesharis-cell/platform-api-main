@@ -6,6 +6,7 @@ import { OrderRoutes } from "../modules/order/order.routes";
 import { InboundRequestRoutes } from "../modules/inbound-request/inbound-request.routes";
 import { ExportRoutes } from "../modules/export/export.routes";
 import { ServiceRequestRoutes } from "../modules/service-request/service-request.routes";
+import { SelfPickupClientRoutes } from "../modules/self-pickup/self-pickup.routes";
 
 const router = Router();
 
@@ -37,6 +38,10 @@ const routes = [
     {
         path: "/service-request",
         route: ServiceRequestRoutes,
+    },
+    {
+        path: "/self-pickup",
+        route: SelfPickupClientRoutes,
     },
 ];
 

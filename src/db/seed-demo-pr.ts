@@ -795,7 +795,7 @@ const upsertRfqServiceTypes = async (
 
 const createPriceRecord = async (opts: {
     platformId: string;
-    entityType: "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST";
+    entityType: "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP";
     entityId: string;
     marginPercent: number;
     vatPercent: number;
