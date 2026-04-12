@@ -19,7 +19,7 @@ import {
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { PricingService } from "../../services/pricing.service";
-import { eventBus } from "../../events";
+import { eventBus, EVENT_TYPES } from "../../events";
 import { SubmitSelfPickupPayload, SelfPickupListParams } from "./self-pickup.interfaces";
 import {
     canCancelSelfPickup,
@@ -301,7 +301,7 @@ const submitSelfPickupFromCart = async (
     // Step 6: Emit event
     await eventBus.emit({
         platform_id: platformId,
-        event_type: "self_pickup.submitted",
+        event_type: EVENT_TYPES.SELF_PICKUP_SUBMITTED,
         entity_type: "SELF_PICKUP",
         entity_id: result.id,
         actor_id: user.id,
@@ -466,7 +466,7 @@ const transitionStatus = async (
 
     await eventBus.emit({
         platform_id: platformId,
-        event_type: "self_pickup.status_changed",
+        event_type: EVENT_TYPES.SELF_PICKUP_STATUS_CHANGED,
         entity_type: "SELF_PICKUP",
         entity_id: selfPickupId,
         actor_id: user.id,

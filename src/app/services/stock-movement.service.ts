@@ -26,7 +26,7 @@ import {
     stockMovements,
     users,
 } from "../../db/schema";
-import { eventBus } from "../events";
+import { eventBus, EVENT_TYPES } from "../events";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -135,8 +135,8 @@ async function checkThresholdCrossing(
     if (totalAvailable < family.low_stock_threshold) {
         await eventBus.emit({
             platform_id: platformId,
-            event_type: "stock.below_threshold",
-            entity_type: "SELF_PICKUP", // closest entity type for stock events
+            event_type: EVENT_TYPES.STOCK_BELOW_THRESHOLD,
+            entity_type: "ASSET",
             entity_id: assetId,
             actor_id: userId,
             actor_role: "SYSTEM",

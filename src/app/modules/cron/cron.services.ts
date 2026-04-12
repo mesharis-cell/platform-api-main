@@ -392,7 +392,7 @@ const transitionSelfPickupReturns = async () => {
             for (const pickup of platformPickups) {
                 await eventBus.emit({
                     platform_id: platformId,
-                    event_type: "self_pickup.return_due",
+                    event_type: EVENT_TYPES.SELF_PICKUP_RETURN_DUE,
                     entity_type: "SELF_PICKUP",
                     entity_id: pickup.id,
                     actor_id: systemUser.id,

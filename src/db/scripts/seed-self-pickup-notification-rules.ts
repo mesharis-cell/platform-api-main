@@ -15,6 +15,12 @@ import { notificationRules, platforms } from "../schema";
 const SELF_PICKUP_RULES = [
     {
         event_type: "self_pickup.submitted",
+        recipient_type: "ENTITY_OWNER" as const,
+        recipient_value: null,
+        template_key: "self_pickup_submitted_client",
+    },
+    {
+        event_type: "self_pickup.submitted",
         recipient_type: "ROLE" as const,
         recipient_value: "ADMIN",
         template_key: "self_pickup_submitted_admin",
@@ -60,6 +66,18 @@ const SELF_PICKUP_RULES = [
         recipient_type: "ROLE" as const,
         recipient_value: "LOGISTICS",
         template_key: "self_pickup_return_due_logistics",
+    },
+    {
+        event_type: "self_pickup.picked_up",
+        recipient_type: "ROLE" as const,
+        recipient_value: "ADMIN",
+        template_key: "self_pickup_picked_up_admin",
+    },
+    {
+        event_type: "self_pickup.closed",
+        recipient_type: "ROLE" as const,
+        recipient_value: "ADMIN",
+        template_key: "self_pickup_closed_admin",
     },
     {
         event_type: "self_pickup.cancelled",

@@ -89,7 +89,8 @@ export type EntityType =
     | "SERVICE_REQUEST"
     | "USER"
     | "SELF_BOOKING"
-    | "SELF_PICKUP";
+    | "SELF_PICKUP"
+    | "ASSET";
 
 // ============================================================
 // Base Payload (all events)

@@ -100,6 +100,7 @@ export const entityTypeEnum = pgEnum("entity_type", [
     "USER",
     "SELF_BOOKING",
     "SELF_PICKUP",
+    "ASSET",
 ]);
 export const recipientTypeEnum = pgEnum("recipient_type", ["ROLE", "ENTITY_OWNER", "EMAIL"]);
 export const scanTypeEnum = pgEnum("scan_type", [

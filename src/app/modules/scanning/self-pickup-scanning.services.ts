@@ -11,7 +11,7 @@ import {
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
-import { eventBus } from "../../events";
+import { eventBus, EVENT_TYPES } from "../../events";
 import { releaseBookingsAndRestoreAvailability } from "../order/order.utils";
 import { StockMovementService } from "../../services/stock-movement.service";
 import type { PooledSettlementEntry, UnsettledPooledLine } from "./scanning.interfaces";
@@ -179,7 +179,7 @@ const completeSelfPickupHandover = async (
 
     await eventBus.emit({
         platform_id: platformId,
-        event_type: "self_pickup.picked_up",
+        event_type: EVENT_TYPES.SELF_PICKUP_PICKED_UP,
         entity_type: "SELF_PICKUP",
         entity_id: pickup.id,
         actor_id: user.id,
@@ -365,7 +365,7 @@ const completeSelfPickupReturn = async (
 
     await eventBus.emit({
         platform_id: platformId,
-        event_type: "self_pickup.closed",
+        event_type: EVENT_TYPES.SELF_PICKUP_CLOSED,
         entity_type: "SELF_PICKUP",
         entity_id: pickup.id,
         actor_id: user.id,
