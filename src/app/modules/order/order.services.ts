@@ -2433,8 +2433,10 @@ const adminApproveQuote = async (
 
     const projectedAdminPricing = PricingService.projectByRole(orderPricing as any, "ADMIN") as any;
     let finalTotal = String(projectedAdminPricing?.final_total || "0");
-    let baseOpsTotalForEvent = String(projectedAdminPricing?.base_ops_total || "0");
-    let marginAmountForEvent = String(projectedAdminPricing?.margin?.amount || "0");
+    // Snapshot the pre-transaction sell total so revised-quote emails can
+    // surface it as "Previous Total". finalTotal is reassigned below if a
+    // same-request margin override is applied; preTxnFinalTotal stays intact.
+    const preTxnFinalTotal = finalTotal;
 
     // Step 3: Update order pricing and status
     await db.transaction(async (tx) => {
@@ -2451,8 +2453,6 @@ const adminApproveQuote = async (
                 tx,
             });
             finalTotal = result.final_total.toFixed(2);
-            baseOpsTotalForEvent = result.base_ops_total.toFixed(2);
-            marginAmountForEvent = result.margin.amount.toFixed(2);
         }
 
         // Step 3.2: Update order status
@@ -2533,12 +2533,16 @@ const adminApproveQuote = async (
             contact_name: order.contact_name,
             contact_email: order.contact_email,
             final_total: finalTotal,
+            previous_total: preTxnFinalTotal,
+            new_total: finalTotal,
             line_items: clientLineItems,
+            // pricing.* MUST be sourced from the CLIENT projection — never
+            // admin. Admin's base_ops_total is buy-side and margin_amount is
+            // the explicit markup; either on a client-facing email would leak
+            // internal margin structure.
             pricing: {
-                base_ops_total: baseOpsTotalForEvent,
-                logistics_sub_total: baseOpsTotalForEvent,
-                margin_amount: marginAmountForEvent,
-                final_total: finalTotal,
+                base_ops_total: projectedClientPricing?.totals?.base_ops_total ?? 0,
+                final_total: projectedClientPricing?.final_total ?? finalTotal,
             },
             cost_estimate_url: `${config.server_url}/api/client/v1/invoice/download-cost-estimate-pdf/${order.order_id}?pid=${platformId}`,
             order_url: "",
