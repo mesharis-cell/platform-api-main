@@ -2494,6 +2494,30 @@ const adminApproveQuote = async (
         generatedByUserId: user.id,
     });
 
+    // Project the breakdown for the CLIENT-facing quote email. Re-fetch pricing
+    // so a same-request margin override is reflected (the override path writes
+    // new breakdown_lines to the prices row inside the transaction above).
+    // BASE_OPS is stripped because the template renders it separately as
+    // "Picking & Handling" — we'd otherwise duplicate it.
+    const freshPricing = await db.query.prices.findFirst({
+        where: eq(prices.id, order.order_pricing_id!),
+        columns: {
+            breakdown_lines: true,
+            margin_percent: true,
+            vat_percent: true,
+            calculated_at: true,
+        },
+    });
+    const projectedClientPricing = PricingService.projectByRole(
+        freshPricing as any,
+        "CLIENT"
+    ) as any;
+    const clientLineItems: any[] = Array.isArray(projectedClientPricing?.breakdown_lines)
+        ? projectedClientPricing.breakdown_lines.filter(
+              (line: any) => line.line_kind !== "BASE_OPS"
+          )
+        : [];
+
     // Step 4: Emit quote.sent event
     await eventBus.emit({
         platform_id: platformId,
@@ -2509,7 +2533,7 @@ const adminApproveQuote = async (
             contact_name: order.contact_name,
             contact_email: order.contact_email,
             final_total: finalTotal,
-            line_items: [],
+            line_items: clientLineItems,
             pricing: {
                 base_ops_total: baseOpsTotalForEvent,
                 logistics_sub_total: baseOpsTotalForEvent,
