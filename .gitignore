@@ -1,8 +1,19 @@
 node_modules
 
 dist
+
+# Env files — keep real secrets out of git. Only .env.test.example and
+# .env.example are committed as placeholder templates.
 .env
+.env.staging
+.env.testing
+.env.production
+.env.test
+.env.prod
+.env.dbops
 .env.dbops.local
+.env.local
+.env.*.local
 .dbops/
 
 # sst
@@ -13,3 +24,11 @@ seed/
 
 # Security scan reports
 reports/
+
+# Plaintext credential dumps from src/db/scripts/seed-users.ts
+seeded-users-*.txt
+
+# seed-users.ts stays local-only — it accumulates real user lists
+# (names + emails) in its USERS block. Keeping it out of git avoids
+# shipping client PII into history. Copy from a teammate if you need it.
+src/db/scripts/seed-users.ts
