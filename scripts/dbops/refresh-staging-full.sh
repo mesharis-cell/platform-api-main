@@ -19,6 +19,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 API_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+# Safety: wrapper requires APP_ENV=staging (same as the script it calls).
+# Package.json scripts set this prefix inline.
+if [[ "${APP_ENV:-}" != "staging" ]]; then
+    echo "ERROR: refresh-staging-full.sh requires APP_ENV=staging (got: \"${APP_ENV:-<unset>}\")" >&2
+    exit 1
+fi
+
 MODE="${1:-apply}"
 if [[ "$MODE" != "apply" && "$MODE" != "dry-run" ]]; then
     echo "Usage: $0 [dry-run|apply]" >&2

@@ -1,5 +1,8 @@
+import { assertAppEnv } from "../safety/guards";
 import { pool } from "..";
 import { generateBackfillReport, writeBackfillArtifacts } from "./asset-family-backfill.shared";
+
+assertAppEnv(["staging", "production"]);
 
 async function main() {
     const report = await generateBackfillReport();

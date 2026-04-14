@@ -1,3 +1,4 @@
+import { assertAppEnv } from "../safety/guards";
 import { db, pool } from "..";
 import { assetFamilies } from "../schema";
 import {
@@ -10,6 +11,8 @@ import {
     resolveFamilyProposal,
     updateAssetFamilyIds,
 } from "./asset-family-backfill.shared";
+
+assertAppEnv(["staging"]);
 
 async function main() {
     const reportDir = parseFlag("--report-dir");

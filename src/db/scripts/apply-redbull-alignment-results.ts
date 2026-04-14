@@ -2,8 +2,11 @@ import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 import { and, eq, isNull } from "drizzle-orm";
+import { assertAppEnv } from "../safety/guards";
 import { db, pool } from "../../db";
 import { assetFamilies, assets, companies, teams } from "../../db/schema";
+
+assertAppEnv(["staging"]);
 
 type AlignmentWrite = {
     source_item_id: string;

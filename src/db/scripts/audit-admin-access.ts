@@ -1,8 +1,11 @@
 import "dotenv/config";
+import { assertAppEnv } from "../safety/guards";
 import { eq } from "drizzle-orm";
 import { db } from "../../db";
 import { accessPolicies, users } from "../../db/schema";
 import { isValidPermission } from "../../app/constants/permissions";
+
+assertAppEnv(["staging", "production"]);
 
 const listInvalidPermissions = (permissions: string[] | null | undefined) =>
     (permissions ?? []).filter((permission) => !isValidPermission(permission));

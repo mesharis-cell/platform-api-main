@@ -1,7 +1,10 @@
 import "dotenv/config";
 import { and, eq } from "drizzle-orm";
+import { assertAppEnv } from "../safety/guards";
 import { db, pool } from "../../db";
 import { companies, teams } from "../../db/schema";
+
+assertAppEnv(["staging"]);
 
 const DEFAULT_TEAM_NAMES = ["EVENTS", "EXTRA", "CONSUMER COLLECTING", "SPORTS"] as const;
 

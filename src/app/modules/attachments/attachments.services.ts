@@ -6,6 +6,7 @@ import {
     entityAttachments,
     inboundRequests,
     orders,
+    selfPickups,
     serviceRequests,
     users,
     workflowRequests,
@@ -21,6 +22,7 @@ export type AttachmentEntityType =
     | "ORDER"
     | "INBOUND_REQUEST"
     | "SERVICE_REQUEST"
+    | "SELF_PICKUP"
     | "WORKFLOW_REQUEST";
 
 const resolveEntity = async (
@@ -79,6 +81,27 @@ const resolveEntity = async (
         return { entity_type: entityType, entity_id: row.id, company_id: row.company_id };
     }
 
+    if (entityType === "SELF_PICKUP") {
+        const [row] = await executor
+            .select({
+                id: selfPickups.id,
+                company_id: selfPickups.company_id,
+                created_by: selfPickups.created_by,
+            })
+            .from(selfPickups)
+            .where(and(eq(selfPickups.id, entityId), eq(selfPickups.platform_id, platformId)))
+            .limit(1);
+        if (!row) {
+            throw new CustomizedError(httpStatus.NOT_FOUND, "SELF PICKUP not found");
+        }
+        return {
+            entity_type: entityType,
+            entity_id: row.id,
+            company_id: row.company_id,
+            created_by: row.created_by,
+        };
+    }
+
     const [row] = await executor
         .select({ id: workflowRequests.id })
         .from(workflowRequests)
@@ -108,7 +131,10 @@ const assertEntityAccess = (
     if (!user.company_id || entity.company_id !== user.company_id) {
         throw new CustomizedError(httpStatus.FORBIDDEN, "You do not have access to this entity");
     }
-    if (entity.entity_type === "ORDER" && entity.created_by !== user.id) {
+    if (
+        (entity.entity_type === "ORDER" || entity.entity_type === "SELF_PICKUP") &&
+        entity.created_by !== user.id
+    ) {
         throw new CustomizedError(httpStatus.FORBIDDEN, "You do not have access to this entity");
     }
 };

@@ -92,7 +92,10 @@ function assertSafeTarget(target: DbTarget): void {
 function assertEnvNotBlocked(): void {
     const blockedEnvs = parseCsv(process.env.DB_DESTRUCTIVE_BLOCKED_ENVS);
     const effectiveBlocked = blockedEnvs.length > 0 ? blockedEnvs : DEFAULT_BLOCKED_ENVS;
-    const currentEnv = (process.env.APP_ENV || process.env.NODE_ENV || "").trim().toLowerCase();
+    // APP_ENV only — dropped NODE_ENV fallback. NODE_ENV is a Node-runtime
+    // concern (prod vs dev build opts); APP_ENV is our deployment identity.
+    // Mixing them previously masked misconfiguration.
+    const currentEnv = (process.env.APP_ENV || "").trim().toLowerCase();
     if (!currentEnv) return;
     if (!effectiveBlocked.includes(currentEnv)) return;
     throw new Error(

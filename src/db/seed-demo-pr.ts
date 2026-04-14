@@ -17,7 +17,10 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { and, eq, isNull } from "drizzle-orm";
 import { HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { assertAppEnv } from "./safety/guards";
 import { db } from "./index";
+
+assertAppEnv(["staging"]);
 import * as schema from "./schema";
 import { lineItemIdGenerator } from "../app/modules/order-line-items/order-line-items.utils";
 import { seedPrAssets } from "./scripts/seed-pr-assets";

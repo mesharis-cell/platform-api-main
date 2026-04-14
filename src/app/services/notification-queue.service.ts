@@ -356,4 +356,18 @@ export const NotificationQueueService = {
             void processNotificationQueue();
         }, 1_000);
     },
+    stop() {
+        if (!workerTimer) return;
+        clearInterval(workerTimer);
+        workerTimer = null;
+        console.log(`[NotificationWorker] Stopped worker ${workerId}`);
+    },
+    /**
+     * Runs one processing pass immediately. Useful in tests after triggering
+     * events so pending notifications are sent before assertions / teardown
+     * without waiting for the 1-second interval tick.
+     */
+    async processNow() {
+        await processNotificationQueue();
+    },
 };

@@ -3,7 +3,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 API_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-ENV_FILE="${DBOPS_ENV_FILE:-$API_ROOT/.env.dbops.local}"
+ENV_FILE="${DBOPS_ENV_FILE:-$API_ROOT/.env.dbops}"
+
+# Safety: refresh ops target staging writes. Require APP_ENV=staging so this
+# never runs in a context expecting another env. Package.json scripts set
+# this prefix inline (see `dbops:refresh-staging*` in package.json).
+if [[ "${APP_ENV:-}" != "staging" ]]; then
+    echo "ERROR: refresh-staging-from-prod.sh requires APP_ENV=staging (got: \"${APP_ENV:-<unset>}\")" >&2
+    echo "  Run via: APP_ENV=staging bash scripts/dbops/refresh-staging-from-prod.sh ..." >&2
+    exit 1
+fi
 
 if [[ ! -f "$ENV_FILE" ]]; then
     echo "Missing env file: $ENV_FILE" >&2

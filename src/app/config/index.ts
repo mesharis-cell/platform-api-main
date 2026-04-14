@@ -1,8 +1,9 @@
-import dotenv from "dotenv";
 import type { StringValue } from "ms";
-import path from "path";
 
-dotenv.config({ path: path.join(process.cwd(), ".env") });
+// Env loading happens in src/bootstrap/env.ts (imported as first side-effect
+// in src/server.ts for deployed, or via `bun --preload` for CLI + dev). By
+// the time this config module evaluates, process.env is fully populated and
+// required secrets have been validated.
 
 const asNumber = (value: string | undefined, fallback: number) => {
     const parsed = Number(value);

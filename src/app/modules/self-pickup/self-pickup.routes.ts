@@ -6,6 +6,10 @@ import requirePermission from "../../middleware/permission";
 import featureValidator from "../../middleware/feature-validator";
 import { SelfPickupControllers } from "./self-pickup.controllers";
 import { SelfPickupSchemas } from "./self-pickup.schemas";
+import { AttachmentsControllers } from "../attachments/attachments.controllers";
+import { AttachmentsSchemas } from "../attachments/attachments.schemas";
+import { WorkflowRequestControllers } from "../workflow-request/workflow-request.controllers";
+import { WorkflowRequestSchemas } from "../workflow-request/workflow-request.schemas";
 import { PERMISSIONS } from "../../constants/permissions";
 import { featureNames } from "../../constants/common";
 
@@ -161,6 +165,40 @@ export const SelfPickupOperationRoutes = (() => {
         featureValidator(featureNames.enable_self_pickup),
         payloadValidator(SelfPickupSchemas.updateJobNumberSchema),
         SelfPickupControllers.updateJobNumber
+    );
+
+    router.get(
+        "/:id/attachments",
+        platformValidator,
+        auth("ADMIN", "LOGISTICS", "CLIENT"),
+        featureValidator(featureNames.enable_attachments),
+        AttachmentsControllers.listForEntity("SELF_PICKUP")
+    );
+
+    router.post(
+        "/:id/attachments",
+        platformValidator,
+        auth("ADMIN", "LOGISTICS", "CLIENT"),
+        featureValidator(featureNames.enable_attachments),
+        payloadValidator(AttachmentsSchemas.createEntityAttachmentsSchema),
+        AttachmentsControllers.createForEntity("SELF_PICKUP")
+    );
+
+    router.get(
+        "/:id/workflow-requests",
+        platformValidator,
+        auth("ADMIN", "LOGISTICS"),
+        featureValidator(featureNames.enable_workflows),
+        WorkflowRequestControllers.listForEntity("SELF_PICKUP")
+    );
+
+    router.post(
+        "/:id/workflow-requests",
+        platformValidator,
+        auth("ADMIN", "LOGISTICS"),
+        featureValidator(featureNames.enable_workflows),
+        payloadValidator(WorkflowRequestSchemas.createWorkflowRequestSchema),
+        WorkflowRequestControllers.createForEntity("SELF_PICKUP")
     );
 
     return router;

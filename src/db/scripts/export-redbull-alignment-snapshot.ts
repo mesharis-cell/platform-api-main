@@ -2,8 +2,11 @@ import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 import { and, eq, isNull } from "drizzle-orm";
+import { assertAppEnv } from "../safety/guards";
 import { db, pool } from "../../db";
 import { assets, brands, companies, teams, warehouses, zones } from "../../db/schema";
+
+assertAppEnv(["staging", "production"]);
 
 const getArg = (name: string) => {
     const index = process.argv.indexOf(`--${name}`);

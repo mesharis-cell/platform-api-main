@@ -1,5 +1,8 @@
 import "dotenv/config";
+import { assertAppEnv } from "../safety/guards";
 import { PlatformBootstrapService } from "../../app/services/platform-bootstrap.service";
+
+assertAppEnv(["staging"]);
 
 const getArg = (name: string) => {
     const index = process.argv.indexOf(`--${name}`);

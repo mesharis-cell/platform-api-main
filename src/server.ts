@@ -1,3 +1,8 @@
+// MUST be first — loads + validates env before any other module imports run.
+// In deployed EB containers, env comes from EB env properties; .env files are
+// not shipped so the dotenv.config calls inside this module are no-ops there.
+import "./bootstrap/env";
+
 import http from "http";
 import cron from "node-cron";
 import app from "./app";
@@ -18,7 +23,12 @@ async function main() {
 
         // start server
         server.listen(port, () => {
-            console.log(`${config.app_name} server is running on port ${port}`);
+            // Print APP_ENV alongside startup so it's instantly obvious whether
+            // this server is hitting test/staging/prod — catches misrouting
+            // before destructive ops happen.
+            console.log(
+                `${config.app_name} server is running on port ${port} | APP_ENV=${process.env.APP_ENV ?? "<unset>"}`
+            );
         });
 
         // Run daily at midnight (00:00) to transition orders from IN_USE to AWAITING_RETURN
