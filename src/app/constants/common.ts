@@ -83,6 +83,12 @@ export const featureRegistry = {
         description:
             "Allow clients to choose self-pickup at checkout. Adds a separate commercial flow with collector details, pickup window, and warehouse handover scanning.",
     },
+    enable_feasibility_helper: {
+        default: true,
+        label: "Show Feasibility Helper",
+        description:
+            "Show plain-language guidance on the client checkout when the chosen event date is too soon — earliest possible date + why. Hard blocks are always enforced regardless of this flag; this only toggles the explanatory copy.",
+    },
 } as const;
 
 type FeatureKey = keyof typeof featureRegistry;
