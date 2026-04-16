@@ -421,6 +421,7 @@ const submitOrderFromCart = async (
         special_instructions,
         venue_contact,
         requested_delivery_window,
+        requested_pickup_window,
     } = payload;
 
     const eventStartDate = dayjs(event_start_date).toDate();
@@ -648,6 +649,8 @@ const submitOrderFromCart = async (
                 venue_contact_phone: venue_contact?.phone || null,
                 // Client-requested delivery window (immutable after submit)
                 requested_delivery_window: requested_delivery_window || null,
+                // Client-requested pickup window (immutable after submit)
+                requested_pickup_window: requested_pickup_window || null,
                 event_start_date: eventStartDate,
                 event_end_date: eventEndDate,
                 venue_name: venue_name,

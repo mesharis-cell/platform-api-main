@@ -1002,9 +1002,10 @@ export const orders = pgTable(
         special_instructions: text("special_instructions"),
 
         // Logistics windows
-        // requested_delivery_window is client-requested (immutable after submit, never trampled by logistics).
-        // delivery_window is logistics-authoritative (editable by ops).
+        // requested_* are client-requested (immutable after submit, never trampled by logistics).
+        // delivery_window / pickup_window are logistics-authoritative (editable by ops).
         requested_delivery_window: jsonb("requested_delivery_window"),
+        requested_pickup_window: jsonb("requested_pickup_window"),
         delivery_window: jsonb("delivery_window"), // {start, end} datetime
         pickup_window: jsonb("pickup_window"), // {start, end} datetime
 

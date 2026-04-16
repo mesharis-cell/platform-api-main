@@ -141,6 +141,14 @@ const submitOrderSchema = z.object({
                     end: z.string(),
                 })
                 .optional(),
+            // Client-requested pickup window — immutable after submit.
+            // Separate from pickup_window (logistics-authoritative).
+            requested_pickup_window: z
+                .object({
+                    start: z.string(),
+                    end: z.string(),
+                })
+                .optional(),
             permit_requirements: z
                 .object({
                     requires_permit: z.boolean().default(false),

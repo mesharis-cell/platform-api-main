@@ -93,7 +93,7 @@ type FeatureKey = keyof typeof featureRegistry;
  */
 export const featureNames = (Object.keys(featureRegistry) as FeatureKey[]).reduce(
     (acc, key) => {
-        acc[key] = key;
+        (acc as Record<string, string>)[key] = key;
         return acc;
     },
     {} as { [K in FeatureKey]: K }
