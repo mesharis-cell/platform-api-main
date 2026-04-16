@@ -405,10 +405,17 @@ const updateUser = async (
 ) => {
     const existingUser = await getUserById(id, platformId);
 
-    if ((data as any).email || (data as any).password || (data as any).role) {
+    if ((data as any).password || (data as any).role) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            "Only name, access_policy_id, permission_grants, permission_revokes, company_id, and is_active can be updated"
+            "password and role cannot be updated through this endpoint"
+        );
+    }
+
+    if ((data as any).email !== undefined && !user.is_super_admin) {
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            "Only super admins can update a user's email"
         );
     }
 
@@ -441,8 +448,14 @@ const updateUser = async (
             ? await getAccessPolicy(data.access_policy_id, platformId, existingUser.role)
             : undefined;
 
+    const normalizedEmail =
+        (data as any).email !== undefined
+            ? String((data as any).email).trim().toLowerCase()
+            : undefined;
+
     const finalData: any = {
         ...(data.name !== undefined && { name: data.name }),
+        ...(normalizedEmail !== undefined && { email: normalizedEmail }),
         ...(data.company_id !== undefined && { company_id: data.company_id }),
         ...(data.is_active !== undefined && { is_active: data.is_active }),
         ...((data as any).is_super_admin !== undefined && {
@@ -458,10 +471,18 @@ const updateUser = async (
         updated_at: new Date(),
     };
 
-    await db
-        .update(users)
-        .set(finalData)
-        .where(and(eq(users.id, id), eq(users.platform_id, platformId)));
+    try {
+        await db
+            .update(users)
+            .set(finalData)
+            .where(and(eq(users.id, id), eq(users.platform_id, platformId)));
+    } catch (error: any) {
+        const pgError = error.cause || error;
+        if (pgError.code === "23505" && pgError.constraint === "user_platform_email_unique") {
+            throw new CustomizedError(httpStatus.CONFLICT, "User with this email already exists");
+        }
+        throw error;
+    }
 
     return getUserById(id, platformId);
 };
