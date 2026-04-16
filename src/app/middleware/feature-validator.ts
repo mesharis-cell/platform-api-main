@@ -1,7 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import httpStatus from "http-status";
 import CustomizedError from "../error/customized-error";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "../../db";
 import { companies, platforms } from "../../db/schema";
 
@@ -57,11 +57,35 @@ const featureValidator = (featureName: string) => {
                         `Feature ${featureName.replace(/_/g, " ")} is not enabled`
                     );
                 }
-            } else if (!platformEnabled) {
-                throw new CustomizedError(
-                    httpStatus.FORBIDDEN,
-                    `Feature ${featureName.replace(/_/g, " ")} is not enabled`
-                );
+            } else {
+                // ADMIN / LOGISTICS: feature is accessible if platform has it enabled
+                // OR any company on the platform has overridden it to true. Admins
+                // operate cross-company so a single tenant pilot must surface the
+                // feature in ops surfaces.
+                if (platformEnabled) {
+                    next();
+                    return;
+                }
+
+                const [overrideRow] = await db
+                    .select({
+                        any_enabled: sql<boolean>`bool_or((${companies.features} ->> ${featureName})::boolean)`,
+                    })
+                    .from(companies)
+                    .where(
+                        and(
+                            eq(companies.platform_id, platformId),
+                            isNull(companies.deleted_at)
+                        )
+                    )
+                    .limit(1);
+
+                if (!overrideRow?.any_enabled) {
+                    throw new CustomizedError(
+                        httpStatus.FORBIDDEN,
+                        `Feature ${featureName.replace(/_/g, " ")} is not enabled`
+                    );
+                }
             }
 
             next();
