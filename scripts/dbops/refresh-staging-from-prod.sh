@@ -96,8 +96,20 @@ order by table_name, ordinal_position;
 prod_psql -At -c "$TABLE_SQL" > "$RUN_DIR/prod-tables.txt"
 staging_psql -At -c "$TABLE_SQL" > "$RUN_DIR/staging-tables.txt"
 
-if ! diff -u "$RUN_DIR/prod-tables.txt" "$RUN_DIR/staging-tables.txt" > "$RUN_DIR/table-diff.txt"; then
-    echo "Public table sets differ. See $RUN_DIR/table-diff.txt" >&2
+# Table-set asymmetry: prod must be a SUBSET of staging.
+# - Tables on prod but not staging → abort (can't synthesize missing targets).
+# - Tables on staging but not prod → allowed, but note the CASCADE caveat:
+#   the TRUNCATE list is derived from prod-tables.txt so staging-only tables
+#   aren't truncated explicitly, HOWEVER `TRUNCATE ... CASCADE` on prod-known
+#   parent tables propagates through FK references into staging-only tables.
+#   Their schema is preserved, but their ROWS may be wiped if any column
+#   FK-references a prod-known table (e.g. self_pickups.platform_id → platforms).
+#   If you need staging-only row data to survive a refresh, snapshot it first
+#   and re-apply afterwards.
+diff -u "$RUN_DIR/prod-tables.txt" "$RUN_DIR/staging-tables.txt" > "$RUN_DIR/table-diff.txt" || true
+comm -23 <(sort "$RUN_DIR/prod-tables.txt") <(sort "$RUN_DIR/staging-tables.txt") > "$RUN_DIR/only-in-prod-tables.txt"
+if [[ -s "$RUN_DIR/only-in-prod-tables.txt" ]]; then
+    echo "ERROR: prod has tables staging doesn't — refresh cannot synthesize missing tables. See $RUN_DIR/only-in-prod-tables.txt" >&2
     exit 1
 fi
 
