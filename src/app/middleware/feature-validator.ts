@@ -4,6 +4,7 @@ import CustomizedError from "../error/customized-error";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "../../db";
 import { companies, platforms } from "../../db/schema";
+import { featureRegistry, resolveEffectiveFeature } from "../constants/common";
 
 const featureValidator = (featureName: string) => {
     return async (req: Request, res: Response, next: NextFunction) => {
@@ -21,8 +22,8 @@ const featureValidator = (featureName: string) => {
                 throw new CustomizedError(httpStatus.NOT_FOUND, "Platform not found");
             }
 
-            const platformFeatures = platform.features as Record<string, boolean>;
-            const platformEnabled = platformFeatures?.[featureName] === true;
+            const platformFeatures = platform.features as Record<string, unknown> | null;
+            const featureKey = featureName as keyof typeof featureRegistry;
 
             if (user?.role === "CLIENT") {
                 const companyId = user.company_id;
@@ -42,14 +43,10 @@ const featureValidator = (featureName: string) => {
 
                 if (!company) throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found");
 
-                const companyFeatures = company.features as Record<string, boolean>;
-                const companyHasOverride = Object.prototype.hasOwnProperty.call(
-                    companyFeatures,
-                    featureName
-                );
-                const enabled = companyHasOverride
-                    ? companyFeatures?.[featureName] === true
-                    : platformEnabled;
+                const enabled = resolveEffectiveFeature(featureKey, {
+                    platformFeatures,
+                    companyFeatures: company.features as Record<string, unknown> | null,
+                });
 
                 if (!enabled) {
                     throw new CustomizedError(
@@ -62,6 +59,9 @@ const featureValidator = (featureName: string) => {
                 // OR any company on the platform has overridden it to true. Admins
                 // operate cross-company so a single tenant pilot must surface the
                 // feature in ops surfaces.
+                const platformEnabled = resolveEffectiveFeature(featureKey, {
+                    platformFeatures,
+                });
                 if (platformEnabled) {
                     next();
                     return;

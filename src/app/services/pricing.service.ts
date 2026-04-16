@@ -18,6 +18,7 @@ import { eventBus } from "../events/event-bus";
 import { EVENT_TYPES } from "../events/event-types";
 import { applyMarginPerLine, roundCurrency } from "../utils/pricing-engine";
 import { lineItemIdGenerator } from "../modules/order-line-items/order-line-items.utils";
+import { resolveEffectiveFeature } from "../constants/common";
 
 export type PricedEntityType = "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP";
 type PricingRole = "ADMIN" | "LOGISTICS" | "CLIENT";
@@ -501,6 +502,7 @@ const resolveEntityContext = async (
                 company_ops_rate: companies.warehouse_ops_rate,
                 company_vat_percent_override: companies.vat_percent_override,
                 company_features: companies.features,
+                platform_features: platforms.features,
                 platform_vat_percent: platforms.vat_percent,
                 created_by: orders.created_by,
                 calculated_totals: orders.calculated_totals,
@@ -523,9 +525,10 @@ const resolveEntityContext = async (
                     : toNum(row.platform_vat_percent),
             created_by: String(row.created_by),
             volume: toNum((row.calculated_totals as Record<string, unknown> | null)?.volume),
-            enable_base_operations:
-                ((row.company_features as Record<string, unknown> | null)
-                    ?.enable_base_operations as boolean | undefined) ?? true,
+            enable_base_operations: resolveEffectiveFeature("enable_base_operations", {
+                platformFeatures: row.platform_features as Record<string, unknown> | null,
+                companyFeatures: row.company_features as Record<string, unknown> | null,
+            }),
         };
     }
 
@@ -538,6 +541,7 @@ const resolveEntityContext = async (
                 company_ops_rate: companies.warehouse_ops_rate,
                 company_vat_percent_override: companies.vat_percent_override,
                 company_features: companies.features,
+                platform_features: platforms.features,
                 platform_vat_percent: platforms.vat_percent,
                 created_by: inboundRequests.created_by,
             })
@@ -567,9 +571,10 @@ const resolveEntityContext = async (
                     : toNum(row.platform_vat_percent),
             created_by: String(row.created_by),
             volume: toNum(volumeRow?.total_volume),
-            enable_base_operations:
-                ((row.company_features as Record<string, unknown> | null)
-                    ?.enable_base_operations as boolean | undefined) ?? true,
+            enable_base_operations: resolveEffectiveFeature("enable_base_operations", {
+                platformFeatures: row.platform_features as Record<string, unknown> | null,
+                companyFeatures: row.company_features as Record<string, unknown> | null,
+            }),
         };
     }
 
@@ -582,6 +587,7 @@ const resolveEntityContext = async (
                 company_ops_rate: companies.warehouse_ops_rate,
                 company_vat_percent_override: companies.vat_percent_override,
                 company_features: companies.features,
+                platform_features: platforms.features,
                 platform_vat_percent: platforms.vat_percent,
                 created_by: selfPickups.created_by,
                 calculated_totals: selfPickups.calculated_totals,
@@ -609,9 +615,10 @@ const resolveEntityContext = async (
             volume: toNum(
                 (row.calculated_totals as Record<string, unknown> | null)?.volume
             ),
-            enable_base_operations:
-                ((row.company_features as Record<string, unknown> | null)
-                    ?.enable_base_operations as boolean | undefined) ?? true,
+            enable_base_operations: resolveEffectiveFeature("enable_base_operations", {
+                platformFeatures: row.platform_features as Record<string, unknown> | null,
+                companyFeatures: row.company_features as Record<string, unknown> | null,
+            }),
         };
     }
 
@@ -623,6 +630,7 @@ const resolveEntityContext = async (
             company_ops_rate: companies.warehouse_ops_rate,
             company_vat_percent_override: companies.vat_percent_override,
             company_features: companies.features,
+            platform_features: platforms.features,
             platform_vat_percent: platforms.vat_percent,
             created_by: serviceRequests.created_by,
         })
@@ -644,10 +652,10 @@ const resolveEntityContext = async (
                 : toNum(row.platform_vat_percent),
         created_by: String(row.created_by),
         volume: undefined,
-        enable_base_operations:
-            ((row.company_features as Record<string, unknown> | null)?.enable_base_operations as
-                | boolean
-                | undefined) ?? true,
+        enable_base_operations: resolveEffectiveFeature("enable_base_operations", {
+            platformFeatures: row.platform_features as Record<string, unknown> | null,
+            companyFeatures: row.company_features as Record<string, unknown> | null,
+        }),
     };
 };
 

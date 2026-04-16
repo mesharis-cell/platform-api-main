@@ -116,3 +116,41 @@ export const companyFeatures = (Object.keys(featureRegistry) as FeatureKey[]).re
     },
     {} as { [K in FeatureKey]: boolean }
 );
+
+/**
+ * THE canonical "is this feature on?" resolver. Every API consumer that needs
+ * to know whether a feature is enabled for a given context MUST go through
+ * this function. Do not inline feature-flag checks.
+ *
+ * Priority (matches the featureValidator middleware for CLIENT users):
+ *   1. Company override (if set explicitly — any boolean value)
+ *   2. Platform value (if set explicitly — any boolean value)
+ *   3. Registry default (hardcoded per-flag default in featureRegistry)
+ *
+ * Pass whatever subset of features you have:
+ *   - resolveEffectiveFeature("enable_self_pickup", { platformFeatures, companyFeatures })
+ *   - resolveEffectiveFeature("enable_base_operations", { companyFeatures })
+ *   - resolveEffectiveFeature("enable_attachments", {})  // → registry default only
+ *
+ * Why this exists: previously every consumer (auth/context builder,
+ * featureValidator middleware, pricing service's rebuildBreakdown, company
+ * services) hand-rolled its own resolution with slightly different defaults
+ * + fallback chains. Pricing service used `?? true` regardless of platform
+ * value → Red Bull's platform-off flag was silently ignored. Single resolver
+ * means this can't drift again.
+ *
+ * See CLAUDE.md <feature_flag_discipline>.
+ */
+export const resolveEffectiveFeature = (
+    featureKey: FeatureKey,
+    ctx: {
+        platformFeatures?: Record<string, unknown> | null;
+        companyFeatures?: Record<string, unknown> | null;
+    }
+): boolean => {
+    const companyValue = ctx.companyFeatures?.[featureKey];
+    if (typeof companyValue === "boolean") return companyValue;
+    const platformValue = ctx.platformFeatures?.[featureKey];
+    if (typeof platformValue === "boolean") return platformValue;
+    return featureRegistry[featureKey].default;
+};
