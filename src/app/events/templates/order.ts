@@ -105,13 +105,24 @@ export const quoteSentClient: EmailTemplate = {
             const unit = i.unit ? ` ${i.unit}` : "";
             return ` (${i.quantity}${unit})`;
         };
-        const priceLabel = (i: any) => {
+        // Mirrors client UI behavior: when a line's price is hidden
+        // (total = null) we render the label only — no "Pricing hidden"
+        // placeholder, no colon, no amount. Total at the bottom is
+        // always shown.
+        const priceLabel = (i: any): string => {
             if (i.billing_mode === "COMPLIMENTARY") {
                 return i.total != null
                     ? `Complimentary (valued at ${formatAmount(i.total)} AED)`
                     : "Complimentary";
             }
-            return i.total != null ? `${formatAmount(i.total)} AED` : "Pricing hidden";
+            return i.total != null ? `${formatAmount(i.total)} AED` : "";
+        };
+        const renderLineRow = (i: any): string => {
+            const label = `${i.label}${qtyLabel(i)}`;
+            const price = priceLabel(i);
+            return price
+                ? `<p style="margin: 6px 0;"><strong>${label}:</strong> ${price}</p>`
+                : `<p style="margin: 6px 0;"><strong>${label}</strong></p>`;
         };
         const lineItemsHtml = lineItems.length
             ? lineItems
@@ -119,12 +130,16 @@ export const quoteSentClient: EmailTemplate = {
                       (i: any) =>
                           i.billing_mode === "BILLABLE" || i.billing_mode === "COMPLIMENTARY"
                   )
-                  .map(
-                      (i: any) =>
-                          `<p style="margin: 6px 0;"><strong>${i.label}${qtyLabel(i)}:</strong> ${priceLabel(i)}</p>`
-                  )
+                  .map(renderLineRow)
                   .join("")
             : `<p style="margin: 6px 0; color: #6b7280;">No additional service items</p>`;
+        // Picking & Handling — same visibility rule as line items. The
+        // payload sends pricing.base_ops_total only when the client is
+        // allowed to see it; otherwise we render the label alone.
+        const baseOpsHtml =
+            pricing.base_ops_total != null
+                ? `<p style="margin: 6px 0;"><strong>Picking & Handling:</strong> ${formatAmount(pricing.base_ops_total)} AED</p>`
+                : `<p style="margin: 6px 0;"><strong>Picking & Handling</strong></p>`;
 
         return wrap(`
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Your Quote is Ready</h1>
@@ -133,7 +148,7 @@ export const quoteSentClient: EmailTemplate = {
                 ${infoRow("Order ID", d.entity_id_readable)}
                 ${infoRow("Company", d.company_name)}
                 <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 12px 0;">
-                <p style="margin: 6px 0;"><strong>Picking & Handling:</strong> ${formatAmount(pricing.base_ops_total)} AED</p>
+                ${baseOpsHtml}
                 ${lineItemsHtml}
                 <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 12px 0;">
                 <p style="margin: 8px 0; font-size: 18px; font-weight: bold; color: #111827;">Total: ${formatAmount(d.final_total)} AED</p>
