@@ -78,6 +78,22 @@ const updatePlatformMaintenance = catchAsync(async (req, res) => {
     });
 });
 
+const getPlatformMaintenanceHistory = catchAsync(async (req, res) => {
+    const platformId = getRequiredString(req.params.id, "id");
+    const limit = req.query.limit ? Number(req.query.limit) : 50;
+    const result = await SuperAdminServices.getPlatformMaintenanceHistory(
+        platformId,
+        Number.isFinite(limit) && limit > 0 ? Math.min(limit, 200) : 50
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Maintenance history fetched",
+        data: result,
+    });
+});
+
 export const SuperAdminControllers = {
     login,
     refresh,
@@ -85,4 +101,5 @@ export const SuperAdminControllers = {
     listPlatforms,
     getPlatformDetail,
     updatePlatformMaintenance,
+    getPlatformMaintenanceHistory,
 };

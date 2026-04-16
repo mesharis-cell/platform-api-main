@@ -275,6 +275,9 @@ export const platforms = pgTable(
         maintenance_message: text("maintenance_message"),
         maintenance_until: timestamp("maintenance_until"),
         maintenance_updated_at: timestamp("maintenance_updated_at"),
+        // FK to users(id) ON DELETE SET NULL is enforced at the DB layer
+        // (migration 0041) — not declared here because users is defined
+        // below and Drizzle's TS inference chokes on the circular ref.
         maintenance_updated_by: uuid("maintenance_updated_by"),
         is_active: boolean("is_active").default(true).notNull(),
         created_at: timestamp("created_at").notNull().defaultNow(),
@@ -297,6 +300,35 @@ export const platformsRelations = relations(platforms, ({ many }) => ({
     attachment_types: many(attachmentTypes),
     entity_attachments: many(entityAttachments),
 }));
+
+// ---------------------------------- PLATFORM MAINTENANCE AUDIT ---------------------------
+// Append-only log of super-admin maintenance toggles. One row per
+// PATCH /super-admin/platforms/:id/maintenance. Action values:
+//   "ENABLED"  — maintenance was off, now on
+//   "UPDATED"  — maintenance was already on; message / until changed
+//   "DISABLED" — maintenance was on, now off
+export const platformMaintenanceAudit = pgTable(
+    "platform_maintenance_audit",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        action: varchar("action", { length: 16 }).notNull(),
+        message: text("message"),
+        until: timestamp("until"),
+        // actor_id FK → users(id) ON DELETE SET NULL enforced via migration
+        // (not declared here due to circular-ref w/ users table).
+        actor_id: uuid("actor_id"),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+    },
+    (table) => [
+        index("platform_maintenance_audit_platform_id_idx").on(
+            table.platform_id,
+            table.created_at
+        ),
+    ]
+);
 
 // ---------------------------------- COMPANY & COMPANY DOMAINS ---------------------------
 // Settings structure:

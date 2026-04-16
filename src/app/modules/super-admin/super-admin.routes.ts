@@ -23,4 +23,10 @@ router.patch(
     SuperAdminControllers.updatePlatformMaintenance
 );
 
+router.get(
+    "/platforms/:id/maintenance/history",
+    superAdminAuth,
+    SuperAdminControllers.getPlatformMaintenanceHistory
+);
+
 export const SuperAdminRoutes = router;

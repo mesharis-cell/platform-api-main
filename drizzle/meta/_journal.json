@@ -288,6 +288,13 @@
             "when": 1776297600000,
             "tag": "0040_order_requested_pickup_window",
             "breakpoints": true
+        },
+        {
+            "idx": 41,
+            "version": "7",
+            "when": 1776400000000,
+            "tag": "0041_maintenance_integrity_and_audit",
+            "breakpoints": true
         }
     ]
 }
