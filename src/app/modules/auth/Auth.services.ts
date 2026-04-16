@@ -19,7 +19,7 @@ import { OTPGenerator } from "../../utils/helper";
 import { eventBus, EVENT_TYPES } from "../../events";
 import { OTPVerifier } from "../../utils/otp-verifier";
 import { PERMISSIONS } from "../../constants/permissions";
-import { companyFeatures, featureNames } from "../../constants/common";
+import { companyFeatures, featureNames, featureRegistry } from "../../constants/common";
 
 const FEATURE_KEYS = Object.values(featureNames);
 
@@ -293,6 +293,7 @@ const getConfigByHostname = async (originOrHost?: string | null) => {
                     currency: config?.currency || null,
                     features: platformFeatures,
                     effective_admin_features: effectiveAdminFeatures,
+                    feature_registry: featureRegistry,
                 };
             }
             return null;
@@ -375,6 +376,7 @@ const getConfigByHostname = async (originOrHost?: string | null) => {
                 currency: config?.currency || null,
                 features: platformFeatures,
                 effective_admin_features: effectiveAdminFeatures,
+                feature_registry: featureRegistry,
             };
         }
 
