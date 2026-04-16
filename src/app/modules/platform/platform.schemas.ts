@@ -1,4 +1,7 @@
 import z from "zod";
+import { companyFeatures, featureNames } from "../../constants/common";
+
+const FEATURE_KEYS = Object.values(featureNames);
 
 const configSchema = z.object({
     logo_url: z.string().url("Logo URL must be a valid URL").optional(),
@@ -52,33 +55,25 @@ const configSchema = z.object({
         .optional(),
 });
 
-const featureSchema = z.object({
-    enable_inbound_requests: z.boolean().optional().default(true),
-    show_estimate_on_order_creation: z.boolean().optional().default(true),
-    require_client_po_number_on_quote_approval: z.boolean().optional().default(true),
-    enable_kadence_invoicing: z.boolean().optional().default(false),
-    enable_base_operations: z.boolean().optional().default(true),
-    enable_asset_bulk_upload: z.boolean().optional().default(false),
-    enable_attachments: z.boolean().optional().default(true),
-    enable_workflows: z.boolean().optional().default(true),
-    enable_service_requests: z.boolean().optional().default(true),
-    enable_event_calendar: z.boolean().optional().default(true),
-    enable_client_stock_requests: z.boolean().optional().default(true),
-});
+// Feature schemas derived from the central featureNames registry so adding
+// a new flag to constants/common.ts automatically flows through here with
+// no additional edits. Do NOT hand-code feature lists anywhere else; if you
+// find yourself listing enable_* keys by name in a schema/sanitizer/UI,
+// you're on the wrong path — see CLAUDE.md <feature_flag_discipline>.
+const featureSchema = z.object(
+    FEATURE_KEYS.reduce<Record<string, z.ZodTypeAny>>((acc, key) => {
+        const defaultValue = Boolean(companyFeatures[key as keyof typeof companyFeatures]);
+        acc[key] = z.boolean().optional().default(defaultValue);
+        return acc;
+    }, {})
+);
 
-const featurePatchSchema = z.object({
-    enable_inbound_requests: z.boolean().optional(),
-    show_estimate_on_order_creation: z.boolean().optional(),
-    require_client_po_number_on_quote_approval: z.boolean().optional(),
-    enable_kadence_invoicing: z.boolean().optional(),
-    enable_base_operations: z.boolean().optional(),
-    enable_asset_bulk_upload: z.boolean().optional(),
-    enable_attachments: z.boolean().optional(),
-    enable_workflows: z.boolean().optional(),
-    enable_service_requests: z.boolean().optional(),
-    enable_event_calendar: z.boolean().optional(),
-    enable_client_stock_requests: z.boolean().optional(),
-});
+const featurePatchSchema = z.object(
+    FEATURE_KEYS.reduce<Record<string, z.ZodTypeAny>>((acc, key) => {
+        acc[key] = z.boolean().optional();
+        return acc;
+    }, {})
+);
 
 const createPlatform = z.object({
     body: z.object({
