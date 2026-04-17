@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { moveS3Object, s3KeyFromUrl } from "../../services/s3.service";
 import httpStatus from "http-status";
 import QRCode from "qrcode";
@@ -539,9 +539,16 @@ const getAssets = async (query: Record<string, any>, user: AuthUser, platformId:
         }
     }
 
-    // Step 3b: Search by asset name
+    // Step 3b: Search by asset name, QR code, or family name
     if (search_term) {
-        conditions.push(ilike(assets.name, `%${search_term.trim()}%`));
+        const term = `%${search_term.trim()}%`;
+        conditions.push(
+            or(
+                ilike(assets.name, term),
+                ilike(assets.qr_code, term),
+                sql`EXISTS (SELECT 1 FROM asset_families af WHERE af.id = ${assets.family_id} AND af.name ILIKE ${term})`
+            )
+        );
     }
 
     // Step 3c: Filter by company ID
@@ -636,6 +643,24 @@ const getAssets = async (query: Record<string, any>, user: AuthUser, platformId:
                     columns: {
                         id: true,
                         name: true,
+                    },
+                },
+                family: {
+                    columns: {
+                        id: true,
+                        name: true,
+                        stock_mode: true,
+                        category_id: true,
+                    },
+                    with: {
+                        category: {
+                            columns: {
+                                id: true,
+                                name: true,
+                                slug: true,
+                                color: true,
+                            },
+                        },
                     },
                 },
             },
@@ -941,6 +966,63 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
         }
 
         if (data.family_id !== undefined) {
+            // Guard: block move if asset has active bookings on open orders
+            if (data.family_id !== existingAsset.family_id && existingAsset.family_id) {
+                const activeBookings = await db
+                    .select({ id: assetBookings.id })
+                    .from(assetBookings)
+                    .leftJoin(orders, eq(assetBookings.order_id, orders.id))
+                    .where(
+                        and(
+                            eq(assetBookings.asset_id, id),
+                            or(
+                                // Order bookings with active statuses
+                                inArray(orders.order_status, [
+                                    "CONFIRMED",
+                                    "IN_PREPARATION",
+                                    "READY_FOR_DELIVERY",
+                                    "IN_TRANSIT",
+                                    "DELIVERED",
+                                    "IN_USE",
+                                    "AWAITING_RETURN",
+                                ]),
+                                // Self-pickup bookings (non-null self_pickup_id = active)
+                                sql`${assetBookings.self_pickup_id} IS NOT NULL`
+                            )
+                        )
+                    )
+                    .limit(1);
+
+                if (activeBookings.length > 0) {
+                    throw new CustomizedError(
+                        httpStatus.BAD_REQUEST,
+                        "Cannot move — this item has active bookings on open orders"
+                    );
+                }
+
+                // Guard: block stock_mode mismatch (POOLED ↔ SERIALIZED)
+                const [sourceFamily] = await db
+                    .select({ stock_mode: assetFamilies.stock_mode })
+                    .from(assetFamilies)
+                    .where(eq(assetFamilies.id, existingAsset.family_id))
+                    .limit(1);
+                const [targetFamily] = await db
+                    .select({ stock_mode: assetFamilies.stock_mode })
+                    .from(assetFamilies)
+                    .where(eq(assetFamilies.id, data.family_id))
+                    .limit(1);
+                if (
+                    sourceFamily &&
+                    targetFamily &&
+                    sourceFamily.stock_mode !== targetFamily.stock_mode
+                ) {
+                    throw new CustomizedError(
+                        httpStatus.BAD_REQUEST,
+                        "Cannot move to a family with a different stock mode (Pooled ↔ Serialized)"
+                    );
+                }
+            }
+
             await validateAssetFamily({
                 familyId: data.family_id,
                 platformId,
