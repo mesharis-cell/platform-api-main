@@ -48,7 +48,8 @@ const getAssetFamilyAvailabilityStats = catchAsync(async (req, res) => {
 
 const createAssetFamily = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
-    const result = await AssetFamilyServices.createAssetFamily(platformId, req.body);
+    const user = (req as any).user;
+    const result = await AssetFamilyServices.createAssetFamily(platformId, req.body, user?.id);
 
     sendResponse(res, {
         statusCode: httpStatus.CREATED,
@@ -61,7 +62,8 @@ const createAssetFamily = catchAsync(async (req, res) => {
 const updateAssetFamily = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const id = getRequiredString(req.params.id, "id");
-    const result = await AssetFamilyServices.updateAssetFamily(id, platformId, req.body);
+    const user = (req as any).user;
+    const result = await AssetFamilyServices.updateAssetFamily(id, platformId, req.body, user?.id);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

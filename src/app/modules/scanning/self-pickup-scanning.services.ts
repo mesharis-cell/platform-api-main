@@ -110,7 +110,7 @@ const selfPickupOutboundScan = async (
 
     if (asset.tracking_method === "BATCH") {
         await StockMovementService.record(null, {
-            platformId, assetId: asset.id, familyId: asset.family_id,
+            platformId, assetId: asset.id,
             delta: -scanQuantity, movementType: "OUTBOUND",
             linkedEntityType: "SELF_PICKUP", linkedEntityId: selfPickupId,
             scanEventId: scanEvent.id, userId: user.id,
@@ -247,7 +247,7 @@ const selfPickupInboundScan = async (
 
     if (asset.tracking_method === "BATCH") {
         await StockMovementService.record(null, {
-            platformId, assetId: asset.id, familyId: (asset as any).family_id,
+            platformId, assetId: asset.id,
             delta: scanQuantity, movementType: "INBOUND",
             linkedEntityType: "SELF_PICKUP", linkedEntityId: selfPickupId,
             scanEventId: scanEvent.id, userId: user.id,
@@ -338,7 +338,6 @@ const completeSelfPickupReturn = async (
             await StockMovementService.record(tx, {
                 platformId,
                 assetId: item.asset_id,
-                familyId: (item.asset as any)?.family_id || null,
                 delta,
                 movementType: "WRITE_OFF",
                 writeOffReason: settlement.write_off_reason,

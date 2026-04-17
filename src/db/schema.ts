@@ -648,6 +648,41 @@ export const zonesRelations = relations(zones, ({ one, many }) => ({
     assets: many(assets),
 }));
 
+// ---------------------------------- ASSET CATEGORY -----------------------------------------
+export const assetCategories = pgTable(
+    "asset_categories",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        company_id: uuid("company_id").references(() => companies.id, { onDelete: "cascade" }),
+        name: varchar("name", { length: 100 }).notNull(),
+        slug: varchar("slug", { length: 120 }).notNull(),
+        color: varchar("color", { length: 7 }).notNull(),
+        sort_order: integer("sort_order").notNull().default(0),
+        is_active: boolean("is_active").notNull().default(true),
+        created_by: uuid("created_by"),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+        updated_at: timestamp("updated_at")
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [index("asset_categories_platform_idx").on(table.platform_id)]
+);
+
+export const assetCategoriesRelations = relations(assetCategories, ({ one, many }) => ({
+    platform: one(platforms, {
+        fields: [assetCategories.platform_id],
+        references: [platforms.id],
+    }),
+    company: one(companies, {
+        fields: [assetCategories.company_id],
+        references: [companies.id],
+    }),
+    asset_families: many(assetFamilies),
+}));
+
 // ---------------------------------- ASSET FAMILY -----------------------------------------
 export const assetFamilies = pgTable(
     "asset_families",
@@ -664,7 +699,9 @@ export const assetFamilies = pgTable(
         name: varchar("name", { length: 200 }).notNull(),
         company_item_code: varchar("company_item_code", { length: 150 }),
         description: text("description"),
-        category: varchar("category", { length: 100 }).notNull(),
+        category_id: uuid("category_id")
+            .notNull()
+            .references(() => assetCategories.id, { onDelete: "set null" }),
         images: jsonb("images")
             .notNull()
             .default(sql`'[]'::jsonb`),
@@ -694,6 +731,7 @@ export const assetFamilies = pgTable(
         index("asset_families_brand_idx").on(table.brand_id),
         index("asset_families_team_idx").on(table.team_id),
         index("asset_families_company_item_code_idx").on(table.company_item_code),
+        index("asset_families_category_idx").on(table.category_id),
         index("asset_families_stock_mode_idx").on(table.stock_mode),
         unique("asset_families_platform_company_name_unique").on(
             table.platform_id,
@@ -724,6 +762,10 @@ export const assetFamiliesRelations = relations(assetFamilies, ({ one, many }) =
     team: one(teams, {
         fields: [assetFamilies.team_id],
         references: [teams.id],
+    }),
+    category: one(assetCategories, {
+        fields: [assetFamilies.category_id],
+        references: [assetCategories.id],
     }),
     assets: many(assets),
 }));

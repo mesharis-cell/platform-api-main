@@ -5,6 +5,7 @@ import QRCode from "qrcode";
 import { db } from "../../../db";
 import {
     assetBookings,
+    assetCategories,
     assetConditionHistory,
     assetFamilies,
     assetVersions,
@@ -180,12 +181,19 @@ const resolveCreateAssetData = async (data: CreateAssetPayload) => {
         );
     }
 
-    const category = data.category ?? family?.category;
+    // Category: resolve from the family's category record if not supplied directly.
+    // assets.category varchar is still populated (parked scope — not dropped yet)
+    // but sourced from the new asset_categories table via family.category_id.
+    let category = data.category;
+    if (!category && family?.category_id) {
+        const catRow = await db.query.assetCategories.findFirst({
+            where: eq(assetCategories.id, family.category_id),
+            columns: { name: true },
+        });
+        category = catRow?.name ?? "Unknown";
+    }
     if (!category) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            "category is required when asset family is not provided"
-        );
+        category = "Unknown";
     }
 
     const weightPerUnit =
@@ -740,7 +748,7 @@ const getAssetById = async (id: string, user: AuthUser, platformId: string) => {
                     team_id: true,
                     name: true,
                     description: true,
-                    category: true,
+                    category_id: true,
                     images: true,
                     on_display_image: true,
                     stock_mode: true,

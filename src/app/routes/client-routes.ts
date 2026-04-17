@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { AssetCategoryRoutes } from "../modules/asset-categories/asset-categories.routes";
 import { CalendarRoutes } from "../modules/calendar/calendar.routes";
 import { CatalogRoutes } from "../modules/catalog/catalog.routes";
 import { InvoiceRoutes } from "../modules/invoice/invoice.routes";
@@ -14,6 +15,10 @@ const routes = [
     {
         path: "/calendar",
         route: CalendarRoutes,
+    },
+    {
+        path: "/asset-category",
+        route: AssetCategoryRoutes,
     },
     {
         path: "/catalog",

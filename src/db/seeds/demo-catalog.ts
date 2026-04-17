@@ -59,7 +59,7 @@ export const seedDemoCatalog = async (opts: SeedDemoCatalogOpts): Promise<Seeded
             company_id: opts.companyId,
             brand_id: opts.brandPrimaryId,
             name: "Event Chairs",
-            category: "Furniture",
+            category_id: null as any, // resolved by migration seed
             description: "Stackable chairs for corporate events.",
             stock_mode: "POOLED",
             weight_per_unit: "3.20",
@@ -74,7 +74,7 @@ export const seedDemoCatalog = async (opts: SeedDemoCatalogOpts): Promise<Seeded
             company_id: opts.companyId,
             brand_id: opts.brandPrimaryId,
             name: "Backdrop Panels",
-            category: "Decor",
+            category_id: null as any, // resolved by migration seed
             description: "Modular backdrop panels for stage and photo walls.",
             stock_mode: "SERIALIZED",
             weight_per_unit: "12.00",
@@ -89,7 +89,7 @@ export const seedDemoCatalog = async (opts: SeedDemoCatalogOpts): Promise<Seeded
             company_id: opts.companyId,
             brand_id: opts.brandSecondaryId,
             name: "LED Screens",
-            category: "AV Equipment",
+            category_id: null as any, // resolved by migration seed
             description: "P3 indoor LED video walls (per panel).",
             stock_mode: "SERIALIZED",
             weight_per_unit: "8.50",
@@ -193,7 +193,7 @@ export const seedDemoCatalog = async (opts: SeedDemoCatalogOpts): Promise<Seeded
             brand_id: opts.brandPrimaryId,
             family_id: DEMO_UUIDS.families.backdropPanels,
             name: "Backdrop Panel #4",
-            category: "Decor",
+            category: "AV Equipment",
             tracking_method: "INDIVIDUAL",
             total_quantity: 1,
             available_quantity: 0,

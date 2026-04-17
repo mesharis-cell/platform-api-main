@@ -36,7 +36,6 @@ export type WriteOffReason = "CONSUMED" | "LOST" | "DAMAGED" | "OTHER";
 export interface RecordMovementParams {
     platformId: string;
     assetId: string;
-    familyId?: string | null;
     delta: number;
     movementType: MovementType;
     writeOffReason?: WriteOffReason | null;
@@ -63,7 +62,7 @@ async function record(
         .values({
             platform_id: params.platformId,
             asset_id: params.assetId,
-            asset_family_id: params.familyId || null,
+            asset_family_id: null,
             delta: params.delta,
             movement_type: params.movementType,
             write_off_reason: params.writeOffReason || null,
@@ -208,10 +207,10 @@ async function getFamilyHistory(
             created_at: stockMovements.created_at,
         })
         .from(stockMovements)
+        .innerJoin(assets, eq(stockMovements.asset_id, assets.id))
         .leftJoin(users, eq(stockMovements.created_by, users.id))
-        .leftJoin(assets, eq(stockMovements.asset_id, assets.id))
         .where(
-            and(eq(stockMovements.asset_family_id, familyId), eq(stockMovements.platform_id, platformId))
+            and(eq(assets.family_id, familyId), eq(stockMovements.platform_id, platformId))
         )
         .orderBy(desc(stockMovements.created_at))
         .limit(limit)

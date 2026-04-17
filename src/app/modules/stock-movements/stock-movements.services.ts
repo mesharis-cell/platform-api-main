@@ -70,11 +70,11 @@ const getFamilyStockHistory = async (
             created_at: stockMovements.created_at,
         })
         .from(stockMovements)
+        .innerJoin(assets, eq(stockMovements.asset_id, assets.id))
         .leftJoin(users, eq(stockMovements.created_by, users.id))
-        .leftJoin(assets, eq(stockMovements.asset_id, assets.id))
         .where(
             and(
-                eq(stockMovements.asset_family_id, familyId),
+                eq(assets.family_id, familyId),
                 eq(stockMovements.platform_id, platformId)
             )
         )
@@ -152,7 +152,6 @@ const createManualAdjustment = async (
     const movement = await StockMovementService.record(null, {
         platformId,
         assetId: asset_id,
-        familyId: asset.family_id,
         delta,
         movementType: "ADJUSTMENT",
         note: reason_note,

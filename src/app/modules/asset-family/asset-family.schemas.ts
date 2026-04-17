@@ -23,10 +23,16 @@ const createAssetFamilySchema = z.object({
             .optional()
             .nullable(),
         description: z.string().optional().nullable(),
-        category: z
-            .string({ message: "Category is required" })
-            .min(1, "Category is required")
-            .max(100, "Category must be under 100 characters"),
+        category_id: z.string().uuid("Invalid category ID").optional(),
+        new_category: z
+            .object({
+                name: z.string().min(1, "Category name is required").max(100),
+                color: z
+                    .string()
+                    .regex(/^#[0-9a-fA-F]{6}$/, "Color must be hex")
+                    .optional(),
+            })
+            .optional(),
         images: z.array(assetImageSchema).optional().default([]),
         on_display_image: z.string().url("Invalid on display image URL").optional().nullable(),
         stock_mode: z.enum(stockModeEnum.enumValues, {
@@ -73,7 +79,16 @@ const updateAssetFamilySchema = z.object({
             .optional()
             .nullable(),
         description: z.string().optional().nullable(),
-        category: z.string().min(1, "Category cannot be empty").max(100).optional(),
+        category_id: z.string().uuid("Invalid category ID").optional(),
+        new_category: z
+            .object({
+                name: z.string().min(1).max(100),
+                color: z
+                    .string()
+                    .regex(/^#[0-9a-fA-F]{6}$/)
+                    .optional(),
+            })
+            .optional(),
         images: z.array(assetImageSchema).optional(),
         on_display_image: z.string().url("Invalid on display image URL").optional().nullable(),
         stock_mode: z
