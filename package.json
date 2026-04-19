@@ -29,6 +29,8 @@
         "db:redbull:apply-alignment": "bun --preload ./src/bootstrap/env-preload.ts ./src/db/scripts/apply-redbull-alignment-results.ts",
         "db:access:cleanup-stale-default-overrides": "bun --preload ./src/bootstrap/env-preload.ts ./src/db/scripts/cleanup-stale-default-overrides.ts",
         "db:access:cleanup-stale-default-overrides:apply": "bun --preload ./src/bootstrap/env-preload.ts ./src/db/scripts/cleanup-stale-default-overrides.ts --apply",
+        "dbops:login-report:prod": "bash scripts/dbops/login-report.sh prod",
+        "dbops:login-report:staging": "bash scripts/dbops/login-report.sh staging",
         "dbops:fingerprint:prod": "bash scripts/dbops/fingerprint-db.sh prod",
         "dbops:fingerprint:staging": "bash scripts/dbops/fingerprint-db.sh staging",
         "dbops:refresh-staging:dry": "APP_ENV=staging bash scripts/dbops/refresh-staging-full.sh dry-run",
