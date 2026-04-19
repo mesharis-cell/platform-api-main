@@ -27,6 +27,7 @@ const DEV_ORIGINS = [
     "http://localhost:4000",
     "http://localhost:4001",
     "http://localhost:4002",
+    "http://localhost:4003",
     "http://localhost:5173",
     "http://localhost:5174",
     "http://localhost:6001",
@@ -34,6 +35,7 @@ const DEV_ORIGINS = [
     "http://127.0.0.1:3001",
     "http://127.0.0.1:4000",
     "http://127.0.0.1:4001",
+    "http://127.0.0.1:4003",
     "http://127.0.0.1:5173",
     "https://pmg-backend.vercel.app",
 ];

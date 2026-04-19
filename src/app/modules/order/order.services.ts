@@ -375,6 +375,7 @@ const checkMaintenanceFeasibility = async (
         weekend_days: number[];
         timezone: string;
     };
+    lead_floor_date: string;
 }> => {
     const feasibility = await validateMaintenanceFeasibilityForAssets(
         platformId,
@@ -387,6 +388,7 @@ const checkMaintenanceFeasibility = async (
         feasible: feasibility.feasible,
         issues: feasibility.issues,
         config: feasibility.config,
+        lead_floor_date: feasibility.lead_floor_date,
     };
 };
 
