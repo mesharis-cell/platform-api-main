@@ -89,6 +89,12 @@ export const featureRegistry = {
         description:
             "Show plain-language guidance on the client checkout when the chosen event date is too soon — earliest possible date + why. Hard blocks are always enforced regardless of this flag; this only toggles the explanatory copy.",
     },
+    enable_event_date_inputs: {
+        default: false,
+        label: "Show Event Date Inputs",
+        description:
+            "Show separate Event Start/End dates on client checkout in addition to the delivery/pickup windows. When OFF (default), only Delivery and Pickup dates are collected (both required) and the event dates are auto-filled from them on submit. Turn ON for clients whose event timing genuinely differs from logistics windows.",
+    },
 } as const;
 
 type FeatureKey = keyof typeof featureRegistry;
@@ -154,3 +160,4 @@ export const resolveEffectiveFeature = (
     if (typeof platformValue === "boolean") return platformValue;
     return featureRegistry[featureKey].default;
 };
+// force redeploy 1776614114
