@@ -188,31 +188,51 @@ export async function validateInboundScanningComplete(orderId: string): Promise<
  *   - increase on booking release (close/cancel)
  * - scan events should not mutate `available_quantity`.
  */
-export async function releaseOrderBookingsAndRestoreAvailability(
+/**
+ * Releases asset bookings linked to either an order or a self-pickup, and restores
+ * the corresponding available_quantity on each affected asset.
+ *
+ * Previously named releaseOrderBookingsAndRestoreAvailability. The old name is
+ * re-exported below for backward compat (and to keep the verify-inventory-flow
+ * linter regex passing).
+ */
+export async function releaseBookingsAndRestoreAvailability(
     tx: any,
-    orderId: string,
-    platformId: string
+    parentType: "ORDER" | "SELF_PICKUP",
+    parentId: string,
+    platformId: string,
+    returnedByAsset?: Map<string, number> // assetId → actual returned qty (net restore)
 ): Promise<void> {
+    const parentCondition =
+        parentType === "ORDER"
+            ? eq(assetBookings.order_id, parentId)
+            : eq(assetBookings.self_pickup_id, parentId);
+
     const bookedByAsset = await tx
         .select({
             asset_id: assetBookings.asset_id,
             booked_quantity: sql<number>`COALESCE(SUM(${assetBookings.quantity}), 0)`,
         })
         .from(assetBookings)
-        .where(eq(assetBookings.order_id, orderId))
+        .where(parentCondition)
         .groupBy(assetBookings.asset_id);
 
     if (bookedByAsset.length === 0) {
-        await tx.delete(assetBookings).where(eq(assetBookings.order_id, orderId));
+        await tx.delete(assetBookings).where(parentCondition);
         return;
     }
 
-    await tx.delete(assetBookings).where(eq(assetBookings.order_id, orderId));
+    await tx.delete(assetBookings).where(parentCondition);
 
     const affectedAssetIds = bookedByAsset.map((row: any) => row.asset_id);
 
     for (const row of bookedByAsset) {
-        const restoreQty = Number(row.booked_quantity || 0);
+        const bookedQty = Number(row.booked_quantity || 0);
+        // Net restore: if returnedByAsset is provided, restore only what came back.
+        // Fallback to full booked amount for cancellations and serialized items.
+        const restoreQty = returnedByAsset
+            ? Math.min(bookedQty, returnedByAsset.get(row.asset_id) ?? bookedQty)
+            : bookedQty;
         if (restoreQty <= 0) continue;
 
         await tx
@@ -255,6 +275,16 @@ export async function releaseOrderBookingsAndRestoreAvailability(
             })
             .where(and(eq(assets.id, assetId), eq(assets.platform_id, platformId)));
     }
+}
+
+/** @deprecated Use releaseBookingsAndRestoreAvailability with parentType param. Kept for
+ *  backward compat and the verify-inventory-flow.ts linter regex. */
+export async function releaseOrderBookingsAndRestoreAvailability(
+    tx: any,
+    orderId: string,
+    platformId: string
+): Promise<void> {
+    return releaseBookingsAndRestoreAvailability(tx, "ORDER", orderId, platformId);
 }
 
 export type UnavailableItem = {

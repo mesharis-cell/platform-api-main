@@ -1,10 +1,11 @@
-import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { moveS3Object, s3KeyFromUrl } from "../../services/s3.service";
 import httpStatus from "http-status";
 import QRCode from "qrcode";
 import { db } from "../../../db";
 import {
     assetBookings,
+    assetCategories,
     assetConditionHistory,
     assetFamilies,
     assetVersions,
@@ -180,12 +181,19 @@ const resolveCreateAssetData = async (data: CreateAssetPayload) => {
         );
     }
 
-    const category = data.category ?? family?.category;
+    // Category: resolve from the family's category record if not supplied directly.
+    // assets.category varchar is still populated (parked scope — not dropped yet)
+    // but sourced from the new asset_categories table via family.category_id.
+    let category = data.category;
+    if (!category && family?.category_id) {
+        const catRow = await db.query.assetCategories.findFirst({
+            where: eq(assetCategories.id, family.category_id),
+            columns: { name: true },
+        });
+        category = catRow?.name ?? "Unknown";
+    }
     if (!category) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            "category is required when asset family is not provided"
-        );
+        category = "Unknown";
     }
 
     const weightPerUnit =
@@ -531,9 +539,16 @@ const getAssets = async (query: Record<string, any>, user: AuthUser, platformId:
         }
     }
 
-    // Step 3b: Search by asset name
+    // Step 3b: Search by asset name, QR code, or family name
     if (search_term) {
-        conditions.push(ilike(assets.name, `%${search_term.trim()}%`));
+        const term = `%${search_term.trim()}%`;
+        conditions.push(
+            or(
+                ilike(assets.name, term),
+                ilike(assets.qr_code, term),
+                sql`EXISTS (SELECT 1 FROM asset_families af WHERE af.id = ${assets.family_id} AND af.name ILIKE ${term})`
+            )
+        );
     }
 
     // Step 3c: Filter by company ID
@@ -628,6 +643,24 @@ const getAssets = async (query: Record<string, any>, user: AuthUser, platformId:
                     columns: {
                         id: true,
                         name: true,
+                    },
+                },
+                family: {
+                    columns: {
+                        id: true,
+                        name: true,
+                        stock_mode: true,
+                        category_id: true,
+                    },
+                    with: {
+                        category: {
+                            columns: {
+                                id: true,
+                                name: true,
+                                slug: true,
+                                color: true,
+                            },
+                        },
                     },
                 },
             },
@@ -740,7 +773,7 @@ const getAssetById = async (id: string, user: AuthUser, platformId: string) => {
                     team_id: true,
                     name: true,
                     description: true,
-                    category: true,
+                    category_id: true,
                     images: true,
                     on_display_image: true,
                     stock_mode: true,
@@ -933,6 +966,63 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
         }
 
         if (data.family_id !== undefined) {
+            // Guard: block move if asset has active bookings on open orders
+            if (data.family_id !== existingAsset.family_id && existingAsset.family_id) {
+                const activeBookings = await db
+                    .select({ id: assetBookings.id })
+                    .from(assetBookings)
+                    .leftJoin(orders, eq(assetBookings.order_id, orders.id))
+                    .where(
+                        and(
+                            eq(assetBookings.asset_id, id),
+                            or(
+                                // Order bookings with active statuses
+                                inArray(orders.order_status, [
+                                    "CONFIRMED",
+                                    "IN_PREPARATION",
+                                    "READY_FOR_DELIVERY",
+                                    "IN_TRANSIT",
+                                    "DELIVERED",
+                                    "IN_USE",
+                                    "AWAITING_RETURN",
+                                ]),
+                                // Self-pickup bookings (non-null self_pickup_id = active)
+                                sql`${assetBookings.self_pickup_id} IS NOT NULL`
+                            )
+                        )
+                    )
+                    .limit(1);
+
+                if (activeBookings.length > 0) {
+                    throw new CustomizedError(
+                        httpStatus.BAD_REQUEST,
+                        "Cannot move — this item has active bookings on open orders"
+                    );
+                }
+
+                // Guard: block stock_mode mismatch (POOLED ↔ SERIALIZED)
+                const [sourceFamily] = await db
+                    .select({ stock_mode: assetFamilies.stock_mode })
+                    .from(assetFamilies)
+                    .where(eq(assetFamilies.id, existingAsset.family_id))
+                    .limit(1);
+                const [targetFamily] = await db
+                    .select({ stock_mode: assetFamilies.stock_mode })
+                    .from(assetFamilies)
+                    .where(eq(assetFamilies.id, data.family_id))
+                    .limit(1);
+                if (
+                    sourceFamily &&
+                    targetFamily &&
+                    sourceFamily.stock_mode !== targetFamily.stock_mode
+                ) {
+                    throw new CustomizedError(
+                        httpStatus.BAD_REQUEST,
+                        "Cannot move to a family with a different stock mode (Pooled ↔ Serialized)"
+                    );
+                }
+            }
+
             await validateAssetFamily({
                 familyId: data.family_id,
                 platformId,
@@ -1946,8 +2036,11 @@ const getAssetVersions = async (assetId: string, platformId: string) => {
 
 // ----------------------------------- GET ASSET ORDER HISTORY -----------------------------------
 const getAssetOrderHistory = async (assetId: string, platformId: string) => {
-    // Get all bookings for this asset
-    const bookings = await db
+    // Get all bookings for this asset. asset_bookings.order_id is now nullable because
+    // bookings are polymorphic (order_id XOR self_pickup_id) — but the inner join to orders
+    // below guarantees we only see order-linked bookings here, so runtime values are
+    // non-null. We narrow the type explicitly after the query for TypeScript.
+    const rawBookings = await db
         .select({
             order_id: assetBookings.order_id,
             blocked_from: assetBookings.blocked_from,
@@ -1957,6 +2050,10 @@ const getAssetOrderHistory = async (assetId: string, platformId: string) => {
         .innerJoin(orders, eq(assetBookings.order_id, orders.id))
         .where(and(eq(assetBookings.asset_id, assetId), eq(orders.platform_id, platformId)))
         .orderBy(desc(assetBookings.blocked_from));
+
+    const bookings = rawBookings.filter(
+        (b): b is typeof b & { order_id: string } => b.order_id !== null
+    );
 
     if (bookings.length === 0) return [];
 
@@ -1977,7 +2074,9 @@ const getAssetOrderHistory = async (assetId: string, platformId: string) => {
         .where(inArray(orders.id, orderIds));
 
     // Fetch canonical scan events linked to this asset directly or via scan_event_assets.
-    const scans = await db
+    // scan_events.order_id is now nullable (polymorphic with self_pickup_id); the inArray
+    // filter below restricts to order-linked scans, so runtime order_id is non-null.
+    const rawScans = await db
         .select({
             id: scanEvents.id,
             order_id: scanEvents.order_id,
@@ -2004,6 +2103,10 @@ const getAssetOrderHistory = async (assetId: string, platformId: string) => {
             )
         )
         .orderBy(desc(scanEvents.scanned_at));
+
+    const scans = rawScans.filter(
+        (s): s is typeof s & { order_id: string } => s.order_id !== null
+    );
 
     const scanEventIds = [...new Set(scans.map((scan) => scan.id))];
     const mediaRows =

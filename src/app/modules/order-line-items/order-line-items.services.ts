@@ -280,11 +280,7 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
     await eventBus.emit({
         platform_id,
         event_type: EVENT_TYPES.LINE_ITEM_ADDED,
-        entity_type: (result.purpose_type === "ORDER"
-            ? "ORDER"
-            : result.purpose_type === "INBOUND_REQUEST"
-              ? "INBOUND_REQUEST"
-              : "SERVICE_REQUEST") as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST",
+        entity_type: result.purpose_type as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP",
         entity_id: parentEntityId,
         actor_id: added_by,
         actor_role: null,
@@ -405,11 +401,7 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
     await eventBus.emit({
         platform_id,
         event_type: EVENT_TYPES.LINE_ITEM_ADDED,
-        entity_type: (result.purpose_type === "ORDER"
-            ? "ORDER"
-            : result.purpose_type === "INBOUND_REQUEST"
-              ? "INBOUND_REQUEST"
-              : "SERVICE_REQUEST") as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST",
+        entity_type: result.purpose_type as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP",
         entity_id: customParentEntityId,
         actor_id: added_by,
         actor_role: null,
@@ -557,11 +549,7 @@ const updateLineItem = async (
     await eventBus.emit({
         platform_id: platformId,
         event_type: EVENT_TYPES.LINE_ITEM_UPDATED,
-        entity_type: (result.purpose_type === "ORDER"
-            ? "ORDER"
-            : result.purpose_type === "INBOUND_REQUEST"
-              ? "INBOUND_REQUEST"
-              : "SERVICE_REQUEST") as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST",
+        entity_type: result.purpose_type as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP",
         entity_id: updateParentId,
         actor_id: userId,
         actor_role: null,
@@ -631,11 +619,7 @@ const patchLineItemMetadata = async (
     await eventBus.emit({
         platform_id: platformId,
         event_type: EVENT_TYPES.LINE_ITEM_UPDATED,
-        entity_type: (result.purpose_type === "ORDER"
-            ? "ORDER"
-            : result.purpose_type === "INBOUND_REQUEST"
-              ? "INBOUND_REQUEST"
-              : "SERVICE_REQUEST") as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST",
+        entity_type: result.purpose_type as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP",
         entity_id: result.order_id || result.inbound_request_id || result.service_request_id || "",
         actor_id: userId,
         actor_role: null,
@@ -686,11 +670,7 @@ const patchLineItemClientVisibility = async (
     await eventBus.emit({
         platform_id: platformId,
         event_type: EVENT_TYPES.LINE_ITEM_UPDATED,
-        entity_type: (result.purpose_type === "ORDER"
-            ? "ORDER"
-            : result.purpose_type === "INBOUND_REQUEST"
-              ? "INBOUND_REQUEST"
-              : "SERVICE_REQUEST") as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST",
+        entity_type: result.purpose_type as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP",
         entity_id: result.order_id || result.inbound_request_id || result.service_request_id || "",
         actor_id: userId,
         actor_role: null,
@@ -720,20 +700,31 @@ const patchEntityLineItemsClientVisibility = async (
             ? data.order_id
             : data.purpose_type === "INBOUND_REQUEST"
               ? data.inbound_request_id
-              : data.service_request_id;
+              : data.purpose_type === "SELF_PICKUP"
+                ? (data as any).self_pickup_id
+                : data.service_request_id;
 
     if (!targetId) {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Target entity id is required");
     }
 
+    const getLineItemParentCondition = () => {
+        switch (data.purpose_type) {
+            case "ORDER":
+                return eq(lineItems.order_id, targetId);
+            case "INBOUND_REQUEST":
+                return eq(lineItems.inbound_request_id, targetId);
+            case "SELF_PICKUP":
+                return eq(lineItems.self_pickup_id, targetId);
+            default:
+                return eq(lineItems.service_request_id, targetId);
+        }
+    };
+
     const conditions = [
         eq(lineItems.platform_id, platformId),
         eq(lineItems.purpose_type, data.purpose_type),
-        data.purpose_type === "ORDER"
-            ? eq(lineItems.order_id, targetId)
-            : data.purpose_type === "INBOUND_REQUEST"
-              ? eq(lineItems.inbound_request_id, targetId)
-              : eq(lineItems.service_request_id, targetId),
+        getLineItemParentCondition(),
     ];
 
     if (data.line_item_ids && data.line_item_ids.length > 0) {
@@ -752,11 +743,7 @@ const patchEntityLineItemsClientVisibility = async (
     await eventBus.emit({
         platform_id: platformId,
         event_type: EVENT_TYPES.LINE_ITEM_UPDATED,
-        entity_type: (data.purpose_type === "ORDER"
-            ? "ORDER"
-            : data.purpose_type === "INBOUND_REQUEST"
-              ? "INBOUND_REQUEST"
-              : "SERVICE_REQUEST") as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST",
+        entity_type: data.purpose_type as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP",
         entity_id: targetId,
         actor_id: userId,
         actor_role: null,
@@ -843,11 +830,7 @@ const voidLineItem = async (id: string, platformId: string, data: VoidLineItemPa
     await eventBus.emit({
         platform_id: platformId,
         event_type: EVENT_TYPES.LINE_ITEM_VOIDED,
-        entity_type: (result.purpose_type === "ORDER"
-            ? "ORDER"
-            : result.purpose_type === "INBOUND_REQUEST"
-              ? "INBOUND_REQUEST"
-              : "SERVICE_REQUEST") as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST",
+        entity_type: result.purpose_type as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP",
         entity_id: voidParentId,
         actor_id: voided_by,
         actor_role: null,

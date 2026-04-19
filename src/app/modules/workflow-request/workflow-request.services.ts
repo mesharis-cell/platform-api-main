@@ -5,6 +5,7 @@ import {
     companies,
     inboundRequests,
     orders,
+    selfPickups,
     serviceRequests,
     workflowDefinitions,
     workflowRequests,
@@ -21,7 +22,7 @@ import {
     UpdateWorkflowRequestPayload,
 } from "./workflow-request.interfaces";
 
-export type WorkflowEntityType = "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST";
+export type WorkflowEntityType = "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP";
 
 const resolveEntity = async (
     entityType: WorkflowEntityType,
@@ -52,6 +53,22 @@ const resolveEntity = async (
             .limit(1);
         if (!row) {
             throw new CustomizedError(httpStatus.NOT_FOUND, "INBOUND REQUEST not found");
+        }
+        return row;
+    }
+
+    if (entityType === "SELF_PICKUP") {
+        const [row] = await db
+            .select({
+                id: selfPickups.id,
+                company_id: selfPickups.company_id,
+                readable_id: selfPickups.self_pickup_id,
+            })
+            .from(selfPickups)
+            .where(and(eq(selfPickups.id, entityId), eq(selfPickups.platform_id, platformId)))
+            .limit(1);
+        if (!row) {
+            throw new CustomizedError(httpStatus.NOT_FOUND, "SELF PICKUP not found");
         }
         return row;
     }

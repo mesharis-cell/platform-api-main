@@ -19,6 +19,7 @@
  * Run: bun run db:seed:pr
  */
 
+import { assertAppEnv } from "./safety/guards";
 import { companyFeatures } from "../app/constants/common";
 import { PlatformBootstrapService } from "../app/services/platform-bootstrap.service";
 import { DEFAULT_ACCESS_POLICY_CODES } from "../app/utils/access-policy";
@@ -26,6 +27,8 @@ import { db } from "./index";
 import * as schema from "./schema";
 import bcrypt from "bcrypt";
 import { seedPrAssets } from "./scripts/seed-pr-assets";
+
+assertAppEnv(["staging"]);
 
 // ============================================================
 // STATE STORE

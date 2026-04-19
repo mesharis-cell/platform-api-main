@@ -46,6 +46,10 @@ const updateUser = z.object({
                 .min(1, "Name cannot be empty")
                 .max(100, "Name must be at most 100 characters")
                 .optional(),
+            email: z
+                .email("Invalid email address")
+                .max(255, "Email must be at most 255 characters")
+                .optional(),
             access_policy_id: z.uuid("Access policy ID must be a valid UUID").optional().nullable(),
             permission_grants: z.array(z.string()).optional(),
             permission_revokes: z.array(z.string()).optional(),

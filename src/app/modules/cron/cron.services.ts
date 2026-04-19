@@ -1,6 +1,13 @@
-import { and, eq, lt, or, sql } from "drizzle-orm";
+import { and, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { db } from "../../../db";
-import { orders, orderStatusHistory, otp, systemEvents } from "../../../db/schema";
+import {
+    orders,
+    orderStatusHistory,
+    otp,
+    selfPickups,
+    selfPickupStatusHistory,
+    systemEvents,
+} from "../../../db/schema";
 import { getSystemUser } from "../../utils/helper-query";
 import { eventBus, EVENT_TYPES } from "../../events";
 
@@ -321,8 +328,99 @@ const deleteExpiredOTPs = async () => {
     }
 };
 
+/**
+ * Cron job to auto-transition self-pickups to AWAITING_RETURN when expected_return_at
+ * has passed. Pickups in PICKED_UP or IN_USE status with expected_return_at < now()
+ * are transitioned. Client can also trigger this early via the "Start Return" button.
+ */
+const transitionSelfPickupReturns = async () => {
+    try {
+        const now = new Date();
+
+        const pickupsForReturn = await db.query.selfPickups.findMany({
+            where: and(
+                inArray(selfPickups.self_pickup_status, ["PICKED_UP", "IN_USE"]),
+                lt(selfPickups.expected_return_at, now)
+            ),
+        });
+
+        if (pickupsForReturn.length === 0) {
+            console.log("✅ Self-pickup return cron: No pickups to transition");
+            return;
+        }
+
+        const pickupsByPlatform = pickupsForReturn.reduce(
+            (acc, pickup) => {
+                if (!acc[pickup.platform_id]) acc[pickup.platform_id] = [];
+                acc[pickup.platform_id].push(pickup);
+                return acc;
+            },
+            {} as Record<string, typeof pickupsForReturn>
+        );
+
+        let transitioned = 0;
+
+        for (const [platformId, platformPickups] of Object.entries(pickupsByPlatform)) {
+            const systemUser = await getSystemUser(platformId);
+            if (!systemUser) {
+                console.error(
+                    `❌ No system user for platform ${platformId}. Skipping ${platformPickups.length} pickups.`
+                );
+                continue;
+            }
+
+            const pickupIds = platformPickups.map((p) => p.id);
+
+            await db
+                .update(selfPickups)
+                .set({
+                    self_pickup_status: "AWAITING_RETURN",
+                    updated_at: new Date(),
+                })
+                .where(sql`${selfPickups.id} = ANY(${pickupIds})`);
+
+            const historyEntries = platformPickups.map((pickup) => ({
+                platform_id: pickup.platform_id,
+                self_pickup_id: pickup.id,
+                status: "AWAITING_RETURN" as const,
+                notes: "Automatic transition — expected return date passed",
+                updated_by: systemUser.id,
+            }));
+
+            await db.insert(selfPickupStatusHistory).values(historyEntries);
+
+            for (const pickup of platformPickups) {
+                await eventBus.emit({
+                    platform_id: platformId,
+                    event_type: EVENT_TYPES.SELF_PICKUP_RETURN_DUE,
+                    entity_type: "SELF_PICKUP",
+                    entity_id: pickup.id,
+                    actor_id: systemUser.id,
+                    actor_role: "SYSTEM",
+                    payload: {
+                        entity_id_readable: pickup.self_pickup_id,
+                        company_id: pickup.company_id,
+                        company_name: "",
+                        collector_name: pickup.collector_name,
+                        collector_phone: pickup.collector_phone,
+                    },
+                });
+                transitioned++;
+            }
+        }
+
+        console.log(
+            `✅ Self-pickup return cron completed: ${transitioned} pickups → AWAITING_RETURN`
+        );
+    } catch (error: any) {
+        console.error("❌ Self-pickup return cron error:", error);
+        throw error;
+    }
+};
+
 export const CronServices = {
     transitionOrdersBasedOnEventDates,
     sendPickupReminders,
     deleteExpiredOTPs,
+    transitionSelfPickupReturns,
 };

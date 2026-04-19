@@ -3,9 +3,12 @@ import auth from "../../middleware/auth";
 import payloadValidator from "../../middleware/payload-validator";
 import platformValidator from "../../middleware/platform-validator";
 import { ScanningControllers } from "./scanning.controllers";
+import { SelfPickupScanningControllers } from "./self-pickup-scanning.controllers";
 import { ScanningSchemas } from "./scanning.schemas";
 import requirePermission from "../../middleware/permission";
+import featureValidator from "../../middleware/feature-validator";
 import { PERMISSIONS } from "../../constants/permissions";
+import { featureNames } from "../../constants/common";
 
 const router = Router();
 
@@ -28,12 +31,13 @@ router.get(
     ScanningControllers.getInboundProgress
 );
 
-// Complete inbound scan
+// Complete inbound scan (accepts optional settlements[] for pooled items)
 router.post(
     "/inbound/:order_id/complete",
     platformValidator,
     auth("LOGISTICS"),
     requirePermission(PERMISSIONS.SCANNING_SCAN_IN),
+    payloadValidator(ScanningSchemas.completeInboundScanSchema),
     ScanningControllers.completeInboundScan
 );
 
@@ -75,6 +79,66 @@ router.post(
     auth("LOGISTICS"),
     requirePermission(PERMISSIONS.SCANNING_SCAN_OUT),
     ScanningControllers.completeOutboundScan
+);
+
+// ================================= SELF-PICKUP SCANNING =================================
+
+// Handover scan (outbound from warehouse to collector)
+router.post(
+    "/self-pickup-handover/:self_pickup_id/scan",
+    platformValidator,
+    auth("LOGISTICS"),
+    requirePermission(PERMISSIONS.SCANNING_SCAN_OUT),
+    featureValidator(featureNames.enable_self_pickup),
+    payloadValidator(ScanningSchemas.outboundScanSchema),
+    SelfPickupScanningControllers.handoverScan
+);
+
+router.get(
+    "/self-pickup-handover/:self_pickup_id/progress",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.SCANNING_SCAN_OUT),
+    featureValidator(featureNames.enable_self_pickup),
+    SelfPickupScanningControllers.getHandoverProgress
+);
+
+router.post(
+    "/self-pickup-handover/:self_pickup_id/complete",
+    platformValidator,
+    auth("LOGISTICS"),
+    requirePermission(PERMISSIONS.SCANNING_SCAN_OUT),
+    featureValidator(featureNames.enable_self_pickup),
+    SelfPickupScanningControllers.completeHandover
+);
+
+// Return scan (inbound from collector back to warehouse)
+router.post(
+    "/self-pickup-return/:self_pickup_id/scan",
+    platformValidator,
+    auth("LOGISTICS"),
+    requirePermission(PERMISSIONS.SCANNING_SCAN_IN),
+    featureValidator(featureNames.enable_self_pickup),
+    SelfPickupScanningControllers.returnScan
+);
+
+router.get(
+    "/self-pickup-return/:self_pickup_id/progress",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.SCANNING_SCAN_IN),
+    featureValidator(featureNames.enable_self_pickup),
+    SelfPickupScanningControllers.getReturnProgress
+);
+
+router.post(
+    "/self-pickup-return/:self_pickup_id/complete",
+    platformValidator,
+    auth("LOGISTICS"),
+    requirePermission(PERMISSIONS.SCANNING_SCAN_IN),
+    featureValidator(featureNames.enable_self_pickup),
+    payloadValidator(ScanningSchemas.completeInboundScanSchema),
+    SelfPickupScanningControllers.completeReturn
 );
 
 export const ScanningRoutes = router;

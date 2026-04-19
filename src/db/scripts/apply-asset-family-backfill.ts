@@ -1,3 +1,4 @@
+import { assertAppEnv } from "../safety/guards";
 import { db, pool } from "..";
 import { assetFamilies } from "../schema";
 import {
@@ -10,6 +11,8 @@ import {
     resolveFamilyProposal,
     updateAssetFamilyIds,
 } from "./asset-family-backfill.shared";
+
+assertAppEnv(["staging"]);
 
 async function main() {
     const reportDir = parseFlag("--report-dir");
@@ -71,7 +74,9 @@ async function main() {
                         team_id: family.representative_fields.team_id,
                         name: family.final_family_name,
                         description: family.representative_fields.description,
-                        category: family.category,
+                        // category_id must be resolved from asset_categories table
+                        // at runtime. This script is a legacy one-time backfill.
+                        category_id: (family as any).resolved_category_id,
                         images: family.representative_fields.images,
                         on_display_image: family.representative_fields.on_display_image,
                         stock_mode: family.final_stock_mode!,

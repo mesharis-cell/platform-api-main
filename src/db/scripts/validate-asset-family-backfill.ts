@@ -1,5 +1,8 @@
 import { sql } from "drizzle-orm";
+import { assertAppEnv } from "../safety/guards";
 import { db, pool } from "..";
+
+assertAppEnv(["staging", "production"]);
 
 async function singleValue(query: any) {
     const result = await db.execute(query);

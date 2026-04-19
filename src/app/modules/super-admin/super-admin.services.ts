@@ -3,7 +3,7 @@ import { and, count, desc, eq } from "drizzle-orm";
 import httpStatus from "http-status";
 import { Secret } from "jsonwebtoken";
 import { db } from "../../../db";
-import { companies, platforms, users } from "../../../db/schema";
+import { companies, platformMaintenanceAudit, platforms, users } from "../../../db/schema";
 import config from "../../config";
 import CustomizedError from "../../error/customized-error";
 import { tokenGenerator, tokenVerifier } from "../../utils/jwt-helpers";
@@ -238,7 +238,12 @@ const updatePlatformMaintenance = async (
     payload: { enabled: boolean; message?: string | null; until?: string | null }
 ) => {
     const [platform] = await db
-        .select({ id: platforms.id })
+        .select({
+            id: platforms.id,
+            maintenance_mode: platforms.maintenance_mode,
+            maintenance_message: platforms.maintenance_message,
+            maintenance_until: platforms.maintenance_until,
+        })
         .from(platforms)
         .where(eq(platforms.id, platformId))
         .limit(1);
@@ -247,28 +252,93 @@ const updatePlatformMaintenance = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Platform not found");
     }
 
-    const maintenanceUntil = payload.enabled
-        ? payload.until
-            ? new Date(payload.until)
-            : getDefaultMaintenanceUntil()
-        : null;
+    // Validate until when enabling. Reject past timestamps — an already-past
+    // until means maintenance is off the moment it's written, producing a
+    // DB state of (mode=true, until=past) that the middleware treats as off.
+    // Confusing + a wasted write. Accept null (→ default) or future ISO.
+    let maintenanceUntil: Date | null = null;
+    if (payload.enabled) {
+        if (payload.until) {
+            const parsed = new Date(payload.until);
+            if (Number.isNaN(parsed.getTime())) {
+                throw new CustomizedError(
+                    httpStatus.BAD_REQUEST,
+                    "Invalid until timestamp"
+                );
+            }
+            if (parsed.getTime() <= Date.now()) {
+                throw new CustomizedError(
+                    httpStatus.BAD_REQUEST,
+                    "Maintenance window must end in the future"
+                );
+            }
+            maintenanceUntil = parsed;
+        } else {
+            maintenanceUntil = getDefaultMaintenanceUntil();
+        }
+    }
 
-    const [updated] = await db
-        .update(platforms)
-        .set({
-            maintenance_mode: payload.enabled,
-            maintenance_message: payload.enabled ? payload.message?.trim() || null : null,
-            maintenance_until: maintenanceUntil,
-            maintenance_updated_at: new Date(),
-            maintenance_updated_by: actorId,
-        })
-        .where(eq(platforms.id, platformId))
-        .returning();
+    const wasActive = PlatformMaintenanceService.isMaintenanceActive(platform);
+    const willBeActive = payload.enabled;
+    const action: "ENABLED" | "UPDATED" | "DISABLED" = !willBeActive
+        ? "DISABLED"
+        : wasActive
+        ? "UPDATED"
+        : "ENABLED";
+
+    const finalMessage = payload.enabled ? payload.message?.trim() || null : null;
+
+    const updated = await db.transaction(async (tx) => {
+        const [row] = await tx
+            .update(platforms)
+            .set({
+                maintenance_mode: payload.enabled,
+                maintenance_message: finalMessage,
+                maintenance_until: maintenanceUntil,
+                maintenance_updated_at: new Date(),
+                maintenance_updated_by: actorId,
+            })
+            .where(eq(platforms.id, platformId))
+            .returning();
+
+        await tx.insert(platformMaintenanceAudit).values({
+            platform_id: platformId,
+            action,
+            message: finalMessage,
+            until: maintenanceUntil,
+            actor_id: actorId,
+        });
+
+        return row;
+    });
 
     return {
         ...updated,
         maintenance: PlatformMaintenanceService.projectMaintenance(updated),
     };
+};
+
+const getPlatformMaintenanceHistory = async (
+    platformId: string,
+    limit: number = 50
+) => {
+    const rows = await db
+        .select({
+            id: platformMaintenanceAudit.id,
+            action: platformMaintenanceAudit.action,
+            message: platformMaintenanceAudit.message,
+            until: platformMaintenanceAudit.until,
+            actor_id: platformMaintenanceAudit.actor_id,
+            actor_name: users.name,
+            actor_email: users.email,
+            created_at: platformMaintenanceAudit.created_at,
+        })
+        .from(platformMaintenanceAudit)
+        .leftJoin(users, eq(platformMaintenanceAudit.actor_id, users.id))
+        .where(eq(platformMaintenanceAudit.platform_id, platformId))
+        .orderBy(desc(platformMaintenanceAudit.created_at))
+        .limit(limit);
+    return rows;
 };
 
 export const SuperAdminServices = {
@@ -277,5 +347,6 @@ export const SuperAdminServices = {
     getMe,
     listPlatforms,
     getPlatformDetail,
+    getPlatformMaintenanceHistory,
     updatePlatformMaintenance,
 };

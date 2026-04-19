@@ -113,6 +113,25 @@ import {
 } from "./workflow-request";
 import { clearTemplateSupportEmail, setTemplateSupportEmail } from "./base";
 
+// Self-pickup templates
+import {
+    selfPickupCancelledAdmin,
+    selfPickupClosedAdmin,
+    selfPickupConfirmedAdmin,
+    selfPickupConfirmedLogistics,
+    selfPickupPickedUpAdmin,
+    selfPickupQuotedClient,
+    selfPickupReadyClient,
+    selfPickupReturnDueClient,
+    selfPickupReturnDueLogistics,
+    selfPickupSubmittedAdmin,
+    selfPickupSubmittedClient,
+    selfPickupSubmittedLogistics,
+} from "./self-pickup";
+
+// Stock templates
+import { stockBelowThresholdAdmin, stockBelowThresholdLogistics } from "./stock";
+
 const registry: Record<string, EmailTemplate> = {
     // Orders
     order_submitted_client: orderSubmittedClient,
@@ -192,6 +211,24 @@ const registry: Record<string, EmailTemplate> = {
     workflow_request_completed_logistics: workflowRequestCompletedLogistics,
     workflow_request_cancelled_admin: workflowRequestCancelledAdmin,
     workflow_request_cancelled_logistics: workflowRequestCancelledLogistics,
+
+    // Self-pickups
+    self_pickup_submitted_client: selfPickupSubmittedClient,
+    self_pickup_submitted_admin: selfPickupSubmittedAdmin,
+    self_pickup_submitted_logistics: selfPickupSubmittedLogistics,
+    self_pickup_quoted_client: selfPickupQuotedClient,
+    self_pickup_confirmed_admin: selfPickupConfirmedAdmin,
+    self_pickup_confirmed_logistics: selfPickupConfirmedLogistics,
+    self_pickup_ready_client: selfPickupReadyClient,
+    self_pickup_picked_up_admin: selfPickupPickedUpAdmin,
+    self_pickup_return_due_client: selfPickupReturnDueClient,
+    self_pickup_return_due_logistics: selfPickupReturnDueLogistics,
+    self_pickup_closed_admin: selfPickupClosedAdmin,
+    self_pickup_cancelled_admin: selfPickupCancelledAdmin,
+
+    // Stock alerts
+    stock_below_threshold_admin: stockBelowThresholdAdmin,
+    stock_below_threshold_logistics: stockBelowThresholdLogistics,
 };
 
 export function renderTemplate(

@@ -1,7 +1,9 @@
+import { assertAppEnv } from "../safety/guards";
 import { enforceDestructiveDbGuard } from "./destructive-guard";
 import { runCommand } from "./process.utils";
 
 async function main(): Promise<void> {
+    assertAppEnv(["staging"]);
     await enforceDestructiveDbGuard("seed");
     await runCommand("bunx", ["tsx", "src/db/seed.ts"]);
 }

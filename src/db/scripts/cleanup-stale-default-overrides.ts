@@ -1,5 +1,8 @@
 import "dotenv/config";
+import { assertAppEnv } from "../safety/guards";
 import { Pool } from "pg";
+
+assertAppEnv(["staging"]);
 
 type StalePattern = {
     policyCode: "LOGISTICS_DEFAULT" | "CLIENT_DEFAULT";

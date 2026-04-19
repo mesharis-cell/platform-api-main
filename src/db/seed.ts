@@ -1070,7 +1070,7 @@ async function seedCollections() {
 // ============================================================
 
 async function createPricing(opts: {
-    entityType: "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST";
+    entityType: "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP";
     entityId: string;
     volume: number;
     warehouseOpsRate: number;

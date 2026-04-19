@@ -16,8 +16,15 @@
  */
 
 import "dotenv/config";
+import { assertAppEnv } from "../safety/guards";
 import { createReadStream, existsSync, readFileSync } from "fs";
 import * as path from "path";
+
+// Runs at module load. When called from seed-pr.ts, APP_ENV is already
+// "staging" (that script also asserts), so this is a no-op duplicate.
+// When called standalone via `bun run import:pr-assets`, this is the
+// primary gate.
+assertAppEnv(["staging"]);
 import { createInterface } from "readline";
 import { S3Client, PutObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { createHash } from "crypto";

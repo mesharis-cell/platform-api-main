@@ -1,5 +1,5 @@
 import bcrypt from "bcrypt";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import httpStatus from "http-status";
 import { Secret } from "jsonwebtoken";
 import { db } from "../../../db";
@@ -19,85 +19,52 @@ import { OTPGenerator } from "../../utils/helper";
 import { eventBus, EVENT_TYPES } from "../../events";
 import { OTPVerifier } from "../../utils/otp-verifier";
 import { PERMISSIONS } from "../../constants/permissions";
+import { companyFeatures, featureNames, featureRegistry } from "../../constants/common";
+
+const FEATURE_KEYS = Object.values(featureNames);
 
 const sanitizePlatformFeatures = (features: unknown): Record<string, boolean> => {
     const raw = (features || {}) as Record<string, unknown>;
-    return {
-        enable_inbound_requests:
-            raw.enable_inbound_requests === undefined ? true : Boolean(raw.enable_inbound_requests),
-        show_estimate_on_order_creation:
-            raw.show_estimate_on_order_creation === undefined
-                ? true
-                : Boolean(raw.show_estimate_on_order_creation),
-        require_client_po_number_on_quote_approval:
-            raw.require_client_po_number_on_quote_approval === undefined
-                ? true
-                : Boolean(raw.require_client_po_number_on_quote_approval),
-        enable_kadence_invoicing:
-            raw.enable_kadence_invoicing === undefined
-                ? false
-                : Boolean(raw.enable_kadence_invoicing),
-        enable_base_operations:
-            raw.enable_base_operations === undefined ? true : Boolean(raw.enable_base_operations),
-        enable_asset_bulk_upload:
-            raw.enable_asset_bulk_upload === undefined
-                ? false
-                : Boolean(raw.enable_asset_bulk_upload),
-        enable_attachments:
-            raw.enable_attachments === undefined ? true : Boolean(raw.enable_attachments),
-        enable_workflows: raw.enable_workflows === undefined ? true : Boolean(raw.enable_workflows),
-        enable_service_requests:
-            raw.enable_service_requests === undefined ? true : Boolean(raw.enable_service_requests),
-        enable_event_calendar:
-            raw.enable_event_calendar === undefined ? true : Boolean(raw.enable_event_calendar),
-        enable_client_stock_requests:
-            raw.enable_client_stock_requests === undefined
-                ? true
-                : Boolean(raw.enable_client_stock_requests),
-    };
+    return FEATURE_KEYS.reduce<Record<string, boolean>>((acc, key) => {
+        acc[key] =
+            raw[key] === undefined
+                ? Boolean(companyFeatures[key as keyof typeof companyFeatures])
+                : Boolean(raw[key]);
+        return acc;
+    }, {});
 };
 
 const sanitizeCompanyFeatureOverrides = (features: unknown): Partial<Record<string, boolean>> => {
     const raw = (features || {}) as Record<string, unknown>;
-    const overrides: Partial<Record<string, boolean>> = {};
+    return FEATURE_KEYS.reduce<Partial<Record<string, boolean>>>((acc, key) => {
+        if (raw[key] !== undefined) {
+            acc[key] = Boolean(raw[key]);
+        }
+        return acc;
+    }, {});
+};
 
-    if (raw.enable_inbound_requests !== undefined) {
-        overrides.enable_inbound_requests = Boolean(raw.enable_inbound_requests);
-    }
-    if (raw.show_estimate_on_order_creation !== undefined) {
-        overrides.show_estimate_on_order_creation = Boolean(raw.show_estimate_on_order_creation);
-    }
-    if (raw.require_client_po_number_on_quote_approval !== undefined) {
-        overrides.require_client_po_number_on_quote_approval = Boolean(
-            raw.require_client_po_number_on_quote_approval
-        );
-    }
-    if (raw.enable_kadence_invoicing !== undefined) {
-        overrides.enable_kadence_invoicing = Boolean(raw.enable_kadence_invoicing);
-    }
-    if (raw.enable_base_operations !== undefined) {
-        overrides.enable_base_operations = Boolean(raw.enable_base_operations);
-    }
-    if (raw.enable_asset_bulk_upload !== undefined) {
-        overrides.enable_asset_bulk_upload = Boolean(raw.enable_asset_bulk_upload);
-    }
-    if (raw.enable_attachments !== undefined) {
-        overrides.enable_attachments = Boolean(raw.enable_attachments);
-    }
-    if (raw.enable_workflows !== undefined) {
-        overrides.enable_workflows = Boolean(raw.enable_workflows);
-    }
-    if (raw.enable_service_requests !== undefined) {
-        overrides.enable_service_requests = Boolean(raw.enable_service_requests);
-    }
-    if (raw.enable_event_calendar !== undefined) {
-        overrides.enable_event_calendar = Boolean(raw.enable_event_calendar);
-    }
-    if (raw.enable_client_stock_requests !== undefined) {
-        overrides.enable_client_stock_requests = Boolean(raw.enable_client_stock_requests);
-    }
-
-    return overrides;
+/**
+ * For admin/warehouse subdomains: a feature is "available" to ops users if
+ * the platform default is true OR any company on the platform has overridden
+ * it to true. Mirrors the featureValidator middleware logic so the admin nav
+ * + page guards see the same surface the API actually serves.
+ */
+const computeEffectiveAdminFeatures = (
+    platformFeatures: Record<string, boolean>,
+    perCompanyFeatures: Array<unknown>
+): Record<string, boolean> => {
+    return FEATURE_KEYS.reduce<Record<string, boolean>>((acc, key) => {
+        if (platformFeatures[key]) {
+            acc[key] = true;
+            return acc;
+        }
+        acc[key] = perCompanyFeatures.some((row) => {
+            const company = (row || {}) as Record<string, unknown>;
+            return Boolean(company[key]);
+        });
+        return acc;
+    }, {});
 };
 
 const login = async (credential: LoginCredential, platformId: string) => {
@@ -301,6 +268,20 @@ const getConfigByHostname = async (originOrHost?: string | null) => {
 
             if (platform) {
                 const config = platform.config as any;
+                const platformFeatures = sanitizePlatformFeatures(platform.features);
+                const perCompanyFeatureRows = await db
+                    .select({ features: companies.features })
+                    .from(companies)
+                    .where(
+                        and(
+                            eq(companies.platform_id, platform.id),
+                            isNull(companies.deleted_at)
+                        )
+                    );
+                const effectiveAdminFeatures = computeEffectiveAdminFeatures(
+                    platformFeatures,
+                    perCompanyFeatureRows.map((row) => row.features)
+                );
                 return {
                     platform_name: platform.name,
                     platform_id: platform.id,
@@ -310,7 +291,9 @@ const getConfigByHostname = async (originOrHost?: string | null) => {
                     primary_color: config?.primary_color || null,
                     secondary_color: config?.secondary_color || null,
                     currency: config?.currency || null,
-                    features: sanitizePlatformFeatures(platform.features),
+                    features: platformFeatures,
+                    effective_admin_features: effectiveAdminFeatures,
+                    feature_registry: featureRegistry,
                 };
             }
             return null;
@@ -368,6 +351,20 @@ const getConfigByHostname = async (originOrHost?: string | null) => {
 
         if (platform) {
             const config = platform.config as any;
+            const platformFeatures = sanitizePlatformFeatures(platform.features);
+            const perCompanyFeatureRows = await db
+                .select({ features: companies.features })
+                .from(companies)
+                .where(
+                    and(
+                        eq(companies.platform_id, platform.id),
+                        isNull(companies.deleted_at)
+                    )
+                );
+            const effectiveAdminFeatures = computeEffectiveAdminFeatures(
+                platformFeatures,
+                perCompanyFeatureRows.map((row) => row.features)
+            );
             return {
                 platform_id: platform.id,
                 platform_name: platform.name,
@@ -377,7 +374,9 @@ const getConfigByHostname = async (originOrHost?: string | null) => {
                 primary_color: config?.primary_color || null,
                 secondary_color: config?.secondary_color || null,
                 currency: config?.currency || null,
-                features: sanitizePlatformFeatures(platform.features),
+                features: platformFeatures,
+                effective_admin_features: effectiveAdminFeatures,
+                feature_registry: featureRegistry,
             };
         }
 

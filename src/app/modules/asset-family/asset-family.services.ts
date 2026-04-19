@@ -1,8 +1,9 @@
-import { and, asc, count, eq, ilike, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, count, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
 import {
     assetBookings,
+    assetCategories,
     assetFamilies,
     assets,
     brands,
@@ -12,6 +13,7 @@ import {
     selfBookingItems,
     teams,
 } from "../../../db/schema";
+import { AssetCategoryServices } from "../asset-categories/asset-categories.services";
 import CustomizedError from "../../error/customized-error";
 import paginationMaker from "../../utils/pagination-maker";
 import { CreateAssetFamilyPayload, UpdateAssetFamilyPayload } from "./asset-family.interfaces";
@@ -104,8 +106,12 @@ const buildAssetFamilySelect = (stockFilterPredicate?: any) => {
         brand_id: assetFamilies.brand_id,
         team_id: assetFamilies.team_id,
         name: assetFamilies.name,
+        company_item_code: assetFamilies.company_item_code,
         description: assetFamilies.description,
-        category: assetFamilies.category,
+        category_id: assetFamilies.category_id,
+        category_name: assetCategories.name,
+        category_slug: assetCategories.slug,
+        category_color: assetCategories.color,
         images: assetFamilies.images,
         on_display_image: assetFamilies.on_display_image,
         stock_mode: assetFamilies.stock_mode,
@@ -172,8 +178,13 @@ const assetFamilyGroupBy = [
     assetFamilies.brand_id,
     assetFamilies.team_id,
     assetFamilies.name,
+    assetFamilies.company_item_code,
     assetFamilies.description,
-    assetFamilies.category,
+    assetFamilies.category_id,
+    assetCategories.id,
+    assetCategories.name,
+    assetCategories.slug,
+    assetCategories.color,
     assetFamilies.images,
     assetFamilies.on_display_image,
     assetFamilies.stock_mode,
@@ -256,8 +267,8 @@ const listAssetFamilies = async (
         familyConditions.push(eq(assetFamilies.team_id, teamId));
     }
 
-    if (typeof query.category === "string" && query.category) {
-        familyConditions.push(eq(assetFamilies.category, query.category));
+    if (typeof query.category_id === "string" && query.category_id) {
+        familyConditions.push(eq(assetFamilies.category_id, query.category_id));
     }
 
     if (typeof query.stock_mode === "string" && query.stock_mode) {
@@ -265,7 +276,13 @@ const listAssetFamilies = async (
     }
 
     if (typeof query.search_term === "string" && query.search_term.trim()) {
-        familyConditions.push(ilike(assetFamilies.name, `%${query.search_term.trim()}%`));
+        const searchTerm = query.search_term.trim();
+        familyConditions.push(
+            or(
+                ilike(assetFamilies.name, `%${searchTerm}%`),
+                ilike(assetFamilies.company_item_code, `%${searchTerm}%`)
+            )!
+        );
     }
 
     const stockFilterConditions: any[] = [];
@@ -306,6 +323,7 @@ const listAssetFamilies = async (
             .leftJoin(companies, eq(companies.id, assetFamilies.company_id))
             .leftJoin(brands, eq(brands.id, assetFamilies.brand_id))
             .leftJoin(teams, eq(teams.id, assetFamilies.team_id))
+            .leftJoin(assetCategories, eq(assetCategories.id, assetFamilies.category_id))
             .leftJoin(
                 assets,
                 and(eq(assets.family_id, assetFamilies.id), isNull(assets.deleted_at))
@@ -355,6 +373,7 @@ const getAssetFamilyById = async (
         .leftJoin(companies, eq(companies.id, assetFamilies.company_id))
         .leftJoin(brands, eq(brands.id, assetFamilies.brand_id))
         .leftJoin(teams, eq(teams.id, assetFamilies.team_id))
+        .leftJoin(assetCategories, eq(assetCategories.id, assetFamilies.category_id))
         .leftJoin(assets, and(eq(assets.family_id, assetFamilies.id), isNull(assets.deleted_at)))
         .where(and(...conditions))
         .groupBy(...assetFamilyGroupBy);
@@ -490,36 +509,103 @@ const getAssetFamilyAvailabilityStats = async (
     };
 };
 
-const createAssetFamily = async (platformId: string, payload: CreateAssetFamilyPayload) => {
+const resolveCategoryId = async (
+    executor: any,
+    platformId: string,
+    payload: {
+        category_id?: string | null;
+        new_category?: { name: string; color?: string } | null;
+        company_id?: string;
+    },
+    userId?: string
+): Promise<string> => {
+    if (payload.category_id) {
+        // Validate the referenced category exists + is in scope
+        const [existing] = await executor
+            .select({ id: assetCategories.id })
+            .from(assetCategories)
+            .where(
+                and(
+                    eq(assetCategories.id, payload.category_id),
+                    eq(assetCategories.platform_id, platformId),
+                    or(
+                        isNull(assetCategories.company_id),
+                        payload.company_id
+                            ? eq(assetCategories.company_id, payload.company_id)
+                            : isNull(assetCategories.company_id)
+                    )
+                )
+            )
+            .limit(1);
+        if (!existing) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Category not found or not accessible for this company"
+            );
+        }
+        return payload.category_id;
+    }
+
+    if (payload.new_category) {
+        const created = await AssetCategoryServices.createCategoryInTransaction(
+            executor,
+            platformId,
+            {
+                name: payload.new_category.name,
+                color: payload.new_category.color,
+                company_id: payload.company_id,
+            },
+            userId
+        );
+        return created.id;
+    }
+
+    throw new CustomizedError(
+        httpStatus.BAD_REQUEST,
+        "Either category_id or new_category is required"
+    );
+};
+
+const createAssetFamily = async (
+    platformId: string,
+    payload: CreateAssetFamilyPayload,
+    userId?: string
+) => {
     await validateFamilyScope(platformId, payload);
 
-    const [created] = await db
-        .insert(assetFamilies)
-        .values({
-            platform_id: platformId,
-            company_id: payload.company_id,
-            brand_id: payload.brand_id ?? null,
-            team_id: payload.team_id ?? null,
-            name: payload.name.trim(),
-            description: payload.description ?? null,
-            category: payload.category.trim(),
-            images: payload.images ?? [],
-            on_display_image: payload.on_display_image ?? null,
-            stock_mode: payload.stock_mode,
-            packaging: payload.packaging ?? null,
-            weight_per_unit:
-                payload.weight_per_unit === undefined || payload.weight_per_unit === null
-                    ? null
-                    : payload.weight_per_unit.toString(),
-            dimensions: payload.dimensions ?? {},
-            volume_per_unit:
-                payload.volume_per_unit === undefined || payload.volume_per_unit === null
-                    ? null
-                    : payload.volume_per_unit.toString(),
-            handling_tags: payload.handling_tags ?? [],
-            is_active: payload.is_active ?? true,
-        })
-        .returning();
+    const created = await db.transaction(async (tx) => {
+        const categoryId = await resolveCategoryId(tx, platformId, payload, userId);
+
+        const [row] = await tx
+            .insert(assetFamilies)
+            .values({
+                platform_id: platformId,
+                company_id: payload.company_id,
+                brand_id: payload.brand_id ?? null,
+                team_id: payload.team_id ?? null,
+                name: payload.name.trim(),
+                company_item_code: payload.company_item_code?.trim() || null,
+                description: payload.description ?? null,
+                category_id: categoryId,
+                images: payload.images ?? [],
+                on_display_image: payload.on_display_image ?? null,
+                stock_mode: payload.stock_mode,
+                packaging: payload.packaging ?? null,
+                weight_per_unit:
+                    payload.weight_per_unit === undefined || payload.weight_per_unit === null
+                        ? null
+                        : payload.weight_per_unit.toString(),
+                dimensions: payload.dimensions ?? {},
+                volume_per_unit:
+                    payload.volume_per_unit === undefined || payload.volume_per_unit === null
+                        ? null
+                        : payload.volume_per_unit.toString(),
+                handling_tags: payload.handling_tags ?? [],
+                is_active: payload.is_active ?? true,
+            })
+            .returning();
+        return row;
+    });
 
     return created;
 };
@@ -527,7 +613,8 @@ const createAssetFamily = async (platformId: string, payload: CreateAssetFamilyP
 const updateAssetFamily = async (
     id: string,
     platformId: string,
-    payload: UpdateAssetFamilyPayload
+    payload: UpdateAssetFamilyPayload,
+    userId?: string
 ) => {
     const existing = await getAssetFamilyById(id, platformId);
 
@@ -537,6 +624,24 @@ const updateAssetFamily = async (
         team_id: payload.team_id === undefined ? existing.team_id : payload.team_id,
     });
 
+    // Resolve category_id if changing — uses same transactional
+    // deferred-commit pattern as createAssetFamily.
+    let resolvedCategoryId: string | undefined;
+    if ((payload as any).category_id || (payload as any).new_category) {
+        resolvedCategoryId = await db.transaction(async (tx) =>
+            resolveCategoryId(
+                tx,
+                platformId,
+                {
+                    category_id: (payload as any).category_id,
+                    new_category: (payload as any).new_category,
+                    company_id: payload.company_id ?? existing.company_id,
+                },
+                userId
+            )
+        );
+    }
+
     const [updated] = await db
         .update(assetFamilies)
         .set({
@@ -544,8 +649,11 @@ const updateAssetFamily = async (
             ...(payload.brand_id !== undefined && { brand_id: payload.brand_id ?? null }),
             ...(payload.team_id !== undefined && { team_id: payload.team_id ?? null }),
             ...(payload.name !== undefined && { name: payload.name.trim() }),
+            ...(payload.company_item_code !== undefined && {
+                company_item_code: payload.company_item_code?.trim() || null,
+            }),
             ...(payload.description !== undefined && { description: payload.description ?? null }),
-            ...(payload.category !== undefined && { category: payload.category.trim() }),
+            ...(resolvedCategoryId !== undefined && { category_id: resolvedCategoryId }),
             ...(payload.images !== undefined && { images: payload.images }),
             ...(payload.on_display_image !== undefined && {
                 on_display_image: payload.on_display_image ?? null,

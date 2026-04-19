@@ -1,4 +1,5 @@
 import { Client } from "pg";
+import { assertAppEnv } from "../safety/guards";
 import { enforceDestructiveDbGuard } from "./destructive-guard";
 import { runCommand } from "./process.utils";
 
@@ -13,6 +14,7 @@ async function wipePublicSchema(connectionString: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
+    assertAppEnv(["staging"]);
     await enforceDestructiveDbGuard("rebuild");
 
     const databaseUrl = process.env.DATABASE_URL;

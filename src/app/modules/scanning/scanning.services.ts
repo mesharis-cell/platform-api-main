@@ -4,6 +4,7 @@ import { db } from "../../../db";
 import {
     assetConditionHistory,
     assets,
+    orderItems,
     orderStatusHistory,
     orders,
     scanEventAssets,
@@ -20,10 +21,13 @@ import {
     OrderProgressResponse,
     OutboundScanPayload,
     OutboundScanResponse,
+    PooledSettlementEntry,
     ScanMediaPayload,
+    UnsettledPooledLine,
 } from "./scanning.interfaces";
 import { eventBus, EVENT_TYPES } from "../../events";
-import { releaseOrderBookingsAndRestoreAvailability } from "../order/order.utils";
+import { releaseBookingsAndRestoreAvailability } from "../order/order.utils";
+import { StockMovementService } from "../../services/stock-movement.service";
 
 type NormalizedMediaEntry = {
     url: string;
@@ -241,6 +245,16 @@ const inboundScan = async (
     await insertScanEventMedia(scanEvent.id, normalizedReturnMedia, "RETURN_WIDE");
     await insertScanEventMedia(scanEvent.id, normalizedDamageMedia, "DAMAGE");
 
+    // Audit: record inbound movement for BATCH items
+    if (asset.tracking_method === "BATCH") {
+        await StockMovementService.record(null, {
+            platformId, assetId: asset.id,
+            delta: scanQuantity, movementType: "INBOUND",
+            linkedEntityType: "ORDER", linkedEntityId: orderId,
+            scanEventId: scanEvent.id, userId: user.id,
+        });
+    }
+
     // Step 8: Update asset condition if changed
     if (asset.condition !== condition) {
         const updateData: any = {
@@ -392,12 +406,16 @@ const getInboundProgress = async (
 };
 
 // ----------------------------------- COMPLETE INBOUND SCAN ----------------------------------
+// Pooled-aware: serialized items require full scan; pooled (BATCH) items support partial
+// return via optional settlements[] body. If pooled deltas exist without matching
+// settlements, returns 400 with requires_settlement list so frontend can show modal.
 const completeInboundScan = async (
     orderId: string,
     user: AuthUser,
-    platformId: string
+    platformId: string,
+    settlements: PooledSettlementEntry[] = []
 ): Promise<CompleteInboundScanResponse> => {
-    // Step 1: Get order with items
+    // Step 1: Get order with items + asset tracking method
     const order = await db.query.orders.findFirst({
         where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
         with: {
@@ -408,6 +426,7 @@ const completeInboundScan = async (
                         columns: {
                             id: true,
                             name: true,
+                            tracking_method: true,
                             refurb_days_estimate: true,
                             available_quantity: true,
                         },
@@ -434,25 +453,97 @@ const completeInboundScan = async (
         where: and(eq(scanEvents.order_id, orderId), eq(scanEvents.scan_type, "INBOUND")),
     });
 
-    // Step 4: Validate all items scanned
+    // Step 4: Pooled-aware per-item reconciliation
+    const unsettledLines: UnsettledPooledLine[] = [];
+    const settlementsToApply: Array<{
+        item: (typeof order.items)[number];
+        settlement: PooledSettlementEntry;
+        delta: number;
+    }> = [];
+
     for (const item of order.items) {
         const scannedQuantity = inboundScans
             .filter((scan) => scan.asset_id === item.asset_id)
             .reduce((sum, scan) => sum + scan.quantity, 0);
 
-        if (scannedQuantity < item.quantity) {
-            throw new CustomizedError(
-                httpStatus.BAD_REQUEST,
-                `Cannot complete scan. ${item.asset_name}: ${scannedQuantity}/${item.quantity} scanned`
-            );
+        const trackingMethod = (item.asset as any)?.tracking_method || "INDIVIDUAL";
+        const delta = scannedQuantity - item.quantity; // negative = shortfall
+
+        if (trackingMethod === "INDIVIDUAL") {
+            // Serialized items: strict — must scan every unit
+            if (scannedQuantity < item.quantity) {
+                throw new CustomizedError(
+                    httpStatus.BAD_REQUEST,
+                    `Cannot complete scan. ${item.asset_name}: ${scannedQuantity}/${item.quantity} scanned`
+                );
+            }
+        } else {
+            // Pooled (BATCH) items: shortfall is OK if settled
+            if (delta < 0) {
+                const matching = settlements.find((s) => s.line_id === item.id);
+                if (!matching) {
+                    unsettledLines.push({
+                        line_id: item.id,
+                        asset_id: item.asset_id,
+                        asset_name: item.asset_name,
+                        outbound_qty: item.quantity,
+                        scanned_qty: scannedQuantity,
+                        delta,
+                    });
+                } else {
+                    settlementsToApply.push({ item, settlement: matching, delta });
+                }
+            }
+            // delta >= 0 means fully returned or over-returned — no settlement needed
         }
     }
 
-    await db.transaction(async (tx) => {
-        // Step 5: Release bookings and restore available quantities.
-        await releaseOrderBookingsAndRestoreAvailability(tx, orderId, platformId);
+    // If any pooled lines have unresolved shortfalls, return them for frontend settlement modal
+    if (unsettledLines.length > 0) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Pooled items require settlement", {
+            requires_settlement: unsettledLines,
+        } as any);
+    }
 
-        // Step 6: Update order status to CLOSED
+    // Build returnedByAsset map for net restore
+    const returnedByAsset = new Map<string, number>();
+    for (const item of order.items) {
+        const scannedQty = inboundScans
+            .filter((s) => s.asset_id === item.asset_id)
+            .reduce((sum, s) => sum + s.quantity, 0);
+        returnedByAsset.set(item.asset_id, scannedQty);
+    }
+
+    await db.transaction(async (tx) => {
+        // Step 5: Release bookings with NET restore (only what actually came back)
+        await releaseBookingsAndRestoreAvailability(
+            tx, "ORDER", orderId, platformId, returnedByAsset
+        );
+
+        // Step 6: Apply write-offs via StockMovementService + mark settled
+        for (const { item, settlement, delta } of settlementsToApply) {
+            await StockMovementService.record(tx, {
+                platformId,
+                assetId: item.asset_id,
+                delta,
+                movementType: "WRITE_OFF",
+                writeOffReason: settlement.write_off_reason,
+                note: settlement.note,
+                linkedEntityType: "ORDER",
+                linkedEntityId: orderId,
+                userId: user.id,
+            });
+
+            await tx
+                .update(orderItems)
+                .set({
+                    settled_at: new Date(),
+                    settled_by: user.id,
+                })
+                .where(eq(orderItems.id, item.id));
+        }
+
+        // Step 7: Update order status to CLOSED
         await tx
             .update(orders)
             .set({
@@ -461,16 +552,17 @@ const completeInboundScan = async (
             })
             .where(eq(orders.id, orderId));
 
-        // Step 7: Create status history entry
+        // Step 8: Create status history entry
         await tx.insert(orderStatusHistory).values({
             platform_id: platformId,
             order_id: orderId,
             status: "CLOSED",
-            notes: "Inbound scanning completed - all items returned and inspected",
+            notes:
+                settlementsToApply.length > 0
+                    ? `Inbound scanning completed with ${settlementsToApply.length} pooled settlement(s)`
+                    : "Inbound scanning completed - all items returned and inspected",
             updated_by: user.id,
         });
-
-        // Availability restored when bookings were released above.
     });
 
     // Step 9: Emit order.closed event
@@ -489,6 +581,7 @@ const completeInboundScan = async (
             event_start_date: order.event_start_date?.toISOString().split("T")[0] || "",
             event_end_date: order.event_end_date?.toISOString().split("T")[0] || "",
             order_url: "",
+            settlements_applied: settlementsToApply.length,
         },
     });
 
@@ -631,6 +724,16 @@ const outboundScan = async (
         .returning({ id: scanEvents.id });
 
     await insertScanEventAssets(scanEvent.id, [{ asset_id: asset.id, quantity: scanQuantity }]);
+
+    // Audit: record outbound movement for BATCH items
+    if (asset.tracking_method === "BATCH") {
+        await StockMovementService.record(null, {
+            platformId, assetId: asset.id,
+            delta: -scanQuantity, movementType: "OUTBOUND",
+            linkedEntityType: "ORDER", linkedEntityId: orderId,
+            scanEventId: scanEvent.id, userId: user.id,
+        });
+    }
 
     // Step 9: Mark asset as physically out.
     // NOTE: available_quantity is booking-driven and is not mutated by scans.

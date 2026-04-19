@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import config from "../config";
+import { getAppEnv, type AppEnv } from "../constants/app-env";
 
 interface EmailOptions {
     to: string;
@@ -12,6 +13,29 @@ interface EmailOptions {
     attachments?: Array<{ filename: string; content: Buffer | string }>;
 }
 
+const ENV_LABEL_BY_ENV: Record<AppEnv, string> = {
+    production: "",
+    staging: "STAGING",
+    testing: "TESTING",
+};
+
+// Recognized in non-production envs only. E2E-test aliases follow this pattern
+// and forward to a single operator inbox, so the operator needs a fast visual
+// signal of which role an email was addressed to. For non-matching recipients
+// this returns null and only the env label is used.
+const extractE2ERole = (to: string): string | null => {
+    const match = to.match(/^e2e\.kadence\.([a-z]+)@/i);
+    return match ? match[1].toUpperCase() : null;
+};
+
+const buildSubjectPrefix = (env: AppEnv, to: string): string => {
+    const envLabel = ENV_LABEL_BY_ENV[env];
+    if (!envLabel) return "";
+    const role = extractE2ERole(to);
+    const inner = role ? `${envLabel} → ${role}` : envLabel;
+    return `[${inner}]: `;
+};
+
 export const sendEmail = async (options: EmailOptions): Promise<string> => {
     const apiKey = config.resend_api_key;
     if (!apiKey) throw new Error("RESEND_API_KEY is not configured");
@@ -19,11 +43,12 @@ export const sendEmail = async (options: EmailOptions): Promise<string> => {
     const resend = new Resend(apiKey);
     const { to, subject, html, text, from, replyTo, headers, attachments } = options;
     const fromAddress = from || "no-reply@unconfigured.kadence.app";
+    const finalSubject = `${buildSubjectPrefix(getAppEnv(), to)}${subject}`;
 
     const payload = {
         from: fromAddress,
         to,
-        subject,
+        subject: finalSubject,
         html,
         text,
         replyTo,
@@ -49,6 +74,6 @@ export const sendEmail = async (options: EmailOptions): Promise<string> => {
         throw wrappedError;
     }
 
-    console.log("✅ Email sent:", { messageId: data!.id, to, subject });
+    console.log("✅ Email sent:", { messageId: data!.id, to, subject: finalSubject });
     return data!.id;
 };

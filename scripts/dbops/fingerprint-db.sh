@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 API_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-ENV_FILE="${DBOPS_ENV_FILE:-$API_ROOT/.env.dbops.local}"
+ENV_FILE="${DBOPS_ENV_FILE:-$API_ROOT/.env.dbops}"
 
 if [[ ! -f "$ENV_FILE" ]]; then
     echo "Missing env file: $ENV_FILE" >&2

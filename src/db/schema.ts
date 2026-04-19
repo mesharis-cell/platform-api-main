@@ -99,6 +99,8 @@ export const entityTypeEnum = pgEnum("entity_type", [
     "SERVICE_REQUEST",
     "USER",
     "SELF_BOOKING",
+    "SELF_PICKUP",
+    "ASSET",
 ]);
 export const recipientTypeEnum = pgEnum("recipient_type", ["ROLE", "ENTITY_OWNER", "EMAIL"]);
 export const scanTypeEnum = pgEnum("scan_type", [
@@ -145,6 +147,7 @@ export const invoiceTypeEnum = pgEnum("invoice_type", [
     "ORDER",
     "INBOUND_REQUEST",
     "SERVICE_REQUEST",
+    "SELF_PICKUP",
 ]);
 export const serviceRequestTypeEnum = pgEnum("service_request_type", [
     "MAINTENANCE",
@@ -183,6 +186,7 @@ export const workflowRequestEntityTypeEnum = pgEnum("workflow_request_entity_typ
     "ORDER",
     "INBOUND_REQUEST",
     "SERVICE_REQUEST",
+    "SELF_PICKUP",
 ]);
 export const workflowRequestStatusEnum = pgEnum("workflow_request_status", [
     "REQUESTED",
@@ -196,6 +200,39 @@ export const attachmentEntityTypeEnum = pgEnum("attachment_entity_type", [
     "INBOUND_REQUEST",
     "SERVICE_REQUEST",
     "WORKFLOW_REQUEST",
+    "SELF_PICKUP",
+]);
+
+// ---------------------------------- SELF-PICKUP / STOCK-MOVEMENT ENUMS -------------------
+export const selfPickupStatusEnum = pgEnum("self_pickup_status", [
+    "SUBMITTED",
+    "PRICING_REVIEW",
+    "PENDING_APPROVAL",
+    "QUOTED",
+    "DECLINED",
+    "CONFIRMED",
+    "READY_FOR_PICKUP",
+    "PICKED_UP",
+    "IN_USE",
+    "AWAITING_RETURN",
+    "RETURNED",
+    "CLOSED",
+    "CANCELLED",
+]);
+
+export const stockMovementTypeEnum = pgEnum("stock_movement_type", [
+    "OUTBOUND",
+    "INBOUND",
+    "WRITE_OFF",
+    "ADJUSTMENT",
+    "INITIAL",
+]);
+
+export const stockWriteOffReasonEnum = pgEnum("stock_write_off_reason", [
+    "CONSUMED",
+    "LOST",
+    "DAMAGED",
+    "OTHER",
 ]);
 
 // ---------------------------------- PLATFORM -------------------------------------------
@@ -238,6 +275,9 @@ export const platforms = pgTable(
         maintenance_message: text("maintenance_message"),
         maintenance_until: timestamp("maintenance_until"),
         maintenance_updated_at: timestamp("maintenance_updated_at"),
+        // FK to users(id) ON DELETE SET NULL is enforced at the DB layer
+        // (migration 0041) — not declared here because users is defined
+        // below and Drizzle's TS inference chokes on the circular ref.
         maintenance_updated_by: uuid("maintenance_updated_by"),
         is_active: boolean("is_active").default(true).notNull(),
         created_at: timestamp("created_at").notNull().defaultNow(),
@@ -260,6 +300,35 @@ export const platformsRelations = relations(platforms, ({ many }) => ({
     attachment_types: many(attachmentTypes),
     entity_attachments: many(entityAttachments),
 }));
+
+// ---------------------------------- PLATFORM MAINTENANCE AUDIT ---------------------------
+// Append-only log of super-admin maintenance toggles. One row per
+// PATCH /super-admin/platforms/:id/maintenance. Action values:
+//   "ENABLED"  — maintenance was off, now on
+//   "UPDATED"  — maintenance was already on; message / until changed
+//   "DISABLED" — maintenance was on, now off
+export const platformMaintenanceAudit = pgTable(
+    "platform_maintenance_audit",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        action: varchar("action", { length: 16 }).notNull(),
+        message: text("message"),
+        until: timestamp("until"),
+        // actor_id FK → users(id) ON DELETE SET NULL enforced via migration
+        // (not declared here due to circular-ref w/ users table).
+        actor_id: uuid("actor_id"),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+    },
+    (table) => [
+        index("platform_maintenance_audit_platform_id_idx").on(
+            table.platform_id,
+            table.created_at
+        ),
+    ]
+);
 
 // ---------------------------------- COMPANY & COMPANY DOMAINS ---------------------------
 // Settings structure:
@@ -579,6 +648,41 @@ export const zonesRelations = relations(zones, ({ one, many }) => ({
     assets: many(assets),
 }));
 
+// ---------------------------------- ASSET CATEGORY -----------------------------------------
+export const assetCategories = pgTable(
+    "asset_categories",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        company_id: uuid("company_id").references(() => companies.id, { onDelete: "cascade" }),
+        name: varchar("name", { length: 100 }).notNull(),
+        slug: varchar("slug", { length: 120 }).notNull(),
+        color: varchar("color", { length: 7 }).notNull(),
+        sort_order: integer("sort_order").notNull().default(0),
+        is_active: boolean("is_active").notNull().default(true),
+        created_by: uuid("created_by"),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+        updated_at: timestamp("updated_at")
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [index("asset_categories_platform_idx").on(table.platform_id)]
+);
+
+export const assetCategoriesRelations = relations(assetCategories, ({ one, many }) => ({
+    platform: one(platforms, {
+        fields: [assetCategories.platform_id],
+        references: [platforms.id],
+    }),
+    company: one(companies, {
+        fields: [assetCategories.company_id],
+        references: [companies.id],
+    }),
+    asset_families: many(assetFamilies),
+}));
+
 // ---------------------------------- ASSET FAMILY -----------------------------------------
 export const assetFamilies = pgTable(
     "asset_families",
@@ -593,8 +697,11 @@ export const assetFamilies = pgTable(
         brand_id: uuid("brand_id").references(() => brands.id, { onDelete: "set null" }),
         team_id: uuid("team_id").references((): AnyPgColumn => teams.id, { onDelete: "set null" }),
         name: varchar("name", { length: 200 }).notNull(),
+        company_item_code: varchar("company_item_code", { length: 150 }),
         description: text("description"),
-        category: varchar("category", { length: 100 }).notNull(),
+        category_id: uuid("category_id")
+            .notNull()
+            .references(() => assetCategories.id, { onDelete: "set null" }),
         images: jsonb("images")
             .notNull()
             .default(sql`'[]'::jsonb`),
@@ -611,6 +718,7 @@ export const assetFamilies = pgTable(
             .notNull()
             .default(sql`ARRAY[]::text[]`),
         is_active: boolean("is_active").notNull().default(true),
+        low_stock_threshold: integer("low_stock_threshold"),
         created_at: timestamp("created_at").notNull().defaultNow(),
         updated_at: timestamp("updated_at")
             .$onUpdate(() => new Date())
@@ -622,11 +730,18 @@ export const assetFamilies = pgTable(
         index("asset_families_company_idx").on(table.company_id),
         index("asset_families_brand_idx").on(table.brand_id),
         index("asset_families_team_idx").on(table.team_id),
+        index("asset_families_company_item_code_idx").on(table.company_item_code),
+        index("asset_families_category_idx").on(table.category_id),
         index("asset_families_stock_mode_idx").on(table.stock_mode),
         unique("asset_families_platform_company_name_unique").on(
             table.platform_id,
             table.company_id,
             table.name
+        ),
+        unique("asset_families_platform_company_item_code_unique").on(
+            table.platform_id,
+            table.company_id,
+            table.company_item_code
         ),
     ]
 );
@@ -647,6 +762,10 @@ export const assetFamiliesRelations = relations(assetFamilies, ({ one, many }) =
     team: one(teams, {
         fields: [assetFamilies.team_id],
         references: [teams.id],
+    }),
+    category: one(assetCategories, {
+        fields: [assetFamilies.category_id],
+        references: [assetCategories.id],
     }),
     assets: many(assets),
 }));
@@ -935,10 +1054,15 @@ export const orders = pgTable(
         job_number: varchar("job_number", { length: 50 }),
         po_number: varchar("po_number", { length: 100 }),
 
-        // Contact information
+        // Execution contact (the client-side runner of the event/activation)
         contact_name: varchar("contact_name", { length: 100 }).notNull(),
         contact_email: varchar("contact_email", { length: 255 }).notNull(),
         contact_phone: varchar("contact_phone", { length: 50 }).notNull(),
+
+        // Venue contact (on-site coordinator — separate from permits)
+        venue_contact_name: varchar("venue_contact_name", { length: 100 }),
+        venue_contact_email: varchar("venue_contact_email", { length: 255 }),
+        venue_contact_phone: varchar("venue_contact_phone", { length: 50 }),
 
         // Event details
         event_start_date: timestamp("event_start_date", { mode: "date" }).notNull(),
@@ -952,6 +1076,10 @@ export const orders = pgTable(
         special_instructions: text("special_instructions"),
 
         // Logistics windows
+        // requested_* are client-requested (immutable after submit, never trampled by logistics).
+        // delivery_window / pickup_window are logistics-authoritative (editable by ops).
+        requested_delivery_window: jsonb("requested_delivery_window"),
+        requested_pickup_window: jsonb("requested_pickup_window"),
         delivery_window: jsonb("delivery_window"), // {start, end} datetime
         pickup_window: jsonb("pickup_window"), // {start, end} datetime
 
@@ -1047,6 +1175,10 @@ export const orderItems = pgTable(
         requires_maintenance: boolean("requires_maintenance").notNull().default(false),
         maintenance_refurb_days_snapshot: integer("maintenance_refurb_days_snapshot"),
         maintenance_decision_locked_at: timestamp("maintenance_decision_locked_at"),
+        // Pooled settlement: marks when a pooled line has been operationally acknowledged on return.
+        // NULL for lines not yet settled. Applies to both serialized (auto-set on full scan) and pooled lines.
+        settled_at: timestamp("settled_at"),
+        settled_by: uuid("settled_by").references(() => users.id),
         created_at: timestamp("created_at").notNull().defaultNow(),
     },
     (table) => [
@@ -1082,6 +1214,9 @@ export const lineItems = pgTable(
             onDelete: "cascade",
         }),
         service_request_id: uuid("service_request_id").references(() => serviceRequests.id, {
+            onDelete: "cascade",
+        }),
+        self_pickup_id: uuid("self_pickup_id").references((): AnyPgColumn => selfPickups.id, {
             onDelete: "cascade",
         }),
         purpose_type: invoiceTypeEnum("purpose_type").notNull(),
@@ -1159,6 +1294,10 @@ export const lineItemsRelations = relations(lineItems, ({ one }) => ({
     service_request: one(serviceRequests, {
         fields: [lineItems.service_request_id],
         references: [serviceRequests.id],
+    }),
+    self_pickup: one(selfPickups, {
+        fields: [lineItems.self_pickup_id],
+        references: [selfPickups.id],
     }),
     service_type: one(serviceTypes, {
         fields: [lineItems.service_type_id],
@@ -1493,6 +1632,9 @@ export const lineItemRequests = pgTable(
         service_request_id: uuid("service_request_id").references(() => serviceRequests.id, {
             onDelete: "cascade",
         }),
+        self_pickup_id: uuid("self_pickup_id").references((): AnyPgColumn => selfPickups.id, {
+            onDelete: "cascade",
+        }),
         status: lineItemRequestStatusEnum("status").notNull().default("REQUESTED"),
         description: varchar("description", { length: 200 }).notNull(),
         category: serviceCategoryEnum("category").notNull(),
@@ -1556,6 +1698,10 @@ export const lineItemRequestsRelations = relations(lineItemRequests, ({ one }) =
     service_request: one(serviceRequests, {
         fields: [lineItemRequests.service_request_id],
         references: [serviceRequests.id],
+    }),
+    self_pickup: one(selfPickups, {
+        fields: [lineItemRequests.self_pickup_id],
+        references: [selfPickups.id],
     }),
     requested_by_user: one(users, {
         fields: [lineItemRequests.requested_by],
@@ -1658,6 +1804,9 @@ export const invoices = pgTable(
         service_request_id: uuid("service_request_id").references(() => serviceRequests.id, {
             onDelete: "cascade",
         }),
+        self_pickup_id: uuid("self_pickup_id").references((): AnyPgColumn => selfPickups.id, {
+            onDelete: "cascade",
+        }),
         type: invoiceTypeEnum("type").notNull(),
         invoice_id: varchar("invoice_id", { length: 50 }).notNull(),
         invoice_pdf_url: varchar("invoice_pdf_url", { length: 255 }).notNull(),
@@ -1691,12 +1840,211 @@ export const invoicesRelations = relations(invoices, ({ one }) => ({
         fields: [invoices.service_request_id],
         references: [serviceRequests.id],
     }),
+    self_pickup: one(selfPickups, {
+        fields: [invoices.self_pickup_id],
+        references: [selfPickups.id],
+    }),
     platform: one(platforms, { fields: [invoices.platform_id], references: [platforms.id] }),
     generated_by_user: one(users, { fields: [invoices.generated_by], references: [users.id] }),
     updated_by_user: one(users, { fields: [invoices.updated_by], references: [users.id] }),
 }));
 
+// ---------------------------------- SELF PICKUPS -----------------------------------------
+// Self-pickups are the fourth entity in the shared pattern (orders, inbound_requests,
+// service_requests, self_pickups). They reuse prices/line_items/invoices/workflow_requests/
+// entity_attachments polymorphically via the SELF_PICKUP entity_type value.
+export const selfPickups = pgTable(
+    "self_pickups",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        // Human-readable ID: SPK-YYYYMMDD-XXX
+        self_pickup_id: varchar("self_pickup_id", { length: 20 }).notNull(),
+        company_id: uuid("company_id")
+            .notNull()
+            .references(() => companies.id),
+        brand_id: uuid("brand_id").references(() => brands.id),
+        created_by: uuid("created_by")
+            .notNull()
+            .references(() => users.id),
+        job_number: varchar("job_number", { length: 50 }),
+        po_number: varchar("po_number", { length: 100 }),
+
+        // Collector details (default from current user at checkout, editable)
+        collector_name: varchar("collector_name", { length: 100 }).notNull(),
+        collector_phone: varchar("collector_phone", { length: 50 }).notNull(),
+        collector_email: varchar("collector_email", { length: 255 }),
+
+        // Pickup window — required per brief §4.3
+        pickup_window: jsonb("pickup_window").notNull(), // {start, end} datetime
+
+        // Return trigger: auto-transitions PICKED_UP/IN_USE → AWAITING_RETURN when cron
+        // sees expected_return_at < now(). Client can also early-trigger via endpoint.
+        expected_return_at: timestamp("expected_return_at"),
+
+        // Notes
+        notes: text("notes"),
+        special_instructions: text("special_instructions"),
+
+        // Pricing — polymorphic reuse via entity_type=SELF_PICKUP on prices table.
+        // This FK mirrors orders.order_pricing_id for query convenience.
+        self_pickup_pricing_id: uuid("self_pickup_pricing_id")
+            .notNull()
+            .references(() => prices.id),
+        calculated_totals: jsonb("calculated_totals").notNull(),
+
+        // Status
+        self_pickup_status: selfPickupStatusEnum("self_pickup_status")
+            .notNull()
+            .default("SUBMITTED"),
+        financial_status: financialStatusEnum("financial_status")
+            .notNull()
+            .default("PENDING_QUOTE"),
+
+        // Timestamps
+        created_at: timestamp("created_at").notNull().defaultNow(),
+        updated_at: timestamp("updated_at")
+            .$onUpdate(() => new Date())
+            .notNull(),
+        deleted_at: timestamp("deleted_at"),
+    },
+    (table) => [
+        unique("self_pickups_platform_self_pickup_id_unique").on(
+            table.platform_id,
+            table.self_pickup_id
+        ),
+        index("self_pickups_platform_company_idx").on(table.platform_id, table.company_id),
+        index("self_pickups_status_idx").on(table.self_pickup_status),
+        index("self_pickups_financial_status_idx").on(table.financial_status),
+        index("self_pickups_created_at_idx").on(table.created_at),
+    ]
+);
+
+export const selfPickupsRelations = relations(selfPickups, ({ one, many }) => ({
+    platform: one(platforms, {
+        fields: [selfPickups.platform_id],
+        references: [platforms.id],
+    }),
+    company: one(companies, {
+        fields: [selfPickups.company_id],
+        references: [companies.id],
+    }),
+    brand: one(brands, { fields: [selfPickups.brand_id], references: [brands.id] }),
+    created_by_user: one(users, {
+        fields: [selfPickups.created_by],
+        references: [users.id],
+    }),
+    self_pickup_pricing: one(prices, {
+        fields: [selfPickups.self_pickup_pricing_id],
+        references: [prices.id],
+    }),
+    items: many(selfPickupItems),
+    status_history: many(selfPickupStatusHistory),
+    line_items: many(lineItems),
+    line_item_requests: many(lineItemRequests),
+    invoices: many(invoices),
+    asset_bookings: many(assetBookings),
+    scan_events: many(scanEvents),
+}));
+
+export const selfPickupItems = pgTable(
+    "self_pickup_items",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        self_pickup_id: uuid("self_pickup_id")
+            .notNull()
+            .references(() => selfPickups.id, { onDelete: "cascade" }),
+        asset_id: uuid("asset_id")
+            .notNull()
+            .references(() => assets.id),
+
+        // Snapshot data (mirrors order_items)
+        asset_name: varchar("asset_name", { length: 200 }).notNull(),
+        quantity: integer("quantity").notNull(),
+        volume_per_unit: decimal("volume_per_unit", { precision: 8, scale: 3 }).notNull(),
+        weight_per_unit: decimal("weight_per_unit", { precision: 8, scale: 2 }).notNull(),
+        total_volume: decimal("total_volume", { precision: 8, scale: 3 }).notNull(),
+        total_weight: decimal("total_weight", { precision: 8, scale: 2 }).notNull(),
+        condition_notes: text("condition_notes"),
+        handling_tags: text("handling_tags")
+            .array()
+            .default(sql`ARRAY[]::text[]`),
+
+        from_collection: uuid("from_collection").references(() => collections.id),
+        from_collection_name: varchar("from_collection_name", { length: 200 }),
+
+        // Settlement — same semantics as order_items.settled_at
+        settled_at: timestamp("settled_at"),
+        settled_by: uuid("settled_by").references(() => users.id),
+
+        created_at: timestamp("created_at").notNull().defaultNow(),
+    },
+    (table) => [
+        index("self_pickup_items_pickup_idx").on(table.self_pickup_id),
+        index("self_pickup_items_asset_idx").on(table.asset_id),
+        index("self_pickup_items_platform_idx").on(table.platform_id),
+    ]
+);
+
+export const selfPickupItemsRelations = relations(selfPickupItems, ({ one }) => ({
+    platform: one(platforms, {
+        fields: [selfPickupItems.platform_id],
+        references: [platforms.id],
+    }),
+    self_pickup: one(selfPickups, {
+        fields: [selfPickupItems.self_pickup_id],
+        references: [selfPickups.id],
+    }),
+    asset: one(assets, { fields: [selfPickupItems.asset_id], references: [assets.id] }),
+    from_collection: one(collections, {
+        fields: [selfPickupItems.from_collection],
+        references: [collections.id],
+    }),
+    settled_by_user: one(users, {
+        fields: [selfPickupItems.settled_by],
+        references: [users.id],
+    }),
+}));
+
+export const selfPickupStatusHistory = pgTable(
+    "self_pickup_status_history",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        self_pickup_id: uuid("self_pickup_id")
+            .notNull()
+            .references(() => selfPickups.id, { onDelete: "cascade" }),
+        status: selfPickupStatusEnum("status").notNull(),
+        notes: text("notes"),
+        updated_by: uuid("updated_by")
+            .notNull()
+            .references(() => users.id),
+        timestamp: timestamp("timestamp").notNull().defaultNow(),
+    },
+    (table) => [index("self_pickup_status_history_pickup_idx").on(table.self_pickup_id)]
+);
+
+export const selfPickupStatusHistoryRelations = relations(selfPickupStatusHistory, ({ one }) => ({
+    self_pickup: one(selfPickups, {
+        fields: [selfPickupStatusHistory.self_pickup_id],
+        references: [selfPickups.id],
+    }),
+    updated_by_user: one(users, {
+        fields: [selfPickupStatusHistory.updated_by],
+        references: [users.id],
+    }),
+}));
+
 // ---------------------------------- ASSET BOOKINGS ---------------------------------------
+// Polymorphic parent: order_id XOR self_pickup_id. Enforced via CHECK constraint added
+// manually to the generated migration SQL (see drizzle/NNNN_redbull_build.sql).
 export const assetBookings = pgTable(
     "asset_bookings",
     {
@@ -1704,9 +2052,10 @@ export const assetBookings = pgTable(
         asset_id: uuid("asset_id")
             .notNull()
             .references(() => assets.id, { onDelete: "cascade" }),
-        order_id: uuid("order_id")
-            .notNull()
-            .references(() => orders.id, { onDelete: "cascade" }),
+        order_id: uuid("order_id").references(() => orders.id, { onDelete: "cascade" }),
+        self_pickup_id: uuid("self_pickup_id").references(() => selfPickups.id, {
+            onDelete: "cascade",
+        }),
         quantity: integer("quantity").notNull(),
         blocked_from: timestamp("blocked_from", { mode: "date" }).notNull(),
         blocked_until: timestamp("blocked_until", { mode: "date" }).notNull(),
@@ -1715,12 +2064,19 @@ export const assetBookings = pgTable(
             .$onUpdate(() => new Date())
             .notNull(),
     },
-    (table) => [index("asset_bookings_dates_idx").on(table.blocked_from, table.blocked_until)]
+    (table) => [
+        index("asset_bookings_dates_idx").on(table.blocked_from, table.blocked_until),
+        index("asset_bookings_self_pickup_idx").on(table.self_pickup_id),
+    ]
 );
 
 export const assetBookingsRelations = relations(assetBookings, ({ one }) => ({
     asset: one(assets, { fields: [assetBookings.asset_id], references: [assets.id] }),
     order: one(orders, { fields: [assetBookings.order_id], references: [orders.id] }),
+    self_pickup: one(selfPickups, {
+        fields: [assetBookings.self_pickup_id],
+        references: [selfPickups.id],
+    }),
 }));
 
 // ---------------------------------- SELF BOOKINGS ----------------------------------------
@@ -1839,11 +2195,16 @@ export const assetConditionHistoryRelations = relations(assetConditionHistory, (
 }));
 
 // ---------------------------------- SCAN EVENTS ------------------------------------------
+// Polymorphic parent: order_id XOR self_pickup_id. Derig/truck-photo/onsite scan types are
+// application-level restricted to order_id only (not a DB CHECK — enforced in the scanning
+// service wrapper). CHECK constraint for parent exclusivity is added manually to the
+// generated migration SQL.
 export const scanEvents = pgTable("scan_events", {
     id: uuid("id").primaryKey().defaultRandom(),
-    order_id: uuid("order")
-        .notNull()
-        .references(() => orders.id, { onDelete: "cascade" }),
+    order_id: uuid("order").references(() => orders.id, { onDelete: "cascade" }),
+    self_pickup_id: uuid("self_pickup_id").references(() => selfPickups.id, {
+        onDelete: "cascade",
+    }),
     asset_id: uuid("asset").references(() => assets.id),
     scan_type: scanTypeEnum("scan_type").notNull(),
     quantity: integer("quantity").notNull().default(0),
@@ -1859,6 +2220,10 @@ export const scanEvents = pgTable("scan_events", {
 
 export const scanEventsRelations = relations(scanEvents, ({ one, many }) => ({
     order: one(orders, { fields: [scanEvents.order_id], references: [orders.id] }),
+    self_pickup: one(selfPickups, {
+        fields: [scanEvents.self_pickup_id],
+        references: [selfPickups.id],
+    }),
     asset: one(assets, { fields: [scanEvents.asset_id], references: [assets.id] }),
     scanned_by_user: one(users, { fields: [scanEvents.scanned_by], references: [users.id] }),
     event_assets: many(scanEventAssets),
@@ -2530,3 +2895,68 @@ export const serviceRequestStatusHistoryRelations = relations(
         }),
     })
 );
+
+// ---------------------------------- STOCK MOVEMENTS --------------------------------------
+// Audit ledger for pooled inventory changes. Every mutation of asset quantity/availability
+// that happens through scanning, settlement, or manual adjustment writes a row here.
+// v1 scope: linked_entity_type is ORDER only. Inbound requests and service requests are
+// excluded for now (those entities are feature-flagged off across all clients and pending
+// a future refactor). See the Red Bull build plan for details.
+export const stockMovements = pgTable(
+    "stock_movements",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        // Either asset_id or asset_family_id (or both) — asset_id is set for serialized/batch
+        // movements, asset_family_id for family-level aggregates.
+        asset_id: uuid("asset_id").references(() => assets.id, { onDelete: "set null" }),
+        asset_family_id: uuid("asset_family_id").references(() => assetFamilies.id, {
+            onDelete: "set null",
+        }),
+        delta: integer("delta").notNull(), // positive (stock in) or negative (stock out)
+        movement_type: stockMovementTypeEnum("movement_type").notNull(),
+        write_off_reason: stockWriteOffReasonEnum("write_off_reason"), // only when movement_type = WRITE_OFF
+        note: text("note"),
+        linked_entity_type: varchar("linked_entity_type", { length: 20 }), // "ORDER", "SELF_PICKUP"
+        linked_entity_id: uuid("linked_entity_id"),
+        linked_scan_event_id: uuid("linked_scan_event_id").references(() => scanEvents.id, {
+            onDelete: "set null",
+        }),
+        created_by: uuid("created_by")
+            .notNull()
+            .references(() => users.id),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+    },
+    (table) => [
+        index("stock_movements_asset_idx").on(table.asset_id),
+        index("stock_movements_family_idx").on(table.asset_family_id),
+        index("stock_movements_linked_entity_idx").on(
+            table.linked_entity_type,
+            table.linked_entity_id
+        ),
+        index("stock_movements_platform_idx").on(table.platform_id),
+        index("stock_movements_created_at_idx").on(table.created_at),
+    ]
+);
+
+export const stockMovementsRelations = relations(stockMovements, ({ one }) => ({
+    platform: one(platforms, {
+        fields: [stockMovements.platform_id],
+        references: [platforms.id],
+    }),
+    asset: one(assets, { fields: [stockMovements.asset_id], references: [assets.id] }),
+    asset_family: one(assetFamilies, {
+        fields: [stockMovements.asset_family_id],
+        references: [assetFamilies.id],
+    }),
+    scan_event: one(scanEvents, {
+        fields: [stockMovements.linked_scan_event_id],
+        references: [scanEvents.id],
+    }),
+    created_by_user: one(users, {
+        fields: [stockMovements.created_by],
+        references: [users.id],
+    }),
+}));

@@ -3,7 +3,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 API_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-ENV_FILE="${DBOPS_ENV_FILE:-$API_ROOT/.env.dbops.local}"
+ENV_FILE="${DBOPS_ENV_FILE:-$API_ROOT/.env.dbops}"
+
+# Safety: refresh ops target staging writes. Require APP_ENV=staging so this
+# never runs in a context expecting another env. Package.json scripts set
+# this prefix inline (see `dbops:refresh-staging*` in package.json).
+if [[ "${APP_ENV:-}" != "staging" ]]; then
+    echo "ERROR: refresh-staging-from-prod.sh requires APP_ENV=staging (got: \"${APP_ENV:-<unset>}\")" >&2
+    echo "  Run via: APP_ENV=staging bash scripts/dbops/refresh-staging-from-prod.sh ..." >&2
+    exit 1
+fi
 
 if [[ ! -f "$ENV_FILE" ]]; then
     echo "Missing env file: $ENV_FILE" >&2
@@ -87,8 +96,20 @@ order by table_name, ordinal_position;
 prod_psql -At -c "$TABLE_SQL" > "$RUN_DIR/prod-tables.txt"
 staging_psql -At -c "$TABLE_SQL" > "$RUN_DIR/staging-tables.txt"
 
-if ! diff -u "$RUN_DIR/prod-tables.txt" "$RUN_DIR/staging-tables.txt" > "$RUN_DIR/table-diff.txt"; then
-    echo "Public table sets differ. See $RUN_DIR/table-diff.txt" >&2
+# Table-set asymmetry: prod must be a SUBSET of staging.
+# - Tables on prod but not staging → abort (can't synthesize missing targets).
+# - Tables on staging but not prod → allowed, but note the CASCADE caveat:
+#   the TRUNCATE list is derived from prod-tables.txt so staging-only tables
+#   aren't truncated explicitly, HOWEVER `TRUNCATE ... CASCADE` on prod-known
+#   parent tables propagates through FK references into staging-only tables.
+#   Their schema is preserved, but their ROWS may be wiped if any column
+#   FK-references a prod-known table (e.g. self_pickups.platform_id → platforms).
+#   If you need staging-only row data to survive a refresh, snapshot it first
+#   and re-apply afterwards.
+diff -u "$RUN_DIR/prod-tables.txt" "$RUN_DIR/staging-tables.txt" > "$RUN_DIR/table-diff.txt" || true
+comm -23 <(sort "$RUN_DIR/prod-tables.txt") <(sort "$RUN_DIR/staging-tables.txt") > "$RUN_DIR/only-in-prod-tables.txt"
+if [[ -s "$RUN_DIR/only-in-prod-tables.txt" ]]; then
+    echo "ERROR: prod has tables staging doesn't — refresh cannot synthesize missing tables. See $RUN_DIR/only-in-prod-tables.txt" >&2
     exit 1
 fi
 
@@ -247,6 +268,76 @@ SQL
 staging_psql -f "$IMPORT_SQL" >/dev/null
 restore_fk_deferrability
 trap - EXIT
+
+# ----------------------------------------------------------------------------
+# Staging rewrites: sanitize emails and platform settings so staging is safe
+# to operate without leaking into prod channels.
+#
+# - Users: append "-staging" before @ (excluding well-known seed accounts).
+# - Companies: same treatment on contact_email.
+# - Platform from_email: inject "staging." into the domain so outbound mail
+#   obviously comes from a staging environment.
+#
+# All transforms are idempotent: re-running them on an already-rewritten
+# database is a no-op. Exclusions are hardcoded below — edit if seed accounts
+# change.
+# ----------------------------------------------------------------------------
+STAGING_REWRITES_SQL="$RUN_DIR/staging-rewrites.sql"
+cat > "$STAGING_REWRITES_SQL" <<'SQL'
+BEGIN;
+
+-- Report state before rewrites
+\echo '--- BEFORE staging rewrites ---'
+select 'users_total' as label, count(*) from public.users;
+select 'users_with_staging_suffix' as label, count(*) from public.users where email like '%-staging@%';
+select 'companies_with_staging_suffix' as label, count(*) from public.companies where contact_email like '%-staging@%';
+
+-- 1) User emails -> append "-staging" before @, except seed/test accounts.
+--    Idempotent: already-staging emails are skipped.
+update public.users
+set email = regexp_replace(email, '^([^@]+)@(.+)$', '\1-staging@\2')
+where email is not null
+  and email not like '%-staging@%'
+  and email not in (
+      'admin@test.com',
+      'sarah.admin@platform.com',
+      'logistics@test.com',
+      'ahmed.logistics@a2logistics.com',
+      'client@pernod-ricard.com',
+      'client@diageo.com'
+  );
+
+-- 2) Company contact_email -> same -staging suffix. No exclusions.
+update public.companies
+set contact_email = regexp_replace(contact_email, '^([^@]+)@(.+)$', '\1-staging@\2')
+where contact_email is not null
+  and contact_email not like '%-staging@%';
+
+-- 3) Platform config.from_email -> inject "staging." into domain.
+--    e.g. no-reply@kadence.ae -> no-reply@staging.kadence.ae
+--    Idempotent: domains already starting with "staging." are skipped.
+update public.platforms
+set config = jsonb_set(
+    config,
+    '{from_email}',
+    to_jsonb(regexp_replace(config->>'from_email', '^([^@]+)@(.+)$', '\1@staging.\2'))
+)
+where config is not null
+  and config ? 'from_email'
+  and config->>'from_email' is not null
+  and (config->>'from_email') !~ '@staging\.';
+
+-- Report state after rewrites
+\echo '--- AFTER staging rewrites ---'
+select 'users_with_staging_suffix' as label, count(*) from public.users where email like '%-staging@%';
+select 'companies_with_staging_suffix' as label, count(*) from public.companies where contact_email like '%-staging@%';
+select 'platforms_from_email' as label, id::text as platform_id, config->>'from_email' as from_email from public.platforms where config ? 'from_email';
+
+COMMIT;
+SQL
+
+echo "Applying staging rewrites from $STAGING_REWRITES_SQL"
+staging_psql -f "$STAGING_REWRITES_SQL" | tee "$RUN_DIR/staging-rewrites.log"
 
 capture_fingerprint "staging" "$RUN_DIR/staging-fingerprint-after.tsv"
 

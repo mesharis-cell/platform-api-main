@@ -9,7 +9,7 @@ import queryValidator from "../../utils/query-validator";
 import { CreateCompanyPayload } from "./company.interfaces";
 import { companyQueryValidationConfig, companySortableFields } from "./company.utils";
 import { PERMISSIONS } from "../../constants/permissions";
-import { companyFeatures, featureNames } from "../../constants/common";
+import { featureNames, resolveEffectiveFeature } from "../../constants/common";
 
 const featureKeys = Object.values(featureNames);
 
@@ -27,21 +27,14 @@ const resolveCompanyFeatures = (
     companyFeatureOverrides: unknown,
     platformFeatureValues: unknown
 ): Record<string, boolean> => {
-    const overrides = sanitizeFeatureOverrides(companyFeatureOverrides);
-    const platformRaw = (platformFeatureValues || {}) as Record<string, unknown>;
-
+    // Delegate to the canonical resolver — identical priority (company
+    // override → platform → registry default). See CLAUDE.md
+    // <feature_flag_discipline>.
     return featureKeys.reduce<Record<string, boolean>>((acc, key) => {
-        if (overrides[key] !== undefined) {
-            acc[key] = Boolean(overrides[key]);
-            return acc;
-        }
-
-        if (platformRaw[key] !== undefined) {
-            acc[key] = Boolean(platformRaw[key]);
-            return acc;
-        }
-
-        acc[key] = companyFeatures[key as keyof typeof companyFeatures];
+        acc[key] = resolveEffectiveFeature(key, {
+            companyFeatures: companyFeatureOverrides as Record<string, unknown> | null,
+            platformFeatures: platformFeatureValues as Record<string, unknown> | null,
+        });
         return acc;
     }, {});
 };
