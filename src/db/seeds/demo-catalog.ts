@@ -59,7 +59,7 @@ export const seedDemoCatalog = async (opts: SeedDemoCatalogOpts): Promise<Seeded
             company_id: opts.companyId,
             brand_id: opts.brandPrimaryId,
             name: "Event Chairs",
-            category_id: null as any, // resolved by migration seed
+            category_id: DEMO_UUIDS.assetCategories.furniture,
             description: "Stackable chairs for corporate events.",
             stock_mode: "POOLED",
             weight_per_unit: "3.20",
@@ -74,7 +74,7 @@ export const seedDemoCatalog = async (opts: SeedDemoCatalogOpts): Promise<Seeded
             company_id: opts.companyId,
             brand_id: opts.brandPrimaryId,
             name: "Backdrop Panels",
-            category_id: null as any, // resolved by migration seed
+            category_id: DEMO_UUIDS.assetCategories.decor,
             description: "Modular backdrop panels for stage and photo walls.",
             stock_mode: "SERIALIZED",
             weight_per_unit: "12.00",
@@ -89,7 +89,7 @@ export const seedDemoCatalog = async (opts: SeedDemoCatalogOpts): Promise<Seeded
             company_id: opts.companyId,
             brand_id: opts.brandSecondaryId,
             name: "LED Screens",
-            category_id: null as any, // resolved by migration seed
+            category_id: DEMO_UUIDS.assetCategories.installation,
             description: "P3 indoor LED video walls (per panel).",
             stock_mode: "SERIALIZED",
             weight_per_unit: "8.50",

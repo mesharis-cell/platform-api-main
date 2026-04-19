@@ -30,6 +30,7 @@ import * as schema from "./schema";
 import {
     DEMO_UUIDS,
     seedAccessPolicies,
+    seedAssetCategories,
     seedAttachmentTypes,
     seedDemoCatalog,
     seedDemoOrders,
@@ -389,6 +390,8 @@ const main = async () => {
     console.log("  ✓ workflow definitions");
     await seedNotificationRules({ platformId: platform.id });
     console.log("  ✓ notification rules");
+    await seedAssetCategories({ platformId: platform.id });
+    console.log("  ✓ asset categories (6 universal)");
 
     const { city } = await seedGeography(platform.id);
     const company = await seedCompany(platform.id);
