@@ -30,6 +30,11 @@ export {
     PLATFORM_DEFAULT_NOTIFICATION_RULES,
     type SeedNotificationRulesOpts,
 } from "./notification-rules";
+export {
+    seedAssetCategories,
+    CANONICAL_ASSET_CATEGORIES,
+    type SeedAssetCategoriesOpts,
+} from "./asset-categories";
 
 // Demo-seed helpers (deterministic IDs + timestamps for docs screenshots)
 export { DEMO_EPOCH, daysFromEpoch, DEMO_UUIDS, DEMO_ORDER_IDS } from "./demo-deterministic";
