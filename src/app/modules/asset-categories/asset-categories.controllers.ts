@@ -8,10 +8,12 @@ const listCategories = catchAsync(async (req, res) => {
     const platformId = req.headers["x-platform"] as string;
     const user = (req as any).user as AuthUser;
     const companyId = req.query.company_id as string | undefined;
+    const allScopes = req.query.all_scopes === "true";
 
     const result = await AssetCategoryServices.listCategories(
         platformId,
-        companyId || user.company_id || undefined
+        allScopes ? null : companyId || user.company_id || undefined,
+        allScopes
     );
 
     sendResponse(res, {
