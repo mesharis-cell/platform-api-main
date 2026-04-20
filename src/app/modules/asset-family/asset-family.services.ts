@@ -576,6 +576,49 @@ const createAssetFamily = async (
 ) => {
     await validateFamilyScope(platformId, payload);
 
+    // Pre-check uniqueness so the user gets a friendly message instead of the
+    // raw Postgres constraint error with opaque key tuples. The DB still
+    // enforces the constraint as a safety net — this is just for UX.
+    const trimmedName = payload.name.trim();
+    const [nameConflict] = await db
+        .select({ id: assetFamilies.id })
+        .from(assetFamilies)
+        .where(
+            and(
+                eq(assetFamilies.platform_id, platformId),
+                eq(assetFamilies.company_id, payload.company_id),
+                eq(assetFamilies.name, trimmedName)
+            )
+        )
+        .limit(1);
+    if (nameConflict) {
+        throw new CustomizedError(
+            httpStatus.CONFLICT,
+            `An asset family named "${trimmedName}" already exists for this company.`
+        );
+    }
+
+    const trimmedCode = payload.company_item_code?.trim() || null;
+    if (trimmedCode) {
+        const [codeConflict] = await db
+            .select({ id: assetFamilies.id })
+            .from(assetFamilies)
+            .where(
+                and(
+                    eq(assetFamilies.platform_id, platformId),
+                    eq(assetFamilies.company_id, payload.company_id),
+                    eq(assetFamilies.company_item_code, trimmedCode)
+                )
+            )
+            .limit(1);
+        if (codeConflict) {
+            throw new CustomizedError(
+                httpStatus.CONFLICT,
+                `An asset family with item code "${trimmedCode}" already exists for this company.`
+            );
+        }
+    }
+
     const created = await db.transaction(async (tx) => {
         const categoryId = await resolveCategoryId(tx, platformId, payload, userId);
 
