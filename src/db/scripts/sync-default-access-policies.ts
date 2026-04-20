@@ -1,7 +1,10 @@
 /**
- * Sync default access policies — re-aligns the DB policy rows for
- * ADMIN_DEFAULT / LOGISTICS_DEFAULT / CLIENT_DEFAULT with the current
- * PERMISSION_TEMPLATES.* arrays in code.
+ * Sync default access policies — ADDITIVE ONLY.
+ *
+ * Re-aligns the DB policy rows for ADMIN_DEFAULT / LOGISTICS_DEFAULT /
+ * CLIENT_DEFAULT by UNIONING the current PERMISSION_TEMPLATES.* arrays
+ * INTO the existing DB `permissions` array. Never removes a permission
+ * the DB row already has — respects operator revocations/customizations.
  *
  * Why this exists:
  *   createDefaultAccessPolicies() in platform-bootstrap.service.ts only
@@ -13,10 +16,16 @@
  *   the new permission.
  *
  * What this does:
- *   For each platform + each of the 3 default codes, replace
- *   policies.permissions with the current template. Only touches rows
- *   where code IN ('ADMIN_DEFAULT','LOGISTICS_DEFAULT','CLIENT_DEFAULT'),
- *   leaves custom policies alone.
+ *   For each platform + each of the 3 default codes, compute the union
+ *   of (DB permissions ∪ template permissions) and write it back. Any
+ *   permission the operator has removed from the default via the UI
+ *   stays removed ONLY IF the template doesn't mention it — if the
+ *   template lists a permission the DB row lacks, it gets re-added.
+ *   That's the intended semantic: the template is the floor, not the
+ *   ceiling.
+ *
+ *   Only touches rows where code IN ('ADMIN_DEFAULT','LOGISTICS_DEFAULT',
+ *   'CLIENT_DEFAULT'). Leaves custom policies alone.
  *
  * Usage:
  *   APP_ENV=staging bun run db:access:sync-defaults           # dry-run
@@ -36,13 +45,6 @@ const apply = process.argv.includes("--apply");
 
 const normalize = (list: string[] | null | undefined) =>
     [...new Set(list ?? [])].sort((a, b) => a.localeCompare(b));
-
-const arraysEqual = (a: string[], b: string[]) => {
-    const na = normalize(a);
-    const nb = normalize(b);
-    if (na.length !== nb.length) return false;
-    return na.every((x, i) => x === nb[i]);
-};
 
 const main = async () => {
     console.log(`\n🔄 sync-default-access-policies (${apply ? "APPLY" : "DRY-RUN"})\n`);
@@ -80,33 +82,35 @@ const main = async () => {
         }
 
         const current = normalize(row.permissions as string[] | null);
-        const desired = normalize(template.permissions as string[]);
+        const templatePerms = normalize(template.permissions as string[]);
+        const missing = templatePerms.filter((p) => !current.includes(p));
 
-        if (arraysEqual(current, desired)) {
+        if (missing.length === 0) {
             console.log(
-                `  ✓ ${row.code} (${row.platform_id}): already up-to-date (${current.length} perms)`
+                `  ✓ ${row.code} (${row.platform_id}): already includes every template permission (${current.length} total)`
             );
             skipped++;
             continue;
         }
 
-        const missing = desired.filter((p) => !current.includes(p));
-        const extra = current.filter((p) => !desired.includes(p));
+        // Additive: union of DB + template. Anything the operator removed
+        // from the DB row stays removed as long as the template hasn't
+        // added it since. Permissions the DB row has that the template
+        // doesn't mention are preserved entirely.
+        const union = normalize([...current, ...missing]);
+        const preservedCustom = current.filter((p) => !templatePerms.includes(p));
 
         console.log(`\n  ↻ ${row.code} (${row.platform_id}) — ${row.name}`);
-        if (missing.length > 0) {
-            console.log(`     + add (${missing.length}):`);
-            missing.forEach((p) => console.log(`       + ${p}`));
-        }
-        if (extra.length > 0) {
-            console.log(`     − drop (${extra.length}):`);
-            extra.forEach((p) => console.log(`       − ${p}`));
-        }
+        console.log(
+            `     ${current.length} → ${union.length} perms (+${missing.length}, preserved ${preservedCustom.length} non-template custom)`
+        );
+        console.log(`     + add (${missing.length}):`);
+        missing.forEach((p) => console.log(`       + ${p}`));
 
         if (apply) {
             await db
                 .update(accessPolicies)
-                .set({ permissions: desired, updated_at: new Date() })
+                .set({ permissions: union, updated_at: new Date() })
                 .where(eq(accessPolicies.id, row.id));
             console.log(`     ✓ updated`);
         }
