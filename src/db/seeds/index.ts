@@ -41,7 +41,4 @@ export { DEMO_EPOCH, daysFromEpoch, DEMO_UUIDS, DEMO_ORDER_IDS } from "./demo-de
 export { seedDemoCatalog, type SeedDemoCatalogOpts, type SeededCatalog } from "./demo-catalog";
 export { seedDemoOrders, type SeedDemoOrdersOpts, type SeededOrders } from "./demo-orders";
 export { seedDemoScanEvents, type SeedDemoScanEventsOpts } from "./demo-scan-events";
-export {
-    seedDemoServiceRequest,
-    type SeedDemoServiceRequestOpts,
-} from "./demo-service-request";
+export { seedDemoServiceRequest, type SeedDemoServiceRequestOpts } from "./demo-service-request";

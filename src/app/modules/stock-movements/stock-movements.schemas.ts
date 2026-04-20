@@ -16,25 +16,16 @@ export const manualAdjustmentSchema = z.object({
             // write-off (consumed/lost/damaged/other) instead of a clerical
             // adjustment. Must come with a write_off_reason and negative delta.
             movement_type: z.enum(["ADJUSTMENT", "WRITE_OFF"]).optional(),
-            write_off_reason: z
-                .enum(["CONSUMED", "LOST", "DAMAGED", "OTHER"])
-                .optional(),
+            write_off_reason: z.enum(["CONSUMED", "LOST", "DAMAGED", "OTHER"]).optional(),
         })
-        .refine(
-            (data) =>
-                data.movement_type !== "WRITE_OFF" || !!data.write_off_reason,
-            {
-                message: "write_off_reason is required when movement_type=WRITE_OFF",
-                path: ["write_off_reason"],
-            }
-        )
-        .refine(
-            (data) => data.movement_type !== "WRITE_OFF" || data.delta < 0,
-            {
-                message: "WRITE_OFF delta must be negative",
-                path: ["delta"],
-            }
-        ),
+        .refine((data) => data.movement_type !== "WRITE_OFF" || !!data.write_off_reason, {
+            message: "write_off_reason is required when movement_type=WRITE_OFF",
+            path: ["write_off_reason"],
+        })
+        .refine((data) => data.movement_type !== "WRITE_OFF" || data.delta < 0, {
+            message: "WRITE_OFF delta must be negative",
+            path: ["delta"],
+        }),
 });
 
 export const StockMovementsSchemas = {

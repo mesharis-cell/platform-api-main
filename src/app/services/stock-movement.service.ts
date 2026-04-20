@@ -20,12 +20,7 @@
 
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../../db";
-import {
-    assets,
-    assetFamilies,
-    stockMovements,
-    users,
-} from "../../db/schema";
+import { assets, assetFamilies, stockMovements, users } from "../../db/schema";
 import { eventBus, EVENT_TYPES } from "../events";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -86,10 +81,7 @@ async function record(
             updates.available_quantity = sql`GREATEST(0, ${assets.available_quantity} + ${params.delta})`;
         }
 
-        await ex
-            .update(assets)
-            .set(updates)
-            .where(eq(assets.id, params.assetId));
+        await ex.update(assets).set(updates).where(eq(assets.id, params.assetId));
     }
 
     // 3. Check threshold crossing (for quantity-affecting movements)
@@ -109,7 +101,13 @@ async function checkThresholdCrossing(
 ): Promise<void> {
     const asset = await db.query.assets.findFirst({
         where: eq(assets.id, assetId),
-        columns: { id: true, name: true, family_id: true, company_id: true, available_quantity: true },
+        columns: {
+            id: true,
+            name: true,
+            family_id: true,
+            company_id: true,
+            available_quantity: true,
+        },
     });
 
     if (!asset?.family_id) return;
@@ -176,7 +174,9 @@ async function getAssetHistory(
         })
         .from(stockMovements)
         .leftJoin(users, eq(stockMovements.created_by, users.id))
-        .where(and(eq(stockMovements.asset_id, assetId), eq(stockMovements.platform_id, platformId)))
+        .where(
+            and(eq(stockMovements.asset_id, assetId), eq(stockMovements.platform_id, platformId))
+        )
         .orderBy(desc(stockMovements.created_at))
         .limit(limit)
         .offset(offset);
@@ -209,9 +209,7 @@ async function getFamilyHistory(
         .from(stockMovements)
         .innerJoin(assets, eq(stockMovements.asset_id, assets.id))
         .leftJoin(users, eq(stockMovements.created_by, users.id))
-        .where(
-            and(eq(assets.family_id, familyId), eq(stockMovements.platform_id, platformId))
-        )
+        .where(and(eq(assets.family_id, familyId), eq(stockMovements.platform_id, platformId)))
         .orderBy(desc(stockMovements.created_at))
         .limit(limit)
         .offset(offset);
@@ -238,10 +236,15 @@ async function getLowStockFamilies(platformId: string, companyId?: string) {
             total_quantity: sql<number>`COALESCE(SUM(${assets.total_quantity}), 0)`,
         })
         .from(assetFamilies)
-        .leftJoin(assets, and(eq(assets.family_id, assetFamilies.id), sql`${assets.deleted_at} IS NULL`))
+        .leftJoin(
+            assets,
+            and(eq(assets.family_id, assetFamilies.id), sql`${assets.deleted_at} IS NULL`)
+        )
         .where(and(...conditions))
         .groupBy(assetFamilies.id)
-        .having(sql`COALESCE(SUM(${assets.available_quantity}), 0) < ${assetFamilies.low_stock_threshold}`);
+        .having(
+            sql`COALESCE(SUM(${assets.available_quantity}), 0) < ${assetFamilies.low_stock_threshold}`
+        );
 
     return families.map((f) => ({
         ...f,

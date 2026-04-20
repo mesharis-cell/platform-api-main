@@ -84,9 +84,7 @@ async function main() {
             .set({ permissions: mergedPerms })
             .where(eq(accessPolicies.id, policy.id));
 
-        console.log(
-            `  ✅ ${policy.name} (${policy.role}) — added ${newPerms.length} permissions`
-        );
+        console.log(`  ✅ ${policy.name} (${policy.role}) — added ${newPerms.length} permissions`);
         updated++;
     }
 

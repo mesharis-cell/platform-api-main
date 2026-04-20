@@ -280,7 +280,11 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
     await eventBus.emit({
         platform_id,
         event_type: EVENT_TYPES.LINE_ITEM_ADDED,
-        entity_type: result.purpose_type as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP",
+        entity_type: result.purpose_type as
+            | "ORDER"
+            | "INBOUND_REQUEST"
+            | "SERVICE_REQUEST"
+            | "SELF_PICKUP",
         entity_id: parentEntityId,
         actor_id: added_by,
         actor_role: null,
@@ -401,7 +405,11 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
     await eventBus.emit({
         platform_id,
         event_type: EVENT_TYPES.LINE_ITEM_ADDED,
-        entity_type: result.purpose_type as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP",
+        entity_type: result.purpose_type as
+            | "ORDER"
+            | "INBOUND_REQUEST"
+            | "SERVICE_REQUEST"
+            | "SELF_PICKUP",
         entity_id: customParentEntityId,
         actor_id: added_by,
         actor_role: null,
@@ -549,7 +557,11 @@ const updateLineItem = async (
     await eventBus.emit({
         platform_id: platformId,
         event_type: EVENT_TYPES.LINE_ITEM_UPDATED,
-        entity_type: result.purpose_type as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP",
+        entity_type: result.purpose_type as
+            | "ORDER"
+            | "INBOUND_REQUEST"
+            | "SERVICE_REQUEST"
+            | "SELF_PICKUP",
         entity_id: updateParentId,
         actor_id: userId,
         actor_role: null,
@@ -619,7 +631,11 @@ const patchLineItemMetadata = async (
     await eventBus.emit({
         platform_id: platformId,
         event_type: EVENT_TYPES.LINE_ITEM_UPDATED,
-        entity_type: result.purpose_type as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP",
+        entity_type: result.purpose_type as
+            | "ORDER"
+            | "INBOUND_REQUEST"
+            | "SERVICE_REQUEST"
+            | "SELF_PICKUP",
         entity_id: result.order_id || result.inbound_request_id || result.service_request_id || "",
         actor_id: userId,
         actor_role: null,
@@ -670,7 +686,11 @@ const patchLineItemClientVisibility = async (
     await eventBus.emit({
         platform_id: platformId,
         event_type: EVENT_TYPES.LINE_ITEM_UPDATED,
-        entity_type: result.purpose_type as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP",
+        entity_type: result.purpose_type as
+            | "ORDER"
+            | "INBOUND_REQUEST"
+            | "SERVICE_REQUEST"
+            | "SELF_PICKUP",
         entity_id: result.order_id || result.inbound_request_id || result.service_request_id || "",
         actor_id: userId,
         actor_role: null,
@@ -743,7 +763,11 @@ const patchEntityLineItemsClientVisibility = async (
     await eventBus.emit({
         platform_id: platformId,
         event_type: EVENT_TYPES.LINE_ITEM_UPDATED,
-        entity_type: data.purpose_type as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP",
+        entity_type: data.purpose_type as
+            | "ORDER"
+            | "INBOUND_REQUEST"
+            | "SERVICE_REQUEST"
+            | "SELF_PICKUP",
         entity_id: targetId,
         actor_id: userId,
         actor_role: null,
@@ -830,7 +854,11 @@ const voidLineItem = async (id: string, platformId: string, data: VoidLineItemPa
     await eventBus.emit({
         platform_id: platformId,
         event_type: EVENT_TYPES.LINE_ITEM_VOIDED,
-        entity_type: result.purpose_type as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP",
+        entity_type: result.purpose_type as
+            | "ORDER"
+            | "INBOUND_REQUEST"
+            | "SERVICE_REQUEST"
+            | "SELF_PICKUP",
         entity_id: voidParentId,
         actor_id: voided_by,
         actor_role: null,

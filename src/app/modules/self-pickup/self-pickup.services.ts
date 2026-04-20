@@ -124,10 +124,7 @@ const submitSelfPickupFromCart = async (
         });
 
         if (!asset) {
-            throw new CustomizedError(
-                httpStatus.BAD_REQUEST,
-                `Asset not found: ${item.asset_id}`
-            );
+            throw new CustomizedError(httpStatus.BAD_REQUEST, `Asset not found: ${item.asset_id}`);
         }
 
         if (asset.available_quantity < item.quantity) {
@@ -228,9 +225,7 @@ const submitSelfPickupFromCart = async (
                 collector_phone,
                 collector_email: collector_email || null,
                 pickup_window: pickupWindowParsed,
-                expected_return_at: expected_return_at
-                    ? dayjs(expected_return_at).toDate()
-                    : null,
+                expected_return_at: expected_return_at ? dayjs(expected_return_at).toDate() : null,
                 notes: notes || null,
                 special_instructions: special_instructions || null,
                 job_number: job_number || null,
@@ -392,10 +387,7 @@ const listSelfPickups = async (platformId: string, params: SelfPickupListParams)
             .orderBy(sql`${sortColumn} ${orderDir}`)
             .limit(limit)
             .offset(offset),
-        db
-            .select({ count: count() })
-            .from(selfPickups)
-            .where(where),
+        db.select({ count: count() }).from(selfPickups).where(where),
     ]);
 
     return {
@@ -492,7 +484,13 @@ const submitForApproval = async (id: string, platformId: string, user: AuthUser)
             `Cannot submit for approval in status: ${pickup.self_pickup_status}`
         );
     }
-    return transitionStatus(id, platformId, user, "PENDING_APPROVAL", "Submitted for admin approval");
+    return transitionStatus(
+        id,
+        platformId,
+        user,
+        "PENDING_APPROVAL",
+        "Submitted for admin approval"
+    );
 };
 
 const approveQuote = async (id: string, platformId: string, user: AuthUser) => {
@@ -503,7 +501,13 @@ const approveQuote = async (id: string, platformId: string, user: AuthUser) => {
             `Cannot approve quote in status: ${pickup.self_pickup_status}`
         );
     }
-    return transitionStatus(id, platformId, user, "QUOTED", "Admin approved — quote sent to client");
+    return transitionStatus(
+        id,
+        platformId,
+        user,
+        "QUOTED",
+        "Admin approved — quote sent to client"
+    );
 };
 
 const markReadyForPickup = async (id: string, platformId: string, user: AuthUser) => {
@@ -528,12 +532,7 @@ const triggerReturn = async (id: string, platformId: string, user: AuthUser) => 
     return transitionStatus(id, platformId, user, "AWAITING_RETURN", "Return initiated");
 };
 
-const cancelSelfPickup = async (
-    id: string,
-    platformId: string,
-    user: AuthUser,
-    reason: string
-) => {
+const cancelSelfPickup = async (id: string, platformId: string, user: AuthUser, reason: string) => {
     const pickup = await getSelfPickupById(id, platformId);
     if (!canCancelSelfPickup(pickup.self_pickup_status)) {
         throw new CustomizedError(

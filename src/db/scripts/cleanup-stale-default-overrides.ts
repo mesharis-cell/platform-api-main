@@ -60,7 +60,10 @@ const normalize = (permissions: string[] | null | undefined) =>
 const samePermissions = (a: string[] | null | undefined, b: string[]) => {
     const left = normalize(a);
     const right = normalize(b);
-    return left.length === right.length && left.every((permission, index) => permission === right[index]);
+    return (
+        left.length === right.length &&
+        left.every((permission, index) => permission === right[index])
+    );
 };
 
 async function main() {

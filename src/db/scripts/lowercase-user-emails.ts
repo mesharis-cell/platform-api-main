@@ -106,14 +106,18 @@ async function main() {
     });
     const externalCollisions = platformWideMatches.filter((u) => !targetIds.has(u.id));
     if (externalCollisions.length > 0) {
-        const detail = externalCollisions.map((u) => `  ${u.email} (user ${u.id}, company ${u.company_id ?? "null"})`).join("\n");
+        const detail = externalCollisions
+            .map((u) => `  ${u.email} (user ${u.id}, company ${u.company_id ?? "null"})`)
+            .join("\n");
         throw new Error(
             `Refusing to proceed — lowercased emails already exist for OTHER users on this platform:\n${detail}\n` +
                 `Resolve manually first.`
         );
     }
 
-    console.log(`Will lowercase ${needsChange.length} email(s) on platform "${platform.domain}", company "${company.domain}":`);
+    console.log(
+        `Will lowercase ${needsChange.length} email(s) on platform "${platform.domain}", company "${company.domain}":`
+    );
     for (const u of needsChange) {
         console.log(`  ${u.email}  →  ${u.email.toLowerCase()}   (${u.name})`);
     }

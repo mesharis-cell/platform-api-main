@@ -9,24 +9,49 @@ const handoverScan = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const selfPickupId = getRequiredString(req.params.self_pickup_id, "self_pickup_id");
     const result = await SelfPickupScanningServices.selfPickupOutboundScan(
-        selfPickupId, req.body, user, platformId
+        selfPickupId,
+        req.body,
+        user,
+        platformId
     );
-    sendResponse(res, { statusCode: httpStatus.OK, success: true, message: "Item scanned for handover", data: result });
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Item scanned for handover",
+        data: result,
+    });
 });
 
 const getHandoverProgress = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const selfPickupId = getRequiredString(req.params.self_pickup_id, "self_pickup_id");
-    const result = await SelfPickupScanningServices.getSelfPickupHandoverProgress(selfPickupId, platformId);
-    sendResponse(res, { statusCode: httpStatus.OK, success: true, message: "Handover progress", data: result });
+    const result = await SelfPickupScanningServices.getSelfPickupHandoverProgress(
+        selfPickupId,
+        platformId
+    );
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Handover progress",
+        data: result,
+    });
 });
 
 const completeHandover = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
     const selfPickupId = getRequiredString(req.params.self_pickup_id, "self_pickup_id");
-    const result = await SelfPickupScanningServices.completeSelfPickupHandover(selfPickupId, user, platformId);
-    sendResponse(res, { statusCode: httpStatus.OK, success: true, message: "Handover complete", data: result });
+    const result = await SelfPickupScanningServices.completeSelfPickupHandover(
+        selfPickupId,
+        user,
+        platformId
+    );
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Handover complete",
+        data: result,
+    });
 });
 
 const returnScan = catchAsync(async (req, res) => {
@@ -34,16 +59,32 @@ const returnScan = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const selfPickupId = getRequiredString(req.params.self_pickup_id, "self_pickup_id");
     const result = await SelfPickupScanningServices.selfPickupInboundScan(
-        selfPickupId, req.body, user, platformId
+        selfPickupId,
+        req.body,
+        user,
+        platformId
     );
-    sendResponse(res, { statusCode: httpStatus.OK, success: true, message: "Item scanned for return", data: result });
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Item scanned for return",
+        data: result,
+    });
 });
 
 const getReturnProgress = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const selfPickupId = getRequiredString(req.params.self_pickup_id, "self_pickup_id");
-    const result = await SelfPickupScanningServices.getSelfPickupReturnProgress(selfPickupId, platformId);
-    sendResponse(res, { statusCode: httpStatus.OK, success: true, message: "Return progress", data: result });
+    const result = await SelfPickupScanningServices.getSelfPickupReturnProgress(
+        selfPickupId,
+        platformId
+    );
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Return progress",
+        data: result,
+    });
 });
 
 const completeReturn = catchAsync(async (req, res) => {
@@ -52,9 +93,17 @@ const completeReturn = catchAsync(async (req, res) => {
     const selfPickupId = getRequiredString(req.params.self_pickup_id, "self_pickup_id");
     const settlements = req.body?.settlements ?? [];
     const result = await SelfPickupScanningServices.completeSelfPickupReturn(
-        selfPickupId, user, platformId, settlements
+        selfPickupId,
+        user,
+        platformId,
+        settlements
     );
-    sendResponse(res, { statusCode: httpStatus.OK, success: true, message: "Return complete", data: result });
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Return complete",
+        data: result,
+    });
 });
 
 export const SelfPickupScanningControllers = {

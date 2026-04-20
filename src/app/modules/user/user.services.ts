@@ -450,7 +450,9 @@ const updateUser = async (
 
     const normalizedEmail =
         (data as any).email !== undefined
-            ? String((data as any).email).trim().toLowerCase()
+            ? String((data as any).email)
+                  .trim()
+                  .toLowerCase()
             : undefined;
 
     const finalData: any = {

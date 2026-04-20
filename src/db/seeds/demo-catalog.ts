@@ -272,7 +272,8 @@ export const seedDemoCatalog = async (opts: SeedDemoCatalogOpts): Promise<Seeded
         company_id: opts.companyId,
         brand_id: opts.brandPrimaryId,
         name: "Corporate Event Package",
-        description: "Curated bundle for medium-size corporate events: stage backdrop + LED + seating.",
+        description:
+            "Curated bundle for medium-size corporate events: stage backdrop + LED + seating.",
         category: "Bundle",
         images: [
             `https://placehold.co/512x512/1f2937/FFFFFF?text=${encodeURIComponent("Corporate Package")}`,

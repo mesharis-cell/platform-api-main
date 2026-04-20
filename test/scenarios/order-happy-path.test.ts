@@ -85,12 +85,7 @@ const loadSeedRefs = async (): Promise<SeedRefs> => {
     const [company] = await db
         .select({ id: companies.id })
         .from(companies)
-        .where(
-            and(
-                eq(companies.platform_id, platform.id),
-                eq(companies.name, TEST_COMPANY_NAME)
-            )
-        )
+        .where(and(eq(companies.platform_id, platform.id), eq(companies.name, TEST_COMPANY_NAME)))
         .limit(1);
     if (!company) throw new Error(`Test company "${TEST_COMPANY_NAME}" not found.`);
 
@@ -151,10 +146,7 @@ const loadSeedRefs = async (): Promise<SeedRefs> => {
         .select({ id: serviceTypes.id })
         .from(serviceTypes)
         .where(
-            and(
-                eq(serviceTypes.platform_id, platform.id),
-                eq(serviceTypes.category, "ASSEMBLY")
-            )
+            and(eq(serviceTypes.platform_id, platform.id), eq(serviceTypes.category, "ASSEMBLY"))
         )
         .limit(1);
     if (!serviceType) throw new Error("Test service type not found");
@@ -299,12 +291,7 @@ describe("Order happy path — quote lifecycle (submit → CONFIRMED)", () => {
         const lineRows = await db
             .select({ id: lineItems.id, line_item_type: lineItems.line_item_type })
             .from(lineItems)
-            .where(
-                and(
-                    eq(lineItems.order_id, orderId),
-                    eq(lineItems.line_item_type, "CATALOG")
-                )
-            );
+            .where(and(eq(lineItems.order_id, orderId), eq(lineItems.line_item_type, "CATALOG")));
         expect(lineRows.length).toBeGreaterThan(0);
 
         // Surface 3 & 4 — line_item.added is emitted for audit but has no

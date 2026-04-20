@@ -50,15 +50,17 @@ async function main() {
         : null;
 
     const companyItemCodeColumnExists =
-        ((await pool.query(
-            `
+        ((
+            await pool.query(
+                `
             select 1
             from information_schema.columns
             where table_name = 'asset_families'
               and column_name = 'company_item_code'
             limit 1
             `
-        )).rowCount ?? 0) > 0;
+            )
+        ).rowCount ?? 0) > 0;
 
     const familySelectSql = `
         select
@@ -93,7 +95,10 @@ async function main() {
     `;
 
     const families = (
-        await pool.query(familySelectSql, brandId ? [platformId, companyId, brandId] : [platformId, companyId])
+        await pool.query(
+            familySelectSql,
+            brandId ? [platformId, companyId, brandId] : [platformId, companyId]
+        )
     ).rows;
 
     const familyIds = new Set(families.map((family) => family.id));
@@ -134,7 +139,9 @@ async function main() {
             )
         );
 
-    const assetsForFamilies = stockAssets.filter((asset) => asset.family_id && familyIds.has(asset.family_id));
+    const assetsForFamilies = stockAssets.filter(
+        (asset) => asset.family_id && familyIds.has(asset.family_id)
+    );
 
     const teamRows = await db.query.teams.findMany({
         where: and(eq(teams.platform_id, platformId), eq(teams.company_id, companyId)),

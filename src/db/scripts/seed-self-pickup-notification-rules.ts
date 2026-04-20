@@ -102,7 +102,10 @@ const SELF_PICKUP_RULES = [
 async function main() {
     console.log("🔔 Seeding Red Bull build notification rules...\n");
 
-    const allPlatforms = await db.select({ id: platforms.id, name: platforms.name }).from(platforms).execute();
+    const allPlatforms = await db
+        .select({ id: platforms.id, name: platforms.name })
+        .from(platforms)
+        .execute();
 
     for (const platform of allPlatforms) {
         console.log(`  Platform: ${platform.name} (${platform.id})`);

@@ -54,11 +54,7 @@ const getLowStockFamilies = catchAsync(async (req, res) => {
 const createManualAdjustment = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
-    const result = await StockMovementsServices.createManualAdjustment(
-        platformId,
-        user,
-        req.body
-    );
+    const result = await StockMovementsServices.createManualAdjustment(platformId, user, req.body);
 
     sendResponse(res, {
         statusCode: httpStatus.CREATED,

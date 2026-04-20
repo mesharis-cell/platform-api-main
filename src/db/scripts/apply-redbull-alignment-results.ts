@@ -4,17 +4,23 @@ import path from "node:path";
 import { and, eq, isNull } from "drizzle-orm";
 import { assertAppEnv } from "../safety/guards";
 import { db, pool } from "../../db";
-import { assetFamilies, assets, companies, teams } from "../../db/schema";
+import { assetCategories, assetFamilies, assets, companies, teams } from "../../db/schema";
 
 assertAppEnv(["staging"]);
 
 type AlignmentWrite = {
-    source_item_id: string;
-    company_item_code: string;
+    source_item_id?: string;
+    company_item_code?: string;
     family_id: string;
     team_id?: string | null;
     team_name?: string | null;
-    action_type: "match_existing" | "create_new_family" | "split_required" | "merge_candidate" | "unresolved";
+    category_name?: string | null;
+    action_type:
+        | "match_existing"
+        | "create_new_family"
+        | "split_required"
+        | "merge_candidate"
+        | "unresolved";
     provenance?: Record<string, unknown> | null;
 };
 
@@ -87,6 +93,69 @@ async function resolveTeamId(
     return created.id;
 }
 
+// Category color palette for new categories (cycles through these)
+const CATEGORY_COLORS = [
+    "#2563EB",
+    "#7C3AED",
+    "#0891B2",
+    "#059669",
+    "#D97706",
+    "#DC2626",
+    "#4F46E5",
+    "#0D9488",
+    "#CA8A04",
+    "#BE185D",
+    "#6D28D9",
+    "#0284C7",
+    "#16A34A",
+    "#EA580C",
+    "#9333EA",
+];
+let _colorIdx = 0;
+
+async function resolveCategoryId(
+    platformId: string,
+    categoryName: string | null | undefined,
+    dryRun: boolean
+): Promise<string | null> {
+    if (!categoryName) return null;
+
+    const existing = await db.query.assetCategories.findFirst({
+        where: and(
+            eq(assetCategories.platform_id, platformId),
+            eq(assetCategories.name, categoryName)
+        ),
+        columns: { id: true },
+    });
+
+    if (existing) return existing.id;
+
+    if (dryRun) return "__dry_run_category__";
+
+    const slug = categoryName
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "");
+
+    const color = CATEGORY_COLORS[_colorIdx % CATEGORY_COLORS.length];
+    _colorIdx++;
+
+    const [created] = await db
+        .insert(assetCategories)
+        .values({
+            platform_id: platformId,
+            name: categoryName,
+            slug,
+            color,
+            sort_order: 10 + _colorIdx,
+            is_active: true,
+        })
+        .returning({ id: assetCategories.id });
+
+    console.log(`  → Created category: "${categoryName}" (${created.id})`);
+    return created.id;
+}
+
 async function main() {
     const filePath = getArg("file");
     const platformIdArg = getArg("platform-id");
@@ -106,7 +175,9 @@ async function main() {
     const companyId = companyIdArg || payload.metadata?.company_id;
 
     if (!platformId || !companyId) {
-        throw new Error("platform_id and company_id are required either in args or payload.metadata");
+        throw new Error(
+            "platform_id and company_id are required either in args or payload.metadata"
+        );
     }
 
     const company = await db.query.companies.findFirst({
@@ -127,13 +198,17 @@ async function main() {
     if (dryRun) {
         for (const write of actionableWrites) {
             const teamId = await resolveTeamId(platformId, companyId, write, true);
+            const categoryId = await resolveCategoryId(platformId, write.category_name, true);
             preview.push({
                 family_id: write.family_id,
-                source_item_id: write.source_item_id,
-                company_item_code: write.company_item_code,
+                source_item_id: write.source_item_id ?? null,
+                company_item_code: write.company_item_code ?? null,
                 team_id: teamId === "__dry_run_team__" ? null : teamId,
                 team_name: write.team_name ?? null,
-                update_child_assets: updateChildAssets || payload.metadata?.update_child_assets_team_id === true,
+                category_name: write.category_name ?? null,
+                category_id: categoryId === "__dry_run_category__" ? "(new)" : categoryId,
+                update_child_assets:
+                    updateChildAssets || payload.metadata?.update_child_assets_team_id === true,
             });
         }
 
@@ -171,23 +246,32 @@ async function main() {
             });
 
             if (!family) {
-                throw new Error(`Family ${write.family_id} not found for source item ${write.source_item_id}`);
+                throw new Error(
+                    `Family ${write.family_id} not found for source item ${write.source_item_id}`
+                );
             }
 
             const resolvedTeamId = await resolveTeamId(platformId, companyId, write, false);
+            const resolvedCategoryId = await resolveCategoryId(
+                platformId,
+                write.category_name,
+                false
+            );
 
-            await tx
-                .update(assetFamilies)
-                .set({
-                    company_item_code: write.company_item_code,
-                    ...(resolvedTeamId !== undefined ? { team_id: resolvedTeamId } : {}),
-                    updated_at: new Date(),
-                })
-                .where(eq(assetFamilies.id, family.id));
+            const updateSet: Record<string, unknown> = { updated_at: new Date() };
+            if (write.company_item_code) updateSet.company_item_code = write.company_item_code;
+            if (resolvedTeamId !== undefined && resolvedTeamId !== null)
+                updateSet.team_id = resolvedTeamId;
+            if (resolvedCategoryId) updateSet.category_id = resolvedCategoryId;
+
+            await tx.update(assetFamilies).set(updateSet).where(eq(assetFamilies.id, family.id));
 
             let childAssetsUpdated = 0;
 
-            if ((updateChildAssets || payload.metadata?.update_child_assets_team_id === true) && resolvedTeamId) {
+            if (
+                (updateChildAssets || payload.metadata?.update_child_assets_team_id === true) &&
+                resolvedTeamId
+            ) {
                 const updatedAssets = await tx
                     .update(assets)
                     .set({
@@ -201,11 +285,13 @@ async function main() {
 
             results.push({
                 family_id: family.id,
-                source_item_id: write.source_item_id,
+                source_item_id: write.source_item_id ?? null,
                 old_company_item_code: family.company_item_code,
-                new_company_item_code: write.company_item_code,
+                new_company_item_code: write.company_item_code ?? null,
                 old_team_id: family.team_id,
                 new_team_id: resolvedTeamId,
+                new_category_name: write.category_name ?? null,
+                new_category_id: resolvedCategoryId,
                 child_assets_updated: childAssetsUpdated,
             });
         }

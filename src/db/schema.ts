@@ -323,10 +323,7 @@ export const platformMaintenanceAudit = pgTable(
         created_at: timestamp("created_at").notNull().defaultNow(),
     },
     (table) => [
-        index("platform_maintenance_audit_platform_id_idx").on(
-            table.platform_id,
-            table.created_at
-        ),
+        index("platform_maintenance_audit_platform_id_idx").on(table.platform_id, table.created_at),
     ]
 );
 

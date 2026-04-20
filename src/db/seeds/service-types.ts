@@ -27,12 +27,42 @@ export const CANONICAL_SERVICE_TYPES: ServiceTypeInput[] = [
     { name: "Vinyl Wrap", category: "RESKIN", unit: "unit", default_rate: "300.00" },
     { name: "Storage Fee", category: "OTHER", unit: "day", default_rate: "50.00" },
     { name: "Cleaning Service", category: "OTHER", unit: "unit", default_rate: "35.00" },
-    { name: "Transport - Dubai (One Way)", category: "TRANSPORT", unit: "trip", default_rate: "500.00" },
-    { name: "Transport - Dubai (Round Trip)", category: "TRANSPORT", unit: "trip", default_rate: "900.00" },
-    { name: "Transport - Abu Dhabi (One Way)", category: "TRANSPORT", unit: "trip", default_rate: "800.00" },
-    { name: "Transport - Abu Dhabi (Round Trip)", category: "TRANSPORT", unit: "trip", default_rate: "1440.00" },
-    { name: "Transport - Sharjah (One Way)", category: "TRANSPORT", unit: "trip", default_rate: "400.00" },
-    { name: "Transport - Sharjah (Round Trip)", category: "TRANSPORT", unit: "trip", default_rate: "600.00" },
+    {
+        name: "Transport - Dubai (One Way)",
+        category: "TRANSPORT",
+        unit: "trip",
+        default_rate: "500.00",
+    },
+    {
+        name: "Transport - Dubai (Round Trip)",
+        category: "TRANSPORT",
+        unit: "trip",
+        default_rate: "900.00",
+    },
+    {
+        name: "Transport - Abu Dhabi (One Way)",
+        category: "TRANSPORT",
+        unit: "trip",
+        default_rate: "800.00",
+    },
+    {
+        name: "Transport - Abu Dhabi (Round Trip)",
+        category: "TRANSPORT",
+        unit: "trip",
+        default_rate: "1440.00",
+    },
+    {
+        name: "Transport - Sharjah (One Way)",
+        category: "TRANSPORT",
+        unit: "trip",
+        default_rate: "400.00",
+    },
+    {
+        name: "Transport - Sharjah (Round Trip)",
+        category: "TRANSPORT",
+        unit: "trip",
+        default_rate: "600.00",
+    },
 ];
 
 export type SeedServiceTypesOpts = {

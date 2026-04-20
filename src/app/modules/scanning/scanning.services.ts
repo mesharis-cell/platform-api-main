@@ -248,10 +248,14 @@ const inboundScan = async (
     // Audit: record inbound movement for BATCH items
     if (asset.tracking_method === "BATCH") {
         await StockMovementService.record(null, {
-            platformId, assetId: asset.id,
-            delta: scanQuantity, movementType: "INBOUND",
-            linkedEntityType: "ORDER", linkedEntityId: orderId,
-            scanEventId: scanEvent.id, userId: user.id,
+            platformId,
+            assetId: asset.id,
+            delta: scanQuantity,
+            movementType: "INBOUND",
+            linkedEntityType: "ORDER",
+            linkedEntityId: orderId,
+            scanEventId: scanEvent.id,
+            userId: user.id,
         });
     }
 
@@ -517,7 +521,11 @@ const completeInboundScan = async (
     await db.transaction(async (tx) => {
         // Step 5: Release bookings with NET restore (only what actually came back)
         await releaseBookingsAndRestoreAvailability(
-            tx, "ORDER", orderId, platformId, returnedByAsset
+            tx,
+            "ORDER",
+            orderId,
+            platformId,
+            returnedByAsset
         );
 
         // Step 6: Apply write-offs via StockMovementService + mark settled
@@ -728,10 +736,14 @@ const outboundScan = async (
     // Audit: record outbound movement for BATCH items
     if (asset.tracking_method === "BATCH") {
         await StockMovementService.record(null, {
-            platformId, assetId: asset.id,
-            delta: -scanQuantity, movementType: "OUTBOUND",
-            linkedEntityType: "ORDER", linkedEntityId: orderId,
-            scanEventId: scanEvent.id, userId: user.id,
+            platformId,
+            assetId: asset.id,
+            delta: -scanQuantity,
+            movementType: "OUTBOUND",
+            linkedEntityType: "ORDER",
+            linkedEntityId: orderId,
+            scanEventId: scanEvent.id,
+            userId: user.id,
         });
     }
 

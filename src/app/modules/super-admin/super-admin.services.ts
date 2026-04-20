@@ -261,10 +261,7 @@ const updatePlatformMaintenance = async (
         if (payload.until) {
             const parsed = new Date(payload.until);
             if (Number.isNaN(parsed.getTime())) {
-                throw new CustomizedError(
-                    httpStatus.BAD_REQUEST,
-                    "Invalid until timestamp"
-                );
+                throw new CustomizedError(httpStatus.BAD_REQUEST, "Invalid until timestamp");
             }
             if (parsed.getTime() <= Date.now()) {
                 throw new CustomizedError(
@@ -283,8 +280,8 @@ const updatePlatformMaintenance = async (
     const action: "ENABLED" | "UPDATED" | "DISABLED" = !willBeActive
         ? "DISABLED"
         : wasActive
-        ? "UPDATED"
-        : "ENABLED";
+          ? "UPDATED"
+          : "ENABLED";
 
     const finalMessage = payload.enabled ? payload.message?.trim() || null : null;
 
@@ -318,10 +315,7 @@ const updatePlatformMaintenance = async (
     };
 };
 
-const getPlatformMaintenanceHistory = async (
-    platformId: string,
-    limit: number = 50
-) => {
+const getPlatformMaintenanceHistory = async (platformId: string, limit: number = 50) => {
     const rows = await db
         .select({
             id: platformMaintenanceAudit.id,

@@ -72,12 +72,7 @@ const featureValidator = (featureName: string) => {
                         any_enabled: sql<boolean>`bool_or((${companies.features} ->> ${featureName})::boolean)`,
                     })
                     .from(companies)
-                    .where(
-                        and(
-                            eq(companies.platform_id, platformId),
-                            isNull(companies.deleted_at)
-                        )
-                    )
+                    .where(and(eq(companies.platform_id, platformId), isNull(companies.deleted_at)))
                     .limit(1);
 
                 if (!overrideRow?.any_enabled) {

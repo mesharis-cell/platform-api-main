@@ -228,9 +228,7 @@ const deleteCategory = async (id: string, platformId: string) => {
     const [familyCount] = await db
         .select({ count: count() })
         .from(assetFamilies)
-        .where(
-            and(eq(assetFamilies.category_id, id), isNull(assetFamilies.deleted_at))
-        );
+        .where(and(eq(assetFamilies.category_id, id), isNull(assetFamilies.deleted_at)));
 
     if (Number(familyCount?.count || 0) > 0) {
         throw new CustomizedError(

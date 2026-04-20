@@ -916,11 +916,7 @@ async function main() {
         daysAgo(2)
     );
     // Financial history: quote has been sent, waiting for client approval
-    await insertFinancialHistory(
-        orderId4,
-        ["PENDING_QUOTE", "QUOTE_SENT"],
-        daysAgo(2)
-    );
+    await insertFinancialHistory(orderId4, ["PENDING_QUOTE", "QUOTE_SENT"], daysAgo(2));
 
     // Line items reflecting the quoted scope
     await db.insert(lineItems).values({
