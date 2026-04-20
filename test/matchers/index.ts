@@ -9,6 +9,7 @@ import { toHaveOrderStatus, toHaveFinancialStatus } from "./order.matchers";
 import { toHaveEmittedEvent } from "./event.matchers";
 import { toHaveDispatchedEmail } from "./email.matchers";
 import { toBeDeniedWith, toBeOk } from "./response.matchers";
+import { toHaveSelfPickupStatus } from "./self-pickup.matchers";
 
 expect.extend({
     toHaveOrderStatus,
@@ -17,4 +18,5 @@ expect.extend({
     toHaveDispatchedEmail,
     toBeDeniedWith,
     toBeOk,
+    toHaveSelfPickupStatus,
 });

@@ -19,6 +19,30 @@ const getTeams = catchAsync(async (req, res) => {
     });
 });
 
+const getTeamsForClient = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+
+    if (!user?.company_id) {
+        sendResponse(res, {
+            statusCode: httpStatus.OK,
+            success: true,
+            message: "Teams fetched",
+            data: [],
+        });
+        return;
+    }
+
+    const result = await TeamServices.getTeams(user.company_id, platformId, user.id, user.role);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Teams fetched",
+        data: result,
+    });
+});
+
 const createTeam = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const result = await TeamServices.createTeam({ ...req.body, platform_id: platformId });
@@ -86,6 +110,7 @@ const removeMember = catchAsync(async (req, res) => {
 
 export const TeamControllers = {
     getTeams,
+    getTeamsForClient,
     createTeam,
     updateTeam,
     deleteTeam,

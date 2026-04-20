@@ -8,6 +8,7 @@ import { InboundRequestRoutes } from "../modules/inbound-request/inbound-request
 import { ExportRoutes } from "../modules/export/export.routes";
 import { ServiceRequestRoutes } from "../modules/service-request/service-request.routes";
 import { SelfPickupClientRoutes } from "../modules/self-pickup/self-pickup.routes";
+import { TeamClientRoutes } from "../modules/team/team.client-routes";
 
 const router = Router();
 
@@ -47,6 +48,10 @@ const routes = [
     {
         path: "/self-pickup",
         route: SelfPickupClientRoutes,
+    },
+    {
+        path: "/team",
+        route: TeamClientRoutes,
     },
 ];
 

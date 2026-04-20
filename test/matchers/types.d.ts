@@ -10,6 +10,7 @@ declare module "bun:test" {
     interface Matchers<T> {
         toHaveOrderStatus(status: string): Promise<void>;
         toHaveFinancialStatus(status: string): Promise<void>;
+        toHaveSelfPickupStatus(status: string): Promise<void>;
         toHaveEmittedEvent(eventType: string): Promise<void>;
         toHaveDispatchedEmail(expected: {
             template: string;

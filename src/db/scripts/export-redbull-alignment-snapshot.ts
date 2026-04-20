@@ -62,32 +62,34 @@ async function main() {
 
     const familySelectSql = `
         select
-            id,
-            platform_id,
-            company_id,
-            brand_id,
-            team_id,
-            name,
-            ${companyItemCodeColumnExists ? "company_item_code" : "null::varchar as company_item_code"},
-            description,
-            category,
-            images,
-            on_display_image,
-            stock_mode,
-            packaging,
-            weight_per_unit,
-            dimensions,
-            volume_per_unit,
-            handling_tags,
-            is_active,
-            created_at,
-            updated_at
-        from asset_families
-        where platform_id = $1
-          and company_id = $2
-          and deleted_at is null
-          ${brandId ? "and brand_id = $3" : ""}
-        order by name asc
+            af.id,
+            af.platform_id,
+            af.company_id,
+            af.brand_id,
+            af.team_id,
+            af.name,
+            ${companyItemCodeColumnExists ? "af.company_item_code" : "null::varchar as company_item_code"},
+            af.description,
+            ac.name as category,
+            af.category_id,
+            af.images,
+            af.on_display_image,
+            af.stock_mode,
+            af.packaging,
+            af.weight_per_unit,
+            af.dimensions,
+            af.volume_per_unit,
+            af.handling_tags,
+            af.is_active,
+            af.created_at,
+            af.updated_at
+        from asset_families af
+        left join asset_categories ac on ac.id = af.category_id
+        where af.platform_id = $1
+          and af.company_id = $2
+          and af.deleted_at is null
+          ${brandId ? "and af.brand_id = $3" : ""}
+        order by af.name asc
     `;
 
     const families = (

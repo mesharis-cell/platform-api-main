@@ -72,7 +72,7 @@ const TEST_TENANT_FEATURES = {
     enable_attachments: true,
     enable_workflows: true,
     enable_base_operations: true,
-    enable_self_pickup: false,
+    enable_self_pickup: true,
     enable_kadence_invoicing: false,
 };
 

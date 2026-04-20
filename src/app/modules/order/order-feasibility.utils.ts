@@ -115,6 +115,20 @@ const addBusinessDays = (startDate: Date, days: number, config: FeasibilityConfi
     return result;
 };
 
+const advanceToNextBusinessDay = (date: Date, config: FeasibilityConfig): Date => {
+    const result = new Date(date);
+    while (isWeekend(result, config)) {
+        result.setDate(result.getDate() + 1);
+    }
+    return result;
+};
+
+const computeLeadFloorDate = (config: FeasibilityConfig): string => {
+    const leadWindowStart = new Date(Date.now() + config.minimum_lead_hours * 60 * 60 * 1000);
+    const floorDate = advanceToNextBusinessDay(leadWindowStart, config);
+    return formatDateInTimezone(floorDate, config.timezone);
+};
+
 const formatDateInTimezone = (date: Date, timezone: string): string =>
     new Intl.DateTimeFormat("en-CA", {
         timeZone: timezone,
@@ -215,12 +229,15 @@ export const validateMaintenanceFeasibilityForAssets = async (
     feasible: boolean;
     config: FeasibilityConfig;
     issues: MaintenanceFeasibilityIssue[];
+    lead_floor_date: string;
 }> => {
     if (items.length === 0) {
+        const cfg = await getPlatformFeasibilityConfig(platformId, companyId);
         return {
             feasible: true,
-            config: await getPlatformFeasibilityConfig(platformId, companyId),
+            config: cfg,
             issues: [],
+            lead_floor_date: computeLeadFloorDate(cfg),
         };
     }
 
@@ -294,6 +311,7 @@ export const validateMaintenanceFeasibilityForAssets = async (
         feasible: issues.length === 0,
         config,
         issues,
+        lead_floor_date: computeLeadFloorDate(config),
     };
 };
 
