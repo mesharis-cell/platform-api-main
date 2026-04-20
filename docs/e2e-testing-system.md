@@ -19,6 +19,7 @@ The system is a **product**, not a script collection. It should outlive any sing
 ## 2. Scope
 
 **In scope for the system as a whole:**
+
 - Full user-journey flow tests across all three actor roles (client, admin, logistics)
 - Permission-matrix verification (who can hit what)
 - State-machine transition verification (every valid transition allowed, every invalid one blocked)
@@ -28,6 +29,7 @@ The system is a **product**, not a script collection. It should outlive any sing
 - Synthetic monitoring against staging (later)
 
 **Out of scope:**
+
 - Frontend UI / browser testing (admin / client / warehouse Next.js apps). The three frontends are API consumers; this suite verifies the contract they consume. Browser-level testing lives elsewhere (future Playwright suite, separate decision).
 - Load / performance testing. Separate tool, separate concern.
 - Security testing (fuzzing, auth bypass). Handled by existing Snyk setup plus explicit negative tests in this suite.
@@ -40,7 +42,7 @@ The system is a **product**, not a script collection. It should outlive any sing
 2. **Isolation over cleverness.** Dedicated test DB. Reset between scenarios, never leak state.
 3. **Code-first scenarios.** No Gherkin, no YAML DSL. TypeScript files that read like prose, aided by a thin domain DSL.
 4. **Observability by default.** Every step captures what happened on four surfaces (HTTP / DB / email provider / inbox) so failures are debuggable from the test log alone.
-5. **Negative paths are first-class.** Forbidden access, blocked transitions, emails that *must not* fire — all assertable with the same ceremony as happy paths.
+5. **Negative paths are first-class.** Forbidden access, blocked transitions, emails that _must not_ fire — all assertable with the same ceremony as happy paths.
 6. **Standard practice, not novelty.** Decisions follow 2025-2026 ecosystem consensus (see §7). We deviate only where project context demands it and write down why.
 7. **Defer complexity.** Start serial, start with one scenario, start with in-memory email stub. Parallelism, Gmail verification, flakiness tooling come in when they earn their keep.
 
@@ -51,6 +53,7 @@ The system is a **product**, not a script collection. It should outlive any sing
 Seven layers, each with a clear responsibility. Implementation should map 1:1 to these.
 
 ### 4.1 Environment layer
+
 Binds the suite to a target. Reads env vars. Exposes a typed `TestEnv` object.
 
 - `DATABASE_URL_TEST` — dedicated testing PostgreSQL (separate from staging + prod). Stakeholder provisions and adds to `.env` + `.dbops/`.
@@ -58,6 +61,7 @@ Binds the suite to a target. Reads env vars. Exposes a typed `TestEnv` object.
 - `RESEND_API_KEY_TEST` — dedicated Resend API key for test runs (separate from staging/prod keys so test email metadata stays out of production Resend logs). Reuses the existing verified sending domain.
 
 ### 4.2 Database lifecycle layer
+
 Owns the testing DB's state between runs.
 
 - **Before suite:** connect, run migrations, apply the consolidated test seed (see §8).
@@ -66,6 +70,7 @@ Owns the testing DB's state between runs.
 - **After suite:** no teardown (DB persists for debugging; next run resets on start).
 
 ### 4.3 Actor layer
+
 Typed accessors for each role. Handles real auth.
 
 ```ts
@@ -79,6 +84,7 @@ const approved = await as.admin.post(`/operations/v1/order/${order.id}/admin-app
 - `as.unauthenticated` for unauth tests.
 
 ### 4.4 Factory layer
+
 Ad-hoc entity builders used when a scenario needs more than the seed provides. Built on `@praha/drizzle-factory` (or a thin local equivalent if the library doesn't fit).
 
 ```ts
@@ -91,6 +97,7 @@ const order = await factories.order.create({ status: 'SUBMITTED', items: [...] }
 - Factories **do not** mock — they INSERT real rows via Drizzle.
 
 ### 4.5 Scenario DSL layer
+
 Thin builder helpers that make scenarios read like narrative without becoming a DSL soup.
 
 ```ts
@@ -107,9 +114,11 @@ await scenario('Order happy path — submission to close')
 - Optional — scenarios can also be written as plain `describe` / `it` blocks if the DSL gets in the way.
 
 ### 4.6 Assertion layer
+
 `bun:test`'s `expect` + domain-specific matchers registered via preload.
 
 Domain matchers (minimum set):
+
 - `expect(orderId).toHaveOrderStatus('QUOTED')`
 - `expect(orderId).toHaveFinancialStatus('QUOTE_ACCEPTED')`
 - `expect(orderId).toHaveEmittedEvent('quote.sent')`
@@ -123,7 +132,9 @@ Domain matchers (minimum set):
 Domain matchers query the DB directly; they know which tables to hit.
 
 ### 4.7 Reporting layer
+
 One reporter by default:
+
 - `default` — human-readable for local dev
 
 Failed scenarios print the step-by-step observation log (DB snapshots, HTTP bodies, Resend message statuses) inline. JUnit / github-actions reporters layer in cleanly during Phase 4 when a CI target is chosen.
@@ -196,20 +207,21 @@ Three primary seeds exist — `seed.ts` (demo, 2 companies + full orders), `seed
 
 **Step 1 — extract shared scaffolding modules** into `src/db/seeds/`:
 
-| Module | Responsibility |
-|---|---|
-| `platform.ts` | Create platform + access policies via `PlatformBootstrapService` |
-| `service-types.ts` | 14 canonical service types (one source of truth) |
-| `notification-rules.ts` | Platform-default notification rules (one source of truth) |
-| `attachment-types.ts` | 3 canonical attachment types |
-| `workflow-definitions.ts` | Default workflow definitions |
-| `access-policies.ts` | Default 3 role policies (wraps bootstrap) |
+| Module                    | Responsibility                                                   |
+| ------------------------- | ---------------------------------------------------------------- |
+| `platform.ts`             | Create platform + access policies via `PlatformBootstrapService` |
+| `service-types.ts`        | 14 canonical service types (one source of truth)                 |
+| `notification-rules.ts`   | Platform-default notification rules (one source of truth)        |
+| `attachment-types.ts`     | 3 canonical attachment types                                     |
+| `workflow-definitions.ts` | Default workflow definitions                                     |
+| `access-policies.ts`      | Default 3 role policies (wraps bootstrap)                        |
 
 Each module exports `seed{Name}({ platformId, tx }) => Promise<void>` and is **idempotent** (check-then-insert).
 
 **Step 2 — refactor existing seeds** to import from `seeds/` instead of inlining. `seed.ts`, `seed-pr.ts`, `seed-demo-pr.ts` keep working; duplication goes away.
 
 **Step 3 — introduce `seed-test.ts`** as the test-suite entrypoint:
+
 ```
 seed-test.ts:
   seedPlatform()              // "Kadence Test"
@@ -229,6 +241,7 @@ seed-test.ts:
 ```
 
 **Step 4 — testing users** with known credentials, addressed at real Outlook aliases on `homeofpmg.com`:
+
 - `e2e.kadence.admin@homeofpmg.com` / known password
 - `e2e.kadence.logistics@homeofpmg.com` / known password
 - `e2e.kadence.client@homeofpmg.com` / known password
@@ -266,21 +279,21 @@ Target: full suite seed + reset cycle < 3s.
 
 Based on 2025-2026 ecosystem research. Deviations from standard are called out.
 
-| # | Decision | Rationale |
-|---|---|---|
-| 1 | **Runner: `bun:test`** | Native to Bun runtime, Jest-compatible API, fastest option, supports `--preload`, `--retry`, `--randomize`, `--reporter=junit` natively. No need for Vitest unless a critical dependency demands it. |
-| 2 | **DB isolation: dedicated test DB, truncate-and-reseed between scenario files** | Transactional rollback breaks for event-driven async flows (events emitted from the EventBus may be processed on different connections). DB-per-worker is overkill pre-alpha. Start simple; upgrade to template-DB-per-worker when total runtime > 5 min. |
-| 3 | **Fixtures: shared seeds + per-scenario factories** | Two-layer matches ecosystem consensus (builders + scaffolding). Drizzle-factory gives typed overrides. Factories next to scenarios keep the Mystery Guest anti-pattern away. |
-| 4 | **Scenario format: pure code + thin domain DSL** | Gherkin is overhead for API-flow tests. Pure `describe`/`it` with a `scenario()` helper for narrative is the 2025 standard in engineering-led teams. |
-| 5 | **Assertions: `bun:test` `expect` + custom domain matchers** | Domain matchers (`toHaveOrderStatus`, `toHaveEmittedEvent`) produce readable failures and encapsulate DB-lookup ceremony. Ecosystem trend is toward domain matcher modules. |
-| 6 | **HTTP client: native `fetch` against real localhost port** | Matches how the actual frontends call the API (middleware order, CORS, headers all exercised). Typed actor helpers (`as.admin.get(...)`) on top. |
-| 7 | **Reporter: `default` only (local-only execution)** | Human-readable output is sufficient pre-CI. JUnit / github-actions reporters layer in cleanly during Phase 4 when a CI target is chosen. |
-| 8 | **Execution: local-only via `bun test` commands** | No CI/deployment wiring yet. Suite runs on developer machines against `DATABASE_URL_TEST`. CI integration deferred to Phase 4. |
-| 9 | **Secrets: `.env.test` local (gitignored)** | Local execution means no CI secrets manager yet. `.env.test.example` committed as template. Upgrade to a secrets manager when CI arrives. |
-| 10 | **Concurrency: serial by default** | Start simple. Upgrade to DB-per-worker only when serial runtime hurts. Never `test.concurrent()` within a file for a shared-API suite. |
-| 11 | **Negative testing: first-class scenario files + permission matrix files + forbidden-transition files** | The RBAC + 17-state order machine has enough surface that negative coverage justifies dedicated files, not one-liner `expect(403)` tacked onto positives. |
-| 12 | **Email verification: real Resend → real Outlook inbox + poll `delivered` status** | Resend's `email.delivered` confirms the receiving MTA returned SMTP 250 OK (sender side cannot observe inbox placement — that's a fundamental SMTP limitation). Combined with `notification_logs.status = SENT` in our DB and three real Outlook inboxes the stakeholder inspects post-run, this gives automated-machine confidence + human-eyeball confidence. Mailosaur / Gmail API / Outlook Graph API reserved as Phase 5 upgrades if actual inbox-placement verification becomes critical later. |
-| 13 | **Flaky management: no blanket retries, `@quarantine` tag, nightly `--randomize`** | Blanket retries mask bugs. Tag-based quarantine lets the main suite stay green while quarantined tests run but don't block. Per-test `--retry` only for known-async assertions with a clear reason. |
+| #   | Decision                                                                                                | Rationale                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| --- | ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **Runner: `bun:test`**                                                                                  | Native to Bun runtime, Jest-compatible API, fastest option, supports `--preload`, `--retry`, `--randomize`, `--reporter=junit` natively. No need for Vitest unless a critical dependency demands it.                                                                                                                                                                                                                                                                                                  |
+| 2   | **DB isolation: dedicated test DB, truncate-and-reseed between scenario files**                         | Transactional rollback breaks for event-driven async flows (events emitted from the EventBus may be processed on different connections). DB-per-worker is overkill pre-alpha. Start simple; upgrade to template-DB-per-worker when total runtime > 5 min.                                                                                                                                                                                                                                             |
+| 3   | **Fixtures: shared seeds + per-scenario factories**                                                     | Two-layer matches ecosystem consensus (builders + scaffolding). Drizzle-factory gives typed overrides. Factories next to scenarios keep the Mystery Guest anti-pattern away.                                                                                                                                                                                                                                                                                                                          |
+| 4   | **Scenario format: pure code + thin domain DSL**                                                        | Gherkin is overhead for API-flow tests. Pure `describe`/`it` with a `scenario()` helper for narrative is the 2025 standard in engineering-led teams.                                                                                                                                                                                                                                                                                                                                                  |
+| 5   | **Assertions: `bun:test` `expect` + custom domain matchers**                                            | Domain matchers (`toHaveOrderStatus`, `toHaveEmittedEvent`) produce readable failures and encapsulate DB-lookup ceremony. Ecosystem trend is toward domain matcher modules.                                                                                                                                                                                                                                                                                                                           |
+| 6   | **HTTP client: native `fetch` against real localhost port**                                             | Matches how the actual frontends call the API (middleware order, CORS, headers all exercised). Typed actor helpers (`as.admin.get(...)`) on top.                                                                                                                                                                                                                                                                                                                                                      |
+| 7   | **Reporter: `default` only (local-only execution)**                                                     | Human-readable output is sufficient pre-CI. JUnit / github-actions reporters layer in cleanly during Phase 4 when a CI target is chosen.                                                                                                                                                                                                                                                                                                                                                              |
+| 8   | **Execution: local-only via `bun test` commands**                                                       | No CI/deployment wiring yet. Suite runs on developer machines against `DATABASE_URL_TEST`. CI integration deferred to Phase 4.                                                                                                                                                                                                                                                                                                                                                                        |
+| 9   | **Secrets: `.env.test` local (gitignored)**                                                             | Local execution means no CI secrets manager yet. `.env.test.example` committed as template. Upgrade to a secrets manager when CI arrives.                                                                                                                                                                                                                                                                                                                                                             |
+| 10  | **Concurrency: serial by default**                                                                      | Start simple. Upgrade to DB-per-worker only when serial runtime hurts. Never `test.concurrent()` within a file for a shared-API suite.                                                                                                                                                                                                                                                                                                                                                                |
+| 11  | **Negative testing: first-class scenario files + permission matrix files + forbidden-transition files** | The RBAC + 17-state order machine has enough surface that negative coverage justifies dedicated files, not one-liner `expect(403)` tacked onto positives.                                                                                                                                                                                                                                                                                                                                             |
+| 12  | **Email verification: real Resend → real Outlook inbox + poll `delivered` status**                      | Resend's `email.delivered` confirms the receiving MTA returned SMTP 250 OK (sender side cannot observe inbox placement — that's a fundamental SMTP limitation). Combined with `notification_logs.status = SENT` in our DB and three real Outlook inboxes the stakeholder inspects post-run, this gives automated-machine confidence + human-eyeball confidence. Mailosaur / Gmail API / Outlook Graph API reserved as Phase 5 upgrades if actual inbox-placement verification becomes critical later. |
+| 13  | **Flaky management: no blanket retries, `@quarantine` tag, nightly `--randomize`**                      | Blanket retries mask bugs. Tag-based quarantine lets the main suite stay green while quarantined tests run but don't block. Per-test `--retry` only for known-async assertions with a clear reason.                                                                                                                                                                                                                                                                                                   |
 
 ---
 
@@ -289,41 +302,48 @@ Based on 2025-2026 ecosystem research. Deviations from standard are called out.
 These are the **rules** anyone writing tests in this repo follows. Enforced by code review.
 
 ### 8.1 Scenario files
+
 - One file per user journey. Named after the journey (`order-happy-path.test.ts`, not `order.test.ts`).
 - Each file opens with a top comment stating the journey in one sentence.
 - Structured as AAA (Arrange / Act / Assert) within each `it()`.
 - No shared mutable state between `it()` blocks in a file — each is self-contained.
 
 ### 8.2 Factories
+
 - One factory per aggregate root. File named `{entity}.factory.ts`.
 - Factories return typed records matching the Drizzle schema (snake_case — matches what the API returns).
 - Factories never emit events. If a scenario needs an event to fire, it goes through the real API path.
 - Factories are the **only** place tests bypass the API to create data.
 
 ### 8.3 Assertions
+
 - Use domain matchers when one exists. Don't hand-roll DB queries in scenario code — add a matcher.
 - Every scenario asserts on at least three surfaces: HTTP response + DB state + events emitted. Email/inbox is tier-2+.
 - Negative assertions use `.toNotHave…()` matchers, not bare `expect(x).toBeUndefined()`.
 
 ### 8.4 Data
+
 - Test data uses `e2e-` prefix in human-readable fields (emails, names, order numbers) so it's visible in logs.
 - Never hardcode UUIDs — generate deterministically from a scenario ID if needed.
 - Scenario ID embedded in every outbound email subject as an `[e2e:${scenarioId}]` prefix, so the real Outlook inbox can be filtered/searched per run.
 
 ### 8.5 Timing
+
 - Never `setTimeout`. Use `pollUntil(fn, { timeout, interval })` from `test/support/poll.ts` with an explicit max.
 - Max polling timeout: 10s for DB assertions, 30s for Resend API `GET /emails/:id` to reach `delivered` status.
 
 ### 8.6 Tagging
+
 - `describe.skip.if(...)` and file-level tags control CI tier:
-  - No tag = runs tier-1 and above
-  - `@tier-2` = runs on merge to main
-  - `@tier-3` = runs nightly only
-  - `@quarantine` = runs but doesn't fail the build
-  - `@slow` = > 10s, demoted to nightly automatically
+    - No tag = runs tier-1 and above
+    - `@tier-2` = runs on merge to main
+    - `@tier-3` = runs nightly only
+    - `@quarantine` = runs but doesn't fail the build
+    - `@slow` = > 10s, demoted to nightly automatically
 - Tags live in the file's top comment and are picked up by a small filter in `test/setup/lifecycle.ts`.
 
 ### 8.7 Naming
+
 - Scenario files: `kebab-case.test.ts`
 - Factories: `kebab-case.factory.ts`
 - Matchers: grouped by domain, one export per matcher
@@ -353,17 +373,20 @@ Day-1 is **proof the system works**. It is not the full matrix of tests.
 Phased additions after day-1 ships.
 
 ### Phase 2
+
 - Additional flow scenarios: `order-cancellation`, `order-quote-revision`, `order-quote-decline`
 - Permission matrix file for orders (`test/permissions/order.permissions.test.ts`)
 - Forbidden-transition file for orders (`test/state-machine/order-transitions.test.ts`)
 
 ### Phase 3
+
 - Inbound request flow scenarios
 - Service request flow scenarios
 - Notification matrix test (for each event, verify every seeded rule dispatches correctly for every role recipient)
 - Cross-entity scenarios (order + blocking service request)
 
 ### Phase 4 (when CI is introduced)
+
 - JUnit reporter export
 - GitHub Actions / Bitbucket Pipelines / AWS CodeBuild integration (whichever target gets chosen)
 - Secrets-manager story for CI
@@ -372,6 +395,7 @@ Phased additions after day-1 ships.
 - Scheduled synthetic-monitoring runs against staging
 
 ### Phase 5 (only if earned by real pain)
+
 - DB-per-worker parallelism (only if serial runtime exceeds 5 minutes)
 - Programmatic inbox read via Mailosaur or Outlook Graph API (only if manual spot-check becomes a bottleneck or actual inbox-placement verification becomes critical)
 - Self-pickup, stock-threshold, invoicing flow scenarios (once those features ship — currently out of scope per stakeholder)
@@ -397,8 +421,8 @@ Before day-1 implementation can start:
 All pre-implementation decisions agreed with stakeholder:
 
 1. **Feature flags for test tenant:**
-   - ON: `enable_attachments`, `enable_workflows`, `enable_base_operations`, `enable_ordering`
-   - OFF: `enable_self_pickup`, `enable_kadence_invoicing`
+    - ON: `enable_attachments`, `enable_workflows`, `enable_base_operations`, `enable_ordering`
+    - OFF: `enable_self_pickup`, `enable_kadence_invoicing`
 
 2. **Migration strategy:** Suite verifies schema state at startup and fails fast if drift is detected. Does not apply migrations itself (consistent with CLAUDE.md rule that migrations run outside the app).
 
@@ -407,9 +431,9 @@ All pre-implementation decisions agreed with stakeholder:
 4. **Email verification:** Real Resend API sending to real Outlook inboxes. Automated check = poll `GET /emails/:id` until status `delivered` + assert matching `notification_logs.status = SENT` row. Manual check = stakeholder logs into Outlook post-run and eyeballs N emails with correct subjects and content per role. No Mailosaur, no Gmail API, no SMTP stub. See §7 decision 12 for rationale and §10 Phase 5 for upgrade conditions.
 
 5. **Test inbox addresses:** Three separate aliases on `homeofpmg.com` (Outlook):
-   - `e2e.kadence.admin@homeofpmg.com`
-   - `e2e.kadence.logistics@homeofpmg.com`
-   - `e2e.kadence.client@homeofpmg.com`
+    - `e2e.kadence.admin@homeofpmg.com`
+    - `e2e.kadence.logistics@homeofpmg.com`
+    - `e2e.kadence.client@homeofpmg.com`
 
 6. **Legacy seed files:** `seed.ts`, `seed-pr.ts`, `seed-demo-pr.ts` remain untouched in this scope. Only the new shared modules under `src/db/seeds/` and the new `seed-test.ts` are built. Refactoring existing seeds to reuse the shared modules is a separate task outside this design.
 

@@ -595,12 +595,9 @@ const resolveEntityContext = async (
             .from(selfPickups)
             .leftJoin(companies, eq(selfPickups.company_id, companies.id))
             .leftJoin(platforms, eq(selfPickups.platform_id, platforms.id))
-            .where(
-                and(eq(selfPickups.id, entityId), eq(selfPickups.platform_id, platformId))
-            )
+            .where(and(eq(selfPickups.id, entityId), eq(selfPickups.platform_id, platformId)))
             .limit(1);
-        if (!row)
-            throw new CustomizedError(httpStatus.NOT_FOUND, "Self-pickup not found");
+        if (!row) throw new CustomizedError(httpStatus.NOT_FOUND, "Self-pickup not found");
         return {
             entity_id: row.entity_id,
             pricing_id: row.pricing_id as string | null,
@@ -612,9 +609,7 @@ const resolveEntityContext = async (
                     ? toNum(row.company_vat_percent_override)
                     : toNum(row.platform_vat_percent),
             created_by: String(row.created_by),
-            volume: toNum(
-                (row.calculated_totals as Record<string, unknown> | null)?.volume
-            ),
+            volume: toNum((row.calculated_totals as Record<string, unknown> | null)?.volume),
             enable_base_operations: resolveEffectiveFeature("enable_base_operations", {
                 platformFeatures: row.platform_features as Record<string, unknown> | null,
                 companyFeatures: row.company_features as Record<string, unknown> | null,

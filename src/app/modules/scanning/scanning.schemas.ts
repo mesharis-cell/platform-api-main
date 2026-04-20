@@ -65,12 +65,7 @@ const completeInboundScanSchema = z.object({
                             .number()
                             .int()
                             .min(0, "Returned quantity cannot be negative"),
-                        write_off_reason: z.enum([
-                            "CONSUMED",
-                            "LOST",
-                            "DAMAGED",
-                            "OTHER",
-                        ]),
+                        write_off_reason: z.enum(["CONSUMED", "LOST", "DAMAGED", "OTHER"]),
                         note: z.string().max(500).optional(),
                     })
                 )

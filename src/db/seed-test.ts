@@ -121,10 +121,12 @@ const PROTECTED_TABLES = new Set([MARKER_TABLE, "__drizzle_migrations"]);
 
 const wipeAllExceptMarker = async () => {
     console.log("🧹 Wiping test DB (preserving marker + migration metadata)...");
-    const result: any = await db.execute(sql.raw(`
+    const result: any = await db.execute(
+        sql.raw(`
         SELECT tablename FROM pg_tables
         WHERE schemaname = 'public'
-    `));
+    `)
+    );
     const rows = (result?.rows ?? result ?? []) as Array<{ tablename: string }>;
     const toTruncate = rows
         .map((r) => r.tablename)
@@ -136,9 +138,7 @@ const wipeAllExceptMarker = async () => {
         return;
     }
 
-    await db.execute(
-        sql.raw(`TRUNCATE TABLE ${toTruncate.join(", ")} RESTART IDENTITY CASCADE`)
-    );
+    await db.execute(sql.raw(`TRUNCATE TABLE ${toTruncate.join(", ")} RESTART IDENTITY CASCADE`));
     console.log(`  ✓ truncated ${toTruncate.length} tables`);
 };
 
@@ -270,7 +270,10 @@ const seedUsers = async (
     };
 
     const hashed = await Promise.all(
-        Object.values(TEST_USERS).map(async (u) => ({ ...u, password: await bcrypt.hash(u.password, 10) }))
+        Object.values(TEST_USERS).map(async (u) => ({
+            ...u,
+            password: await bcrypt.hash(u.password, 10),
+        }))
     );
 
     const [admin, logistics, client, docsClient] = hashed;
@@ -369,7 +372,8 @@ const main = async () => {
     console.log("KADENCE E2E TEST SEED");
     console.log("========================================\n");
 
-    const targetRef = (process.env.DATABASE_URL ?? "").match(/postgres\.([a-z0-9]+)/)?.[1] ?? "<non-supabase>";
+    const targetRef =
+        (process.env.DATABASE_URL ?? "").match(/postgres\.([a-z0-9]+)/)?.[1] ?? "<non-supabase>";
     console.log(`→ Target DB ref: ${targetRef}\n`);
 
     await assertIsTestDatabase();
@@ -464,7 +468,9 @@ const main = async () => {
     }
     console.log(`  Brands   : ${brands.length}`);
     console.log(`  Warehouse: ${warehouse.name} — zone ${zone.name}\n`);
-    console.log(`  Orders   : 6 demo orders (ORD-DEMO-001…006) on Alex Chen — see src/db/seeds/demo-orders.ts\n`);
+    console.log(
+        `  Orders   : 6 demo orders (ORD-DEMO-001…006) on Alex Chen — see src/db/seeds/demo-orders.ts\n`
+    );
     process.exit(0);
 };
 

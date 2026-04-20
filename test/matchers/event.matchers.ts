@@ -11,9 +11,7 @@ export const toHaveEmittedEvent = async (
     const rows = await db
         .select({ id: systemEvents.id, actor_role: systemEvents.actor_role })
         .from(systemEvents)
-        .where(
-            and(eq(systemEvents.entity_id, entityId), eq(systemEvents.event_type, eventType))
-        )
+        .where(and(eq(systemEvents.entity_id, entityId), eq(systemEvents.event_type, eventType)))
         .limit(1);
     return {
         pass: rows.length > 0,

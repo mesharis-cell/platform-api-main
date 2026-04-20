@@ -2104,9 +2104,7 @@ const getAssetOrderHistory = async (assetId: string, platformId: string) => {
         )
         .orderBy(desc(scanEvents.scanned_at));
 
-    const scans = rawScans.filter(
-        (s): s is typeof s & { order_id: string } => s.order_id !== null
-    );
+    const scans = rawScans.filter((s): s is typeof s & { order_id: string } => s.order_id !== null);
 
     const scanEventIds = [...new Set(scans.map((scan) => scan.id))];
     const mediaRows =

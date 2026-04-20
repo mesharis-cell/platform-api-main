@@ -675,8 +675,7 @@ export const getCommercialDocumentContext = async (
     if (contextType === "ORDER") return getOrderCommercialContext(contextId, platformId);
     if (contextType === "INBOUND_REQUEST")
         return getInboundRequestCommercialContext(contextId, platformId);
-    if (contextType === "SELF_PICKUP")
-        return getSelfPickupCommercialContext(contextId, platformId);
+    if (contextType === "SELF_PICKUP") return getSelfPickupCommercialContext(contextId, platformId);
     return getServiceRequestCommercialContext(contextId, platformId);
 };
 

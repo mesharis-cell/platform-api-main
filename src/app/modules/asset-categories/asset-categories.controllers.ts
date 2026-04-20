@@ -26,11 +26,7 @@ const createCategory = catchAsync(async (req, res) => {
     const platformId = req.headers["x-platform"] as string;
     const user = (req as any).user as AuthUser;
 
-    const result = await AssetCategoryServices.createCategory(
-        platformId,
-        req.body,
-        user.id
-    );
+    const result = await AssetCategoryServices.createCategory(platformId, req.body, user.id);
 
     sendResponse(res, {
         statusCode: httpStatus.CREATED,
@@ -44,11 +40,7 @@ const updateCategory = catchAsync(async (req, res) => {
     const platformId = req.headers["x-platform"] as string;
     const id = req.params.id;
 
-    const result = await AssetCategoryServices.updateCategory(
-        id,
-        platformId,
-        req.body
-    );
+    const result = await AssetCategoryServices.updateCategory(id, platformId, req.body);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

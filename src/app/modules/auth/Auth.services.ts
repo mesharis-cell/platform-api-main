@@ -273,10 +273,7 @@ const getConfigByHostname = async (originOrHost?: string | null) => {
                     .select({ features: companies.features })
                     .from(companies)
                     .where(
-                        and(
-                            eq(companies.platform_id, platform.id),
-                            isNull(companies.deleted_at)
-                        )
+                        and(eq(companies.platform_id, platform.id), isNull(companies.deleted_at))
                     );
                 const effectiveAdminFeatures = computeEffectiveAdminFeatures(
                     platformFeatures,
@@ -355,12 +352,7 @@ const getConfigByHostname = async (originOrHost?: string | null) => {
             const perCompanyFeatureRows = await db
                 .select({ features: companies.features })
                 .from(companies)
-                .where(
-                    and(
-                        eq(companies.platform_id, platform.id),
-                        isNull(companies.deleted_at)
-                    )
-                );
+                .where(and(eq(companies.platform_id, platform.id), isNull(companies.deleted_at)));
             const effectiveAdminFeatures = computeEffectiveAdminFeatures(
                 platformFeatures,
                 perCompanyFeatureRows.map((row) => row.features)

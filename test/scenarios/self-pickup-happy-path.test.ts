@@ -75,12 +75,7 @@ const loadSeedRefs = async (): Promise<SeedRefs> => {
     const [company] = await db
         .select({ id: companies.id })
         .from(companies)
-        .where(
-            and(
-                eq(companies.platform_id, platform.id),
-                eq(companies.name, TEST_COMPANY_NAME)
-            )
-        )
+        .where(and(eq(companies.platform_id, platform.id), eq(companies.name, TEST_COMPANY_NAME)))
         .limit(1);
     if (!company) throw new Error(`Test company "${TEST_COMPANY_NAME}" not found.`);
 
@@ -165,8 +160,7 @@ afterAll(async () => {
 // ─────────────────────────────────────────────────────────────
 
 const scenarioId = `sphp-${Date.now()}`;
-const hoursFromNow = (h: number) =>
-    new Date(Date.now() + h * 60 * 60 * 1000).toISOString();
+const hoursFromNow = (h: number) => new Date(Date.now() + h * 60 * 60 * 1000).toISOString();
 
 const buildSubmitPayload = () => ({
     items: [{ asset_id: refs.assetId, quantity: 2 }],

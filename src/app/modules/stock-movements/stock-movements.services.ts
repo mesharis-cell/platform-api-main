@@ -1,12 +1,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import {
-    assets,
-    assetFamilies,
-    stockMovements,
-    users,
-} from "../../../db/schema";
+import { assets, assetFamilies, stockMovements, users } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 // eventBus no longer needed here — threshold check moved to StockMovementService
@@ -81,12 +76,7 @@ const getFamilyStockHistory = async (
         .from(stockMovements)
         .innerJoin(assets, eq(stockMovements.asset_id, assets.id))
         .leftJoin(users, eq(stockMovements.created_by, users.id))
-        .where(
-            and(
-                eq(assets.family_id, familyId),
-                eq(stockMovements.platform_id, platformId)
-            )
-        )
+        .where(and(eq(assets.family_id, familyId), eq(stockMovements.platform_id, platformId)))
         .orderBy(desc(stockMovements.created_at))
         .limit(limit)
         .offset(offset);

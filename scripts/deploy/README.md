@@ -8,14 +8,14 @@ took effect.
 - **AWS account**: `609230521830` ("Kadence platform")
 - **Git** source-of-truth: Bitbucket (`bitbucket.org/homeofpmg/kadence-{api,admin,warehouse,client}`).
 - **API** → CodePipeline watches Bitbucket via CodeConnections:
-  - `kadence-api-staging-pipeline` ← Bitbucket `staging` branch → deploys to EB `kadence-api-env-staging`
-  - `kadence-api-production-pipeline` ← Bitbucket `main` branch → deploys to EB `kadence-api-env-production`
-  - Pipelines live in **us-east-1**, EB lives in **ap-south-1**.
+    - `kadence-api-staging-pipeline` ← Bitbucket `staging` branch → deploys to EB `kadence-api-env-staging`
+    - `kadence-api-production-pipeline` ← Bitbucket `main` branch → deploys to EB `kadence-api-env-production`
+    - Pipelines live in **us-east-1**, EB lives in **ap-south-1**.
 - **Frontends (4 apps)** → AWS Amplify in **ap-south-1**, each connected to a Bitbucket repo branch:
-  - `kadence-admin` (app `d3uxg263ljjkn`) — `bitbucket.org/homeofpmg/kadence-admin`
-  - `kadence-warehouse` (app `dlqzh1t64i0in`) — `bitbucket.org/homeofpmg/kadence-warehouse`
-  - `kadence-client-redbull` (app `d12ui6oezoziso`) — `bitbucket.org/homeofpmg/kadence-client`
-  - `kadence-client-pernod` (app `d20fj4f9z87yys`) — same repo as above, different branding
+    - `kadence-admin` (app `d3uxg263ljjkn`) — `bitbucket.org/homeofpmg/kadence-admin`
+    - `kadence-warehouse` (app `dlqzh1t64i0in`) — `bitbucket.org/homeofpmg/kadence-warehouse`
+    - `kadence-client-redbull` (app `d12ui6oezoziso`) — `bitbucket.org/homeofpmg/kadence-client`
+    - `kadence-client-pernod` (app `d20fj4f9z87yys`) — same repo as above, different branding
 - **No Vercel. No GitHub-main mirror deploys.** The `bitbucket-pipelines.yml` push-to-GitHub jobs are legacy and don't drive any deploy — ignore them.
 
 ## Creds

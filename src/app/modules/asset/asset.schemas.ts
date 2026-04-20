@@ -45,7 +45,15 @@ const createAssetSchema = z.object({
                 .int("Available quantity must be an integer")
                 .min(0, "Available quantity cannot be negative")
                 .default(1),
+<<<<<<< Updated upstream
             packaging: z.string().max(100, "Packaging must be under 100 characters").optional(),
+=======
+            packaging: z
+                .string()
+                .max(100, "Packaging must be under 100 characters")
+                .optional()
+                .nullable(),
+>>>>>>> Stashed changes
             weight_per_unit: z
                 .number({ message: "Weight per unit must be a number" })
                 .positive("Weight per unit must be positive")

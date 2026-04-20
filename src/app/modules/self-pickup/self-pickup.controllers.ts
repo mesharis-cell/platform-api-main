@@ -103,12 +103,7 @@ const clientCancel = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
     const id = getRequiredString(req.params.id, "id");
-    const result = await SelfPickupServices.cancelSelfPickup(
-        id,
-        platformId,
-        user,
-        req.body.reason
-    );
+    const result = await SelfPickupServices.cancelSelfPickup(id, platformId, user, req.body.reason);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -191,12 +186,7 @@ const adminCancel = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
     const id = getRequiredString(req.params.id, "id");
-    const result = await SelfPickupServices.cancelSelfPickup(
-        id,
-        platformId,
-        user,
-        req.body.reason
-    );
+    const result = await SelfPickupServices.cancelSelfPickup(id, platformId, user, req.body.reason);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

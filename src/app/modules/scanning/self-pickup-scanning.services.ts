@@ -63,10 +63,12 @@ const selfPickupOutboundScan = async (
         where: and(eq(assets.qr_code, data.qr_code), eq(assets.platform_id, platformId)),
     });
 
-    if (!asset) throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found with this QR code");
+    if (!asset)
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found with this QR code");
 
     const pickupItem = pickup.items.find((item) => item.asset_id === asset.id);
-    if (!pickupItem) throw new CustomizedError(httpStatus.BAD_REQUEST, "Asset not in this self-pickup");
+    if (!pickupItem)
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Asset not in this self-pickup");
 
     let scanQuantity = 1;
     if (asset.tracking_method === "BATCH") {
@@ -110,10 +112,14 @@ const selfPickupOutboundScan = async (
 
     if (asset.tracking_method === "BATCH") {
         await StockMovementService.record(null, {
-            platformId, assetId: asset.id,
-            delta: -scanQuantity, movementType: "OUTBOUND",
-            linkedEntityType: "SELF_PICKUP", linkedEntityId: selfPickupId,
-            scanEventId: scanEvent.id, userId: user.id,
+            platformId,
+            assetId: asset.id,
+            delta: -scanQuantity,
+            movementType: "OUTBOUND",
+            linkedEntityType: "SELF_PICKUP",
+            linkedEntityId: selfPickupId,
+            scanEventId: scanEvent.id,
+            userId: user.id,
         });
     }
 
@@ -133,8 +139,17 @@ const selfPickupOutboundScan = async (
     const totalRequired = pickup.items.reduce((sum, item) => sum + item.quantity, 0);
 
     return {
-        asset: { asset_id: asset.id, asset_name: asset.name, scanned_quantity: alreadyScanned + scanQuantity, required_quantity: pickupItem.quantity },
-        progress: { total_items: totalRequired, items_scanned: totalScanned, percent_complete: Math.round((totalScanned / totalRequired) * 100) },
+        asset: {
+            asset_id: asset.id,
+            asset_name: asset.name,
+            scanned_quantity: alreadyScanned + scanQuantity,
+            required_quantity: pickupItem.quantity,
+        },
+        progress: {
+            total_items: totalRequired,
+            items_scanned: totalScanned,
+            percent_complete: Math.round((totalScanned / totalRequired) * 100),
+        },
     };
 };
 
@@ -152,22 +167,34 @@ const completeSelfPickupHandover = async (
 
     if (!pickup) throw new CustomizedError(httpStatus.NOT_FOUND, "Self-pickup not found");
     if (pickup.self_pickup_status !== "READY_FOR_PICKUP") {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, `Cannot complete handover in status: ${pickup.self_pickup_status}`);
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Cannot complete handover in status: ${pickup.self_pickup_status}`
+        );
     }
 
     const outboundScans = await db.query.scanEvents.findMany({
-        where: and(eq(scanEvents.self_pickup_id, selfPickupId), eq(scanEvents.scan_type, "OUTBOUND")),
+        where: and(
+            eq(scanEvents.self_pickup_id, selfPickupId),
+            eq(scanEvents.scan_type, "OUTBOUND")
+        ),
     });
 
     const totalScanned = outboundScans.reduce((sum, s) => sum + s.quantity, 0);
     const totalRequired = pickup.items.reduce((sum, item) => sum + item.quantity, 0);
 
     if (totalScanned < totalRequired) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, `Not all items scanned. Scanned: ${totalScanned}, Required: ${totalRequired}`);
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Not all items scanned. Scanned: ${totalScanned}, Required: ${totalRequired}`
+        );
     }
 
     await db.transaction(async (tx) => {
-        await tx.update(selfPickups).set({ self_pickup_status: "PICKED_UP" }).where(eq(selfPickups.id, selfPickupId));
+        await tx
+            .update(selfPickups)
+            .set({ self_pickup_status: "PICKED_UP" })
+            .where(eq(selfPickups.id, selfPickupId));
         await tx.insert(selfPickupStatusHistory).values({
             platform_id: platformId,
             self_pickup_id: selfPickupId,
@@ -199,7 +226,12 @@ const completeSelfPickupHandover = async (
 
 const selfPickupInboundScan = async (
     selfPickupId: string,
-    data: { qr_code: string; condition: "GREEN" | "ORANGE" | "RED"; quantity?: number; notes?: string },
+    data: {
+        qr_code: string;
+        condition: "GREEN" | "ORANGE" | "RED";
+        quantity?: number;
+        notes?: string;
+    },
     user: AuthUser,
     platformId: string
 ) => {
@@ -210,7 +242,10 @@ const selfPickupInboundScan = async (
 
     if (!pickup) throw new CustomizedError(httpStatus.NOT_FOUND, "Self-pickup not found");
     if (!["AWAITING_RETURN"].includes(pickup.self_pickup_status)) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, `Return scanning not allowed in status: ${pickup.self_pickup_status}`);
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Return scanning not allowed in status: ${pickup.self_pickup_status}`
+        );
     }
 
     const asset = await db.query.assets.findFirst({
@@ -219,7 +254,8 @@ const selfPickupInboundScan = async (
     if (!asset) throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found");
 
     const pickupItem = pickup.items.find((item) => item.asset_id === asset.id);
-    if (!pickupItem) throw new CustomizedError(httpStatus.BAD_REQUEST, "Asset not in this self-pickup");
+    if (!pickupItem)
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Asset not in this self-pickup");
 
     let scanQuantity = 1;
     if (asset.tracking_method === "BATCH") {
@@ -247,24 +283,38 @@ const selfPickupInboundScan = async (
 
     if (asset.tracking_method === "BATCH") {
         await StockMovementService.record(null, {
-            platformId, assetId: asset.id,
-            delta: scanQuantity, movementType: "INBOUND",
-            linkedEntityType: "SELF_PICKUP", linkedEntityId: selfPickupId,
-            scanEventId: scanEvent.id, userId: user.id,
+            platformId,
+            assetId: asset.id,
+            delta: scanQuantity,
+            movementType: "INBOUND",
+            linkedEntityType: "SELF_PICKUP",
+            linkedEntityId: selfPickupId,
+            scanEventId: scanEvent.id,
+            userId: user.id,
         });
     }
 
-    await db.update(assets).set({ status: "AVAILABLE", last_scanned_at: new Date(), last_scanned_by: user.id }).where(eq(assets.id, asset.id));
+    await db
+        .update(assets)
+        .set({ status: "AVAILABLE", last_scanned_at: new Date(), last_scanned_by: user.id })
+        .where(eq(assets.id, asset.id));
 
     const allInbound = await db.query.scanEvents.findMany({
-        where: and(eq(scanEvents.self_pickup_id, selfPickupId), eq(scanEvents.scan_type, "INBOUND")),
+        where: and(
+            eq(scanEvents.self_pickup_id, selfPickupId),
+            eq(scanEvents.scan_type, "INBOUND")
+        ),
     });
     const totalScanned = allInbound.reduce((sum, s) => sum + s.quantity, 0);
     const totalRequired = pickup.items.reduce((sum, item) => sum + item.quantity, 0);
 
     return {
         asset: { asset_id: asset.id, asset_name: asset.name },
-        progress: { total_items: totalRequired, items_scanned: totalScanned, percent_complete: Math.round((totalScanned / totalRequired) * 100) },
+        progress: {
+            total_items: totalRequired,
+            items_scanned: totalScanned,
+            percent_complete: Math.round((totalScanned / totalRequired) * 100),
+        },
     };
 };
 
@@ -279,37 +329,70 @@ const completeSelfPickupReturn = async (
     const pickup = await db.query.selfPickups.findFirst({
         where: and(eq(selfPickups.id, selfPickupId), eq(selfPickups.platform_id, platformId)),
         with: {
-            items: { with: { asset: { columns: { id: true, name: true, tracking_method: true, available_quantity: true } } } },
+            items: {
+                with: {
+                    asset: {
+                        columns: {
+                            id: true,
+                            name: true,
+                            tracking_method: true,
+                            available_quantity: true,
+                        },
+                    },
+                },
+            },
             company: { columns: { name: true } },
         },
     });
 
     if (!pickup) throw new CustomizedError(httpStatus.NOT_FOUND, "Self-pickup not found");
     if (pickup.self_pickup_status !== "AWAITING_RETURN") {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, `Cannot complete return in status: ${pickup.self_pickup_status}`);
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Cannot complete return in status: ${pickup.self_pickup_status}`
+        );
     }
 
     const inboundScans = await db.query.scanEvents.findMany({
-        where: and(eq(scanEvents.self_pickup_id, selfPickupId), eq(scanEvents.scan_type, "INBOUND")),
+        where: and(
+            eq(scanEvents.self_pickup_id, selfPickupId),
+            eq(scanEvents.scan_type, "INBOUND")
+        ),
     });
 
     // Pooled-aware reconciliation (same logic as order completeInboundScan)
     const unsettledLines: UnsettledPooledLine[] = [];
-    const settlementsToApply: Array<{ item: (typeof pickup.items)[number]; settlement: PooledSettlementEntry; delta: number }> = [];
+    const settlementsToApply: Array<{
+        item: (typeof pickup.items)[number];
+        settlement: PooledSettlementEntry;
+        delta: number;
+    }> = [];
 
     for (const item of pickup.items) {
-        const scannedQty = inboundScans.filter((s) => s.asset_id === item.asset_id).reduce((sum, s) => sum + s.quantity, 0);
+        const scannedQty = inboundScans
+            .filter((s) => s.asset_id === item.asset_id)
+            .reduce((sum, s) => sum + s.quantity, 0);
         const trackingMethod = (item.asset as any)?.tracking_method || "INDIVIDUAL";
         const delta = scannedQty - item.quantity;
 
         if (trackingMethod === "INDIVIDUAL") {
             if (scannedQty < item.quantity) {
-                throw new CustomizedError(httpStatus.BAD_REQUEST, `Cannot complete: ${item.asset_name}: ${scannedQty}/${item.quantity} scanned`);
+                throw new CustomizedError(
+                    httpStatus.BAD_REQUEST,
+                    `Cannot complete: ${item.asset_name}: ${scannedQty}/${item.quantity} scanned`
+                );
             }
         } else if (delta < 0) {
             const matching = settlements.find((s) => s.line_id === item.id);
             if (!matching) {
-                unsettledLines.push({ line_id: item.id, asset_id: item.asset_id, asset_name: item.asset_name, outbound_qty: item.quantity, scanned_qty: scannedQty, delta });
+                unsettledLines.push({
+                    line_id: item.id,
+                    asset_id: item.asset_id,
+                    asset_name: item.asset_name,
+                    outbound_qty: item.quantity,
+                    scanned_qty: scannedQty,
+                    delta,
+                });
             } else {
                 settlementsToApply.push({ item, settlement: matching, delta });
             }
@@ -317,7 +400,9 @@ const completeSelfPickupReturn = async (
     }
 
     if (unsettledLines.length > 0) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "Pooled items require settlement", { requires_settlement: unsettledLines } as any);
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Pooled items require settlement", {
+            requires_settlement: unsettledLines,
+        } as any);
     }
 
     // Build returnedByAsset map for net restore
@@ -331,7 +416,11 @@ const completeSelfPickupReturn = async (
 
     await db.transaction(async (tx) => {
         await releaseBookingsAndRestoreAvailability(
-            tx, "SELF_PICKUP", selfPickupId, platformId, returnedByAsset
+            tx,
+            "SELF_PICKUP",
+            selfPickupId,
+            platformId,
+            returnedByAsset
         );
 
         for (const { item, settlement, delta } of settlementsToApply) {
@@ -347,17 +436,24 @@ const completeSelfPickupReturn = async (
                 userId: user.id,
             });
 
-            await tx.update(selfPickupItems).set({ settled_at: new Date(), settled_by: user.id }).where(eq(selfPickupItems.id, item.id));
+            await tx
+                .update(selfPickupItems)
+                .set({ settled_at: new Date(), settled_by: user.id })
+                .where(eq(selfPickupItems.id, item.id));
         }
 
-        await tx.update(selfPickups).set({ self_pickup_status: "CLOSED", financial_status: "PENDING_INVOICE" }).where(eq(selfPickups.id, selfPickupId));
+        await tx
+            .update(selfPickups)
+            .set({ self_pickup_status: "CLOSED", financial_status: "PENDING_INVOICE" })
+            .where(eq(selfPickups.id, selfPickupId));
         await tx.insert(selfPickupStatusHistory).values({
             platform_id: platformId,
             self_pickup_id: selfPickupId,
             status: "CLOSED",
-            notes: settlementsToApply.length > 0
-                ? `Return completed with ${settlementsToApply.length} pooled settlement(s)`
-                : "Return completed — all items returned and inspected",
+            notes:
+                settlementsToApply.length > 0
+                    ? `Return completed with ${settlementsToApply.length} pooled settlement(s)`
+                    : "Return completed — all items returned and inspected",
             updated_by: user.id,
         });
     });
@@ -391,11 +487,16 @@ const getSelfPickupHandoverProgress = async (selfPickupId: string, platformId: s
     if (!pickup) throw new CustomizedError(httpStatus.NOT_FOUND, "Self-pickup not found");
 
     const outboundScans = await db.query.scanEvents.findMany({
-        where: and(eq(scanEvents.self_pickup_id, selfPickupId), eq(scanEvents.scan_type, "OUTBOUND")),
+        where: and(
+            eq(scanEvents.self_pickup_id, selfPickupId),
+            eq(scanEvents.scan_type, "OUTBOUND")
+        ),
     });
 
     const assetsProgress = pickup.items.map((item) => {
-        const scannedQty = outboundScans.filter((s) => s.asset_id === item.asset_id).reduce((sum, s) => sum + s.quantity, 0);
+        const scannedQty = outboundScans
+            .filter((s) => s.asset_id === item.asset_id)
+            .reduce((sum, s) => sum + s.quantity, 0);
         return {
             asset_id: item.asset_id,
             asset_name: item.asset_name,
@@ -428,11 +529,16 @@ const getSelfPickupReturnProgress = async (selfPickupId: string, platformId: str
     if (!pickup) throw new CustomizedError(httpStatus.NOT_FOUND, "Self-pickup not found");
 
     const inboundScans = await db.query.scanEvents.findMany({
-        where: and(eq(scanEvents.self_pickup_id, selfPickupId), eq(scanEvents.scan_type, "INBOUND")),
+        where: and(
+            eq(scanEvents.self_pickup_id, selfPickupId),
+            eq(scanEvents.scan_type, "INBOUND")
+        ),
     });
 
     const assetsProgress = pickup.items.map((item) => {
-        const scannedQty = inboundScans.filter((s) => s.asset_id === item.asset_id).reduce((sum, s) => sum + s.quantity, 0);
+        const scannedQty = inboundScans
+            .filter((s) => s.asset_id === item.asset_id)
+            .reduce((sum, s) => sum + s.quantity, 0);
         return {
             asset_id: item.asset_id,
             asset_name: item.asset_name,

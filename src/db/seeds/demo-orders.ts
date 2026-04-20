@@ -265,7 +265,8 @@ const findServiceTypeId = async (
             )
         );
     if (all.length === 0) throw new Error(`No service type found in category ${category}`);
-    const match = all.find((s) => s.name.toLowerCase().includes(namePattern.toLowerCase())) ?? all[0];
+    const match =
+        all.find((s) => s.name.toLowerCase().includes(namePattern.toLowerCase())) ?? all[0];
     if (match.defaultRate === null) {
         throw new Error(`Service type ${match.name} has null default_rate — needed for line item.`);
     }
@@ -284,7 +285,11 @@ const insertCatalogLineItems = async (opts: {
     lines: CatalogLineSpec[];
 }): Promise<void> => {
     for (const line of opts.lines) {
-        const svc = await findServiceTypeId(opts.platformId, line.serviceCategory, line.serviceNamePattern);
+        const svc = await findServiceTypeId(
+            opts.platformId,
+            line.serviceCategory,
+            line.serviceNamePattern
+        );
         const lineItemPublicId = await lineItemIdGenerator(opts.platformId);
         const total = (parseFloat(svc.defaultRate) * line.quantity).toFixed(2);
         await db.insert(schema.lineItems).values({
@@ -383,7 +388,11 @@ const seedOrder1Submitted = async (opts: SeedDemoOrdersOpts) => {
     await insertStatusHistory(opts.platformId, orderUuid, opts.clientUserId, [
         { status: "DRAFT", daysFromEpoch: 0 },
         { status: "SUBMITTED", daysFromEpoch: 0, notes: "Submitted from cart by Alex Chen." },
-        { status: "PRICING_REVIEW", daysFromEpoch: 0, notes: "Auto-transition for logistics review." },
+        {
+            status: "PRICING_REVIEW",
+            daysFromEpoch: 0,
+            notes: "Auto-transition for logistics review.",
+        },
     ]);
     await insertFinancialHistory(opts.platformId, orderUuid, opts.clientUserId, [
         { status: "PENDING_QUOTE", daysFromEpoch: 0 },
@@ -438,7 +447,11 @@ const seedOrder2Quoted = async (opts: SeedDemoOrdersOpts) => {
         { status: "DRAFT", daysFromEpoch: -3 },
         { status: "SUBMITTED", daysFromEpoch: -3 },
         { status: "PRICING_REVIEW", daysFromEpoch: -3 },
-        { status: "PENDING_APPROVAL", daysFromEpoch: -2, notes: "Logistics submitted pricing for admin review." },
+        {
+            status: "PENDING_APPROVAL",
+            daysFromEpoch: -2,
+            notes: "Logistics submitted pricing for admin review.",
+        },
         { status: "QUOTED", daysFromEpoch: -1, notes: "Admin approved quote and sent to client." },
     ]);
     await insertFinancialHistory(opts.platformId, orderUuid, opts.adminUserId, [
@@ -493,7 +506,11 @@ const seedOrder3Confirmed = async (opts: SeedDemoOrdersOpts) => {
         { status: "PRICING_REVIEW", daysFromEpoch: -5 },
         { status: "PENDING_APPROVAL", daysFromEpoch: -4 },
         { status: "QUOTED", daysFromEpoch: -3 },
-        { status: "CONFIRMED", daysFromEpoch: -2, notes: "Client approved quote with PO PO-DEMO-0003." },
+        {
+            status: "CONFIRMED",
+            daysFromEpoch: -2,
+            notes: "Client approved quote with PO PO-DEMO-0003.",
+        },
     ]);
     await insertFinancialHistory(opts.platformId, orderUuid, opts.clientUserId, [
         { status: "PENDING_QUOTE", daysFromEpoch: -5 },
@@ -628,7 +645,11 @@ const seedOrder5Closed = async (opts: SeedDemoOrdersOpts) => {
         { status: "DERIG", daysFromEpoch: -8 },
         { status: "AWAITING_RETURN", daysFromEpoch: -8 },
         { status: "RETURN_IN_TRANSIT", daysFromEpoch: -7 },
-        { status: "CLOSED", daysFromEpoch: -7, notes: "Inbound scan complete. All items returned." },
+        {
+            status: "CLOSED",
+            daysFromEpoch: -7,
+            notes: "Inbound scan complete. All items returned.",
+        },
     ]);
     await insertFinancialHistory(opts.platformId, orderUuid, opts.adminUserId, [
         { status: "PENDING_QUOTE", daysFromEpoch: -22 },
@@ -717,11 +738,23 @@ export const seedDemoOrders = async (opts: SeedDemoOrdersOpts): Promise<SeededOr
     console.log(`  ✓ ${DEMO_ORDER_IDS.order6Cancelled} — CANCELLED`);
 
     return {
-        order1Submitted: { id: DEMO_UUIDS.orders.order1Submitted, orderId: DEMO_ORDER_IDS.order1Submitted },
+        order1Submitted: {
+            id: DEMO_UUIDS.orders.order1Submitted,
+            orderId: DEMO_ORDER_IDS.order1Submitted,
+        },
         order2Quoted: { id: DEMO_UUIDS.orders.order2Quoted, orderId: DEMO_ORDER_IDS.order2Quoted },
-        order3Confirmed: { id: DEMO_UUIDS.orders.order3Confirmed, orderId: DEMO_ORDER_IDS.order3Confirmed },
-        order4Delivered: { id: DEMO_UUIDS.orders.order4Delivered, orderId: DEMO_ORDER_IDS.order4Delivered },
+        order3Confirmed: {
+            id: DEMO_UUIDS.orders.order3Confirmed,
+            orderId: DEMO_ORDER_IDS.order3Confirmed,
+        },
+        order4Delivered: {
+            id: DEMO_UUIDS.orders.order4Delivered,
+            orderId: DEMO_ORDER_IDS.order4Delivered,
+        },
         order5Closed: { id: DEMO_UUIDS.orders.order5Closed, orderId: DEMO_ORDER_IDS.order5Closed },
-        order6Cancelled: { id: DEMO_UUIDS.orders.order6Cancelled, orderId: DEMO_ORDER_IDS.order6Cancelled },
+        order6Cancelled: {
+            id: DEMO_UUIDS.orders.order6Cancelled,
+            orderId: DEMO_ORDER_IDS.order6Cancelled,
+        },
     };
 };

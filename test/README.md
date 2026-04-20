@@ -89,29 +89,29 @@ inbox.
 
 After `bun run db:seed:test`:
 
-| Entity | Count | Notes |
-|---|---|---|
-| Platform | 1 | "Kadence" on `demo.kadence.test` |
-| Company | 1 | "Kadence Demo" |
-| Users | 4 | Morgan Lee (admin), Jordan Maxwell (logistics), one E2E client (real Outlook alias), Alex Chen (docs client, fake email) |
-| Brands | 2 | Kadence Events, Kadence Studio |
-| Asset families | 3 | Event Chairs (POOLED), Backdrop Panels (SERIALIZED, GREEN+ORANGE+RED mix), LED Screens (SERIALIZED) |
-| Assets | 8 | 1 batch chair (qty 30) + 4 backdrop panels + 3 LED screens |
-| Collection | 1 | "Corporate Event Package" with 4 items |
-| Orders | 6 | All on Alex Chen — see table below |
-| Scan events | 6 | Order 4: OUTBOUND, OUTBOUND_TRUCK_PHOTOS, ON_SITE_CAPTURE, DERIG_CAPTURE. Order 5: RETURN_TRUCK_PHOTOS, INBOUND-with-discrepancy. Covers every `scan_type` enum value. |
-| Service requests | 1 | MAINTENANCE on Order 5 (cracked backdrop), QUOTED commercial status |
+| Entity           | Count | Notes                                                                                                                                                                  |
+| ---------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Platform         | 1     | "Kadence" on `demo.kadence.test`                                                                                                                                       |
+| Company          | 1     | "Kadence Demo"                                                                                                                                                         |
+| Users            | 4     | Morgan Lee (admin), Jordan Maxwell (logistics), one E2E client (real Outlook alias), Alex Chen (docs client, fake email)                                               |
+| Brands           | 2     | Kadence Events, Kadence Studio                                                                                                                                         |
+| Asset families   | 3     | Event Chairs (POOLED), Backdrop Panels (SERIALIZED, GREEN+ORANGE+RED mix), LED Screens (SERIALIZED)                                                                    |
+| Assets           | 8     | 1 batch chair (qty 30) + 4 backdrop panels + 3 LED screens                                                                                                             |
+| Collection       | 1     | "Corporate Event Package" with 4 items                                                                                                                                 |
+| Orders           | 6     | All on Alex Chen — see table below                                                                                                                                     |
+| Scan events      | 6     | Order 4: OUTBOUND, OUTBOUND_TRUCK_PHOTOS, ON_SITE_CAPTURE, DERIG_CAPTURE. Order 5: RETURN_TRUCK_PHOTOS, INBOUND-with-discrepancy. Covers every `scan_type` enum value. |
+| Service requests | 1     | MAINTENANCE on Order 5 (cracked backdrop), QUOTED commercial status                                                                                                    |
 
 Demo order set (all Alex Chen):
 
-| Public ID | order_status | financial_status | Notes |
-|---|---|---|---|
-| ORD-DEMO-001 | PRICING_REVIEW | PENDING_QUOTE | Just submitted; no line items yet |
-| ORD-DEMO-002 | QUOTED | QUOTE_SENT | 2 catalog lines + BASE_OPS, ready for client approval |
-| ORD-DEMO-003 | CONFIRMED | QUOTE_ACCEPTED | po_number set, asset bookings active |
-| ORD-DEMO-004 | DELIVERED | QUOTE_ACCEPTED | Full status history, scan events with truck + derig photos |
-| ORD-DEMO-005 | CLOSED | PENDING_INVOICE | Full lifecycle, inbound scan with one discrepancy |
-| ORD-DEMO-006 | CANCELLED | CANCELLED | Cancelled from QUOTED — "client declined" |
+| Public ID    | order_status   | financial_status | Notes                                                      |
+| ------------ | -------------- | ---------------- | ---------------------------------------------------------- |
+| ORD-DEMO-001 | PRICING_REVIEW | PENDING_QUOTE    | Just submitted; no line items yet                          |
+| ORD-DEMO-002 | QUOTED         | QUOTE_SENT       | 2 catalog lines + BASE_OPS, ready for client approval      |
+| ORD-DEMO-003 | CONFIRMED      | QUOTE_ACCEPTED   | po_number set, asset bookings active                       |
+| ORD-DEMO-004 | DELIVERED      | QUOTE_ACCEPTED   | Full status history, scan events with truck + derig photos |
+| ORD-DEMO-005 | CLOSED         | PENDING_INVOICE  | Full lifecycle, inbound scan with one discrepancy          |
+| ORD-DEMO-006 | CANCELLED      | CANCELLED        | Cancelled from QUOTED — "client declined"                  |
 
 All UUIDs + order numbers + timestamps come from
 `src/db/seeds/demo-deterministic.ts` (pinned epoch `2026-04-01T00:00:00Z`),
@@ -196,6 +196,7 @@ See §8 of `api/docs/e2e-testing-system.md` for the full rulebook. Highlights:
 > hitting staging.
 >
 > **Wire your client app to it:**
+>
 > - `NEXT_PUBLIC_API_URL=http://localhost:9100`
 > - On every API request, send `x-platform: 00000000-0000-4000-8001-000000000001`
 >   (the seeded platform UUID for "Kadence" / `demo.kadence.test`). If your
