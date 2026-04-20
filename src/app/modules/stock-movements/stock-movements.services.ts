@@ -20,29 +20,38 @@ const getAssetStockHistory = async (
 ) => {
     const { page = 1, limit = 50 } = params;
     const offset = (page - 1) * limit;
+    const whereClause = and(
+        eq(stockMovements.asset_id, assetId),
+        eq(stockMovements.platform_id, platformId)
+    );
 
-    const movements = await db
-        .select({
-            id: stockMovements.id,
-            delta: stockMovements.delta,
-            movement_type: stockMovements.movement_type,
-            write_off_reason: stockMovements.write_off_reason,
-            note: stockMovements.note,
-            linked_entity_type: stockMovements.linked_entity_type,
-            linked_entity_id: stockMovements.linked_entity_id,
-            created_by_name: users.name,
-            created_at: stockMovements.created_at,
-        })
-        .from(stockMovements)
-        .leftJoin(users, eq(stockMovements.created_by, users.id))
-        .where(
-            and(eq(stockMovements.asset_id, assetId), eq(stockMovements.platform_id, platformId))
-        )
-        .orderBy(desc(stockMovements.created_at))
-        .limit(limit)
-        .offset(offset);
+    const [movements, countRows] = await Promise.all([
+        db
+            .select({
+                id: stockMovements.id,
+                delta: stockMovements.delta,
+                movement_type: stockMovements.movement_type,
+                write_off_reason: stockMovements.write_off_reason,
+                note: stockMovements.note,
+                linked_entity_type: stockMovements.linked_entity_type,
+                linked_entity_id: stockMovements.linked_entity_id,
+                created_by_name: users.name,
+                created_at: stockMovements.created_at,
+            })
+            .from(stockMovements)
+            .leftJoin(users, eq(stockMovements.created_by, users.id))
+            .where(whereClause)
+            .orderBy(desc(stockMovements.created_at))
+            .limit(limit)
+            .offset(offset),
+        db
+            .select({ count: sql<number>`count(*)::int` })
+            .from(stockMovements)
+            .where(whereClause),
+    ]);
 
-    return { movements, page, limit };
+    const total = countRows[0]?.count ?? 0;
+    return { movements, page, limit, total, total_pages: Math.ceil(total / limit) || 1 };
 };
 
 // ----------------------------------- GET FAMILY STOCK HISTORY ----------------------------
@@ -135,9 +144,11 @@ const createManualAdjustment = async (
         asset_id: string;
         delta: number;
         reason_note: string;
+        movement_type?: "ADJUSTMENT" | "WRITE_OFF";
+        write_off_reason?: "CONSUMED" | "LOST" | "DAMAGED" | "OTHER";
     }
 ) => {
-    const { asset_id, delta, reason_note } = payload;
+    const { asset_id, delta, reason_note, movement_type, write_off_reason } = payload;
 
     const asset = await db.query.assets.findFirst({
         where: and(eq(assets.id, asset_id), eq(assets.platform_id, platformId)),
@@ -153,7 +164,8 @@ const createManualAdjustment = async (
         platformId,
         assetId: asset_id,
         delta,
-        movementType: "ADJUSTMENT",
+        movementType: movement_type ?? "ADJUSTMENT",
+        writeOffReason: write_off_reason ?? null,
         note: reason_note,
         userId: user.id,
     });
