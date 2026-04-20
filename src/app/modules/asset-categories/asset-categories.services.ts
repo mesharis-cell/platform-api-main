@@ -15,15 +15,27 @@ const slugify = (name: string): string =>
         .replace(/-+/g, "-")
         .slice(0, 120);
 
-const listCategories = async (platformId: string, companyId?: string | null) => {
+const listCategories = async (
+    platformId: string,
+    companyId?: string | null,
+    allScopes?: boolean
+) => {
     const conditions = [
         eq(assetCategories.platform_id, platformId),
         eq(assetCategories.is_active, true),
     ];
 
-    const visibilityCondition = companyId
-        ? or(isNull(assetCategories.company_id), eq(assetCategories.company_id, companyId))
-        : isNull(assetCategories.company_id);
+    // allScopes=true → return EVERY category in the platform (universal +
+    // every company's categories). Used by admin Settings > Categories page
+    // where a platform operator wants to manage/see the full catalogue.
+    // Default behavior (allScopes falsy):
+    //   companyId given   → universal + that company's categories
+    //   no companyId      → universal only
+    const visibilityCondition = allScopes
+        ? undefined
+        : companyId
+          ? or(isNull(assetCategories.company_id), eq(assetCategories.company_id, companyId))
+          : isNull(assetCategories.company_id);
 
     const rows = await db
         .select({
@@ -38,7 +50,7 @@ const listCategories = async (platformId: string, companyId?: string | null) => 
             created_at: assetCategories.created_at,
         })
         .from(assetCategories)
-        .where(and(...conditions, visibilityCondition))
+        .where(visibilityCondition ? and(...conditions, visibilityCondition) : and(...conditions))
         .orderBy(asc(assetCategories.sort_order), asc(assetCategories.name));
 
     return rows;
