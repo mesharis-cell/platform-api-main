@@ -41,3 +41,10 @@ export function canTriggerReturn(status: string): boolean {
 export function canReturnToLogistics(status: string): boolean {
     return status === "PENDING_APPROVAL";
 }
+
+// Mark-as-no-cost is only valid while the pickup is still in a pricing-review
+// phase — once it's been confirmed/ready-for-pickup/picked-up the decision is
+// sunk. Keeps the state machine deterministic (see plan SP4).
+export function canMarkAsNoCost(status: string): boolean {
+    return status === "PRICING_REVIEW" || status === "PENDING_APPROVAL";
+}

@@ -84,7 +84,20 @@ export const financialStatusEnum = pgEnum("financial_status", [
     "INVOICED",
     "PAID",
     "CANCELLED",
+    // Terminal non-billed state — used by entities marked as NO_COST (see
+    // pricing_mode). Never transitions to INVOICED/PAID; reporting filters
+    // can drop this state. Added in migration 0047.
+    "NOT_APPLICABLE",
 ]);
+
+// ---------------------------------- PRICING MODE ------------------------------------------
+// Generic (not entity-prefixed) so `orders.pricing_mode`, `inbound_requests.pricing_mode`,
+// `service_requests.pricing_mode` can reuse the same type when they're added later.
+// STANDARD → normal pricing flow (PRICING_REVIEW → PENDING_APPROVAL → QUOTED → CONFIRMED).
+// NO_COST  → admin/logistics waived cost; skips all pricing stages, goes direct to CONFIRMED.
+//            Line items cannot be added/edited; rebuildBreakdown short-circuits; no invoice.
+//            See CLAUDE.md gotcha on no-cost entities + the two structural choke points.
+export const pricingModeEnum = pgEnum("pricing_mode", ["STANDARD", "NO_COST"]);
 export const notificationStatusEnum = pgEnum("notification_status", [
     "QUEUED",
     "PROCESSING",
@@ -1909,6 +1922,12 @@ export const selfPickups = pgTable(
         financial_status: financialStatusEnum("financial_status")
             .notNull()
             .default("PENDING_QUOTE"),
+
+        // Pricing mode — STANDARD runs the normal pricing flow; NO_COST bypasses
+        // it entirely (admin/logistics-triggered, one-way). See pricingModeEnum
+        // definition + PricingService.markEntityAsNoCost + the two structural
+        // choke points (getLineItemEditability + resolveEntityContext).
+        pricing_mode: pricingModeEnum("pricing_mode").notNull().default("STANDARD"),
 
         // Timestamps
         created_at: timestamp("created_at").notNull().defaultNow(),

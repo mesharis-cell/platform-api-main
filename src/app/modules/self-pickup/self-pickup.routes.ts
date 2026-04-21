@@ -152,6 +152,15 @@ export const SelfPickupOperationRoutes = (() => {
     );
 
     router.post(
+        "/:id/mark-no-cost",
+        platformValidator,
+        auth("ADMIN", "LOGISTICS"),
+        requirePermission(PERMISSIONS.SELF_PICKUPS_MARK_NO_COST),
+        featureValidator(featureNames.enable_self_pickup),
+        SelfPickupControllers.markAsNoCost
+    );
+
+    router.post(
         "/:id/ready-for-pickup",
         platformValidator,
         auth("ADMIN", "LOGISTICS"),

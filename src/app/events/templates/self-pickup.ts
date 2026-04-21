@@ -95,13 +95,25 @@ export const selfPickupQuotedClient: EmailTemplate = {
 };
 
 // ─── self_pickup_confirmed_admin ──────────────────────────────────────────────
+// Handles both regular quote-approved confirmations AND no-cost-waived
+// confirmations. Subject + body copy branch on payload.pricing_mode so a
+// single template covers both paths — see plan SP5.
 export const selfPickupConfirmedAdmin: EmailTemplate = {
-    subject: (payload) => `Pickup Confirmed: ${p(payload).entity_id_readable}`,
+    subject: (payload) => {
+        const d = p(payload);
+        const tag = d.pricing_mode === "NO_COST" ? " (No Cost)" : "";
+        return `Pickup Confirmed${tag}: ${d.entity_id_readable}`;
+    },
     html: (payload) => {
         const d = p(payload);
+        const isNoCost = d.pricing_mode === "NO_COST";
+        const headline = isNoCost ? "Self-Pickup Confirmed — No Cost" : "Self-Pickup Confirmed";
+        const body = isNoCost
+            ? "This pickup has been approved at no cost. No pricing review or client quote was required."
+            : "The client has approved the quote. This pickup is now confirmed.";
         return wrap(`
-            <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Self-Pickup Confirmed</h1>
-            <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">The client has approved the quote. This pickup is now confirmed.</p>
+            <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">${headline}</h1>
+            <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">${body}</p>
             ${infoBox(`
                 ${infoRow("Pickup ID", d.entity_id_readable)}
                 ${infoRow("Company", d.company_name)}
@@ -116,12 +128,23 @@ export const selfPickupConfirmedAdmin: EmailTemplate = {
 
 // ─── self_pickup_confirmed_logistics ──────────────────────────────────────────
 export const selfPickupConfirmedLogistics: EmailTemplate = {
-    subject: (payload) => `Pickup Confirmed: ${p(payload).entity_id_readable}`,
+    subject: (payload) => {
+        const d = p(payload);
+        const tag = d.pricing_mode === "NO_COST" ? " (No Cost)" : "";
+        return `Pickup Confirmed${tag}: ${d.entity_id_readable}`;
+    },
     html: (payload) => {
         const d = p(payload);
+        const isNoCost = d.pricing_mode === "NO_COST";
+        const headline = isNoCost
+            ? "Confirmed (No Cost) — Prepare for Pickup"
+            : "Confirmed — Prepare for Pickup";
+        const body = isNoCost
+            ? "Admin approved this pickup at no cost. Prepare items for collector pickup."
+            : "Client approved. Prepare items for collector pickup.";
         return wrap(`
-            <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Confirmed — Prepare for Pickup</h1>
-            <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Client approved. Prepare items for collector pickup.</p>
+            <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">${headline}</h1>
+            <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">${body}</p>
             ${infoBox(`
                 ${infoRow("Pickup ID", d.entity_id_readable)}
                 ${infoRow("Collector", `${d.collector_name} (${d.collector_phone})`)}

@@ -24,6 +24,7 @@ import { resolveEffectiveFeature } from "../../constants/common";
 import { SubmitSelfPickupPayload, SelfPickupListParams } from "./self-pickup.interfaces";
 import {
     canCancelSelfPickup,
+    canMarkAsNoCost,
     canReturnToLogistics,
     canSubmitForApproval,
     canApproveQuote,
@@ -709,6 +710,53 @@ const clientDeclineQuote = async (
     );
 };
 
+// Mark a pickup as no-cost. One-way transition: pricing_mode → NO_COST,
+// financial_status → NOT_APPLICABLE, status → CONFIRMED. All line items voided,
+// prices row zeroed via the shared PricingService.markEntityAsNoCost helper.
+// See plan file SP4 and the two structural choke points (getLineItemEditability
+// + resolveEntityContext) that inherit from this flip.
+const markAsNoCost = async (id: string, platformId: string, user: AuthUser) => {
+    const pickup = await getSelfPickupById(id, platformId);
+
+    if (pickup.pricing_mode === "NO_COST") {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Pickup is already marked as no-cost");
+    }
+
+    if (!canMarkAsNoCost(pickup.self_pickup_status)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Cannot mark as no-cost in status: ${pickup.self_pickup_status}. Must be PRICING_REVIEW or PENDING_APPROVAL.`
+        );
+    }
+
+    // Shared helper: voids line items + zeros prices row + flips pricing_mode
+    // and financial_status on the self_pickups row. No status transition +
+    // event here — transitionStatus() below handles those.
+    await db.transaction(async (tx) => {
+        await PricingService.markEntityAsNoCost({
+            entityType: "SELF_PICKUP",
+            entityId: id,
+            platformId,
+            actorId: user.id,
+            tx,
+        });
+    });
+
+    // Transition status → CONFIRMED. Uses the existing helper so status
+    // history, specific SELF_PICKUP_CONFIRMED event, and generic
+    // STATUS_CHANGED fire exactly like the regular confirm path. The
+    // extras object lands in the event payload so templates can render
+    // a "(No Cost)" subject tag.
+    return transitionStatus(
+        id,
+        platformId,
+        user,
+        "CONFIRMED",
+        "Marked as no-cost — approved without pricing review",
+        { pricing_mode: "NO_COST" }
+    );
+};
+
 // Admin can send a pricing-review-complete pickup back to logistics with a reason.
 const returnToLogistics = async (
     id: string,
@@ -827,6 +875,7 @@ export const SelfPickupServices = {
     submitForApproval,
     approveQuote,
     markReadyForPickup,
+    markAsNoCost,
     triggerReturn,
     cancelSelfPickup,
     clientApproveQuote,

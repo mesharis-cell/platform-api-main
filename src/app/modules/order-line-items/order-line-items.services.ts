@@ -59,11 +59,17 @@ const runWithLineItemIdRetry = async <T>(operation: () => Promise<T>): Promise<T
 const ORDER_FINANCIAL_LOCKED_STATUSES = ["QUOTE_ACCEPTED", "PENDING_INVOICE", "INVOICED", "PAID"];
 const SERVICE_REQUEST_LOCKED_STATUSES = ["QUOTE_APPROVED", "INVOICED", "PAID"];
 
-const buildEditability = (isLocked: boolean, lockStatus: string | null): LineItemEditability => ({
+const buildEditability = (
+    isLocked: boolean,
+    lockStatus: string | null,
+    reasonKind: "QUOTE_LOCK" | "NO_COST" = "QUOTE_LOCK"
+): LineItemEditability => ({
     can_edit_pricing_fields: !isLocked,
     can_edit_metadata_fields: true,
     lock_reason: isLocked
-        ? `Pricing fields are locked after quote acceptance (current status: ${lockStatus || "LOCKED"}).`
+        ? reasonKind === "NO_COST"
+            ? "Entity is marked as no-cost — line items cannot be added or changed."
+            : `Pricing fields are locked after quote acceptance (current status: ${lockStatus || "LOCKED"}).`
         : null,
 });
 
@@ -127,7 +133,10 @@ const getLineItemEditability = async (
 
     if (item.self_pickup_id) {
         const [pickup] = await db
-            .select({ financial_status: selfPickups.financial_status })
+            .select({
+                financial_status: selfPickups.financial_status,
+                pricing_mode: selfPickups.pricing_mode,
+            })
             .from(selfPickups)
             .where(
                 and(
@@ -136,6 +145,14 @@ const getLineItemEditability = async (
                 )
             )
             .limit(1);
+        // NO_COST is the second structural choke point: all 6 line-item
+        // mutations (createCatalog / createCustom / update / void / patch...)
+        // call this function, so locking here = locking them all with one
+        // change. Takes priority over status lock — a NO_COST pickup is
+        // always locked regardless of its current status.
+        if (pickup?.pricing_mode === "NO_COST") {
+            return buildEditability(true, pickup.financial_status || null, "NO_COST");
+        }
         const status = pickup?.financial_status || null;
         return buildEditability(
             !!status && ORDER_FINANCIAL_LOCKED_STATUSES.includes(String(status)),

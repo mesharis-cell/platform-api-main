@@ -260,6 +260,20 @@ const returnToLogistics = catchAsync(async (req, res) => {
     });
 });
 
+const markAsNoCost = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+    const id = getRequiredString(req.params.id, "id");
+    const result = await SelfPickupServices.markAsNoCost(id, platformId, user);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Self-pickup marked as no-cost",
+        data: result,
+    });
+});
+
 export const SelfPickupControllers = {
     // Client
     submitFromCart,
@@ -279,4 +293,5 @@ export const SelfPickupControllers = {
     getStatusHistory,
     updateJobNumber,
     returnToLogistics,
+    markAsNoCost,
 };

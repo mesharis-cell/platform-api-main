@@ -247,6 +247,11 @@ export const PERMISSIONS = {
     SELF_PICKUPS_CANCEL: "self_pickups:cancel",
     SELF_PICKUPS_EXPORT: "self_pickups:export",
     SELF_PICKUPS_VIEW_PAGE: "self_pickups:view_page",
+    // Mark a pickup as no-cost (waives all pricing). Distinct from
+    // :approve — that's the quote approval path; this is the pricing
+    // waiver path. Entity-specific so access policies can grant it
+    // independently. See plan file tender-knitting-avalanche.md SP4.
+    SELF_PICKUPS_MARK_NO_COST: "self_pickups:mark_no_cost",
     SELF_PICKUPS_ALL: "self_pickups:*",
 
     // ==================== STOCK MOVEMENTS ====================
@@ -379,6 +384,7 @@ export const PERMISSION_TEMPLATES = {
         PERMISSIONS.SELF_PICKUPS_READ,
         PERMISSIONS.SELF_PICKUPS_APPROVE,
         PERMISSIONS.SELF_PICKUPS_CANCEL,
+        PERMISSIONS.SELF_PICKUPS_MARK_NO_COST,
         PERMISSIONS.SELF_PICKUPS_VIEW_PAGE,
         PERMISSIONS.STOCK_MOVEMENTS_READ,
         PERMISSIONS.STOCK_MOVEMENTS_ADJUST,

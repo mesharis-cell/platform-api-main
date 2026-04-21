@@ -529,6 +529,9 @@ const resolveEntityContext = async (
                 platformFeatures: row.platform_features as Record<string, unknown> | null,
                 companyFeatures: row.company_features as Record<string, unknown> | null,
             }),
+            // Orders don't have pricing_mode yet; treat as STANDARD so the
+            // rebuildBreakdown short-circuit stays uniform across entity types.
+            pricing_mode: "STANDARD" as const,
         };
     }
 
@@ -575,6 +578,8 @@ const resolveEntityContext = async (
                 platformFeatures: row.platform_features as Record<string, unknown> | null,
                 companyFeatures: row.company_features as Record<string, unknown> | null,
             }),
+            // Inbound requests don't have pricing_mode yet; treat as STANDARD.
+            pricing_mode: "STANDARD" as const,
         };
     }
 
@@ -591,6 +596,7 @@ const resolveEntityContext = async (
                 platform_vat_percent: platforms.vat_percent,
                 created_by: selfPickups.created_by,
                 calculated_totals: selfPickups.calculated_totals,
+                pricing_mode: selfPickups.pricing_mode,
             })
             .from(selfPickups)
             .leftJoin(companies, eq(selfPickups.company_id, companies.id))
@@ -614,6 +620,7 @@ const resolveEntityContext = async (
                 platformFeatures: row.platform_features as Record<string, unknown> | null,
                 companyFeatures: row.company_features as Record<string, unknown> | null,
             }),
+            pricing_mode: (row.pricing_mode as "STANDARD" | "NO_COST" | null) ?? "STANDARD",
         };
     }
 
@@ -651,6 +658,8 @@ const resolveEntityContext = async (
             platformFeatures: row.platform_features as Record<string, unknown> | null,
             companyFeatures: row.company_features as Record<string, unknown> | null,
         }),
+        // Service requests don't have pricing_mode yet; treat as STANDARD.
+        pricing_mode: "STANDARD" as const,
     };
 };
 
@@ -746,6 +755,24 @@ const rebuildBreakdown = async (params: RebuildBreakdownParams) => {
         params.entity_id,
         params.platform_id
     );
+
+    // ── NO_COST short-circuit ──────────────────────────────────────────────
+    // Choke point for the "mark as no-cost" feature. Any entity whose
+    // pricing_mode is NO_COST skips the entire pricing subsystem. syncSystem-
+    // BaseLineItem inherits this (only called from rebuildBreakdown). This
+    // guards against stray recalcs triggered by cron / line-item changes /
+    // manual rebuilds — the pickup stays at zero, no BASE_OPS gets generated,
+    // no rows get rewritten.
+    if (context.pricing_mode === "NO_COST") {
+        return {
+            pricing_id: context.pricing_id,
+            breakdown_lines: [] as Array<Record<string, unknown>>,
+            final_total: 0,
+            margin_amount: 0,
+            vat_amount: 0,
+            subtotal: 0,
+        };
+    }
 
     const pricingId = await ensurePricingRow(executor, {
         entityType: params.entity_type,
@@ -1111,6 +1138,97 @@ const projectForRole = (
     role: PricingRole
 ) => projectByRole(pricing, role);
 
+// ----------------------------------- MARK ENTITY AS NO-COST ------------------------------
+// Entity-agnostic helper. Voids all active line items for this entity, zeros
+// the prices row, flips pricing_mode→NO_COST + financial_status→NOT_APPLICABLE
+// on the parent entity row. Does NOT transition status or emit events —
+// callers own those since they're entity-specific (each entity has its own
+// "approved without quote" target status + event type).
+//
+// Follow-up wiring when orders / inbound / service_request gain pricing_mode:
+// add a branch to the switch at the bottom. Everything else (line-item void,
+// prices zero, the two choke-point guards) works identically.
+const markEntityAsNoCost = async (params: {
+    entityType: PricedEntityType;
+    entityId: string;
+    platformId: string;
+    actorId: string;
+    tx?: any;
+}): Promise<void> => {
+    const executor = params.tx ?? db;
+
+    // 1. Void all non-voided line items for this entity.
+    //    Uses the existing getLineItemCondition helper (the same one
+    //    syncSystemBaseLineItem uses) — no new entity-routing code paths.
+    await executor
+        .update(lineItems)
+        .set({
+            is_voided: true,
+            voided_at: new Date(),
+            voided_by: params.actorId,
+            void_reason: "Entity marked as no-cost",
+            updated_at: new Date(),
+        })
+        .where(
+            and(
+                eq(lineItems.platform_id, params.platformId),
+                eq(lineItems.is_voided, false),
+                getLineItemCondition(params.entityType, params.entityId)
+            )
+        );
+
+    // 2. Zero the prices row (if one exists). Keeps the row so polymorphic
+    //    joins + historical readers don't break — just empty breakdown + zero
+    //    totals. ensurePricingRow elsewhere already uses this exact shape on
+    //    creation, so zeroing is schema-safe.
+    await executor
+        .update(prices)
+        .set({
+            breakdown_lines: [],
+            margin_percent: "0",
+            vat_percent: "0",
+            margin_is_override: false,
+            margin_override_reason: null,
+            calculated_at: new Date(),
+            calculated_by: params.actorId,
+        })
+        .where(
+            and(
+                eq(prices.platform_id, params.platformId),
+                eq(prices.entity_type, params.entityType),
+                eq(prices.entity_id, params.entityId)
+            )
+        );
+
+    // 3. Flip the parent entity's pricing_mode + financial_status.
+    //    Only SELF_PICKUP wired now; other entities throw until their column
+    //    lands (deliberate — surfaces missing wiring loudly if someone tries
+    //    to mark an order no-cost before the follow-up migration).
+    switch (params.entityType) {
+        case "SELF_PICKUP":
+            await executor
+                .update(selfPickups)
+                .set({
+                    pricing_mode: "NO_COST",
+                    financial_status: "NOT_APPLICABLE",
+                })
+                .where(
+                    and(
+                        eq(selfPickups.id, params.entityId),
+                        eq(selfPickups.platform_id, params.platformId)
+                    )
+                );
+            break;
+        case "ORDER":
+        case "INBOUND_REQUEST":
+        case "SERVICE_REQUEST":
+            throw new CustomizedError(
+                httpStatus.NOT_IMPLEMENTED,
+                `mark-as-no-cost is not yet wired for ${params.entityType}. Add the pricing_mode column + migration first.`
+            );
+    }
+};
+
 export const PricingService = {
     buildInitialPricing,
     rebuildBreakdown,
@@ -1122,4 +1240,5 @@ export const PricingService = {
     sumLineItems,
     parseBreakdownLines,
     calculateBreakdownTotals,
+    markEntityAsNoCost,
 };
