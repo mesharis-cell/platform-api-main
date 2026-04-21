@@ -7,6 +7,7 @@ import {
     lineItems,
     orders,
     prices,
+    selfPickups,
     serviceRequests,
     serviceTypes,
 } from "../../../db/schema";
@@ -71,6 +72,7 @@ const getLineItemEditability = async (
         order_id: string | null;
         inbound_request_id: string | null;
         service_request_id: string | null;
+        self_pickup_id?: string | null;
     },
     platformId: string
 ): Promise<LineItemEditability> => {
@@ -123,12 +125,31 @@ const getLineItemEditability = async (
         );
     }
 
+    if (item.self_pickup_id) {
+        const [pickup] = await db
+            .select({ financial_status: selfPickups.financial_status })
+            .from(selfPickups)
+            .where(
+                and(
+                    eq(selfPickups.id, item.self_pickup_id),
+                    eq(selfPickups.platform_id, platformId)
+                )
+            )
+            .limit(1);
+        const status = pickup?.financial_status || null;
+        return buildEditability(
+            !!status && ORDER_FINANCIAL_LOCKED_STATUSES.includes(String(status)),
+            status
+        );
+    }
+
     return buildEditability(false, null);
 };
 
 // ----------------------------------- GET LINE ITEMS -----------------------------------------
 const getLineItems = async (platformId: string, query: Record<string, any>) => {
-    const { order_id, inbound_request_id, service_request_id, purpose_type } = query;
+    const { order_id, inbound_request_id, service_request_id, self_pickup_id, purpose_type } =
+        query;
 
     const conditions: any[] = [eq(lineItems.platform_id, platformId)];
 
@@ -141,6 +162,9 @@ const getLineItems = async (platformId: string, query: Record<string, any>) => {
     }
     if (service_request_id) {
         conditions.push(eq(lineItems.service_request_id, service_request_id));
+    }
+    if (self_pickup_id) {
+        conditions.push(eq(lineItems.self_pickup_id, self_pickup_id));
     }
 
     if (purpose_type) {
@@ -173,6 +197,7 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
         order_id,
         inbound_request_id,
         service_request_id,
+        self_pickup_id,
         purpose_type,
         service_type_id,
         quantity,
@@ -199,6 +224,7 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
             order_id: order_id || null,
             inbound_request_id: inbound_request_id || null,
             service_request_id: service_request_id || null,
+            self_pickup_id: self_pickup_id || null,
         },
         platform_id
     );
@@ -237,6 +263,7 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
                     order_id: order_id || null,
                     inbound_request_id: inbound_request_id || null,
                     service_request_id: service_request_id || null,
+                    self_pickup_id: self_pickup_id || null,
                     purpose_type,
                     service_type_id,
                     line_item_type: "CATALOG",
@@ -275,8 +302,12 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
             added_by
         );
     }
+    if (self_pickup_id) {
+        await updateSelfPickupPricingAfterLineItemChange(self_pickup_id, platform_id, added_by);
+    }
 
-    const parentEntityId = order_id || inbound_request_id || service_request_id || "";
+    const parentEntityId =
+        order_id || inbound_request_id || service_request_id || self_pickup_id || "";
     await eventBus.emit({
         platform_id,
         event_type: EVENT_TYPES.LINE_ITEM_ADDED,
@@ -319,6 +350,7 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
         order_id,
         inbound_request_id,
         service_request_id,
+        self_pickup_id,
         purpose_type,
         description,
         category,
@@ -337,6 +369,7 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
             order_id: order_id || null,
             inbound_request_id: inbound_request_id || null,
             service_request_id: service_request_id || null,
+            self_pickup_id: self_pickup_id || null,
         },
         platform_id
     );
@@ -361,6 +394,7 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
                     order_id,
                     inbound_request_id: inbound_request_id || null,
                     service_request_id: service_request_id || null,
+                    self_pickup_id: self_pickup_id || null,
                     line_item_id: lineItemId,
                     purpose_type,
                     service_type_id: null,
@@ -400,8 +434,12 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
             added_by
         );
     }
+    if (self_pickup_id) {
+        await updateSelfPickupPricingAfterLineItemChange(self_pickup_id, platform_id, added_by);
+    }
 
-    const customParentEntityId = order_id || inbound_request_id || service_request_id || "";
+    const customParentEntityId =
+        order_id || inbound_request_id || service_request_id || self_pickup_id || "";
     await eventBus.emit({
         platform_id,
         event_type: EVENT_TYPES.LINE_ITEM_ADDED,
@@ -550,10 +588,21 @@ const updateLineItem = async (
                 userId
             );
         }
+        if (result.self_pickup_id) {
+            await updateSelfPickupPricingAfterLineItemChange(
+                result.self_pickup_id,
+                platformId,
+                userId
+            );
+        }
     }
 
     const updateParentId =
-        result.order_id || result.inbound_request_id || result.service_request_id || "";
+        result.order_id ||
+        result.inbound_request_id ||
+        result.service_request_id ||
+        result.self_pickup_id ||
+        "";
     await eventBus.emit({
         platform_id: platformId,
         event_type: EVENT_TYPES.LINE_ITEM_UPDATED,
@@ -636,7 +685,12 @@ const patchLineItemMetadata = async (
             | "INBOUND_REQUEST"
             | "SERVICE_REQUEST"
             | "SELF_PICKUP",
-        entity_id: result.order_id || result.inbound_request_id || result.service_request_id || "",
+        entity_id:
+            result.order_id ||
+            result.inbound_request_id ||
+            result.service_request_id ||
+            result.self_pickup_id ||
+            "",
         actor_id: userId,
         actor_role: null,
         payload: {
@@ -691,7 +745,12 @@ const patchLineItemClientVisibility = async (
             | "INBOUND_REQUEST"
             | "SERVICE_REQUEST"
             | "SELF_PICKUP",
-        entity_id: result.order_id || result.inbound_request_id || result.service_request_id || "",
+        entity_id:
+            result.order_id ||
+            result.inbound_request_id ||
+            result.service_request_id ||
+            result.self_pickup_id ||
+            "",
         actor_id: userId,
         actor_role: null,
         payload: {
@@ -848,9 +907,20 @@ const voidLineItem = async (id: string, platformId: string, data: VoidLineItemPa
             voided_by
         );
     }
+    if (result.self_pickup_id) {
+        await updateSelfPickupPricingAfterLineItemChange(
+            result.self_pickup_id,
+            platformId,
+            voided_by
+        );
+    }
 
     const voidParentId =
-        result.order_id || result.inbound_request_id || result.service_request_id || "";
+        result.order_id ||
+        result.inbound_request_id ||
+        result.service_request_id ||
+        result.self_pickup_id ||
+        "";
     await eventBus.emit({
         platform_id: platformId,
         event_type: EVENT_TYPES.LINE_ITEM_VOIDED,
@@ -1011,6 +1081,22 @@ const updateInboundRequestPricingAfterLineItemChange = async (
         calculated_by: userId,
     });
     await DocumentService.regenerateEstimate("INBOUND_REQUEST", inboundRequestId, platformId);
+};
+
+// ----------------------------------- UPDATE SELF-PICKUP PRICING AFTER LINE ITEM CHANGE ------
+// Mirrors updateOrderPricingAfterLineItemChange — rebuildBreakdown picks up the
+// new line item totals + re-syncs BASE_OPS (subject to enable_base_operations).
+const updateSelfPickupPricingAfterLineItemChange = async (
+    selfPickupId: string,
+    platformId: string,
+    userId: string
+): Promise<void> => {
+    await PricingService.rebuildBreakdown({
+        entity_type: "SELF_PICKUP",
+        entity_id: selfPickupId,
+        platform_id: platformId,
+        calculated_by: userId,
+    });
 };
 
 // ----------------------------------- UPDATE SERVICE REQUEST PRICING AFTER LINE ITEM CHANGE --

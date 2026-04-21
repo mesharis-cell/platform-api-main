@@ -316,6 +316,13 @@
             "when": 1776960600000,
             "tag": "0045_self_pickup_notification_rules",
             "breakpoints": true
+        },
+        {
+            "idx": 45,
+            "version": "7",
+            "when": 1776980000000,
+            "tag": "0046_self_pickup_line_items_fix",
+            "breakpoints": true
         }
     ]
 }

@@ -20,6 +20,7 @@ import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { PricingService } from "../../services/pricing.service";
 import { eventBus, EVENT_TYPES } from "../../events";
+import { resolveEffectiveFeature } from "../../constants/common";
 import { SubmitSelfPickupPayload, SelfPickupListParams } from "./self-pickup.interfaces";
 import {
     canCancelSelfPickup,
@@ -106,7 +107,7 @@ const submitSelfPickupFromCart = async (
     }
 
     const [platform] = await db
-        .select({ vat_percent: platforms.vat_percent })
+        .select({ vat_percent: platforms.vat_percent, features: platforms.features })
         .from(platforms)
         .where(eq(platforms.id, platformId))
         .limit(1);
@@ -190,9 +191,16 @@ const submitSelfPickupFromCart = async (
     // Step 3: Create pricing (same pattern as orders)
     const volume = parseFloat(calculatedVolume);
     const baseOpsTotal = Number(company.warehouse_ops_rate) * volume;
-    const companyFeatureFlags = (company.features as Record<string, unknown> | null) || {};
-    const enableBaseOperations =
-        (companyFeatureFlags.enable_base_operations as boolean | undefined) ?? true;
+    // Use the canonical feature resolver (company override → platform value →
+    // registry default). Reading company.features directly with `?? true`
+    // ignored the platform-level flag and defaulted ON — that's the bug that
+    // caused BASE_OPS to show up on Red Bull self-pickups even though
+    // enable_base_operations was OFF at every level. See CLAUDE.md
+    // <feature_flag_discipline>.
+    const enableBaseOperations = resolveEffectiveFeature("enable_base_operations", {
+        platformFeatures: (platform?.features as Record<string, unknown> | null) || null,
+        companyFeatures: (company.features as Record<string, unknown> | null) || null,
+    });
     const vatPercent =
         company.vat_percent_override !== null && company.vat_percent_override !== undefined
             ? Number(company.vat_percent_override)

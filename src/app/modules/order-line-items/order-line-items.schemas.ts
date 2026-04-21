@@ -12,6 +12,7 @@ const createCatalogLineItemSchema = z.object({
             order_id: z.uuid("Invalid order ID").optional(),
             inbound_request_id: z.uuid("Invalid inbound request ID").optional(),
             service_request_id: z.uuid("Invalid service request ID").optional(),
+            self_pickup_id: z.uuid("Invalid self-pickup ID").optional(),
             purpose_type: z.enum(
                 invoiceTypeEnum.enumValues,
                 enumMessageGenerator("Purpose type", invoiceTypeEnum.enumValues)
@@ -35,8 +36,11 @@ const createCatalogLineItemSchema = z.object({
             if (data.purpose_type === "SERVICE_REQUEST" && !data.service_request_id) {
                 return false;
             }
+            if (data.purpose_type === "SELF_PICKUP" && !data.self_pickup_id) {
+                return false;
+            }
             return true;
-        }, "Order ID is required for ORDER, inbound request ID for INBOUND_REQUEST, and service request ID for SERVICE_REQUEST purpose type")
+        }, "Parent entity ID is required matching the purpose_type (order_id / inbound_request_id / service_request_id / self_pickup_id)")
         .strict(),
 });
 
@@ -46,6 +50,7 @@ const createCustomLineItemSchema = z.object({
             order_id: z.uuid("Invalid order ID").optional(),
             inbound_request_id: z.uuid("Invalid inbound request ID").optional(),
             service_request_id: z.uuid("Invalid service request ID").optional(),
+            self_pickup_id: z.uuid("Invalid self-pickup ID").optional(),
             purpose_type: z.enum(
                 invoiceTypeEnum.enumValues,
                 enumMessageGenerator("Purpose type", invoiceTypeEnum.enumValues)
@@ -79,8 +84,9 @@ const createCustomLineItemSchema = z.object({
             if (data.purpose_type === "ORDER" && !data.order_id) return false;
             if (data.purpose_type === "INBOUND_REQUEST" && !data.inbound_request_id) return false;
             if (data.purpose_type === "SERVICE_REQUEST" && !data.service_request_id) return false;
+            if (data.purpose_type === "SELF_PICKUP" && !data.self_pickup_id) return false;
             return true;
-        }, "Order ID is required for ORDER, inbound request ID for INBOUND_REQUEST, and service request ID for SERVICE_REQUEST purpose type")
+        }, "Parent entity ID is required matching the purpose_type (order_id / inbound_request_id / service_request_id / self_pickup_id)")
         .strict(),
 });
 
@@ -127,6 +133,7 @@ const patchEntityLineItemsClientVisibilitySchema = z.object({
             order_id: z.uuid("Invalid order ID").optional(),
             inbound_request_id: z.uuid("Invalid inbound request ID").optional(),
             service_request_id: z.uuid("Invalid service request ID").optional(),
+            self_pickup_id: z.uuid("Invalid self-pickup ID").optional(),
             client_price_visible: z.boolean({
                 message: "client_price_visible must be a boolean",
             }),
@@ -136,8 +143,9 @@ const patchEntityLineItemsClientVisibilitySchema = z.object({
             if (data.purpose_type === "ORDER" && !data.order_id) return false;
             if (data.purpose_type === "INBOUND_REQUEST" && !data.inbound_request_id) return false;
             if (data.purpose_type === "SERVICE_REQUEST" && !data.service_request_id) return false;
+            if (data.purpose_type === "SELF_PICKUP" && !data.self_pickup_id) return false;
             return true;
-        }, "order_id, inbound_request_id, or service_request_id is required based on purpose_type")
+        }, "Parent entity ID is required matching the purpose_type (order_id / inbound_request_id / service_request_id / self_pickup_id)")
         .strict(),
 });
 

@@ -1279,6 +1279,11 @@ export const lineItems = pgTable(
             .where(
                 sql`${table.service_request_id} is not null and ${table.system_key} is not null and ${table.is_voided} = false`
             ),
+        uniqueIndex("line_items_self_pickup_system_key_unique")
+            .on(table.platform_id, table.self_pickup_id, table.system_key)
+            .where(
+                sql`${table.self_pickup_id} is not null and ${table.system_key} is not null and ${table.is_voided} = false`
+            ),
     ]
 );
 
