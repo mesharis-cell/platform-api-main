@@ -23,6 +23,7 @@ type MaintenanceFeasibilityIssue = {
     asset_name: string;
     refurb_days_estimate: number;
     earliest_feasible_date: string;
+    earliest_feasible_datetime: string;
     condition: "RED" | "ORANGE";
     maintenance_mode: "MANDATORY_RED" | "OPTIONAL_ORANGE_FIX";
     message: string;
@@ -129,6 +130,12 @@ const computeLeadFloorDate = (config: FeasibilityConfig): string => {
     return formatDateInTimezone(floorDate, config.timezone);
 };
 
+const computeLeadFloorDatetime = (config: FeasibilityConfig): string => {
+    const leadWindowStart = new Date(Date.now() + config.minimum_lead_hours * 60 * 60 * 1000);
+    const floorDate = advanceToNextBusinessDay(leadWindowStart, config);
+    return floorDate.toISOString();
+};
+
 const formatDateInTimezone = (date: Date, timezone: string): string =>
     new Intl.DateTimeFormat("en-CA", {
         timeZone: timezone,
@@ -183,12 +190,14 @@ const buildFeasibilityIssue = (
 ): MaintenanceFeasibilityIssue => {
     const refurbDays = Number(asset.refurb_days_estimate || 0);
     const earliestDate = formatDateInTimezone(readyDate, config.timezone);
+    const earliestDatetime = readyDate.toISOString();
     const isRed = asset.condition === "RED";
     return {
         asset_id: asset.id,
         asset_name: asset.name,
         refurb_days_estimate: refurbDays,
         earliest_feasible_date: earliestDate,
+        earliest_feasible_datetime: earliestDatetime,
         condition: asset.condition,
         maintenance_mode: isRed ? "MANDATORY_RED" : "OPTIONAL_ORANGE_FIX",
         message: isRed
@@ -230,6 +239,7 @@ export const validateMaintenanceFeasibilityForAssets = async (
     config: FeasibilityConfig;
     issues: MaintenanceFeasibilityIssue[];
     lead_floor_date: string;
+    lead_floor_datetime: string;
 }> => {
     if (items.length === 0) {
         const cfg = await getPlatformFeasibilityConfig(platformId, companyId);
@@ -238,6 +248,7 @@ export const validateMaintenanceFeasibilityForAssets = async (
             config: cfg,
             issues: [],
             lead_floor_date: computeLeadFloorDate(cfg),
+            lead_floor_datetime: computeLeadFloorDatetime(cfg),
         };
     }
 
@@ -278,20 +289,11 @@ export const validateMaintenanceFeasibilityForAssets = async (
         .map((asset) => {
             const refurbDays = Number(asset.refurb_days_estimate || 0);
             const readyDate = addBusinessDays(leadWindowStart, refurbDays, config);
-            // Compare calendar dates only — ignore time-of-day to avoid
-            // edge cases where readyDate has a time component (e.g. 14:30)
-            // but eventStartDate is midnight (from a date-only input).
-            const eventDay = new Date(
-                eventStartDate.getFullYear(),
-                eventStartDate.getMonth(),
-                eventStartDate.getDate()
-            ).getTime();
-            const readyDay = new Date(
-                readyDate.getFullYear(),
-                readyDate.getMonth(),
-                readyDate.getDate()
-            ).getTime();
-            const isFeasible = eventDay >= readyDay;
+            // Compare full datetimes — time-of-day is meaningful now that the
+            // client sends ISO with platform-TZ offset (see composeZonedISO
+            // on the client). Reverts dafe89e's calendar-only comparison,
+            // which was a temporary fix for the old date-only client.
+            const isFeasible = eventStartDate.getTime() >= readyDate.getTime();
 
             if (isFeasible) return null;
             return buildFeasibilityIssue(
@@ -312,6 +314,7 @@ export const validateMaintenanceFeasibilityForAssets = async (
         config,
         issues,
         lead_floor_date: computeLeadFloorDate(config),
+        lead_floor_datetime: computeLeadFloorDatetime(config),
     };
 };
 

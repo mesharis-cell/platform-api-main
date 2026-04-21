@@ -365,6 +365,7 @@ const checkMaintenanceFeasibility = async (
         asset_name: string;
         refurb_days_estimate: number;
         earliest_feasible_date: string;
+        earliest_feasible_datetime: string;
         condition: "RED" | "ORANGE";
         maintenance_mode: "MANDATORY_RED" | "OPTIONAL_ORANGE_FIX";
         message: string;
@@ -376,6 +377,7 @@ const checkMaintenanceFeasibility = async (
         timezone: string;
     };
     lead_floor_date: string;
+    lead_floor_datetime: string;
 }> => {
     const feasibility = await validateMaintenanceFeasibilityForAssets(
         platformId,
@@ -389,6 +391,7 @@ const checkMaintenanceFeasibility = async (
         issues: feasibility.issues,
         config: feasibility.config,
         lead_floor_date: feasibility.lead_floor_date,
+        lead_floor_datetime: feasibility.lead_floor_datetime,
     };
 };
 
