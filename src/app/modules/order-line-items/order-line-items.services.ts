@@ -151,6 +151,19 @@ const getLineItems = async (platformId: string, query: Record<string, any>) => {
     const { order_id, inbound_request_id, service_request_id, self_pickup_id, purpose_type } =
         query;
 
+    // Defense in depth: this endpoint is auth-gated to ADMIN+LOGISTICS and
+    // scoped by platform, but without a parent-entity scope filter the query
+    // would return every line item on the platform. That's the bug that let
+    // self-pickup detail pages display other orders' line items before
+    // self_pickup_id filtering was wired up. Reject unscoped reads outright
+    // so a future entity type added to the shared pattern can't repeat this.
+    if (!order_id && !inbound_request_id && !service_request_id && !self_pickup_id) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "At least one parent-entity filter (order_id / inbound_request_id / service_request_id / self_pickup_id) is required"
+        );
+    }
+
     const conditions: any[] = [eq(lineItems.platform_id, platformId)];
 
     if (order_id) {
