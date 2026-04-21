@@ -76,9 +76,39 @@ const completeInboundScanSchema = z.object({
         .default({ settlements: [] }),
 });
 
+// Self-pickup return scan mirrors order inboundScan — same fields so logistics
+// captures return photos + damage photos + refurb estimate identically. The
+// fourth-entity pattern: scanning parity between orders and self-pickups.
+export const selfPickupReturnScanSchema = z.object({
+    body: z
+        .object({
+            qr_code: z.string().min(1, { message: "QR code is required" }),
+            condition: z.enum(["GREEN", "ORANGE", "RED"]),
+            notes: z.string().optional(),
+            return_media: z
+                .array(mediaEntrySchema)
+                .min(2, { message: "At least 2 wide return photos are required" }),
+            damage_media: z.array(damageReportEntrySchema).optional().default([]),
+            refurb_days_estimate: z.number().int().positive().optional(),
+            discrepancy_reason: z.enum(["BROKEN", "LOST", "OTHER"]).optional(),
+            quantity: z.number().int().positive().optional(),
+        })
+        .superRefine((data, ctx) => {
+            const damageEntryCount = data.damage_media.length;
+            if (data.condition !== "GREEN" && damageEntryCount === 0) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: "At least one damage report photo is required for damaged returns",
+                    path: ["damage_media"],
+                });
+            }
+        }),
+});
+
 export const ScanningSchemas = {
     inboundScanSchema,
     outboundScanSchema,
     uploadTruckPhotosSchema,
     completeInboundScanSchema,
+    selfPickupReturnScanSchema,
 };

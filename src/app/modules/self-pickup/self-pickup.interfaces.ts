@@ -29,3 +29,16 @@ export interface SelfPickupListParams {
     sortBy?: string;
     sortOrder?: "asc" | "desc";
 }
+
+export interface ApproveQuotePayload {
+    po_number: string;
+    notes?: string;
+}
+
+export interface DeclineQuotePayload {
+    decline_reason: string;
+}
+
+export interface ReturnToLogisticsPayload {
+    reason: string;
+}

@@ -66,11 +66,11 @@ export const EVENT_TYPES = {
     // Self-pickup lifecycle
     SELF_PICKUP_SUBMITTED: "self_pickup.submitted",
     SELF_PICKUP_QUOTED: "self_pickup.quoted",
+    SELF_PICKUP_DECLINED: "self_pickup.declined",
     SELF_PICKUP_CONFIRMED: "self_pickup.confirmed",
     SELF_PICKUP_READY_FOR_PICKUP: "self_pickup.ready_for_pickup",
     SELF_PICKUP_PICKED_UP: "self_pickup.picked_up",
     SELF_PICKUP_RETURN_DUE: "self_pickup.return_due",
-    SELF_PICKUP_RETURNED: "self_pickup.returned",
     SELF_PICKUP_CLOSED: "self_pickup.closed",
     SELF_PICKUP_CANCELLED: "self_pickup.cancelled",
     SELF_PICKUP_STATUS_CHANGED: "self_pickup.status_changed",

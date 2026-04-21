@@ -53,6 +53,7 @@ export const SelfPickupClientRoutes = (() => {
         auth("CLIENT"),
         requirePermission(PERMISSIONS.SELF_PICKUPS_CREATE),
         featureValidator(featureNames.enable_self_pickup),
+        payloadValidator(SelfPickupSchemas.approveQuoteSchema),
         SelfPickupControllers.clientApproveQuote
     );
 
@@ -62,6 +63,7 @@ export const SelfPickupClientRoutes = (() => {
         auth("CLIENT"),
         requirePermission(PERMISSIONS.SELF_PICKUPS_CREATE),
         featureValidator(featureNames.enable_self_pickup),
+        payloadValidator(SelfPickupSchemas.declineQuoteSchema),
         SelfPickupControllers.clientDeclineQuote
     );
 
@@ -132,10 +134,21 @@ export const SelfPickupOperationRoutes = (() => {
     router.post(
         "/:id/approve",
         platformValidator,
-        auth("ADMIN"),
+        auth("ADMIN", "LOGISTICS"),
         requirePermission(PERMISSIONS.SELF_PICKUPS_APPROVE),
         featureValidator(featureNames.enable_self_pickup),
+        payloadValidator(SelfPickupSchemas.adminApproveQuoteSchema),
         SelfPickupControllers.approveQuote
+    );
+
+    router.post(
+        "/:id/return-to-logistics",
+        platformValidator,
+        auth("ADMIN", "LOGISTICS"),
+        requirePermission(PERMISSIONS.SELF_PICKUPS_APPROVE),
+        featureValidator(featureNames.enable_self_pickup),
+        payloadValidator(SelfPickupSchemas.returnToLogisticsSchema),
+        SelfPickupControllers.returnToLogistics
     );
 
     router.post(

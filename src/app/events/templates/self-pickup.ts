@@ -232,6 +232,46 @@ export const selfPickupClosedAdmin: EmailTemplate = {
     },
 };
 
+// ─── self_pickup_declined_client ──────────────────────────────────────────────
+export const selfPickupDeclinedClient: EmailTemplate = {
+    subject: (payload) => `Quote Declined: ${p(payload).entity_id_readable}`,
+    html: (payload) => {
+        const d = p(payload);
+        return wrap(`
+            <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Quote Declined</h1>
+            <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Hi ${d.collector_name}, we've recorded that you've declined this pickup quote.</p>
+            ${infoBox(`
+                ${infoRow("Pickup ID", d.entity_id_readable)}
+                ${infoRow("Company", d.company_name)}
+                ${d.decline_reason ? infoRow("Your Reason", d.decline_reason) : ""}
+            `)}
+            <p style="margin: 16px 0; color: #374151;">If you'd like to revisit this pickup or start a new one, we're here to help.</p>
+            ${actionButton("View Pickup", d.self_pickup_url)}
+            ${footer()}
+        `);
+    },
+};
+
+// ─── self_pickup_declined_admin ───────────────────────────────────────────────
+export const selfPickupDeclinedAdmin: EmailTemplate = {
+    subject: (payload) => `Quote Declined: ${p(payload).entity_id_readable}`,
+    html: (payload) => {
+        const d = p(payload);
+        return wrap(`
+            <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Self-Pickup Quote Declined</h1>
+            <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">The client has declined this quote.</p>
+            ${infoBox(`
+                ${infoRow("Pickup ID", d.entity_id_readable)}
+                ${infoRow("Company", d.company_name)}
+                ${infoRow("Collector", d.collector_name)}
+                ${d.decline_reason ? infoRow("Reason", d.decline_reason) : ""}
+            `)}
+            ${actionButton("View Pickup", d.self_pickup_url)}
+            ${footer()}
+        `);
+    },
+};
+
 // ─── self_pickup_cancelled_admin ──────────────────────────────────────────────
 export const selfPickupCancelledAdmin: EmailTemplate = {
     subject: (payload) => `Pickup Cancelled: ${p(payload).entity_id_readable}`,

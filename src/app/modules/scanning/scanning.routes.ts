@@ -119,6 +119,7 @@ router.post(
     auth("LOGISTICS"),
     requirePermission(PERMISSIONS.SCANNING_SCAN_IN),
     featureValidator(featureNames.enable_self_pickup),
+    payloadValidator(ScanningSchemas.selfPickupReturnScanSchema),
     SelfPickupScanningControllers.returnScan
 );
 

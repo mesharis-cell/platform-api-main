@@ -1,4 +1,4 @@
-import { and, eq, inArray, lt, or, sql } from "drizzle-orm";
+import { and, eq, lt, or, sql } from "drizzle-orm";
 import { db } from "../../../db";
 import {
     orders,
@@ -330,8 +330,9 @@ const deleteExpiredOTPs = async () => {
 
 /**
  * Cron job to auto-transition self-pickups to AWAITING_RETURN when expected_return_at
- * has passed. Pickups in PICKED_UP or IN_USE status with expected_return_at < now()
- * are transitioned. Client can also trigger this early via the "Start Return" button.
+ * has passed. Pickups in PICKED_UP status with expected_return_at < now() are
+ * transitioned. Client can also trigger this early via the "Start Return" button.
+ * (IN_USE was removed from the enum in migration 0044 — see CLAUDE.md gotcha #35.)
  */
 const transitionSelfPickupReturns = async () => {
     try {
@@ -339,7 +340,7 @@ const transitionSelfPickupReturns = async () => {
 
         const pickupsForReturn = await db.query.selfPickups.findMany({
             where: and(
-                inArray(selfPickups.self_pickup_status, ["PICKED_UP", "IN_USE"]),
+                eq(selfPickups.self_pickup_status, "PICKED_UP"),
                 lt(selfPickups.expected_return_at, now)
             ),
         });

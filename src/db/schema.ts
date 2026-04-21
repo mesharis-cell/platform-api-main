@@ -204,6 +204,9 @@ export const attachmentEntityTypeEnum = pgEnum("attachment_entity_type", [
 ]);
 
 // ---------------------------------- SELF-PICKUP / STOCK-MOVEMENT ENUMS -------------------
+// IN_USE + RETURNED removed in migration 0044 — they were declared but had no
+// entry points (no endpoint, UI action, or cron transitioned into them). Self-pickup
+// flow is PICKED_UP → AWAITING_RETURN → CLOSED. See CLAUDE.md gotcha #35.
 export const selfPickupStatusEnum = pgEnum("self_pickup_status", [
     "SUBMITTED",
     "PRICING_REVIEW",
@@ -213,9 +216,7 @@ export const selfPickupStatusEnum = pgEnum("self_pickup_status", [
     "CONFIRMED",
     "READY_FOR_PICKUP",
     "PICKED_UP",
-    "IN_USE",
     "AWAITING_RETURN",
-    "RETURNED",
     "CLOSED",
     "CANCELLED",
 ]);
@@ -1884,6 +1885,10 @@ export const selfPickups = pgTable(
         // Notes
         notes: text("notes"),
         special_instructions: text("special_instructions"),
+
+        // Decline reason — populated when client declines the quote (status → DECLINED).
+        // Mirrors orders.decline_reason pattern.
+        decline_reason: text("decline_reason"),
 
         // Pricing — polymorphic reuse via entity_type=SELF_PICKUP on prices table.
         // This FK mirrors orders.order_pricing_id for query convenience.

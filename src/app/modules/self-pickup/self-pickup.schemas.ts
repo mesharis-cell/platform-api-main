@@ -37,6 +37,8 @@ export const cancelSelfPickupSchema = z.object({
             .string({ message: "Cancellation reason is required" })
             .min(1, "Cancellation reason is required")
             .max(1000),
+        notes: z.string().max(2000).optional(),
+        notify_client: z.boolean().optional().default(true),
     }),
 });
 
@@ -46,8 +48,55 @@ export const updateJobNumberSchema = z.object({
     }),
 });
 
+export const approveQuoteSchema = z.object({
+    body: z.object({
+        po_number: z
+            .string({ message: "PO number is required" })
+            .min(1, "PO number is required")
+            .max(100),
+        notes: z.string().max(2000).optional(),
+    }),
+});
+
+export const declineQuoteSchema = z.object({
+    body: z.object({
+        decline_reason: z
+            .string({ message: "Decline reason is required" })
+            .min(10, "Decline reason must be at least 10 characters")
+            .max(2000),
+    }),
+});
+
+export const returnToLogisticsSchema = z.object({
+    body: z.object({
+        reason: z
+            .string({ message: "Return reason is required" })
+            .min(10, "Return reason must be at least 10 characters")
+            .max(2000),
+    }),
+});
+
+// Mirrors order.schemas.ts:adminApproveQuoteSchema.
+export const adminApproveQuoteSchema = z.object({
+    body: z
+        .object({
+            margin_override_percent: z
+                .number()
+                .min(0, "Margin override must be >= 0")
+                .max(100, "Margin override must be <= 100")
+                .optional(),
+            margin_override_reason: z.string().max(1000).optional(),
+        })
+        .optional()
+        .default({}),
+});
+
 export const SelfPickupSchemas = {
     submitSelfPickupSchema,
     cancelSelfPickupSchema,
     updateJobNumberSchema,
+    approveQuoteSchema,
+    declineQuoteSchema,
+    returnToLogisticsSchema,
+    adminApproveQuoteSchema,
 };

@@ -33,5 +33,11 @@ export function canMarkReadyForPickup(status: string): boolean {
 }
 
 export function canTriggerReturn(status: string): boolean {
-    return ["PICKED_UP", "IN_USE"].includes(status);
+    // IN_USE removed from enum in migration 0044 — only PICKED_UP is a valid
+    // entry point for triggering return.
+    return status === "PICKED_UP";
+}
+
+export function canReturnToLogistics(status: string): boolean {
+    return status === "PENDING_APPROVAL";
 }

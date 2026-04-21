@@ -2,8 +2,10 @@ import { and, eq } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
 import {
+    assetConditionHistory,
     assets,
     scanEventAssets,
+    scanEventMedia,
     scanEvents,
     selfPickupItems,
     selfPickupStatusHistory,
@@ -14,11 +16,55 @@ import { AuthUser } from "../../interface/common";
 import { eventBus, EVENT_TYPES } from "../../events";
 import { releaseBookingsAndRestoreAvailability } from "../order/order.utils";
 import { StockMovementService } from "../../services/stock-movement.service";
-import type { PooledSettlementEntry, UnsettledPooledLine } from "./scanning.interfaces";
+import type {
+    PooledSettlementEntry,
+    ScanMediaPayload,
+    UnsettledPooledLine,
+} from "./scanning.interfaces";
 
 // Reuse shared helpers from scanning.services.ts
 // normalizeMediaEntries, insertScanEventMedia, insertScanEventAssets are not exported
 // from scanning.services.ts. For now, inline the minimal versions.
+
+type NormalizedMediaEntry = {
+    url: string;
+    note?: string;
+};
+
+const normalizeMediaEntries = (entries?: ScanMediaPayload[]): NormalizedMediaEntry[] => {
+    const normalized = new Map<string, string | undefined>();
+    (entries || []).forEach((entry) => {
+        const url = entry?.url?.trim();
+        if (!url) return;
+        const note = entry.note?.trim();
+        normalized.set(url, note && note.length > 0 ? note : undefined);
+    });
+    return Array.from(normalized.entries()).map(([url, note]) => ({ url, note }));
+};
+
+const insertScanEventMedia = async (
+    scanEventId: string,
+    media: NormalizedMediaEntry[],
+    mediaKind:
+        | "GENERAL"
+        | "RETURN_WIDE"
+        | "DAMAGE"
+        | "DERIG"
+        | "TRUCK_OUTBOUND"
+        | "TRUCK_RETURN"
+        | "ON_SITE"
+) => {
+    if (media.length === 0) return;
+    await db.insert(scanEventMedia).values(
+        media.map((item, index) => ({
+            scan_event_id: scanEventId,
+            url: item.url,
+            note: item.note ?? null,
+            media_kind: mediaKind,
+            sort_order: index,
+        }))
+    );
+};
 
 const insertScanEventAssets = async (
     scanEventId: string,
@@ -231,10 +277,17 @@ const selfPickupInboundScan = async (
         condition: "GREEN" | "ORANGE" | "RED";
         quantity?: number;
         notes?: string;
+        return_media?: ScanMediaPayload[];
+        damage_media?: ScanMediaPayload[];
+        refurb_days_estimate?: number;
+        discrepancy_reason?: "BROKEN" | "LOST" | "OTHER";
     },
     user: AuthUser,
     platformId: string
 ) => {
+    const normalizedReturnMedia = normalizeMediaEntries(data.return_media);
+    const normalizedDamageMedia = normalizeMediaEntries(data.damage_media);
+
     const pickup = await db.query.selfPickups.findFirst({
         where: and(eq(selfPickups.id, selfPickupId), eq(selfPickups.platform_id, platformId)),
         with: { items: { with: { asset: true } } },
@@ -265,6 +318,20 @@ const selfPickupInboundScan = async (
         scanQuantity = data.quantity;
     }
 
+    // Server-side re-validation (defense in depth on top of schema validation).
+    if (normalizedReturnMedia.length < 2) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "At least 2 wide return photos are required for inbound self-pickup scans"
+        );
+    }
+    if (data.condition !== "GREEN" && normalizedDamageMedia.length === 0) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "At least one damage report photo is required for damaged returns"
+        );
+    }
+
     const [scanEvent] = await db
         .insert(scanEvents)
         .values({
@@ -274,12 +341,20 @@ const selfPickupInboundScan = async (
             quantity: scanQuantity,
             condition: data.condition,
             notes: data.notes || null,
+            discrepancy_reason: data.discrepancy_reason || null,
+            metadata: {
+                return_media_count: normalizedReturnMedia.length,
+                damage_media_count: normalizedDamageMedia.length,
+                refurb_days_estimate: data.refurb_days_estimate ?? null,
+            },
             scanned_by: user.id,
             scanned_at: new Date(),
         })
         .returning({ id: scanEvents.id });
 
     await insertScanEventAssets(scanEvent.id, [{ asset_id: asset.id, quantity: scanQuantity }]);
+    await insertScanEventMedia(scanEvent.id, normalizedReturnMedia, "RETURN_WIDE");
+    await insertScanEventMedia(scanEvent.id, normalizedDamageMedia, "DAMAGE");
 
     if (asset.tracking_method === "BATCH") {
         await StockMovementService.record(null, {
@@ -294,10 +369,52 @@ const selfPickupInboundScan = async (
         });
     }
 
-    await db
-        .update(assets)
-        .set({ status: "AVAILABLE", last_scanned_at: new Date(), last_scanned_by: user.id })
-        .where(eq(assets.id, asset.id));
+    // Update asset condition + record condition history for damage tracking —
+    // mirrors order inbound scan behavior at scanning.services.ts:263-300.
+    if (asset.condition !== data.condition) {
+        const updateData: {
+            condition: "GREEN" | "ORANGE" | "RED";
+            last_scanned_at: Date;
+            last_scanned_by: string;
+            refurb_days_estimate?: number | null;
+            status: "AVAILABLE";
+        } = {
+            condition: data.condition,
+            last_scanned_at: new Date(),
+            last_scanned_by: user.id,
+            status: "AVAILABLE",
+        };
+
+        if (data.condition === "GREEN") {
+            updateData.refurb_days_estimate = null;
+        } else if (data.refurb_days_estimate) {
+            updateData.refurb_days_estimate = data.refurb_days_estimate;
+        }
+
+        await db.update(assets).set(updateData).where(eq(assets.id, asset.id));
+
+        await db.insert(assetConditionHistory).values({
+            platform_id: platformId,
+            asset_id: asset.id,
+            condition: data.condition,
+            notes: data.notes || null,
+            photos: normalizedDamageMedia.map((entry) => entry.url),
+            damage_report_entries: normalizedDamageMedia.map((entry) => ({
+                url: entry.url,
+                description: entry.note,
+            })),
+            updated_by: user.id,
+        });
+    } else {
+        await db
+            .update(assets)
+            .set({
+                status: "AVAILABLE",
+                last_scanned_at: new Date(),
+                last_scanned_by: user.id,
+            })
+            .where(eq(assets.id, asset.id));
+    }
 
     const allInbound = await db.query.scanEvents.findMany({
         where: and(
