@@ -103,6 +103,37 @@ const exportWorkSummary = catchAsync(async (req: Request, res: Response) => {
     sendCsv(res, "work-summary.csv", csvData);
 });
 
+const exportClientIssuanceLog = catchAsync(async (req: Request, res: Response) => {
+    const filters = req.query as any;
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+
+    const csvData = await ExportServices.exportClientIssuanceLogService(filters, user, platformId);
+    sendCsv(res, "client-issuance-log.csv", csvData);
+});
+
+const exportFamilyStockMovements = catchAsync(async (req: Request, res: Response) => {
+    const filters = req.query as any;
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const familyId = req.params.family_id;
+
+    if (!familyId) {
+        res.status(httpStatus.BAD_REQUEST).json({ success: false, message: "family_id required" });
+        return;
+    }
+
+    const { csv, familyName } = await ExportServices.exportFamilyStockMovementsService(
+        familyId,
+        filters,
+        user,
+        platformId
+    );
+    // Filename-safe family name (strip non-alphanumerics).
+    const safeName = familyName.replace(/[^a-z0-9-_]+/gi, "_").slice(0, 80) || "family";
+    sendCsv(res, `stock-movements-${safeName}.csv`, csv);
+});
+
 export const ExportControllers = {
     exportOrders,
     exportOrderHistory,
@@ -114,4 +145,6 @@ export const ExportControllers = {
     exportCostReport,
     exportAssetUtilization,
     exportWorkSummary,
+    exportClientIssuanceLog,
+    exportFamilyStockMovements,
 };
