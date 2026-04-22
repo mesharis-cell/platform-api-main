@@ -20,14 +20,33 @@ import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { PricingService } from "../../services/pricing.service";
 import { eventBus, EVENT_TYPES } from "../../events";
+import { resolveEffectiveFeature } from "../../constants/common";
 import { SubmitSelfPickupPayload, SelfPickupListParams } from "./self-pickup.interfaces";
 import {
     canCancelSelfPickup,
+    canMarkAsNoCost,
+    canReturnToLogistics,
     canSubmitForApproval,
     canApproveQuote,
     canMarkReadyForPickup,
     canTriggerReturn,
 } from "./self-pickup-validation.utils";
+
+// ----------------------------------- STATUS → EVENT MAP ----------------------------------
+// Maps a new status to the specific event type that should fire alongside
+// the generic SELF_PICKUP_STATUS_CHANGED. Mirrors order.services.ts:1685-1717.
+// Transitions not listed here (SUBMITTED at creation, PICKED_UP + CLOSED from
+// scanning) are emitted directly by their own services.
+const STATUS_TO_EVENT: Record<string, string> = {
+    QUOTED: EVENT_TYPES.SELF_PICKUP_QUOTED,
+    DECLINED: EVENT_TYPES.SELF_PICKUP_DECLINED,
+    CONFIRMED: EVENT_TYPES.SELF_PICKUP_CONFIRMED,
+    READY_FOR_PICKUP: EVENT_TYPES.SELF_PICKUP_READY_FOR_PICKUP,
+    PICKED_UP: EVENT_TYPES.SELF_PICKUP_PICKED_UP,
+    AWAITING_RETURN: EVENT_TYPES.SELF_PICKUP_RETURN_DUE,
+    CLOSED: EVENT_TYPES.SELF_PICKUP_CLOSED,
+    CANCELLED: EVENT_TYPES.SELF_PICKUP_CANCELLED,
+};
 
 // ----------------------------------- ID GENERATOR -----------------------------------------
 
@@ -91,7 +110,7 @@ const submitSelfPickupFromCart = async (
     }
 
     const [platform] = await db
-        .select({ vat_percent: platforms.vat_percent })
+        .select({ vat_percent: platforms.vat_percent, features: platforms.features })
         .from(platforms)
         .where(eq(platforms.id, platformId))
         .limit(1);
@@ -175,9 +194,16 @@ const submitSelfPickupFromCart = async (
     // Step 3: Create pricing (same pattern as orders)
     const volume = parseFloat(calculatedVolume);
     const baseOpsTotal = Number(company.warehouse_ops_rate) * volume;
-    const companyFeatureFlags = (company.features as Record<string, unknown> | null) || {};
-    const enableBaseOperations =
-        (companyFeatureFlags.enable_base_operations as boolean | undefined) ?? true;
+    // Use the canonical feature resolver (company override → platform value →
+    // registry default). Reading company.features directly with `?? true`
+    // ignored the platform-level flag and defaulted ON — that's the bug that
+    // caused BASE_OPS to show up on Red Bull self-pickups even though
+    // enable_base_operations was OFF at every level. See CLAUDE.md
+    // <feature_flag_discipline>.
+    const enableBaseOperations = resolveEffectiveFeature("enable_base_operations", {
+        platformFeatures: (platform?.features as Record<string, unknown> | null) || null,
+        companyFeatures: (company.features as Record<string, unknown> | null) || null,
+    });
     const vatPercent =
         company.vat_percent_override !== null && company.vat_percent_override !== undefined
             ? Number(company.vat_percent_override)
@@ -431,10 +457,12 @@ const transitionStatus = async (
     platformId: string,
     user: AuthUser,
     newStatus: string,
-    notes?: string
+    notes?: string,
+    extras: Record<string, unknown> = {}
 ) => {
     const pickup = await db.query.selfPickups.findFirst({
         where: and(eq(selfPickups.id, selfPickupId), eq(selfPickups.platform_id, platformId)),
+        with: { company: { columns: { id: true, name: true } } },
     });
 
     if (!pickup) {
@@ -456,6 +484,35 @@ const transitionStatus = async (
         });
     });
 
+    // Build the enriched payload once; used by BOTH the specific event and the
+    // generic STATUS_CHANGED (the rule-matching layer can key off either).
+    const basePayload: Record<string, unknown> = {
+        entity_id_readable: pickup.self_pickup_id,
+        company_id: pickup.company_id,
+        company_name: (pickup as any).company?.name || "N/A",
+        collector_name: pickup.collector_name,
+        collector_phone: pickup.collector_phone,
+        pickup_window: pickup.pickup_window,
+        ...extras,
+    };
+
+    // Emit the specific event for this transition (if any). Mirrors the
+    // order.services.ts:1685-1717 pattern — direct event-keyed rules can match
+    // without relying on a payload-conditions filter on STATUS_CHANGED.
+    const specificEventType = STATUS_TO_EVENT[newStatus];
+    if (specificEventType) {
+        await eventBus.emit({
+            platform_id: platformId,
+            event_type: specificEventType,
+            entity_type: "SELF_PICKUP",
+            entity_id: selfPickupId,
+            actor_id: user.id,
+            actor_role: user.role,
+            payload: basePayload,
+        });
+    }
+
+    // Emit the generic STATUS_CHANGED for audit + backward-compat.
     await eventBus.emit({
         platform_id: platformId,
         event_type: EVENT_TYPES.SELF_PICKUP_STATUS_CHANGED,
@@ -464,8 +521,7 @@ const transitionStatus = async (
         actor_id: user.id,
         actor_role: user.role,
         payload: {
-            entity_id_readable: pickup.self_pickup_id,
-            company_id: pickup.company_id,
+            ...basePayload,
             old_status: pickup.self_pickup_status,
             new_status: newStatus,
             notes: notes || "",
@@ -493,7 +549,12 @@ const submitForApproval = async (id: string, platformId: string, user: AuthUser)
     );
 };
 
-const approveQuote = async (id: string, platformId: string, user: AuthUser) => {
+const approveQuote = async (
+    id: string,
+    platformId: string,
+    user: AuthUser,
+    payload: { margin_override_percent?: number; margin_override_reason?: string } = {}
+) => {
     const pickup = await getSelfPickupById(id, platformId);
     if (!canApproveQuote(pickup.self_pickup_status)) {
         throw new CustomizedError(
@@ -501,12 +562,46 @@ const approveQuote = async (id: string, platformId: string, user: AuthUser) => {
             `Cannot approve quote in status: ${pickup.self_pickup_status}`
         );
     }
+
+    const { margin_override_percent, margin_override_reason } = payload;
+
+    // Apply margin override (if provided) via PricingService — mirrors
+    // order.services.ts:2456-2470. The recalculation writes the override
+    // flag + reason into the prices row and rebuilds breakdown_lines.
+    if (margin_override_percent !== undefined) {
+        if (!margin_override_reason?.trim()) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Margin override reason is required when overriding the margin"
+            );
+        }
+        await db.transaction(async (tx) => {
+            await PricingService.recalculate({
+                entity_type: "SELF_PICKUP",
+                entity_id: id,
+                platform_id: platformId,
+                calculated_by: user.id,
+                set_margin_override: {
+                    percent: margin_override_percent,
+                    reason: margin_override_reason || null,
+                },
+                tx,
+            });
+        });
+    }
+
     return transitionStatus(
         id,
         platformId,
         user,
         "QUOTED",
-        "Admin approved — quote sent to client"
+        margin_override_percent !== undefined
+            ? `Admin approved with margin override (${margin_override_percent}%): ${margin_override_reason}`
+            : "Admin approved — quote sent to client",
+        {
+            margin_override_percent: margin_override_percent ?? null,
+            margin_override_reason: margin_override_reason ?? null,
+        }
     );
 };
 
@@ -532,7 +627,12 @@ const triggerReturn = async (id: string, platformId: string, user: AuthUser) => 
     return transitionStatus(id, platformId, user, "AWAITING_RETURN", "Return initiated");
 };
 
-const cancelSelfPickup = async (id: string, platformId: string, user: AuthUser, reason: string) => {
+const cancelSelfPickup = async (
+    id: string,
+    platformId: string,
+    user: AuthUser,
+    payload: { reason: string; notes?: string; notify_client?: boolean }
+) => {
     const pickup = await getSelfPickupById(id, platformId);
     if (!canCancelSelfPickup(pickup.self_pickup_status)) {
         throw new CustomizedError(
@@ -541,30 +641,194 @@ const cancelSelfPickup = async (id: string, platformId: string, user: AuthUser, 
         );
     }
 
-    // Release bookings on cancellation
+    // Release bookings on cancellation + emit compensating INBOUND stock
+    // movements for any BATCH OUTBOUND scans that happened pre-complete.
+    // Without this, pooled ledger drifts — the OUTBOUND rows sit in the
+    // ledger with no matching INBOUND, compounding over time. Audit-only
+    // rows (no available_quantity side-effect), but correctness matters for
+    // the stock-history panel and for future reporting.
     const { releaseBookingsAndRestoreAvailability } = await import("../order/order.utils");
+    const { StockMovementService } = await import("../../services/stock-movement.service");
+    const { scanEvents, assets: assetsTbl } = await import("../../../db/schema");
+
+    // Pull OUTBOUND scans + resolve which are BATCH (need reversal).
+    const outboundScans = await db
+        .select({
+            asset_id: scanEvents.asset_id,
+            quantity: scanEvents.quantity,
+            tracking_method: assetsTbl.tracking_method,
+        })
+        .from(scanEvents)
+        .innerJoin(assetsTbl, eq(assetsTbl.id, scanEvents.asset_id))
+        .where(
+            and(
+                eq(scanEvents.self_pickup_id, id),
+                eq(scanEvents.scan_type, "OUTBOUND"),
+                eq(assetsTbl.tracking_method, "BATCH")
+            )
+        );
+
     await db.transaction(async (tx) => {
         await releaseBookingsAndRestoreAvailability(tx, "SELF_PICKUP", id, platformId);
+
+        // Aggregate per-asset OUTBOUND totals, then emit matching INBOUND
+        // ledger rows (audit-only; available_quantity unaffected).
+        const byAsset = new Map<string, { qty: number }>();
+        for (const row of outboundScans) {
+            if (!row.asset_id) continue;
+            const cur = byAsset.get(row.asset_id);
+            if (cur) cur.qty += row.quantity;
+            else byAsset.set(row.asset_id, { qty: row.quantity });
+        }
+        for (const [assetId, { qty }] of byAsset) {
+            if (qty <= 0) continue;
+            await StockMovementService.record(tx, {
+                platformId,
+                assetId,
+                movementType: "INBOUND",
+                delta: qty,
+                note: "Cancellation reversal — handover scan rolled back",
+                linkedEntityType: "SELF_PICKUP",
+                linkedEntityId: id,
+                userId: user.id,
+            });
+        }
     });
 
-    return transitionStatus(id, platformId, user, "CANCELLED", `Cancelled: ${reason}`);
+    const statusHistoryNote = payload.notes?.trim()
+        ? `Cancelled (${payload.reason}): ${payload.notes.trim()}`
+        : `Cancelled: ${payload.reason}`;
+
+    return transitionStatus(id, platformId, user, "CANCELLED", statusHistoryNote, {
+        cancellation_reason: payload.reason,
+        cancellation_notes: payload.notes?.trim() || null,
+        notify_client: payload.notify_client ?? true,
+    });
 };
 
 // Client-specific transitions
-const clientApproveQuote = async (id: string, platformId: string, user: AuthUser) => {
+const clientApproveQuote = async (
+    id: string,
+    platformId: string,
+    user: AuthUser,
+    payload: { po_number: string; notes?: string }
+) => {
     const pickup = await getSelfPickupById(id, platformId);
     if (pickup.self_pickup_status !== "QUOTED") {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Can only approve a quoted self-pickup");
     }
-    return transitionStatus(id, platformId, user, "CONFIRMED", "Client approved quote");
+
+    // Persist po_number so it's available on the row for invoicing + audit.
+    await db
+        .update(selfPickups)
+        .set({ po_number: payload.po_number })
+        .where(and(eq(selfPickups.id, id), eq(selfPickups.platform_id, platformId)));
+
+    return transitionStatus(
+        id,
+        platformId,
+        user,
+        "CONFIRMED",
+        payload.notes ? `Client approved quote: ${payload.notes}` : "Client approved quote",
+        { po_number: payload.po_number }
+    );
 };
 
-const clientDeclineQuote = async (id: string, platformId: string, user: AuthUser) => {
+const clientDeclineQuote = async (
+    id: string,
+    platformId: string,
+    user: AuthUser,
+    payload: { decline_reason: string }
+) => {
     const pickup = await getSelfPickupById(id, platformId);
     if (pickup.self_pickup_status !== "QUOTED") {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Can only decline a quoted self-pickup");
     }
-    return transitionStatus(id, platformId, user, "DECLINED", "Client declined quote");
+
+    await db
+        .update(selfPickups)
+        .set({ decline_reason: payload.decline_reason })
+        .where(and(eq(selfPickups.id, id), eq(selfPickups.platform_id, platformId)));
+
+    return transitionStatus(
+        id,
+        platformId,
+        user,
+        "DECLINED",
+        `Client declined quote: ${payload.decline_reason}`,
+        { decline_reason: payload.decline_reason }
+    );
+};
+
+// Mark a pickup as no-cost. One-way transition: pricing_mode → NO_COST,
+// financial_status → NOT_APPLICABLE, status → CONFIRMED. All line items voided,
+// prices row zeroed via the shared PricingService.markEntityAsNoCost helper.
+// See plan file SP4 and the two structural choke points (getLineItemEditability
+// + resolveEntityContext) that inherit from this flip.
+const markAsNoCost = async (id: string, platformId: string, user: AuthUser) => {
+    const pickup = await getSelfPickupById(id, platformId);
+
+    if (pickup.pricing_mode === "NO_COST") {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Pickup is already marked as no-cost");
+    }
+
+    if (!canMarkAsNoCost(pickup.self_pickup_status)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Cannot mark as no-cost in status: ${pickup.self_pickup_status}. Must be PRICING_REVIEW or PENDING_APPROVAL.`
+        );
+    }
+
+    // Shared helper: voids line items + zeros prices row + flips pricing_mode
+    // and financial_status on the self_pickups row. No status transition +
+    // event here — transitionStatus() below handles those.
+    await db.transaction(async (tx) => {
+        await PricingService.markEntityAsNoCost({
+            entityType: "SELF_PICKUP",
+            entityId: id,
+            platformId,
+            actorId: user.id,
+            tx,
+        });
+    });
+
+    // Transition status → CONFIRMED. Uses the existing helper so status
+    // history, specific SELF_PICKUP_CONFIRMED event, and generic
+    // STATUS_CHANGED fire exactly like the regular confirm path. The
+    // extras object lands in the event payload so templates can render
+    // a "(No Cost)" subject tag.
+    return transitionStatus(
+        id,
+        platformId,
+        user,
+        "CONFIRMED",
+        "Marked as no-cost — approved without pricing review",
+        { pricing_mode: "NO_COST" }
+    );
+};
+
+// Admin can send a pricing-review-complete pickup back to logistics with a reason.
+const returnToLogistics = async (
+    id: string,
+    platformId: string,
+    user: AuthUser,
+    payload: { reason: string }
+) => {
+    const pickup = await getSelfPickupById(id, platformId);
+    if (!canReturnToLogistics(pickup.self_pickup_status)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Cannot return to logistics in status: ${pickup.self_pickup_status}`
+        );
+    }
+    return transitionStatus(
+        id,
+        platformId,
+        user,
+        "PRICING_REVIEW",
+        `Returned to logistics: ${payload.reason}`,
+        { return_reason: payload.reason }
+    );
 };
 
 // ----------------------------------- STATUS HISTORY --------------------------------------
@@ -661,10 +925,16 @@ export const SelfPickupServices = {
     submitForApproval,
     approveQuote,
     markReadyForPickup,
+    markAsNoCost,
     triggerReturn,
     cancelSelfPickup,
     clientApproveQuote,
     clientDeclineQuote,
+    returnToLogistics,
     clientListSelfPickups: listClientSelfPickups,
     updateJobNumber,
+    // Exposed so scanning services can route PICKED_UP and CLOSED through
+    // the same specific + generic event emission pipeline as other SP
+    // transitions. See gotcha #35 (every transition must emit both).
+    transitionStatus,
 };

@@ -7,6 +7,7 @@ import {
     lineItems,
     orders,
     prices,
+    selfPickups,
     serviceRequests,
     serviceTypes,
 } from "../../../db/schema";
@@ -58,11 +59,17 @@ const runWithLineItemIdRetry = async <T>(operation: () => Promise<T>): Promise<T
 const ORDER_FINANCIAL_LOCKED_STATUSES = ["QUOTE_ACCEPTED", "PENDING_INVOICE", "INVOICED", "PAID"];
 const SERVICE_REQUEST_LOCKED_STATUSES = ["QUOTE_APPROVED", "INVOICED", "PAID"];
 
-const buildEditability = (isLocked: boolean, lockStatus: string | null): LineItemEditability => ({
+const buildEditability = (
+    isLocked: boolean,
+    lockStatus: string | null,
+    reasonKind: "QUOTE_LOCK" | "NO_COST" = "QUOTE_LOCK"
+): LineItemEditability => ({
     can_edit_pricing_fields: !isLocked,
     can_edit_metadata_fields: true,
     lock_reason: isLocked
-        ? `Pricing fields are locked after quote acceptance (current status: ${lockStatus || "LOCKED"}).`
+        ? reasonKind === "NO_COST"
+            ? "Entity is marked as no-cost — line items cannot be added or changed."
+            : `Pricing fields are locked after quote acceptance (current status: ${lockStatus || "LOCKED"}).`
         : null,
 });
 
@@ -71,6 +78,7 @@ const getLineItemEditability = async (
         order_id: string | null;
         inbound_request_id: string | null;
         service_request_id: string | null;
+        self_pickup_id?: string | null;
     },
     platformId: string
 ): Promise<LineItemEditability> => {
@@ -123,12 +131,55 @@ const getLineItemEditability = async (
         );
     }
 
+    if (item.self_pickup_id) {
+        const [pickup] = await db
+            .select({
+                financial_status: selfPickups.financial_status,
+                pricing_mode: selfPickups.pricing_mode,
+            })
+            .from(selfPickups)
+            .where(
+                and(
+                    eq(selfPickups.id, item.self_pickup_id),
+                    eq(selfPickups.platform_id, platformId)
+                )
+            )
+            .limit(1);
+        // NO_COST is the second structural choke point: all 6 line-item
+        // mutations (createCatalog / createCustom / update / void / patch...)
+        // call this function, so locking here = locking them all with one
+        // change. Takes priority over status lock — a NO_COST pickup is
+        // always locked regardless of its current status.
+        if (pickup?.pricing_mode === "NO_COST") {
+            return buildEditability(true, pickup.financial_status || null, "NO_COST");
+        }
+        const status = pickup?.financial_status || null;
+        return buildEditability(
+            !!status && ORDER_FINANCIAL_LOCKED_STATUSES.includes(String(status)),
+            status
+        );
+    }
+
     return buildEditability(false, null);
 };
 
 // ----------------------------------- GET LINE ITEMS -----------------------------------------
 const getLineItems = async (platformId: string, query: Record<string, any>) => {
-    const { order_id, inbound_request_id, service_request_id, purpose_type } = query;
+    const { order_id, inbound_request_id, service_request_id, self_pickup_id, purpose_type } =
+        query;
+
+    // Defense in depth: this endpoint is auth-gated to ADMIN+LOGISTICS and
+    // scoped by platform, but without a parent-entity scope filter the query
+    // would return every line item on the platform. That's the bug that let
+    // self-pickup detail pages display other orders' line items before
+    // self_pickup_id filtering was wired up. Reject unscoped reads outright
+    // so a future entity type added to the shared pattern can't repeat this.
+    if (!order_id && !inbound_request_id && !service_request_id && !self_pickup_id) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "At least one parent-entity filter (order_id / inbound_request_id / service_request_id / self_pickup_id) is required"
+        );
+    }
 
     const conditions: any[] = [eq(lineItems.platform_id, platformId)];
 
@@ -141,6 +192,9 @@ const getLineItems = async (platformId: string, query: Record<string, any>) => {
     }
     if (service_request_id) {
         conditions.push(eq(lineItems.service_request_id, service_request_id));
+    }
+    if (self_pickup_id) {
+        conditions.push(eq(lineItems.self_pickup_id, self_pickup_id));
     }
 
     if (purpose_type) {
@@ -173,6 +227,7 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
         order_id,
         inbound_request_id,
         service_request_id,
+        self_pickup_id,
         purpose_type,
         service_type_id,
         quantity,
@@ -199,6 +254,7 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
             order_id: order_id || null,
             inbound_request_id: inbound_request_id || null,
             service_request_id: service_request_id || null,
+            self_pickup_id: self_pickup_id || null,
         },
         platform_id
     );
@@ -237,6 +293,7 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
                     order_id: order_id || null,
                     inbound_request_id: inbound_request_id || null,
                     service_request_id: service_request_id || null,
+                    self_pickup_id: self_pickup_id || null,
                     purpose_type,
                     service_type_id,
                     line_item_type: "CATALOG",
@@ -275,8 +332,12 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
             added_by
         );
     }
+    if (self_pickup_id) {
+        await updateSelfPickupPricingAfterLineItemChange(self_pickup_id, platform_id, added_by);
+    }
 
-    const parentEntityId = order_id || inbound_request_id || service_request_id || "";
+    const parentEntityId =
+        order_id || inbound_request_id || service_request_id || self_pickup_id || "";
     await eventBus.emit({
         platform_id,
         event_type: EVENT_TYPES.LINE_ITEM_ADDED,
@@ -319,6 +380,7 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
         order_id,
         inbound_request_id,
         service_request_id,
+        self_pickup_id,
         purpose_type,
         description,
         category,
@@ -337,6 +399,7 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
             order_id: order_id || null,
             inbound_request_id: inbound_request_id || null,
             service_request_id: service_request_id || null,
+            self_pickup_id: self_pickup_id || null,
         },
         platform_id
     );
@@ -361,6 +424,7 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
                     order_id,
                     inbound_request_id: inbound_request_id || null,
                     service_request_id: service_request_id || null,
+                    self_pickup_id: self_pickup_id || null,
                     line_item_id: lineItemId,
                     purpose_type,
                     service_type_id: null,
@@ -400,8 +464,12 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
             added_by
         );
     }
+    if (self_pickup_id) {
+        await updateSelfPickupPricingAfterLineItemChange(self_pickup_id, platform_id, added_by);
+    }
 
-    const customParentEntityId = order_id || inbound_request_id || service_request_id || "";
+    const customParentEntityId =
+        order_id || inbound_request_id || service_request_id || self_pickup_id || "";
     await eventBus.emit({
         platform_id,
         event_type: EVENT_TYPES.LINE_ITEM_ADDED,
@@ -550,10 +618,21 @@ const updateLineItem = async (
                 userId
             );
         }
+        if (result.self_pickup_id) {
+            await updateSelfPickupPricingAfterLineItemChange(
+                result.self_pickup_id,
+                platformId,
+                userId
+            );
+        }
     }
 
     const updateParentId =
-        result.order_id || result.inbound_request_id || result.service_request_id || "";
+        result.order_id ||
+        result.inbound_request_id ||
+        result.service_request_id ||
+        result.self_pickup_id ||
+        "";
     await eventBus.emit({
         platform_id: platformId,
         event_type: EVENT_TYPES.LINE_ITEM_UPDATED,
@@ -636,7 +715,12 @@ const patchLineItemMetadata = async (
             | "INBOUND_REQUEST"
             | "SERVICE_REQUEST"
             | "SELF_PICKUP",
-        entity_id: result.order_id || result.inbound_request_id || result.service_request_id || "",
+        entity_id:
+            result.order_id ||
+            result.inbound_request_id ||
+            result.service_request_id ||
+            result.self_pickup_id ||
+            "",
         actor_id: userId,
         actor_role: null,
         payload: {
@@ -691,7 +775,12 @@ const patchLineItemClientVisibility = async (
             | "INBOUND_REQUEST"
             | "SERVICE_REQUEST"
             | "SELF_PICKUP",
-        entity_id: result.order_id || result.inbound_request_id || result.service_request_id || "",
+        entity_id:
+            result.order_id ||
+            result.inbound_request_id ||
+            result.service_request_id ||
+            result.self_pickup_id ||
+            "",
         actor_id: userId,
         actor_role: null,
         payload: {
@@ -848,9 +937,20 @@ const voidLineItem = async (id: string, platformId: string, data: VoidLineItemPa
             voided_by
         );
     }
+    if (result.self_pickup_id) {
+        await updateSelfPickupPricingAfterLineItemChange(
+            result.self_pickup_id,
+            platformId,
+            voided_by
+        );
+    }
 
     const voidParentId =
-        result.order_id || result.inbound_request_id || result.service_request_id || "";
+        result.order_id ||
+        result.inbound_request_id ||
+        result.service_request_id ||
+        result.self_pickup_id ||
+        "";
     await eventBus.emit({
         platform_id: platformId,
         event_type: EVENT_TYPES.LINE_ITEM_VOIDED,
@@ -1011,6 +1111,22 @@ const updateInboundRequestPricingAfterLineItemChange = async (
         calculated_by: userId,
     });
     await DocumentService.regenerateEstimate("INBOUND_REQUEST", inboundRequestId, platformId);
+};
+
+// ----------------------------------- UPDATE SELF-PICKUP PRICING AFTER LINE ITEM CHANGE ------
+// Mirrors updateOrderPricingAfterLineItemChange — rebuildBreakdown picks up the
+// new line item totals + re-syncs BASE_OPS (subject to enable_base_operations).
+const updateSelfPickupPricingAfterLineItemChange = async (
+    selfPickupId: string,
+    platformId: string,
+    userId: string
+): Promise<void> => {
+    await PricingService.rebuildBreakdown({
+        entity_type: "SELF_PICKUP",
+        entity_id: selfPickupId,
+        platform_id: platformId,
+        calculated_by: userId,
+    });
 };
 
 // ----------------------------------- UPDATE SERVICE REQUEST PRICING AFTER LINE ITEM CHANGE --

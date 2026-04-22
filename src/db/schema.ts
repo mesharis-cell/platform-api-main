@@ -84,7 +84,20 @@ export const financialStatusEnum = pgEnum("financial_status", [
     "INVOICED",
     "PAID",
     "CANCELLED",
+    // Terminal non-billed state — used by entities marked as NO_COST (see
+    // pricing_mode). Never transitions to INVOICED/PAID; reporting filters
+    // can drop this state. Added in migration 0047.
+    "NOT_APPLICABLE",
 ]);
+
+// ---------------------------------- PRICING MODE ------------------------------------------
+// Generic (not entity-prefixed) so `orders.pricing_mode`, `inbound_requests.pricing_mode`,
+// `service_requests.pricing_mode` can reuse the same type when they're added later.
+// STANDARD → normal pricing flow (PRICING_REVIEW → PENDING_APPROVAL → QUOTED → CONFIRMED).
+// NO_COST  → admin/logistics waived cost; skips all pricing stages, goes direct to CONFIRMED.
+//            Line items cannot be added/edited; rebuildBreakdown short-circuits; no invoice.
+//            See CLAUDE.md gotcha on no-cost entities + the two structural choke points.
+export const pricingModeEnum = pgEnum("pricing_mode", ["STANDARD", "NO_COST"]);
 export const notificationStatusEnum = pgEnum("notification_status", [
     "QUEUED",
     "PROCESSING",
@@ -204,6 +217,9 @@ export const attachmentEntityTypeEnum = pgEnum("attachment_entity_type", [
 ]);
 
 // ---------------------------------- SELF-PICKUP / STOCK-MOVEMENT ENUMS -------------------
+// IN_USE + RETURNED removed in migration 0044 — they were declared but had no
+// entry points (no endpoint, UI action, or cron transitioned into them). Self-pickup
+// flow is PICKED_UP → AWAITING_RETURN → CLOSED. See CLAUDE.md gotcha #35.
 export const selfPickupStatusEnum = pgEnum("self_pickup_status", [
     "SUBMITTED",
     "PRICING_REVIEW",
@@ -213,9 +229,7 @@ export const selfPickupStatusEnum = pgEnum("self_pickup_status", [
     "CONFIRMED",
     "READY_FOR_PICKUP",
     "PICKED_UP",
-    "IN_USE",
     "AWAITING_RETURN",
-    "RETURNED",
     "CLOSED",
     "CANCELLED",
 ]);
@@ -1278,6 +1292,11 @@ export const lineItems = pgTable(
             .where(
                 sql`${table.service_request_id} is not null and ${table.system_key} is not null and ${table.is_voided} = false`
             ),
+        uniqueIndex("line_items_self_pickup_system_key_unique")
+            .on(table.platform_id, table.self_pickup_id, table.system_key)
+            .where(
+                sql`${table.self_pickup_id} is not null and ${table.system_key} is not null and ${table.is_voided} = false`
+            ),
     ]
 );
 
@@ -1885,6 +1904,10 @@ export const selfPickups = pgTable(
         notes: text("notes"),
         special_instructions: text("special_instructions"),
 
+        // Decline reason — populated when client declines the quote (status → DECLINED).
+        // Mirrors orders.decline_reason pattern.
+        decline_reason: text("decline_reason"),
+
         // Pricing — polymorphic reuse via entity_type=SELF_PICKUP on prices table.
         // This FK mirrors orders.order_pricing_id for query convenience.
         self_pickup_pricing_id: uuid("self_pickup_pricing_id")
@@ -1899,6 +1922,12 @@ export const selfPickups = pgTable(
         financial_status: financialStatusEnum("financial_status")
             .notNull()
             .default("PENDING_QUOTE"),
+
+        // Pricing mode — STANDARD runs the normal pricing flow; NO_COST bypasses
+        // it entirely (admin/logistics-triggered, one-way). See pricingModeEnum
+        // definition + PricingService.markEntityAsNoCost + the two structural
+        // choke points (getLineItemEditability + resolveEntityContext).
+        pricing_mode: pricingModeEnum("pricing_mode").notNull().default("STANDARD"),
 
         // Timestamps
         created_at: timestamp("created_at").notNull().defaultNow(),
@@ -1979,12 +2008,28 @@ export const selfPickupItems = pgTable(
         settled_at: timestamp("settled_at"),
         settled_by: uuid("settled_by").references(() => users.id),
 
+        // Partial handover / skip (migration 0048). NULL until handover
+        // completes, then set to the actual collected qty per row. 0 = skipped.
+        // Downstream (return flow, pricing) reads `scanned_quantity ?? quantity`
+        // for back-compat with records created pre-0048.
+        scanned_quantity: integer("scanned_quantity"),
+        skipped: boolean("skipped").notNull().default(false),
+        partial_reason: text("partial_reason"),
+
+        // Mid-flow item addition (migration 0048). Set when logistics adds
+        // an item at handover time beyond what was originally quoted.
+        added_midflow: boolean("added_midflow").notNull().default(false),
+        added_midflow_reason: text("added_midflow_reason"),
+        added_midflow_by: uuid("added_midflow_by").references(() => users.id),
+        added_midflow_at: timestamp("added_midflow_at"),
+
         created_at: timestamp("created_at").notNull().defaultNow(),
     },
     (table) => [
         index("self_pickup_items_pickup_idx").on(table.self_pickup_id),
         index("self_pickup_items_asset_idx").on(table.asset_id),
         index("self_pickup_items_platform_idx").on(table.platform_id),
+        index("self_pickup_items_midflow_idx").on(table.self_pickup_id, table.added_midflow),
     ]
 );
 

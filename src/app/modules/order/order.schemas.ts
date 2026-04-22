@@ -18,6 +18,11 @@ const calculateEstimateSchema = z.object({
         .strict(),
 });
 
+// Accepts EITHER `event_start_date` (legacy, YYYY-MM-DD or ISO string) OR
+// `event_start_datetime` (new, ISO string with TZ offset). Both transform to
+// a Date object. When both are present, `event_start_datetime` wins. The
+// transform normalizes the output so downstream service code can read
+// `body.event_start_date` as a Date regardless of which input key was sent.
 const checkMaintenanceFeasibilitySchema = z.object({
     body: z
         .object({
@@ -38,11 +43,30 @@ const checkMaintenanceFeasibilitySchema = z.object({
                 )
                 .min(1, "At least one item is required"),
             event_start_date: z
-                .string("Event start date is required")
+                .string()
                 .refine((date) => !isNaN(Date.parse(date)), "Invalid event start date format")
-                .transform((date) => new Date(date)),
+                .transform((date) => new Date(date))
+                .optional(),
+            event_start_datetime: z
+                .string()
+                .refine((date) => !isNaN(Date.parse(date)), "Invalid event start datetime format")
+                .transform((date) => new Date(date))
+                .optional(),
         })
-        .strict(),
+        .strict()
+        .superRefine((data, ctx) => {
+            if (!data.event_start_date && !data.event_start_datetime) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: "Either event_start_date or event_start_datetime is required",
+                    path: ["event_start_datetime"],
+                });
+            }
+        })
+        .transform((data) => ({
+            ...data,
+            event_start_date: (data.event_start_datetime ?? data.event_start_date)!,
+        })),
 });
 
 export const orderItemSchema = z
@@ -95,14 +119,29 @@ const submitOrderSchema = z.object({
                 .min(1, "At least one item is required"),
 
             brand_id: z.uuid("Invalid brand ID").optional(),
+            // Legacy + new datetime fields — superRefine + transform below
+            // ensure at least one event_start_* is present and normalize the
+            // output so `body.event_start_date` is always a Date.
             event_start_date: z
-                .string("Event start date is required")
+                .string()
                 .refine((date) => !isNaN(Date.parse(date)), "Invalid event start date format")
-                .transform((date) => new Date(date)),
+                .transform((date) => new Date(date))
+                .optional(),
+            event_start_datetime: z
+                .string()
+                .refine((date) => !isNaN(Date.parse(date)), "Invalid event start datetime format")
+                .transform((date) => new Date(date))
+                .optional(),
             event_end_date: z
-                .string("Event end date is required")
+                .string()
                 .refine((date) => !isNaN(Date.parse(date)), "Invalid event end date format")
-                .transform((date) => new Date(date)),
+                .transform((date) => new Date(date))
+                .optional(),
+            event_end_datetime: z
+                .string()
+                .refine((date) => !isNaN(Date.parse(date)), "Invalid event end datetime format")
+                .transform((date) => new Date(date))
+                .optional(),
             venue_name: z
                 .string("Venue name is required")
                 .min(1, "Venue name is required")
@@ -168,6 +207,29 @@ const submitOrderSchema = z.object({
             special_instructions: z.string("Special instructions should be a text").optional(),
         })
         .strict()
+        .superRefine((data, ctx) => {
+            if (!data.event_start_date && !data.event_start_datetime) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: "Either event_start_date or event_start_datetime is required",
+                    path: ["event_start_datetime"],
+                });
+            }
+            if (!data.event_end_date && !data.event_end_datetime) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: "Either event_end_date or event_end_datetime is required",
+                    path: ["event_end_datetime"],
+                });
+            }
+        })
+        .transform((data) => ({
+            ...data,
+            // Normalize: datetime wins over date; service code reads
+            // event_start_date / event_end_date as Date.
+            event_start_date: (data.event_start_datetime ?? data.event_start_date)!,
+            event_end_date: (data.event_end_datetime ?? data.event_end_date)!,
+        }))
         .refine(
             (data) => {
                 const today = new Date();

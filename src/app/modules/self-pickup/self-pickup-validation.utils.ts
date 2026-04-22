@@ -33,5 +33,18 @@ export function canMarkReadyForPickup(status: string): boolean {
 }
 
 export function canTriggerReturn(status: string): boolean {
-    return ["PICKED_UP", "IN_USE"].includes(status);
+    // IN_USE removed from enum in migration 0044 — only PICKED_UP is a valid
+    // entry point for triggering return.
+    return status === "PICKED_UP";
+}
+
+export function canReturnToLogistics(status: string): boolean {
+    return status === "PENDING_APPROVAL";
+}
+
+// Mark-as-no-cost is only valid while the pickup is still in a pricing-review
+// phase — once it's been confirmed/ready-for-pickup/picked-up the decision is
+// sunk. Keeps the state machine deterministic (see plan SP4).
+export function canMarkAsNoCost(status: string): boolean {
+    return status === "PRICING_REVIEW" || status === "PENDING_APPROVAL";
 }

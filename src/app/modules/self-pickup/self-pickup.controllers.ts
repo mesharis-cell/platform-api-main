@@ -61,7 +61,10 @@ const clientApproveQuote = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
     const id = getRequiredString(req.params.id, "id");
-    const result = await SelfPickupServices.clientApproveQuote(id, platformId, user);
+    const result = await SelfPickupServices.clientApproveQuote(id, platformId, user, {
+        po_number: req.body.po_number,
+        notes: req.body.notes,
+    });
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -75,7 +78,9 @@ const clientDeclineQuote = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
     const id = getRequiredString(req.params.id, "id");
-    const result = await SelfPickupServices.clientDeclineQuote(id, platformId, user);
+    const result = await SelfPickupServices.clientDeclineQuote(id, platformId, user, {
+        decline_reason: req.body.decline_reason,
+    });
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -103,7 +108,11 @@ const clientCancel = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
     const id = getRequiredString(req.params.id, "id");
-    const result = await SelfPickupServices.cancelSelfPickup(id, platformId, user, req.body.reason);
+    const result = await SelfPickupServices.cancelSelfPickup(id, platformId, user, {
+        reason: req.body.reason,
+        notes: req.body.notes,
+        notify_client: req.body.notify_client,
+    });
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -158,7 +167,10 @@ const approveQuote = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
     const id = getRequiredString(req.params.id, "id");
-    const result = await SelfPickupServices.approveQuote(id, platformId, user);
+    const result = await SelfPickupServices.approveQuote(id, platformId, user, {
+        margin_override_percent: req.body?.margin_override_percent,
+        margin_override_reason: req.body?.margin_override_reason,
+    });
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -182,11 +194,32 @@ const markReadyForPickup = catchAsync(async (req, res) => {
     });
 });
 
+// Ops-side counterpart to the client `trigger-return`. Same service,
+// same guard — just a different role gate at the route layer so logistics
+// can start the return process when the client hasn't clicked the button.
+const opsTriggerReturn = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+    const id = getRequiredString(req.params.id, "id");
+    const result = await SelfPickupServices.triggerReturn(id, platformId, user);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Return initiated",
+        data: result,
+    });
+});
+
 const adminCancel = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
     const id = getRequiredString(req.params.id, "id");
-    const result = await SelfPickupServices.cancelSelfPickup(id, platformId, user, req.body.reason);
+    const result = await SelfPickupServices.cancelSelfPickup(id, platformId, user, {
+        reason: req.body.reason,
+        notes: req.body.notes,
+        notify_client: req.body.notify_client,
+    });
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -228,6 +261,36 @@ const updateJobNumber = catchAsync(async (req, res) => {
     });
 });
 
+const returnToLogistics = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+    const id = getRequiredString(req.params.id, "id");
+    const result = await SelfPickupServices.returnToLogistics(id, platformId, user, {
+        reason: req.body.reason,
+    });
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Returned to logistics for revision",
+        data: result,
+    });
+});
+
+const markAsNoCost = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+    const id = getRequiredString(req.params.id, "id");
+    const result = await SelfPickupServices.markAsNoCost(id, platformId, user);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Self-pickup marked as no-cost",
+        data: result,
+    });
+});
+
 export const SelfPickupControllers = {
     // Client
     submitFromCart,
@@ -243,7 +306,10 @@ export const SelfPickupControllers = {
     submitForApproval,
     approveQuote,
     markReadyForPickup,
+    opsTriggerReturn,
     adminCancel,
     getStatusHistory,
     updateJobNumber,
+    returnToLogistics,
+    markAsNoCost,
 };

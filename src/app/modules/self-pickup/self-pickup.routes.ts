@@ -53,6 +53,7 @@ export const SelfPickupClientRoutes = (() => {
         auth("CLIENT"),
         requirePermission(PERMISSIONS.SELF_PICKUPS_CREATE),
         featureValidator(featureNames.enable_self_pickup),
+        payloadValidator(SelfPickupSchemas.approveQuoteSchema),
         SelfPickupControllers.clientApproveQuote
     );
 
@@ -62,6 +63,7 @@ export const SelfPickupClientRoutes = (() => {
         auth("CLIENT"),
         requirePermission(PERMISSIONS.SELF_PICKUPS_CREATE),
         featureValidator(featureNames.enable_self_pickup),
+        payloadValidator(SelfPickupSchemas.declineQuoteSchema),
         SelfPickupControllers.clientDeclineQuote
     );
 
@@ -132,10 +134,30 @@ export const SelfPickupOperationRoutes = (() => {
     router.post(
         "/:id/approve",
         platformValidator,
-        auth("ADMIN"),
+        auth("ADMIN", "LOGISTICS"),
         requirePermission(PERMISSIONS.SELF_PICKUPS_APPROVE),
         featureValidator(featureNames.enable_self_pickup),
+        payloadValidator(SelfPickupSchemas.adminApproveQuoteSchema),
         SelfPickupControllers.approveQuote
+    );
+
+    router.post(
+        "/:id/return-to-logistics",
+        platformValidator,
+        auth("ADMIN", "LOGISTICS"),
+        requirePermission(PERMISSIONS.SELF_PICKUPS_APPROVE),
+        featureValidator(featureNames.enable_self_pickup),
+        payloadValidator(SelfPickupSchemas.returnToLogisticsSchema),
+        SelfPickupControllers.returnToLogistics
+    );
+
+    router.post(
+        "/:id/mark-no-cost",
+        platformValidator,
+        auth("ADMIN", "LOGISTICS"),
+        requirePermission(PERMISSIONS.SELF_PICKUPS_MARK_NO_COST),
+        featureValidator(featureNames.enable_self_pickup),
+        SelfPickupControllers.markAsNoCost
     );
 
     router.post(
@@ -145,6 +167,18 @@ export const SelfPickupOperationRoutes = (() => {
         requirePermission(PERMISSIONS.SELF_PICKUPS_APPROVE),
         featureValidator(featureNames.enable_self_pickup),
         SelfPickupControllers.markReadyForPickup
+    );
+
+    // Ops-triggered return — unblocks logistics when the client forgets to
+    // press "Start Return" on their portal. Reuses the same service + guard
+    // (canTriggerReturn → PICKED_UP only) as the client-side route at line 70.
+    router.post(
+        "/:id/trigger-return",
+        platformValidator,
+        auth("ADMIN", "LOGISTICS"),
+        requirePermission(PERMISSIONS.SELF_PICKUPS_APPROVE),
+        featureValidator(featureNames.enable_self_pickup),
+        SelfPickupControllers.opsTriggerReturn
     );
 
     router.post(
