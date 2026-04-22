@@ -27,6 +27,10 @@ const sanitizePlatformConfig = (value: unknown) => {
                       typeof feasibility.minimum_lead_hours === "number"
                           ? feasibility.minimum_lead_hours
                           : undefined,
+                  sp_minimum_lead_hours:
+                      typeof feasibility.sp_minimum_lead_hours === "number"
+                          ? feasibility.sp_minimum_lead_hours
+                          : undefined,
                   exclude_weekends:
                       typeof feasibility.exclude_weekends === "boolean"
                           ? feasibility.exclude_weekends
