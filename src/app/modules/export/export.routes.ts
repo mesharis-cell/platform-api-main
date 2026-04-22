@@ -87,4 +87,20 @@ router.get(
     ExportControllers.exportWorkSummary
 );
 
+router.get(
+    "/client-issuance-log",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.ORDERS_READ, PERMISSIONS.ORDERS_EXPORT),
+    ExportControllers.exportClientIssuanceLog
+);
+
+router.get(
+    "/stock-movements/family/:family_id",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.STOCK_MOVEMENTS_READ),
+    ExportControllers.exportFamilyStockMovements
+);
+
 export const ExportRoutes = router;

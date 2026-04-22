@@ -28,3 +28,19 @@ export type ExportAssetUtilizationQuery = ExportBaseQuery & {
     threshold_days?: string;
     category?: string;
 };
+
+export type ExportClientIssuanceLogQuery = ExportBaseQuery & {
+    // Default = post-outbound orders (READY_FOR_DELIVERY+) + post-handover SPs (PICKED_UP+).
+    // Accept "all" to include every status, or omit for the default scope.
+    scope?: "default" | "all";
+    // Narrow to orders-only or self-pickups-only. Omit for both.
+    entity_type?: "ORDER" | "SELF_PICKUP";
+    // Filter by creator (musketeer). Optional.
+    created_by?: string;
+};
+
+export type ExportStockMovementsQuery = {
+    date_from?: string;
+    date_to?: string;
+    movement_type?: string;
+};
