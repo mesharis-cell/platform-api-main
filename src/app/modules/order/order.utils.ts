@@ -14,6 +14,9 @@ import { AuthUser } from "../../interface/common";
 import CustomizedError from "../../error/customized-error";
 import httpStatus from "http-status";
 import { AssetStatus } from "../asset/assets.interfaces";
+import * as AvailabilityCore from "../../shared/availability/availability.core";
+
+type TxOrDb = any; // tx | typeof db
 
 // Sortable fields for order queries
 export const orderSortableFields: Record<string, any> = {
@@ -400,14 +403,6 @@ export async function reduceBookingsForScannedOutbound(
     }
 }
 
-export type UnavailableItem = {
-    asset_id: string;
-    asset_name: string;
-    requested: number;
-    available: number;
-    next_available_date?: Date;
-};
-
 export type AvailableItem = {
     id: string;
     status: AssetStatus;
@@ -415,17 +410,37 @@ export type AvailableItem = {
 };
 
 // ----------------------------------- CHECK ASSETS FOR ORDER -----------------------------------
+// Delegates the availability math to availability.core.ts — one source of
+// truth across order submit, self-pickup submit, client checkout validation,
+// and warehouse mid-flow add-item. Previously this function had two bugs
+// that the new core fixes by construction:
+//   (1) A blanket `status !== 'AVAILABLE'` gate that blocked pooled assets
+//       whose pool still had capacity (core only hard-blocks TRANSFORMED and
+//       MAINTENANCE-serialized now).
+//   (2) An overlap query using `blocked_from <= eventStart AND blocked_until
+//       >= eventEnd` which only matched bookings ENVELOPING the event window,
+//       silently missing partial overlaps (core uses the correct
+//       `blocked_from <= end AND blocked_until >= start` formula).
+//
+// Callers still get the same return shape (annotated rows with status=BOOKED
+// and recomputed available_quantity) because the submit flow writes those
+// values back to the assets table to keep admin UI badges honest.
 export const checkAssetsForOrder = async (
     platformId: string,
     companyId: string,
     requiredAssets: { id: string; quantity: number }[],
     eventStartDate: Date,
-    eventEndDate: Date
+    eventEndDate: Date,
+    opts?: { tx?: TxOrDb; excludeOrderId?: string }
 ): Promise<Array<typeof assets.$inferSelect>> => {
+    const database = opts?.tx ?? db;
     const assetIds = requiredAssets.map((asset) => asset.id);
 
-    // Step 1: Verify assets exist and belong to the company
-    const foundAssets = await db
+    // Step 1: Fetch + optionally lock asset rows. Pass `opts.tx` when calling
+    // inside a transaction — the FOR UPDATE lock serializes concurrent
+    // submissions for the same asset, preventing oversell under Postgres'
+    // default READ COMMITTED isolation.
+    const query = database
         .select()
         .from(assets)
         .where(
@@ -436,6 +451,9 @@ export const checkAssetsForOrder = async (
                 isNull(assets.deleted_at)
             )
         );
+    const foundAssets: Array<typeof assets.$inferSelect> = opts?.tx
+        ? await query.for("update")
+        : await query;
 
     if (foundAssets.length !== assetIds.length) {
         throw new CustomizedError(
@@ -444,109 +462,71 @@ export const checkAssetsForOrder = async (
         );
     }
 
-    // Step 2: Verify all assets have AVAILABLE status
-    const unavailableAssets = foundAssets.filter((a) => a.status !== "AVAILABLE");
-    if (unavailableAssets.length > 0) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            `Cannot order unavailable assets: ${unavailableAssets.map((a) => a.name).join(", ")}`
-        );
+    // Step 2: Delegate to the shared core.
+    const availabilityMap = await AvailabilityCore.checkAvailability({
+        tx: database,
+        platformId,
+        companyId,
+        requests: requiredAssets.map((r) => ({ asset_id: r.id, quantity: r.quantity })),
+        window: { start: eventStartDate, end: eventEndDate },
+        excludeEntity: opts?.excludeOrderId
+            ? { type: "ORDER", id: opts.excludeOrderId }
+            : undefined,
+    });
+
+    const failures: AvailabilityCore.AvailabilityResult[] = [];
+    for (const res of availabilityMap.values()) {
+        if (!res.is_available) failures.push(res);
     }
 
-    const unavailableItems: Array<UnavailableItem> = [];
-    const availableItems: Array<typeof assets.$inferSelect> = [];
-
-    // Step 3: Check date-based availability for requested quantities
-    for (const item of requiredAssets) {
-        // Find asset in the foundAssets array
-        const asset = foundAssets.find((a) => a.id === item.id);
-        if (!asset) {
-            throw new CustomizedError(httpStatus.NOT_FOUND, `Asset "${item.id}" not found`);
-        }
-
-        // Query overlapping bookings for the event period
-        const overlappingBookings = await db.query.assetBookings.findMany({
-            where: and(
-                eq(assetBookings.asset_id, item.id),
-                sql`${assetBookings.blocked_from} <= ${eventStartDate}`,
-                sql`${assetBookings.blocked_until} >= ${eventEndDate}`
-            ),
-            with: {
-                order: {
-                    columns: {
-                        id: true,
-                        order_id: true,
-                    },
-                },
-            },
-        });
-
-        // Calculate available quantity
-        const bookedQuantity = overlappingBookings.reduce(
-            (sum, booking) => sum + booking.quantity,
-            0
-        );
-        // const availableQuantity = Math.max(0, item.quantity - bookedQuantity);
-        const availableQuantity = Math.max(0, asset.total_quantity - bookedQuantity);
-
-        // If insufficient quantity, track for error message
-        if (availableQuantity < item.quantity) {
-            // Find next available date from latest booking end
-            let nextAvailableDate: Date | undefined;
-            if (overlappingBookings.length > 0) {
-                const latestBookingEnd = new Date(
-                    Math.max(...overlappingBookings.map((b) => new Date(b.blocked_until).getTime()))
-                );
-                nextAvailableDate = new Date(latestBookingEnd);
-                nextAvailableDate.setDate(nextAvailableDate.getDate() + 1);
-            }
-
-            unavailableItems.push({
-                asset_id: item.id,
-                asset_name: asset.name,
-                requested: item.quantity,
-                available: availableQuantity,
-                next_available_date: nextAvailableDate,
-            });
-        } else {
-            const remainingQuantity = Math.max(0, availableQuantity - item.quantity);
-
-            // const assetStatus: AssetStatus =
-            //     asset.tracking_method === "INDIVIDUAL"
-            //         ? "BOOKED"
-            //         : remainingQuantity <= 0
-            //             ? "BOOKED"
-            //             : "AVAILABLE";
-
-            const assetStatus: AssetStatus = "BOOKED";
-
-            availableItems.push({
-                ...asset,
-                status: assetStatus,
-                available_quantity: remainingQuantity,
-            });
-        }
-    }
-
-    // Step 4: Throw error if any items are unavailable
-    if (unavailableItems.length > 0) {
-        const unavailableList = unavailableItems
-            .map(({ asset_name, requested, available, next_available_date }) => {
-                const nextDate = next_available_date
-                    ? ` (available from ${new Date(next_available_date).toLocaleDateString()})`
-                    : "";
-
-                return `${asset_name}: requested ${requested}, available ${available} ${nextDate}`;
+    if (failures.length > 0) {
+        const details = failures
+            .map((f) => {
+                const reason = describeAvailabilityFailure(f);
+                const next = f.next_available_date ? ` (earliest ${f.next_available_date})` : "";
+                return `${f.asset_name}: ${reason}${next}`;
             })
             .join("; ");
 
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            `Insufficient availability for requested dates: ${unavailableList}`
+            `Insufficient availability for requested dates: ${details}`,
+            { unavailable: failures }
         );
     }
 
-    return availableItems;
+    // Step 3: Return rows with status=BOOKED + remaining available quantity
+    // so the caller can persist the snapshot. (`available_quantity` on the
+    // assets table is still a scanner-maintained counter, but keeping it in
+    // sync with the live booking delta here preserves the "rough current
+    // pool capacity" intent of the column for admin dashboards.)
+    return foundAssets.map((asset) => {
+        const availability = availabilityMap.get(asset.id);
+        const requested = requiredAssets.find((r) => r.id === asset.id)?.quantity ?? 0;
+        const remainingQuantity = Math.max(0, (availability?.available_quantity ?? 0) - requested);
+        return {
+            ...asset,
+            status: "BOOKED" as AssetStatus,
+            available_quantity: remainingQuantity,
+        };
+    });
+};
+
+const describeAvailabilityFailure = (f: AvailabilityCore.AvailabilityResult): string => {
+    switch (f.reason_code) {
+        case "TRANSFORMED":
+            return "asset has been transformed";
+        case "MAINTENANCE":
+            return "asset is in maintenance";
+        case "INSUFFICIENT_QUANTITY":
+            return `requested ${f.requested_quantity}, ${f.available_quantity} available`;
+        case "NOT_FOUND":
+            return "not found";
+        case "SOFT_DELETED":
+            return "asset is deleted";
+        default:
+            return "unavailable";
+    }
 };
 
 export const NON_CANCELLABLE_STATUSES = [

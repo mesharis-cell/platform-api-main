@@ -136,33 +136,17 @@ const getAssetScanHistory = catchAsync(async (req, res) => {
     });
 });
 
-// ----------------------------------- GET BATCH AVAILABILITY -------------------------
-const getBatchAvailability = catchAsync(async (req, res) => {
+// ----------------------------------- GET AVAILABILITY (unified) ----------------------
+const getAvailability = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
-    const { asset_ids } = req.body;
 
-    const result = await AssetServices.getBatchAvailability(asset_ids, user, platformId);
+    const result = await AssetServices.getAvailability(req.body, user, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
         success: true,
-        message: "Batch availability fetched successfully",
-        data: result,
-    });
-});
-
-// ----------------------------------- CHECK ASSET AVAILABILITY -----------------------
-const checkAssetAvailability = catchAsync(async (req, res) => {
-    const platformId = (req as any).platformId;
-    const user = (req as any).user;
-
-    const result = await AssetServices.checkAssetAvailability(req.body, user, platformId);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Availability checked successfully",
+        message: "Availability fetched successfully",
         data: result,
     });
 });
@@ -291,8 +275,7 @@ export const AssetControllers = {
     deleteAsset,
     getAssetAvailabilityStats,
     getAssetScanHistory,
-    getBatchAvailability,
-    checkAssetAvailability,
+    getAvailability,
     bulkUploadAssets,
     addConditionHistory,
     generateQRCode,

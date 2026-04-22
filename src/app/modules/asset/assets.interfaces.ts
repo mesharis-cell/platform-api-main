@@ -25,23 +25,7 @@ export type CompleteMaintenancePayload = z.infer<
     typeof AssetSchemas.completeMaintenanceSchema
 >["body"];
 
-export type SingleAssetAvailabilityResponse = {
-    asset_name: string;
-    total_quantity: number;
-    available_quantity: number;
-    booked_quantity: number;
-    bookings: { order_id: string; quantity: number; blocked_from: Date; blocked_until: Date }[];
-};
-
 export type AssetStatus = (typeof assetStatusEnum.enumValues)[number];
-
-export type UnavailableItem = {
-    asset_id: string;
-    asset_name: string;
-    requested: number;
-    available: number;
-    next_available_date?: Date;
-};
 
 // ----------------------------------- BULK UPLOAD INTERFACES ---------------------------------
 

@@ -1966,33 +1966,38 @@ const approveQuote = async (
         quantity: item.quantity,
     }));
 
-    const foundAssets = await checkAssetsForOrder(
-        platformId,
-        order.company_id,
-        requiredAssets,
-        order.event_start_date,
-        order.event_end_date
-    );
-
-    // Step 5: Prepare asset bookings data
-    const assetBookingItems = foundAssets.map((item) => {
-        const totalPrepDays = PREP_BUFFER_DAYS + (item.refurb_days_estimate || 0);
-        const blockedFrom = dayjs(order.event_start_date).subtract(totalPrepDays, "day").toDate();
-        const blockedUntil = dayjs(order.event_end_date).add(RETURN_BUFFER_DAYS, "day").toDate();
-
-        const requiredAsset = requiredAssets.find((a) => a.id === item.id);
-
-        return {
-            asset_id: item.id,
-            order_id: orderId,
-            quantity: requiredAsset?.quantity || 0,
-            blocked_from: blockedFrom,
-            blocked_until: blockedUntil,
-        };
-    });
-
-    // Step 6: Insert asset bookings data, update order and asset status and create order history
+    // Step 5: Availability check + booking insert + asset snapshot update are
+    // wrapped in a single transaction with FOR UPDATE locks on the asset
+    // rows. This serializes concurrent approvals for the same asset/window
+    // and prevents oversell under READ COMMITTED.
     await db.transaction(async (tx) => {
+        const foundAssets = await checkAssetsForOrder(
+            platformId,
+            order.company_id,
+            requiredAssets,
+            order.event_start_date,
+            order.event_end_date,
+            { tx }
+        );
+
+        const assetBookingItems = foundAssets.map((item) => {
+            const totalPrepDays = PREP_BUFFER_DAYS + (item.refurb_days_estimate || 0);
+            const blockedFrom = dayjs(order.event_start_date)
+                .subtract(totalPrepDays, "day")
+                .toDate();
+            const blockedUntil = dayjs(order.event_end_date)
+                .add(RETURN_BUFFER_DAYS, "day")
+                .toDate();
+            const requiredAsset = requiredAssets.find((a) => a.id === item.id);
+            return {
+                asset_id: item.id,
+                order_id: orderId,
+                quantity: requiredAsset?.quantity || 0,
+                blocked_from: blockedFrom,
+                blocked_until: blockedUntil,
+            };
+        });
+
         await tx.insert(assetBookings).values(assetBookingItems);
 
         for (const asset of foundAssets) {
