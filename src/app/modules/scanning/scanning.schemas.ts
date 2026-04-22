@@ -105,10 +105,42 @@ export const selfPickupReturnScanSchema = z.object({
         }),
 });
 
+// Partial handover body (migration 0048) — only honored when the pickup's
+// pricing_mode === "NO_COST"; service rejects STANDARD pickups with a clear
+// error. All fields optional: posting an empty body preserves legacy "must
+// scan every unit" behavior for back-compat with clients that don't know
+// about partial-handover yet.
+const completeSelfPickupHandoverSchema = z.object({
+    body: z.object({
+        allow_partial: z.boolean().optional(),
+        partial_reason: z.string().min(5).max(500).optional(),
+        items: z
+            .array(
+                z.object({
+                    self_pickup_item_id: z.string().uuid(),
+                    scanned_quantity: z.number().int().min(0),
+                })
+            )
+            .optional(),
+    }),
+});
+
+// Mid-flow item addition (migration 0048, F3). NO_COST pickups at CONFIRMED
+// or READY_FOR_PICKUP only. Reason is a non-optional audit field.
+const addSelfPickupItemMidflowSchema = z.object({
+    body: z.object({
+        asset_id: z.string().uuid(),
+        quantity: z.number().int().positive(),
+        reason: z.string().min(5).max(500),
+    }),
+});
+
 export const ScanningSchemas = {
     inboundScanSchema,
     outboundScanSchema,
     uploadTruckPhotosSchema,
     completeInboundScanSchema,
     selfPickupReturnScanSchema,
+    completeSelfPickupHandoverSchema,
+    addSelfPickupItemMidflowSchema,
 };

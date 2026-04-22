@@ -109,7 +109,22 @@ router.post(
     auth("LOGISTICS"),
     requirePermission(PERMISSIONS.SCANNING_SCAN_OUT),
     featureValidator(featureNames.enable_self_pickup),
+    payloadValidator(ScanningSchemas.completeSelfPickupHandoverSchema),
     SelfPickupScanningControllers.completeHandover
+);
+
+// Mid-flow add item — F3 per plan `sp-partial-scan-skip-add.md`.
+// NO_COST-only, CONFIRMED or READY_FOR_PICKUP only; service enforces both.
+// Admin gets the same capability as logistics because an admin on-site may
+// need to unstick the flow too.
+router.post(
+    "/self-pickup-handover/:self_pickup_id/add-item",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.SCANNING_SCAN_OUT),
+    featureValidator(featureNames.enable_self_pickup),
+    payloadValidator(ScanningSchemas.addSelfPickupItemMidflowSchema),
+    SelfPickupScanningControllers.addItemMidflow
 );
 
 // Return scan (inbound from collector back to warehouse)

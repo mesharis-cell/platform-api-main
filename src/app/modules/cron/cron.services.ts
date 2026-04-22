@@ -391,6 +391,14 @@ const transitionSelfPickupReturns = async () => {
             await db.insert(selfPickupStatusHistory).values(historyEntries);
 
             for (const pickup of platformPickups) {
+                const payload = {
+                    entity_id_readable: pickup.self_pickup_id,
+                    company_id: pickup.company_id,
+                    company_name: "",
+                    collector_name: pickup.collector_name,
+                    collector_phone: pickup.collector_phone,
+                    pickup_window: pickup.pickup_window,
+                };
                 await eventBus.emit({
                     platform_id: platformId,
                     event_type: EVENT_TYPES.SELF_PICKUP_RETURN_DUE,
@@ -398,12 +406,23 @@ const transitionSelfPickupReturns = async () => {
                     entity_id: pickup.id,
                     actor_id: systemUser.id,
                     actor_role: "SYSTEM",
+                    payload,
+                });
+                // Also emit the generic SELF_PICKUP_STATUS_CHANGED so
+                // audit / cache-invalidation listeners fire on the cron
+                // transition. Mirrors transitionStatus() pattern.
+                await eventBus.emit({
+                    platform_id: platformId,
+                    event_type: EVENT_TYPES.SELF_PICKUP_STATUS_CHANGED,
+                    entity_type: "SELF_PICKUP",
+                    entity_id: pickup.id,
+                    actor_id: systemUser.id,
+                    actor_role: "SYSTEM",
                     payload: {
-                        entity_id_readable: pickup.self_pickup_id,
-                        company_id: pickup.company_id,
-                        company_name: "",
-                        collector_name: pickup.collector_name,
-                        collector_phone: pickup.collector_phone,
+                        ...payload,
+                        old_status: "PICKED_UP",
+                        new_status: "AWAITING_RETURN",
+                        notes: "Automatic transition — expected return date passed",
                     },
                 });
                 transitioned++;

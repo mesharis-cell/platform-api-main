@@ -194,6 +194,23 @@ const markReadyForPickup = catchAsync(async (req, res) => {
     });
 });
 
+// Ops-side counterpart to the client `trigger-return`. Same service,
+// same guard — just a different role gate at the route layer so logistics
+// can start the return process when the client hasn't clicked the button.
+const opsTriggerReturn = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+    const id = getRequiredString(req.params.id, "id");
+    const result = await SelfPickupServices.triggerReturn(id, platformId, user);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Return initiated",
+        data: result,
+    });
+});
+
 const adminCancel = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
@@ -289,6 +306,7 @@ export const SelfPickupControllers = {
     submitForApproval,
     approveQuote,
     markReadyForPickup,
+    opsTriggerReturn,
     adminCancel,
     getStatusHistory,
     updateJobNumber,

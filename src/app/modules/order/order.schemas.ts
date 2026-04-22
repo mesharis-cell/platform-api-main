@@ -58,8 +58,7 @@ const checkMaintenanceFeasibilitySchema = z.object({
             if (!data.event_start_date && !data.event_start_datetime) {
                 ctx.addIssue({
                     code: z.ZodIssueCode.custom,
-                    message:
-                        "Either event_start_date or event_start_datetime is required",
+                    message: "Either event_start_date or event_start_datetime is required",
                     path: ["event_start_datetime"],
                 });
             }
@@ -212,16 +211,14 @@ const submitOrderSchema = z.object({
             if (!data.event_start_date && !data.event_start_datetime) {
                 ctx.addIssue({
                     code: z.ZodIssueCode.custom,
-                    message:
-                        "Either event_start_date or event_start_datetime is required",
+                    message: "Either event_start_date or event_start_datetime is required",
                     path: ["event_start_datetime"],
                 });
             }
             if (!data.event_end_date && !data.event_end_datetime) {
                 ctx.addIssue({
                     code: z.ZodIssueCode.custom,
-                    message:
-                        "Either event_end_date or event_end_datetime is required",
+                    message: "Either event_end_date or event_end_datetime is required",
                     path: ["event_end_datetime"],
                 });
             }

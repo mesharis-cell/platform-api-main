@@ -42,7 +42,9 @@ const STATUS_TO_EVENT: Record<string, string> = {
     DECLINED: EVENT_TYPES.SELF_PICKUP_DECLINED,
     CONFIRMED: EVENT_TYPES.SELF_PICKUP_CONFIRMED,
     READY_FOR_PICKUP: EVENT_TYPES.SELF_PICKUP_READY_FOR_PICKUP,
+    PICKED_UP: EVENT_TYPES.SELF_PICKUP_PICKED_UP,
     AWAITING_RETURN: EVENT_TYPES.SELF_PICKUP_RETURN_DUE,
+    CLOSED: EVENT_TYPES.SELF_PICKUP_CLOSED,
     CANCELLED: EVENT_TYPES.SELF_PICKUP_CANCELLED,
 };
 
@@ -639,10 +641,58 @@ const cancelSelfPickup = async (
         );
     }
 
-    // Release bookings on cancellation
+    // Release bookings on cancellation + emit compensating INBOUND stock
+    // movements for any BATCH OUTBOUND scans that happened pre-complete.
+    // Without this, pooled ledger drifts — the OUTBOUND rows sit in the
+    // ledger with no matching INBOUND, compounding over time. Audit-only
+    // rows (no available_quantity side-effect), but correctness matters for
+    // the stock-history panel and for future reporting.
     const { releaseBookingsAndRestoreAvailability } = await import("../order/order.utils");
+    const { StockMovementService } = await import("../../services/stock-movement.service");
+    const { scanEvents, assets: assetsTbl } = await import("../../../db/schema");
+
+    // Pull OUTBOUND scans + resolve which are BATCH (need reversal).
+    const outboundScans = await db
+        .select({
+            asset_id: scanEvents.asset_id,
+            quantity: scanEvents.quantity,
+            tracking_method: assetsTbl.tracking_method,
+        })
+        .from(scanEvents)
+        .innerJoin(assetsTbl, eq(assetsTbl.id, scanEvents.asset_id))
+        .where(
+            and(
+                eq(scanEvents.self_pickup_id, id),
+                eq(scanEvents.scan_type, "OUTBOUND"),
+                eq(assetsTbl.tracking_method, "BATCH")
+            )
+        );
+
     await db.transaction(async (tx) => {
         await releaseBookingsAndRestoreAvailability(tx, "SELF_PICKUP", id, platformId);
+
+        // Aggregate per-asset OUTBOUND totals, then emit matching INBOUND
+        // ledger rows (audit-only; available_quantity unaffected).
+        const byAsset = new Map<string, { qty: number }>();
+        for (const row of outboundScans) {
+            if (!row.asset_id) continue;
+            const cur = byAsset.get(row.asset_id);
+            if (cur) cur.qty += row.quantity;
+            else byAsset.set(row.asset_id, { qty: row.quantity });
+        }
+        for (const [assetId, { qty }] of byAsset) {
+            if (qty <= 0) continue;
+            await StockMovementService.record(tx, {
+                platformId,
+                assetId,
+                movementType: "INBOUND",
+                delta: qty,
+                note: "Cancellation reversal — handover scan rolled back",
+                linkedEntityType: "SELF_PICKUP",
+                linkedEntityId: id,
+                userId: user.id,
+            });
+        }
     });
 
     const statusHistoryNote = payload.notes?.trim()
@@ -883,4 +933,8 @@ export const SelfPickupServices = {
     returnToLogistics,
     clientListSelfPickups: listClientSelfPickups,
     updateJobNumber,
+    // Exposed so scanning services can route PICKED_UP and CLOSED through
+    // the same specific + generic event emission pipeline as other SP
+    // transitions. See gotcha #35 (every transition must emit both).
+    transitionStatus,
 };

@@ -16,6 +16,7 @@ import {
     scanEventAssets,
     scanEventMedia,
     scanEvents,
+    selfPickups,
     serviceRequests,
     selfBookingItems,
     teams,
@@ -1309,11 +1310,11 @@ const getAssetAvailabilityStats = async (id: string, user: AuthUser, platformId:
 
     const totalQuantity = asset.total_quantity;
 
-    // Step 2: Calculate BOOKED quantity from active bookings
-    const activeBookings = await db
-        .select({
-            quantity: assetBookings.quantity,
-        })
+    // Step 2: Calculate BOOKED quantity from active bookings. `asset_bookings`
+    // is polymorphic (gotcha #36) — we must union ORDER-linked rows AND
+    // SELF_PICKUP-linked rows, filtering each by their parent's active statuses.
+    const activeOrderBookings = await db
+        .select({ quantity: assetBookings.quantity })
         .from(assetBookings)
         .innerJoin(orders, eq(assetBookings.order_id, orders.id))
         .where(
@@ -1331,7 +1332,25 @@ const getAssetAvailabilityStats = async (id: string, user: AuthUser, platformId:
             )
         );
 
-    const bookedQuantity = activeBookings.reduce((sum, booking) => sum + booking.quantity, 0);
+    const activeSelfPickupBookings = await db
+        .select({ quantity: assetBookings.quantity })
+        .from(assetBookings)
+        .innerJoin(selfPickups, eq(assetBookings.self_pickup_id, selfPickups.id))
+        .where(
+            and(
+                eq(assetBookings.asset_id, id),
+                inArray(selfPickups.self_pickup_status, [
+                    "CONFIRMED",
+                    "READY_FOR_PICKUP",
+                    "PICKED_UP",
+                    "AWAITING_RETURN",
+                ])
+            )
+        );
+
+    const bookedQuantity =
+        activeOrderBookings.reduce((sum, booking) => sum + booking.quantity, 0) +
+        activeSelfPickupBookings.reduce((sum, booking) => sum + booking.quantity, 0);
 
     // Step 3: Calculate OUT quantity from scan events
     const outboundScans = await db
