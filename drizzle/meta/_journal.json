@@ -337,6 +337,13 @@
             "when": 1777176000000,
             "tag": "0048_self_pickup_partial_and_midflow",
             "breakpoints": true
+        },
+        {
+            "idx": 48,
+            "version": "7",
+            "when": 1777201200000,
+            "tag": "0049_self_pickup_notification_recipient_fix",
+            "breakpoints": true
         }
     ]
 }
