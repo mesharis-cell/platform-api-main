@@ -1402,7 +1402,7 @@ const getAssetAvailabilityStats = async (id: string, user: AuthUser, platformId:
         in_maintenance_quantity: inMaintenanceQuantity,
         self_booked_quantity: selfBookedQuantity,
         breakdown: {
-            active_bookings_count: activeBookings.length,
+            active_bookings_count: activeOrderBookings.length + activeSelfPickupBookings.length,
             outbound_scans_total: totalOutbound,
             inbound_scans_total: totalInbound,
         },
