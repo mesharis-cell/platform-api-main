@@ -287,6 +287,119 @@ export async function releaseOrderBookingsAndRestoreAvailability(
     return releaseBookingsAndRestoreAvailability(tx, "ORDER", orderId, platformId);
 }
 
+/**
+ * Partial-release helper for SP partial handover / skip (migration 0048).
+ *
+ * On completion of a handover where the client took fewer units than
+ * originally booked, we need to (a) reduce the remaining booking so the
+ * return expects only what was actually collected, and (b) restore the
+ * un-collected delta to asset.available_quantity so that stock becomes
+ * available for the next booking immediately.
+ *
+ * Per-asset logic:
+ *   - scanned === 0 → delete the booking row, restore full booked qty
+ *   - 0 < scanned < booked → update booking row to scanned qty, restore (booked - scanned)
+ *   - scanned >= booked → no-op
+ *
+ * Unlike `releaseBookingsAndRestoreAvailability`, this does NOT delete all
+ * bookings — the outstanding (still-collected) portion stays booked for
+ * the return phase.
+ */
+export async function reduceBookingsForScannedOutbound(
+    tx: any,
+    parentType: "ORDER" | "SELF_PICKUP",
+    parentId: string,
+    platformId: string,
+    scannedByAsset: Map<string, number>
+): Promise<void> {
+    const parentCondition =
+        parentType === "ORDER"
+            ? eq(assetBookings.order_id, parentId)
+            : eq(assetBookings.self_pickup_id, parentId);
+
+    const bookedByAsset = await tx
+        .select({
+            asset_id: assetBookings.asset_id,
+            booked_quantity: sql<number>`COALESCE(SUM(${assetBookings.quantity}), 0)`,
+        })
+        .from(assetBookings)
+        .where(parentCondition)
+        .groupBy(assetBookings.asset_id);
+
+    for (const row of bookedByAsset) {
+        const assetId = row.asset_id;
+        const bookedQty = Number(row.booked_quantity || 0);
+        const scannedQty = scannedByAsset.get(assetId);
+        if (scannedQty === undefined) continue;
+        if (scannedQty >= bookedQty) continue; // full-scan: no booking change
+
+        const restoreQty = bookedQty - scannedQty;
+
+        if (scannedQty === 0) {
+            await tx
+                .delete(assetBookings)
+                .where(and(parentCondition, eq(assetBookings.asset_id, assetId)));
+        } else {
+            // Consolidate: delete existing rows + insert one canonical row
+            // with the reduced quantity. Simpler than partial-row-updates
+            // when bookings were originally split across multiple rows.
+            const existing = await tx
+                .select({
+                    order_id: assetBookings.order_id,
+                    self_pickup_id: assetBookings.self_pickup_id,
+                    blocked_from: assetBookings.blocked_from,
+                    blocked_until: assetBookings.blocked_until,
+                })
+                .from(assetBookings)
+                .where(and(parentCondition, eq(assetBookings.asset_id, assetId)))
+                .limit(1);
+            const keep = existing[0];
+            await tx
+                .delete(assetBookings)
+                .where(and(parentCondition, eq(assetBookings.asset_id, assetId)));
+            if (keep) {
+                await tx.insert(assetBookings).values({
+                    order_id: keep.order_id,
+                    self_pickup_id: keep.self_pickup_id,
+                    asset_id: assetId,
+                    quantity: scannedQty,
+                    blocked_from: keep.blocked_from,
+                    blocked_until: keep.blocked_until,
+                });
+            }
+        }
+
+        await tx
+            .update(assets)
+            .set({
+                available_quantity: sql`LEAST(${assets.total_quantity}, GREATEST(0, ${assets.available_quantity} + ${restoreQty}))`,
+                updated_at: new Date(),
+            })
+            .where(and(eq(assets.id, assetId), eq(assets.platform_id, platformId)));
+
+        // Asset status sync: if fully skipped (scanned === 0) AND no other
+        // bookings remain, flip BOOKED/OUT back to AVAILABLE.
+        if (scannedQty === 0) {
+            const remaining = await tx
+                .select({ count: count() })
+                .from(assetBookings)
+                .where(eq(assetBookings.asset_id, assetId));
+            if (Number(remaining[0]?.count || 0) === 0) {
+                await tx
+                    .update(assets)
+                    .set({
+                        status: sql`CASE
+                            WHEN ${assets.status} IN ('BOOKED', 'OUT', 'AVAILABLE') THEN 'AVAILABLE'
+                            ELSE ${assets.status}
+                        END`,
+                        updated_at: new Date(),
+                    })
+                    .where(and(eq(assets.id, assetId), eq(assets.platform_id, platformId)));
+            }
+        }
+    }
+}
+
 export type UnavailableItem = {
     asset_id: string;
     asset_name: string;

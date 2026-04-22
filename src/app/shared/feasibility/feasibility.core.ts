@@ -99,11 +99,7 @@ export const isWeekend = (date: Date, config: FeasibilityConfig): boolean => {
     return config.weekend_days.includes(weekday);
 };
 
-export const addBusinessDays = (
-    startDate: Date,
-    days: number,
-    config: FeasibilityConfig
-): Date => {
+export const addBusinessDays = (startDate: Date, days: number, config: FeasibilityConfig): Date => {
     if (days <= 0) return new Date(startDate);
     const result = new Date(startDate);
     let added = 0;

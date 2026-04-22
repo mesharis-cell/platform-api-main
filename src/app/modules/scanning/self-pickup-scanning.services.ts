@@ -1,7 +1,8 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
 import {
+    assetBookings,
     assetConditionHistory,
     assets,
     scanEventAssets,
@@ -16,6 +17,7 @@ import { AuthUser } from "../../interface/common";
 import { eventBus, EVENT_TYPES } from "../../events";
 import { releaseBookingsAndRestoreAvailability } from "../order/order.utils";
 import { StockMovementService } from "../../services/stock-movement.service";
+import { SelfPickupServices } from "../self-pickup/self-pickup.services";
 import type {
     PooledSettlementEntry,
     ScanMediaPayload,
@@ -112,6 +114,32 @@ const selfPickupOutboundScan = async (
     if (!asset)
         throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found with this QR code");
 
+    // Mirror order-scan's TRANSFORMED redirect (scanning.services.ts:149-172).
+    // If the QR belongs to an asset that's been rebranded/replaced, tell the
+    // scanner to scan the successor instead of erroring out as "not in pickup".
+    if (asset.status === "TRANSFORMED") {
+        if (!asset.transformed_to) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Asset has been transformed and is no longer scannable"
+            );
+        }
+        const newAsset = await db.query.assets.findFirst({
+            where: eq(assets.id, asset.transformed_to),
+        });
+        if (newAsset) {
+            return {
+                message: "Asset has been transformed. Please scan the new asset QR code.",
+                asset,
+                redirect_asset: {
+                    id: newAsset.id,
+                    name: newAsset.name,
+                    qr_code: newAsset.qr_code,
+                },
+            };
+        }
+    }
+
     const pickupItem = pickup.items.find((item) => item.asset_id === asset.id);
     if (!pickupItem)
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Asset not in this self-pickup");
@@ -204,7 +232,12 @@ const selfPickupOutboundScan = async (
 const completeSelfPickupHandover = async (
     selfPickupId: string,
     user: AuthUser,
-    platformId: string
+    platformId: string,
+    body: {
+        allow_partial?: boolean;
+        partial_reason?: string;
+        items?: Array<{ self_pickup_item_id: string; scanned_quantity: number }>;
+    } = {}
 ) => {
     const pickup = await db.query.selfPickups.findFirst({
         where: and(eq(selfPickups.id, selfPickupId), eq(selfPickups.platform_id, platformId)),
@@ -226,46 +259,111 @@ const completeSelfPickupHandover = async (
         ),
     });
 
+    // Compute per-item actual scanned quantity from scan_events (source of
+    // truth). The `items[]` body field, if provided, must match these
+    // numbers — we don't trust client-asserted qty.
+    const scannedByItemId = new Map<string, number>();
+    const scannedByAssetId = new Map<string, number>();
+    for (const item of pickup.items) {
+        const assetScans = outboundScans.filter((s) => s.asset_id === item.asset_id);
+        const qty = assetScans.reduce((sum, s) => sum + s.quantity, 0);
+        scannedByItemId.set(item.id, qty);
+        scannedByAssetId.set(item.asset_id, qty);
+    }
     const totalScanned = outboundScans.reduce((sum, s) => sum + s.quantity, 0);
     const totalRequired = pickup.items.reduce((sum, item) => sum + item.quantity, 0);
+    const isPartial = totalScanned < totalRequired;
 
-    if (totalScanned < totalRequired) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            `Not all items scanned. Scanned: ${totalScanned}, Required: ${totalRequired}`
-        );
+    if (isPartial) {
+        // Partial handover is NO_COST-only for now (pricing rules deferred).
+        if ((pickup as any).pricing_mode !== "NO_COST") {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Partial handover is only available on No-Cost pickups. Ask admin to mark this pickup as No-Cost first, or scan every unit."
+            );
+        }
+        if (!body.allow_partial) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                `Not all items scanned. Scanned: ${totalScanned}, Required: ${totalRequired}. Pass allow_partial=true with a reason to finalize a partial handover.`
+            );
+        }
+        if (!body.partial_reason || body.partial_reason.trim().length < 5) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "A reason (min 5 characters) is required for partial handover"
+            );
+        }
+        // Validate any client-sent items[] matches the actual scan_events tallies.
+        if (body.items) {
+            for (const entry of body.items) {
+                const actual = scannedByItemId.get(entry.self_pickup_item_id);
+                if (actual === undefined) {
+                    throw new CustomizedError(
+                        httpStatus.BAD_REQUEST,
+                        `Unknown self_pickup_item_id in body: ${entry.self_pickup_item_id}`
+                    );
+                }
+                if (actual !== entry.scanned_quantity) {
+                    throw new CustomizedError(
+                        httpStatus.BAD_REQUEST,
+                        `Item ${entry.self_pickup_item_id}: body says ${entry.scanned_quantity} but scan history shows ${actual}. Rescan or correct the body.`
+                    );
+                }
+            }
+        }
     }
 
+    // Persist scanned_quantity + skipped + partial_reason on each item row,
+    // then (only if partial) reduce the remaining bookings so return-flow
+    // and inventory math reflect the actual collection.
     await db.transaction(async (tx) => {
-        await tx
-            .update(selfPickups)
-            .set({ self_pickup_status: "PICKED_UP" })
-            .where(eq(selfPickups.id, selfPickupId));
-        await tx.insert(selfPickupStatusHistory).values({
-            platform_id: platformId,
-            self_pickup_id: selfPickupId,
-            status: "PICKED_UP",
-            notes: "All items handed over to collector",
-            updated_by: user.id,
-        });
+        for (const item of pickup.items) {
+            const qty = scannedByItemId.get(item.id) ?? 0;
+            await tx
+                .update(selfPickupItems)
+                .set({
+                    scanned_quantity: qty,
+                    skipped: qty === 0,
+                    partial_reason:
+                        isPartial && qty < item.quantity ? (body.partial_reason ?? null) : null,
+                })
+                .where(eq(selfPickupItems.id, item.id));
+        }
+        if (isPartial) {
+            const { reduceBookingsForScannedOutbound } = await import("../order/order.utils");
+            await reduceBookingsForScannedOutbound(
+                tx,
+                "SELF_PICKUP",
+                selfPickupId,
+                platformId,
+                scannedByAssetId
+            );
+        }
     });
 
-    await eventBus.emit({
-        platform_id: platformId,
-        event_type: EVENT_TYPES.SELF_PICKUP_PICKED_UP,
-        entity_type: "SELF_PICKUP",
-        entity_id: pickup.id,
-        actor_id: user.id,
-        actor_role: user.role,
-        payload: {
-            entity_id_readable: pickup.self_pickup_id,
-            company_id: pickup.company_id,
-            company_name: (pickup.company as any)?.name || "N/A",
-            collector_name: pickup.collector_name,
-        },
-    });
+    const transitionNote = isPartial
+        ? `Partial handover — scanned ${totalScanned}/${totalRequired}. Reason: ${body.partial_reason}`
+        : "All items handed over to collector";
 
-    return { self_pickup_id: pickup.self_pickup_id, new_status: "PICKED_UP" };
+    // Route through transitionStatus so BOTH the specific event
+    // (SELF_PICKUP_PICKED_UP) and the generic SELF_PICKUP_STATUS_CHANGED
+    // fire — mirrors the pattern every other SP transition uses.
+    return SelfPickupServices.transitionStatus(
+        pickup.id,
+        platformId,
+        user,
+        "PICKED_UP",
+        transitionNote,
+        isPartial
+            ? {
+                  partial: true,
+                  total_scanned: totalScanned,
+                  total_required: totalRequired,
+                  partial_reason: body.partial_reason,
+              }
+            : {}
+    );
 };
 
 // ----------------------------------- RETURN SCAN (INBOUND) --------------------------------
@@ -306,6 +404,32 @@ const selfPickupInboundScan = async (
     });
     if (!asset) throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found");
 
+    // TRANSFORMED redirect — mirror of outbound path above + order-scan pattern.
+    // Prevents the misleading "Asset not in this self-pickup" error when the
+    // QR belongs to a rebranded/replaced asset.
+    if (asset.status === "TRANSFORMED") {
+        if (!asset.transformed_to) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Asset has been transformed and is no longer scannable"
+            );
+        }
+        const newAsset = await db.query.assets.findFirst({
+            where: eq(assets.id, asset.transformed_to),
+        });
+        if (newAsset) {
+            return {
+                message: "Asset has been transformed. Please scan the new asset QR code.",
+                asset,
+                redirect_asset: {
+                    id: newAsset.id,
+                    name: newAsset.name,
+                    qr_code: newAsset.qr_code,
+                },
+            };
+        }
+    }
+
     const pickupItem = pickup.items.find((item) => item.asset_id === asset.id);
     if (!pickupItem)
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Asset not in this self-pickup");
@@ -329,6 +453,32 @@ const selfPickupInboundScan = async (
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
             "At least one damage report photo is required for damaged returns"
+        );
+    }
+
+    // Over-scan guard (INBOUND parity with OUTBOUND at line 163). Expected
+    // return qty is the actual scanned_quantity from the handover (set by
+    // migration 0048). Falls back to ordered quantity for records created
+    // before 0048 landed. Prevents returning more units than were collected.
+    const expectedReturnQty = (pickupItem as any).scanned_quantity ?? pickupItem.quantity;
+    if (expectedReturnQty === 0) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "This item was not collected at handover and cannot be returned"
+        );
+    }
+    const existingReturnScans = await db.query.scanEvents.findMany({
+        where: and(
+            eq(scanEvents.self_pickup_id, selfPickupId),
+            eq(scanEvents.asset_id, asset.id),
+            eq(scanEvents.scan_type, "INBOUND")
+        ),
+    });
+    const alreadyReturned = existingReturnScans.reduce((sum, s) => sum + s.quantity, 0);
+    if (alreadyReturned + scanQuantity > expectedReturnQty) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Cannot return ${scanQuantity} units. Already returned: ${alreadyReturned}, Expected: ${expectedReturnQty}`
         );
     }
 
@@ -423,14 +573,20 @@ const selfPickupInboundScan = async (
         ),
     });
     const totalScanned = allInbound.reduce((sum, s) => sum + s.quantity, 0);
-    const totalRequired = pickup.items.reduce((sum, item) => sum + item.quantity, 0);
+    // Expected return = actual handover qty (migration 0048). Fallback to
+    // original ordered qty for records created pre-0048.
+    const totalRequired = pickup.items.reduce(
+        (sum, item) => sum + ((item as any).scanned_quantity ?? item.quantity),
+        0
+    );
 
     return {
         asset: { asset_id: asset.id, asset_name: asset.name },
         progress: {
             total_items: totalRequired,
             items_scanned: totalScanned,
-            percent_complete: Math.round((totalScanned / totalRequired) * 100),
+            percent_complete:
+                totalRequired === 0 ? 100 : Math.round((totalScanned / totalRequired) * 100),
         },
     };
 };
@@ -490,13 +646,18 @@ const completeSelfPickupReturn = async (
             .filter((s) => s.asset_id === item.asset_id)
             .reduce((sum, s) => sum + s.quantity, 0);
         const trackingMethod = (item.asset as any)?.tracking_method || "INDIVIDUAL";
-        const delta = scannedQty - item.quantity;
+        // Expected return = actual handover qty (migration 0048). Fallback to
+        // item.quantity for records created pre-0048 or when scanned_quantity
+        // wasn't set (legacy all-or-nothing path).
+        const expectedQty = (item as any).scanned_quantity ?? item.quantity;
+        if (expectedQty === 0) continue; // Skipped at handover — no return expected.
+        const delta = scannedQty - expectedQty;
 
         if (trackingMethod === "INDIVIDUAL") {
-            if (scannedQty < item.quantity) {
+            if (scannedQty < expectedQty) {
                 throw new CustomizedError(
                     httpStatus.BAD_REQUEST,
-                    `Cannot complete: ${item.asset_name}: ${scannedQty}/${item.quantity} scanned`
+                    `Cannot complete: ${item.asset_name}: ${scannedQty}/${expectedQty} scanned`
                 );
             }
         } else if (delta < 0) {
@@ -506,7 +667,7 @@ const completeSelfPickupReturn = async (
                     line_id: item.id,
                     asset_id: item.asset_id,
                     asset_name: item.asset_name,
-                    outbound_qty: item.quantity,
+                    outbound_qty: expectedQty,
                     scanned_qty: scannedQty,
                     delta,
                 });
@@ -575,6 +736,20 @@ const completeSelfPickupReturn = async (
         });
     });
 
+    // Emit BOTH specific + generic events — mirrors transitionStatus pattern.
+    // Return flow keeps its own transaction (settlements + financial_status
+    // must be atomic with the status flip), so we can't delegate the whole
+    // thing to transitionStatus; but we must still emit the generic event
+    // so STATUS_CHANGED listeners (audit, cache invalidation) fire on CLOSED.
+    const closedPayload = {
+        entity_id_readable: pickup.self_pickup_id,
+        company_id: pickup.company_id,
+        company_name: (pickup.company as any)?.name || "N/A",
+        collector_name: pickup.collector_name,
+        collector_phone: pickup.collector_phone,
+        pickup_window: pickup.pickup_window,
+        settlements_applied: settlementsToApply.length,
+    };
     await eventBus.emit({
         platform_id: platformId,
         event_type: EVENT_TYPES.SELF_PICKUP_CLOSED,
@@ -582,12 +757,20 @@ const completeSelfPickupReturn = async (
         entity_id: pickup.id,
         actor_id: user.id,
         actor_role: user.role,
+        payload: closedPayload,
+    });
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: EVENT_TYPES.SELF_PICKUP_STATUS_CHANGED,
+        entity_type: "SELF_PICKUP",
+        entity_id: pickup.id,
+        actor_id: user.id,
+        actor_role: user.role,
         payload: {
-            entity_id_readable: pickup.self_pickup_id,
-            company_id: pickup.company_id,
-            company_name: (pickup.company as any)?.name || "N/A",
-            collector_name: pickup.collector_name,
-            settlements_applied: settlementsToApply.length,
+            ...closedPayload,
+            old_status: "AWAITING_RETURN",
+            new_status: "CLOSED",
+            notes: "",
         },
     });
 
@@ -615,6 +798,9 @@ const getSelfPickupHandoverProgress = async (selfPickupId: string, platformId: s
             .filter((s) => s.asset_id === item.asset_id)
             .reduce((sum, s) => sum + s.quantity, 0);
         return {
+            // Expose the pickup-item row id so the partial-handover finalize
+            // modal can cite it in the body (items[].self_pickup_item_id).
+            self_pickup_item_id: item.id,
             asset_id: item.asset_id,
             asset_name: item.asset_name,
             qr_code: (item.asset as any)?.qr_code,
@@ -622,6 +808,7 @@ const getSelfPickupHandoverProgress = async (selfPickupId: string, platformId: s
             required_quantity: item.quantity,
             scanned_quantity: scannedQty,
             is_complete: scannedQty >= item.quantity,
+            added_midflow: (item as any).added_midflow === true,
         };
     });
 
@@ -656,18 +843,25 @@ const getSelfPickupReturnProgress = async (selfPickupId: string, platformId: str
         const scannedQty = inboundScans
             .filter((s) => s.asset_id === item.asset_id)
             .reduce((sum, s) => sum + s.quantity, 0);
+        // Expected return = actual handover qty when known (migration 0048);
+        // fallback to ordered qty for records created before 0048.
+        const requiredQty = (item as any).scanned_quantity ?? item.quantity;
         return {
             asset_id: item.asset_id,
             asset_name: item.asset_name,
             qr_code: (item.asset as any)?.qr_code,
             tracking_method: (item.asset as any)?.tracking_method,
-            required_quantity: item.quantity,
+            required_quantity: requiredQty,
             scanned_quantity: scannedQty,
-            is_complete: scannedQty >= item.quantity,
+            is_complete: requiredQty === 0 ? true : scannedQty >= requiredQty,
+            skipped_at_handover: requiredQty === 0 && item.quantity > 0,
         };
     });
 
-    const totalItems = pickup.items.reduce((sum, i) => sum + i.quantity, 0);
+    const totalItems = pickup.items.reduce(
+        (sum, i) => sum + ((i as any).scanned_quantity ?? i.quantity),
+        0
+    );
     const scannedItems = assetsProgress.reduce((sum, a) => sum + a.scanned_quantity, 0);
 
     return {
@@ -680,8 +874,178 @@ const getSelfPickupReturnProgress = async (selfPickupId: string, platformId: str
     };
 };
 
+// ----------------------------------- MID-FLOW ADD ITEM (F3) -----------------------------
+//
+// Allows logistics to add a NEW item to an already-confirmed self-pickup at
+// handover time. Use-case: client shows up asking for an extra asset not on
+// the original cart. Gated to NO_COST pickups for now; STANDARD mode pickups
+// have pricing implications (quote revision) that haven't been designed yet.
+//
+// Flow mirrors submitSelfPickupFromCart's per-item loop:
+//   1. Verify asset on same platform + company as the pickup
+//   2. Availability check (available_quantity >= quantity)
+//   3. Insert self_pickup_items with added_midflow=true + reason + actor
+//   4. Insert asset_bookings with same blocked_from/until as existing SP
+//   5. Decrement asset.available_quantity
+//   6. Status history entry (no status change — still CONFIRMED/READY_FOR_PICKUP)
+//   7. Emit generic item-added event for audit listeners
+
+const addSelfPickupItemMidflow = async (
+    selfPickupId: string,
+    user: AuthUser,
+    platformId: string,
+    data: { asset_id: string; quantity: number; reason: string }
+) => {
+    const pickup = await db.query.selfPickups.findFirst({
+        where: and(eq(selfPickups.id, selfPickupId), eq(selfPickups.platform_id, platformId)),
+    });
+    if (!pickup) throw new CustomizedError(httpStatus.NOT_FOUND, "Self-pickup not found");
+
+    // Gate #1: NO_COST-only for now. Pricing implications on STANDARD
+    // pickups deferred to a separate sprint + feature flag.
+    if ((pickup as any).pricing_mode !== "NO_COST") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Adding items mid-flow is only available on No-Cost pickups. Ask admin to mark this pickup as No-Cost first."
+        );
+    }
+
+    // Gate #2: CONFIRMED or READY_FOR_PICKUP only. Before CONFIRMED, the SP
+    // is still uncommitted (pricing review / approval). After handover the
+    // booking lifecycle is already resolved — add-item doesn't make sense.
+    if (!["CONFIRMED", "READY_FOR_PICKUP"].includes(pickup.self_pickup_status)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Cannot add items to pickup in status: ${pickup.self_pickup_status}. Allowed: CONFIRMED, READY_FOR_PICKUP.`
+        );
+    }
+
+    // Asset lookup + tenant scope. Company match + platform match mirror the
+    // initial submit-from-cart check.
+    const asset = await db.query.assets.findFirst({
+        where: and(
+            eq(assets.id, data.asset_id),
+            eq(assets.platform_id, platformId),
+            eq(assets.company_id, pickup.company_id)
+        ),
+    });
+    if (!asset) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Asset not found or not available for this pickup's company"
+        );
+    }
+    if (asset.available_quantity < data.quantity) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Insufficient stock for ${asset.name}: available ${asset.available_quantity}, requested ${data.quantity}`
+        );
+    }
+
+    // Find an existing booking for this SP to crib the blocked_from/until
+    // window from — keeps the new booking consistent with the original
+    // pickup window so release logic + conflict checks stay uniform.
+    const [existingBooking] = await db
+        .select({
+            blocked_from: assetBookings.blocked_from,
+            blocked_until: assetBookings.blocked_until,
+        })
+        .from(assetBookings)
+        .where(eq(assetBookings.self_pickup_id, selfPickupId))
+        .limit(1);
+    if (!existingBooking) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Cannot determine pickup window — no existing bookings found for this pickup"
+        );
+    }
+
+    const itemVolume = parseFloat(asset.volume_per_unit) * data.quantity;
+    const itemWeight = parseFloat(asset.weight_per_unit) * data.quantity;
+
+    const insertedItem = await db.transaction(async (tx) => {
+        const [newItem] = await tx
+            .insert(selfPickupItems)
+            .values({
+                platform_id: platformId,
+                self_pickup_id: selfPickupId,
+                asset_id: asset.id,
+                asset_name: asset.name,
+                quantity: data.quantity,
+                volume_per_unit: asset.volume_per_unit,
+                weight_per_unit: asset.weight_per_unit,
+                total_volume: itemVolume.toFixed(3),
+                total_weight: itemWeight.toFixed(2),
+                condition_notes: null,
+                handling_tags: [],
+                from_collection: null,
+                from_collection_name: null,
+                added_midflow: true,
+                added_midflow_reason: data.reason,
+                added_midflow_by: user.id,
+                added_midflow_at: new Date(),
+            })
+            .returning();
+
+        await tx.insert(assetBookings).values({
+            asset_id: asset.id,
+            self_pickup_id: selfPickupId,
+            quantity: data.quantity,
+            blocked_from: existingBooking.blocked_from,
+            blocked_until: existingBooking.blocked_until,
+        });
+
+        await tx
+            .update(assets)
+            .set({
+                available_quantity: sql`GREATEST(0, ${assets.available_quantity} - ${data.quantity})`,
+            })
+            .where(eq(assets.id, asset.id));
+
+        await tx.insert(selfPickupStatusHistory).values({
+            platform_id: platformId,
+            self_pickup_id: selfPickupId,
+            status: pickup.self_pickup_status,
+            notes: `Item added mid-handover: ${asset.name} x${data.quantity} — reason: ${data.reason}`,
+            updated_by: user.id,
+        });
+
+        return newItem;
+    });
+
+    // Emit for audit / notification listeners. Using the generic
+    // STATUS_CHANGED as the rendezvous since we don't have a dedicated
+    // ITEM_ADDED_MIDFLOW event type (adding one would require event-types
+    // wiring + templates; overkill for the initial ship).
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: EVENT_TYPES.SELF_PICKUP_STATUS_CHANGED,
+        entity_type: "SELF_PICKUP",
+        entity_id: selfPickupId,
+        actor_id: user.id,
+        actor_role: user.role,
+        payload: {
+            entity_id_readable: pickup.self_pickup_id,
+            company_id: pickup.company_id,
+            old_status: pickup.self_pickup_status,
+            new_status: pickup.self_pickup_status,
+            event_kind: "ITEM_ADDED_MIDFLOW",
+            asset_id: asset.id,
+            asset_name: asset.name,
+            quantity: data.quantity,
+            reason: data.reason,
+        },
+    });
+
+    return {
+        self_pickup_id: pickup.self_pickup_id,
+        new_item: insertedItem,
+    };
+};
+
 export const SelfPickupScanningServices = {
     selfPickupOutboundScan,
+    addSelfPickupItemMidflow,
     completeSelfPickupHandover,
     selfPickupInboundScan,
     completeSelfPickupReturn,

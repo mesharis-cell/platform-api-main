@@ -169,6 +169,18 @@ export const SelfPickupOperationRoutes = (() => {
         SelfPickupControllers.markReadyForPickup
     );
 
+    // Ops-triggered return — unblocks logistics when the client forgets to
+    // press "Start Return" on their portal. Reuses the same service + guard
+    // (canTriggerReturn → PICKED_UP only) as the client-side route at line 70.
+    router.post(
+        "/:id/trigger-return",
+        platformValidator,
+        auth("ADMIN", "LOGISTICS"),
+        requirePermission(PERMISSIONS.SELF_PICKUPS_APPROVE),
+        featureValidator(featureNames.enable_self_pickup),
+        SelfPickupControllers.opsTriggerReturn
+    );
+
     router.post(
         "/:id/cancel",
         platformValidator,

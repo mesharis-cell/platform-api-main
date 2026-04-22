@@ -32,3 +32,7 @@ seeded-users-*.txt
 # (names + emails) in its USERS block. Keeping it out of git avoids
 # shipping client PII into history. Copy from a teammate if you need it.
 src/db/scripts/seed-users.ts
+
+# One-off prod data-fix scripts — scoped to specific entity IDs, not
+# reusable, shouldn't live in git history. Name pattern: fix-*.ts
+src/db/scripts/fix-*.ts
