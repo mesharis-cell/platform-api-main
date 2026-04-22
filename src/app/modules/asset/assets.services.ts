@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { moveS3Object, s3KeyFromUrl } from "../../services/s3.service";
 import httpStatus from "http-status";
 import QRCode from "qrcode";
@@ -34,10 +34,9 @@ import {
     AddAssetUnitsPayload,
     CreateAssetPayload,
     GenerateQRCodePayload,
-    SingleAssetAvailabilityResponse,
-    UnavailableItem,
 } from "./assets.interfaces";
 import { assetQueryValidationConfig, assetSortableFields } from "./assets.utils";
+import * as AvailabilityCore from "../../shared/availability/availability.core";
 
 // Moves any draft S3 images to permanent {companyId}/assets/ path
 const promoteDraftImages = async (
@@ -1472,255 +1471,42 @@ const getAssetScanHistory = async (id: string, user: AuthUser, platformId: strin
     };
 };
 
-// ----------------------------------- GET BATCH AVAILABILITY -----------------------------
-const getBatchAvailability = async (assetIds: string[], user: AuthUser, platformId: string) => {
-    // Step 1: Build query conditions
-    const conditions: any[] = [
-        inArray(assets.id, assetIds),
-        eq(assets.platform_id, platformId),
-        isNull(assets.deleted_at),
-    ];
-
-    // CLIENT users can only see their company's assets
-    if (user.role === "CLIENT") {
-        if (user.company_id) {
-            conditions.push(eq(assets.company_id, user.company_id));
-        } else {
-            throw new CustomizedError(httpStatus.UNAUTHORIZED, "Company not found");
-        }
-    }
-
-    // Step 2: Fetch assets with availability info
-    const foundAssets = await db
-        .select({
-            id: assets.id,
-            name: assets.name,
-            status: assets.status,
-            available_quantity: assets.available_quantity,
-            volume_per_unit: assets.volume_per_unit,
-            weight_per_unit: assets.weight_per_unit,
-        })
-        .from(assets)
-        .where(and(...conditions));
-
-    return foundAssets;
-};
-
-// ----------------------------------- CHECK ASSET AVAILABILITY ---------------------------
-const checkAssetAvailability = async (data: any, user: AuthUser, platformId: string) => {
-    const { start_date, end_date, asset_id, asset_ids, items } = data;
-
-    // Parse and validate dates
-    const startDate = new Date(start_date);
-    const endDate = new Date(end_date);
-
-    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "Invalid date format");
-    }
-
-    if (endDate < startDate) {
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "End date must be after start date");
-    }
-
-    // Single asset check
-    if (asset_id) {
-        return await getSingleAssetAvailability(asset_id, startDate, endDate, user, platformId);
-    }
-
-    // Multiple assets check (cart validation)
-    if (items && Array.isArray(items)) {
-        return await checkMultipleAssetsAvailability(items, startDate, endDate, user, platformId);
-    }
-
-    // Batch asset summary check
-    if (asset_ids && Array.isArray(asset_ids)) {
-        const summaries = await Promise.all(
-            asset_ids.map(async (id: string) => {
-                const summary = await getAssetAvailabilitySummary(
-                    id,
-                    startDate,
-                    endDate,
-                    user,
-                    platformId
-                );
-                return {
-                    asset_id: id,
-                    ...summary,
-                };
-            })
-        );
-        return { assets: summaries };
-    }
-
-    throw new CustomizedError(
-        httpStatus.BAD_REQUEST,
-        "Either asset_id, asset_ids, or items array is required"
-    );
-};
-
-// ----------------------------------- HELPER: GET SINGLE ASSET AVAILABILITY --------------
-const getSingleAssetAvailability = async (
-    assetId: string,
-    startDate: Date,
-    endDate: Date,
-    user: AuthUser,
-    platformId: string
-): Promise<SingleAssetAvailabilityResponse> => {
-    // Verify asset exists and user has access
-    const conditions: any[] = [
-        eq(assets.id, assetId),
-        eq(assets.platform_id, platformId),
-        isNull(assets.deleted_at),
-    ];
-
-    // Filter by user role (CLIENT users can only see their company's assets)
-    if (user.role === "CLIENT") {
-        if (user.company_id) {
-            conditions.push(eq(assets.company_id, user.company_id));
-        } else {
-            throw new CustomizedError(httpStatus.UNAUTHORIZED, "Company not found");
-        }
-    }
-
-    const asset = await db.query.assets.findFirst({
-        where: and(...conditions),
-    });
-
-    if (!asset) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found");
-    }
-
-    // Get overlapping bookings
-    const overlappingBookings = await db.query.assetBookings.findMany({
-        where: and(
-            eq(assetBookings.asset_id, assetId),
-            sql`${assetBookings.blocked_from} <= ${endDate}`,
-            sql`${assetBookings.blocked_until} >= ${startDate}`
-        ),
-        with: {
-            order: {
-                columns: {
-                    id: true,
-                    order_id: true,
-                },
-            },
-        },
-    });
-
-    const bookedQuantity = overlappingBookings.reduce((sum, booking) => sum + booking.quantity, 0);
-    const availableQuantity = Math.max(0, asset.total_quantity - bookedQuantity);
-
-    return {
-        asset_name: asset.name,
-        total_quantity: asset.total_quantity,
-        available_quantity: availableQuantity,
-        booked_quantity: bookedQuantity,
-        bookings: overlappingBookings.map((b) => ({
-            order_id: (b.order as any).order_id,
-            quantity: b.quantity,
-            blocked_from: b.blocked_from,
-            blocked_until: b.blocked_until,
-        })),
-    };
-};
-
-// ----------------------------------- HELPER: CHECK MULTIPLE ASSET AVAILABILITY ----------
-export const checkMultipleAssetsAvailability = async (
-    items: Array<{ asset_id: string; quantity: number }>,
-    startDate: Date,
-    endDate: Date,
-    user: AuthUser,
-    platformId: string
-): Promise<{ all_available: boolean; unavailable_items: Array<UnavailableItem> }> => {
-    const unavailableItems: Array<UnavailableItem> = [];
-
-    for (const item of items) {
-        const availability = await getSingleAssetAvailability(
-            item.asset_id,
-            startDate,
-            endDate,
-            user,
-            platformId
-        );
-
-        if (availability.available_quantity < item.quantity) {
-            // Find next available date
-            let nextAvailableDate: Date | undefined;
-            if (availability.bookings.length > 0) {
-                const latestBookingEnd = new Date(
-                    Math.max(
-                        ...availability.bookings.map((b) => new Date(b.blocked_until).getTime())
-                    )
-                );
-                nextAvailableDate = new Date(latestBookingEnd);
-                nextAvailableDate.setDate(nextAvailableDate.getDate() + 1);
-            }
-
-            unavailableItems.push({
-                asset_id: item.asset_id,
-                asset_name: availability.asset_name,
-                requested: item.quantity,
-                available: availability.available_quantity,
-                next_available_date: nextAvailableDate,
-            });
-        }
-    }
-
-    return {
-        all_available: unavailableItems.length === 0,
-        unavailable_items: unavailableItems,
-    };
-};
-
-// ----------------------------------- HELPER: GET ASSET AVAILABILITY SUMMARY -------------
-export const getAssetAvailabilitySummary = async (
-    assetId: string,
-    startDate: Date,
-    endDate: Date,
+// ----------------------------------- GET AVAILABILITY (unified) -------------------------
+// Single endpoint replacing the old batch-availability + check-availability pair.
+// All availability gating across the platform delegates to availability.core.ts;
+// this is just the HTTP-facing wrapper.
+const getAvailability = async (
+    data: {
+        items: Array<{ asset_id: string; quantity?: number }>;
+        window?: { start: string; end: string };
+        exclude_entity?: { type: "ORDER" | "SELF_PICKUP"; id: string };
+    },
     user: AuthUser,
     platformId: string
 ) => {
-    const availability = await getSingleAssetAvailability(
-        assetId,
-        startDate,
-        endDate,
-        user,
-        platformId
-    );
-
-    let message = "";
-    let nextAvailableDate: Date | undefined;
-
-    if (availability.available_quantity === 0) {
-        // Fully booked - find when it becomes available
-        const futureBookings = await db.query.assetBookings.findMany({
-            where: and(
-                eq(assetBookings.asset_id, assetId),
-                gte(assetBookings.blocked_from, startDate)
-            ),
-            orderBy: (bookings, { asc }) => [asc(bookings.blocked_until)],
-            limit: 1,
-        });
-
-        if (futureBookings.length > 0) {
-            nextAvailableDate = new Date(futureBookings[0].blocked_until);
-            nextAvailableDate.setDate(nextAvailableDate.getDate() + 1);
-            message = `Fully booked. Available from ${nextAvailableDate.toISOString().split("T")[0]}`;
-        } else {
-            message = "Currently unavailable";
+    // CLIENT users are scoped to their own company's assets.
+    let companyId: string | null = null;
+    if (user.role === "CLIENT") {
+        if (!user.company_id) {
+            throw new CustomizedError(httpStatus.UNAUTHORIZED, "Company not found");
         }
-    } else if (availability.available_quantity < availability.total_quantity) {
-        message = `${availability.available_quantity} of ${availability.total_quantity} available`;
-    } else {
-        message = `All ${availability.total_quantity} units available`;
+        companyId = user.company_id;
     }
 
+    const window = data.window
+        ? { start: new Date(data.window.start), end: new Date(data.window.end) }
+        : undefined;
+
+    const results = await AvailabilityCore.checkAvailability({
+        platformId,
+        companyId,
+        requests: data.items,
+        window,
+        excludeEntity: data.exclude_entity,
+    });
+
     return {
-        is_available: availability.available_quantity > 0,
-        available_quantity: availability.available_quantity,
-        total_quantity: availability.total_quantity,
-        next_available_date: nextAvailableDate,
-        message,
+        items: Array.from(results.values()),
     };
 };
 
@@ -2488,9 +2274,7 @@ export const AssetServices = {
     deleteAsset,
     getAssetAvailabilityStats,
     getAssetScanHistory,
-    getBatchAvailability,
-    checkAssetAvailability,
-    getSingleAssetAvailability,
+    getAvailability,
     addConditionHistory,
     generateQRCode,
     sentAssetToMaintenance,

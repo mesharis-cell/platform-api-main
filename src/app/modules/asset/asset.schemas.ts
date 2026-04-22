@@ -232,35 +232,48 @@ const addAssetUnitsSchema = z.object({
     }),
 });
 
-// ----------------------------------- BATCH AVAILABILITY SCHEMA --------------------------
-const batchAvailabilitySchema = z.object({
+// ----------------------------------- AVAILABILITY SCHEMA --------------------------------
+// Unified replacement for the old batch-availability + check-availability pair.
+// Takes a list of (asset_id, optional quantity) items and an optional window.
+// Without a window the response still surfaces hard-blocks (TRANSFORMED /
+// MAINTENANCE-serialized) and self-booking OUT accounting, but no booking
+// conflicts (since "right now" has no overlap to compute).
+const availabilitySchema = z.object({
     body: z.object({
-        asset_ids: z
-            .array(z.string().uuid("Invalid asset ID format"))
-            .min(1, "At least one asset ID is required"),
+        items: z
+            .array(
+                z.object({
+                    asset_id: z.string().uuid("Invalid asset ID format"),
+                    quantity: z
+                        .number()
+                        .int("Quantity must be an integer")
+                        .min(1, "Quantity must be at least 1")
+                        .optional(),
+                })
+            )
+            .min(1, "At least one item is required"),
+        window: z
+            .object({
+                start: z.string({ message: "Window start is required" }),
+                end: z.string({ message: "Window end is required" }),
+            })
+            .refine(
+                (w) =>
+                    !Number.isNaN(new Date(w.start).getTime()) &&
+                    !Number.isNaN(new Date(w.end).getTime()),
+                { message: "Window start/end must be valid ISO datetimes" }
+            )
+            .refine((w) => new Date(w.start).getTime() <= new Date(w.end).getTime(), {
+                message: "Window end must be on or after window start",
+            })
+            .optional(),
+        exclude_entity: z
+            .object({
+                type: z.enum(["ORDER", "SELF_PICKUP"]),
+                id: z.string().uuid("Invalid entity ID"),
+            })
+            .optional(),
     }),
-});
-
-// ----------------------------------- CHECK AVAILABILITY SCHEMA --------------------------
-const checkAvailabilitySchema = z.object({
-    body: z
-        .object({
-            start_date: z.string({ message: "Start date is required" }),
-            end_date: z.string({ message: "End date is required" }),
-            asset_id: z.string().uuid("Invalid asset ID format").optional(),
-            asset_ids: z.array(z.string().uuid("Invalid asset ID format")).optional(),
-            items: z
-                .array(
-                    z.object({
-                        asset_id: z.string().uuid("Invalid asset ID format"),
-                        quantity: z.number().int().min(1, "Quantity must be at least 1"),
-                    })
-                )
-                .optional(),
-        })
-        .refine((data) => data.asset_id || data.asset_ids || data.items, {
-            message: "Either asset_id, asset_ids, or items array is required",
-        }),
 });
 
 // ----------------------------------- ADD CONDITION HISTORY SCHEMA ---------------------------
@@ -330,8 +343,7 @@ export const AssetSchemas = {
     createAssetSchema,
     updateAssetSchema,
     addAssetUnitsSchema,
-    batchAvailabilitySchema,
-    checkAvailabilitySchema,
+    availabilitySchema,
     addConditionHistorySchema,
     generateQRCodeSchema,
     completeMaintenanceSchema,

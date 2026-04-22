@@ -51,24 +51,16 @@ router.post(
     AssetControllers.generateQRCode
 );
 
-// Batch availability check
+// Unified availability check (replaces /batch-availability + /check-availability).
+// Takes optional window + optional per-item quantities. See availability.core.ts
+// for the math that drives it.
 router.post(
-    "/batch-availability",
+    "/availability",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
     requirePermission(PERMISSIONS.ASSETS_CHECK_AVAILABILITY, PERMISSIONS.ORDERS_CREATE),
-    payloadValidator(AssetSchemas.batchAvailabilitySchema),
-    AssetControllers.getBatchAvailability
-);
-
-// Check availability with date range
-router.post(
-    "/check-availability",
-    platformValidator,
-    auth("ADMIN", "LOGISTICS", "CLIENT"),
-    requirePermission(PERMISSIONS.ASSETS_CHECK_AVAILABILITY, PERMISSIONS.ORDERS_CREATE),
-    payloadValidator(AssetSchemas.checkAvailabilitySchema),
-    AssetControllers.checkAssetAvailability
+    payloadValidator(AssetSchemas.availabilitySchema),
+    AssetControllers.getAvailability
 );
 
 // Get all assets

@@ -18,6 +18,7 @@ import { eventBus, EVENT_TYPES } from "../../events";
 import { releaseBookingsAndRestoreAvailability } from "../order/order.utils";
 import { StockMovementService } from "../../services/stock-movement.service";
 import { SelfPickupServices } from "../self-pickup/self-pickup.services";
+import * as AvailabilityCore from "../../shared/availability/availability.core";
 import type {
     PooledSettlementEntry,
     ScanMediaPayload,
@@ -935,12 +936,6 @@ const addSelfPickupItemMidflow = async (
             "Asset not found or not available for this pickup's company"
         );
     }
-    if (asset.available_quantity < data.quantity) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            `Insufficient stock for ${asset.name}: available ${asset.available_quantity}, requested ${data.quantity}`
-        );
-    }
 
     // Find an existing booking for this SP to crib the blocked_from/until
     // window from — keeps the new booking consistent with the original
@@ -964,6 +959,38 @@ const addSelfPickupItemMidflow = async (
     const itemWeight = parseFloat(asset.weight_per_unit) * data.quantity;
 
     const insertedItem = await db.transaction(async (tx) => {
+        // Availability check inside the tx with FOR UPDATE lock — replaces
+        // the legacy direct snapshot gate on asset.available_quantity, which
+        // ignored overlapping bookings in the pickup window. The core
+        // excludes this pickup's own bookings so the mid-flow add doesn't
+        // conflict with items already scheduled on it.
+        const availabilityMap = await AvailabilityCore.checkAvailability({
+            tx,
+            platformId,
+            companyId: pickup.company_id,
+            requests: [{ asset_id: asset.id, quantity: data.quantity }],
+            window: {
+                start: existingBooking.blocked_from,
+                end: existingBooking.blocked_until,
+            },
+            excludeEntity: { type: "SELF_PICKUP", id: selfPickupId },
+        });
+        const availability = availabilityMap.get(asset.id);
+        if (!availability?.is_available) {
+            const reason =
+                availability?.reason_code === "TRANSFORMED"
+                    ? "asset has been transformed"
+                    : availability?.reason_code === "MAINTENANCE"
+                      ? "asset is in maintenance"
+                      : availability?.reason_code === "INSUFFICIENT_QUANTITY"
+                        ? `${availability.available_quantity} available, ${data.quantity} requested`
+                        : "unavailable";
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                `Cannot add ${asset.name}: ${reason}`
+            );
+        }
+
         const [newItem] = await tx
             .insert(selfPickupItems)
             .values({

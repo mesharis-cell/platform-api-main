@@ -34,11 +34,19 @@ const globalErrorHandler: ErrorRequestHandler = (error, req, res, next) => {
         statusCode = httpStatus.UNAUTHORIZED;
         message = "Token has been expired";
     }
+    // Spread structured error payloads (e.g. requires_settlement list for the
+    // pooled-return settlement modal) onto the response body so frontends can
+    // drive conditional UI with `error.response.data.<key>` directly. Runs in
+    // every environment — not just development.
+    const extraData =
+        error.data && typeof error.data === "object" ? (error.data as Record<string, unknown>) : {};
+
     res.status(statusCode).json({
         success: false,
         message: message,
         errorSources,
         stack: config.node_env === "development" ? error.stack : null,
+        ...extraData,
     });
 };
 
