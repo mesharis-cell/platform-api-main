@@ -64,6 +64,17 @@ type ImageFetchResult = {
     extension: "png" | "jpeg" | "gif";
 } | null;
 
+// Memory guardrails — these limits exist to prevent the photos path from
+// OOM-killing the API instance under load. The previous unbounded
+// Promise.all(rows.map(fetchImage)) would fire N parallel fetches and buffer
+// up to 5MB each, which on large tenants (hundreds of assets) peaked above
+// the EB instance RAM and crashed it. Do not relax without adding another
+// backstop.
+const FETCH_CONCURRENCY = 8;
+const IMAGE_BYTE_CAP = 2 * 1024 * 1024; // 2MB — thumbnails rarely exceed this
+const IMAGE_FETCH_TIMEOUT_MS = 5000;
+export const MAX_ROWS_WITH_PHOTOS = 500;
+
 const detectExtension = (url: string, contentType: string | null): "png" | "jpeg" | "gif" => {
     const ct = (contentType || "").toLowerCase();
     if (ct.includes("png")) return "png";
@@ -75,7 +86,10 @@ const detectExtension = (url: string, contentType: string | null): "png" | "jpeg
     return "jpeg";
 };
 
-const fetchImage = async (url: string | null, timeoutMs = 8000): Promise<ImageFetchResult> => {
+const fetchImage = async (
+    url: string | null,
+    timeoutMs = IMAGE_FETCH_TIMEOUT_MS
+): Promise<ImageFetchResult> => {
     if (!url) return null;
     try {
         const controller = new AbortController();
@@ -83,9 +97,13 @@ const fetchImage = async (url: string | null, timeoutMs = 8000): Promise<ImageFe
         const response = await fetch(url, { signal: controller.signal });
         clearTimeout(timer);
         if (!response.ok) return null;
+        // Peek Content-Length first so we can bail BEFORE buffering a huge
+        // image. Not all responses set it; we fall through to a post-fetch
+        // size check as a backstop.
+        const cl = response.headers.get("content-length");
+        if (cl && Number(cl) > IMAGE_BYTE_CAP) return null;
         const ab = await response.arrayBuffer();
-        // Reject absurdly large images (>5MB) to keep exports snappy.
-        if (ab.byteLength > 5 * 1024 * 1024) return null;
+        if (ab.byteLength > IMAGE_BYTE_CAP) return null;
         return {
             buffer: Buffer.from(ab),
             extension: detectExtension(url, response.headers.get("content-type")),
@@ -93,6 +111,32 @@ const fetchImage = async (url: string | null, timeoutMs = 8000): Promise<ImageFe
     } catch {
         return null;
     }
+};
+
+/**
+ * Bounded-concurrency map — caps how many `fn` calls run in parallel to
+ * `limit`. Replaces the prior unbounded `Promise.all(items.map(fn))` which
+ * would fire every fetch at once. With N=996 assets and 5MB peak per image,
+ * that path could need ~5GB RAM and reliably OOM-killed the instance.
+ */
+const mapLimit = async <T, R>(
+    items: T[],
+    limit: number,
+    fn: (item: T) => Promise<R>
+): Promise<R[]> => {
+    const results: R[] = new Array(items.length);
+    let cursor = 0;
+    const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+            const idx = cursor;
+            cursor += 1;
+            if (idx >= items.length) return;
+            results[idx] = await fn(items[idx]);
+        }
+    });
+    await Promise.all(runners);
+    return results;
 };
 
 const formatDate = (value: Date | string | null | undefined) =>
@@ -181,10 +225,11 @@ export const generateAssetCatalogXlsx = async (
     // Now rows start at 3 (row 1 = title, row 2 = column headers after insert).
     const DATA_START_ROW = 3;
 
-    // Fetch photos in parallel when requested. Missing/failed URLs yield null
-    // and the row renders without an image.
+    // Bounded-concurrency fetch — never exceeds FETCH_CONCURRENCY in flight.
+    // Row-count is capped upstream via MAX_ROWS_WITH_PHOTOS. Missing / failed
+    // URLs resolve to null and render as empty cells.
     const imageBuffers: (ImageFetchResult | null)[] = includePhotos
-        ? await Promise.all(rows.map((r) => fetchImage(r.primary_image_url)))
+        ? await mapLimit(rows, FETCH_CONCURRENCY, (r) => fetchImage(r.primary_image_url))
         : [];
 
     for (let i = 0; i < rows.length; i += 1) {
