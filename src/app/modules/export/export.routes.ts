@@ -103,4 +103,12 @@ router.get(
     ExportControllers.exportFamilyStockMovements
 );
 
+router.get(
+    "/asset-catalog",
+    platformValidator,
+    auth("ADMIN"),
+    requirePermission(PERMISSIONS.ASSETS_READ),
+    ExportControllers.exportAssetCatalog
+);
+
 export const ExportRoutes = router;
