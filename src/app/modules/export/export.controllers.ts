@@ -134,27 +134,16 @@ const exportFamilyStockMovements = catchAsync(async (req: Request, res: Response
     sendCsv(res, `stock-movements-${safeName}.csv`, csv);
 });
 
-const exportAssetCatalog = catchAsync(async (req: Request, res: Response) => {
-    const filters = req.query as any;
-    const user = (req as any).user;
-    const platformId = (req as any).platformId;
-
-    const result = await ExportServices.exportAssetCatalogService(filters, user, platformId);
-    const safeCompany = (result.companyName ?? "all").replace(/[^a-z0-9-_]+/gi, "_").slice(0, 60);
-    const datestamp = new Date().toISOString().slice(0, 10);
-
-    if (result.format === "xlsx") {
-        const filename = `asset-catalog-${safeCompany}-${datestamp}.xlsx`;
-        res.setHeader(
-            "Content-Type",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        );
-        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-        res.status(httpStatus.OK).send(result.buffer);
-        return;
-    }
-
-    sendCsv(res, `asset-catalog-${safeCompany}-${datestamp}.csv`, result.csv ?? "");
+// Temporarily stubbed pending hardening + move to a local script. The XLSX
+// photo path lacked sufficient memory guards and was implicated in the
+// 2026-04-23 staging outage. Keep the route registered so clients get a
+// clean 503 instead of a 404, but don't touch the service layer at all.
+const exportAssetCatalog = catchAsync(async (_req: Request, res: Response) => {
+    res.status(httpStatus.SERVICE_UNAVAILABLE).json({
+        success: false,
+        message:
+            "Asset catalog export is temporarily disabled. It will be delivered as a local script instead.",
+    });
 });
 
 export const ExportControllers = {
