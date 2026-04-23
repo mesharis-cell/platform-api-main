@@ -127,7 +127,6 @@ const mapLimit = async <T, R>(
     const results: R[] = new Array(items.length);
     let cursor = 0;
     const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
-        // eslint-disable-next-line no-constant-condition
         while (true) {
             const idx = cursor;
             cursor += 1;
