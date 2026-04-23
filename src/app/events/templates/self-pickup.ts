@@ -1,14 +1,11 @@
 import { EmailTemplate } from "./index";
-import { actionButton, footer, infoBox, infoRow, wrap } from "./base";
+import { actionButton, footer, formatWindow, infoBox, infoRow, wrap } from "./base";
 
 const p = (payload: Record<string, unknown>) => payload as Record<string, any>;
 
 const pickupWindowRow = (d: any) => {
-    const pw = d.pickup_window;
-    if (!pw?.start) return "";
-    const start = new Date(pw.start).toLocaleString();
-    const end = pw.end ? new Date(pw.end).toLocaleString() : "";
-    return infoRow("Pickup Window", end ? `${start} – ${end}` : start);
+    const formatted = formatWindow(d.pickup_window);
+    return formatted ? infoRow("Pickup Window", formatted) : "";
 };
 
 // ─── self_pickup_submitted_client ─────────────────────────────────────────────
