@@ -41,6 +41,7 @@ import {
 import {
     generateAssetCatalogCsvRows,
     generateAssetCatalogXlsx,
+    MAX_ROWS_WITH_PHOTOS,
     type AssetCatalogRow,
 } from "../../utils/asset-catalog-xlsx";
 import { orderQueryValidationConfig, orderSortableFields } from "../order/order.utils";
@@ -1377,6 +1378,16 @@ const exportAssetCatalogService = async (
     });
 
     if (includePhotos) {
+        // Hard row cap for the photos path. Without this, a tenant with
+        // thousands of assets would fire thousands of parallel image fetches
+        // and OOM-kill the instance. Callers must narrow filters (company,
+        // condition, status, category) or disable photos for large exports.
+        if (rows.length > MAX_ROWS_WITH_PHOTOS) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                `Asset catalog with photos is capped at ${MAX_ROWS_WITH_PHOTOS} assets per export (got ${rows.length}). Narrow the filters (company / condition / status / category) or turn the "Include photos" toggle off for a full CSV.`
+            );
+        }
         const buffer = await generateAssetCatalogXlsx(rows, {
             includePhotos: true,
             companyName,
