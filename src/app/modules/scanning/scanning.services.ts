@@ -10,6 +10,7 @@ import {
     scanEventAssets,
     scanEventMedia,
     scanEvents,
+    stockMovements,
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
@@ -197,12 +198,29 @@ const inboundScan = async (
     });
 
     const alreadyScanned = existingScans.reduce((sum, scan) => sum + scan.quantity, 0);
+    const isBatch = asset.tracking_method === "BATCH";
 
-    // Step 6: Validate not over-scanning
-    if (alreadyScanned + scanQuantity > orderItem.quantity) {
+    // Step 6: Validate not over-scanning.
+    //
+    // BATCH (pooled): re-scanning the same asset REPLACES the prior inbound
+    // count (see Step 7 below). Logistics scanning a pool of cans is stating
+    // a total count, not adding an increment — if they submit twice they
+    // mean "actually, 24 total", not "24 plus another 24". So the over-scan
+    // check compares scanQuantity alone against the ordered qty.
+    //
+    // INDIVIDUAL (serialized): each scan is a distinct physical unit, so
+    // accumulation is correct and the over-scan check uses the prior sum.
+    //
+    // Before this change, pooled re-scans were additive — a team re-opening
+    // a scanning page they'd already submitted yesterday and re-entering the
+    // same count silently doubled the recorded total. 2026-04-23 hotfix.
+    const effectiveScannedAfter = isBatch ? scanQuantity : alreadyScanned + scanQuantity;
+    if (effectiveScannedAfter > orderItem.quantity) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            `Cannot scan ${scanQuantity} units. Already scanned: ${alreadyScanned}, Required: ${orderItem.quantity}`
+            isBatch
+                ? `Cannot scan ${scanQuantity} units. Required: ${orderItem.quantity}`
+                : `Cannot scan ${scanQuantity} units. Already scanned: ${alreadyScanned}, Required: ${orderItem.quantity}`
         );
     }
 
@@ -220,26 +238,43 @@ const inboundScan = async (
         );
     }
 
-    // Step 7: Create scan event + media/assets
-    const [scanEvent] = await db
-        .insert(scanEvents)
-        .values({
-            order_id: orderId,
-            asset_id: asset.id,
-            scan_type: "INBOUND",
-            quantity: scanQuantity,
-            condition,
-            notes: notes || null,
-            discrepancy_reason: discrepancy_reason || null,
-            metadata: {
-                return_media_count: normalizedReturnMedia.length,
-                damage_media_count: normalizedDamageMedia.length,
-                refurb_days_estimate: refurb_days_estimate ?? null,
-            },
-            scanned_by: user.id,
-            scanned_at: new Date(),
-        })
-        .returning({ id: scanEvents.id });
+    // Step 7: Replace-or-insert the scan event.
+    //
+    // For BATCH re-scans with existing INBOUND rows, delete the prior
+    // scan_events in the same transaction as the new insert. scan_event_assets
+    // and scan_event_media have ON DELETE CASCADE so their rows clean up
+    // automatically; stock_movements.linked_scan_event_id is SET NULL cascade
+    // so we explicitly delete the prior INBOUND audit rows first to keep the
+    // ledger total consistent with the latest recorded count.
+    const scanEvent = await db.transaction(async (tx) => {
+        if (isBatch && existingScans.length > 0) {
+            const priorIds = existingScans.map((s) => s.id);
+            await tx
+                .delete(stockMovements)
+                .where(inArray(stockMovements.linked_scan_event_id, priorIds));
+            await tx.delete(scanEvents).where(inArray(scanEvents.id, priorIds));
+        }
+        const [inserted] = await tx
+            .insert(scanEvents)
+            .values({
+                order_id: orderId,
+                asset_id: asset.id,
+                scan_type: "INBOUND",
+                quantity: scanQuantity,
+                condition,
+                notes: notes || null,
+                discrepancy_reason: discrepancy_reason || null,
+                metadata: {
+                    return_media_count: normalizedReturnMedia.length,
+                    damage_media_count: normalizedDamageMedia.length,
+                    refurb_days_estimate: refurb_days_estimate ?? null,
+                },
+                scanned_by: user.id,
+                scanned_at: new Date(),
+            })
+            .returning({ id: scanEvents.id });
+        return inserted;
+    });
 
     await insertScanEventAssets(scanEvent.id, [{ asset_id: asset.id, quantity: scanQuantity }]);
     await insertScanEventMedia(scanEvent.id, normalizedReturnMedia, "RETURN_WIDE");
