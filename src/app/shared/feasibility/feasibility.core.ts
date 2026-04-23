@@ -16,8 +16,18 @@ import { db } from "../../../db";
 import { companies, platforms } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 
+export type FeasibilityEntityType = "ORDER" | "SELF_PICKUP";
+
 export type FeasibilityConfig = {
     minimum_lead_hours: number;
+    /**
+     * Lead-time floor for self-pickup submissions. Defaults lower than order
+     * lead time because self-pickup is a same-day / next-day convenience —
+     * the client brings their own vehicle and doesn't wait on our logistics
+     * window. Overridable per-platform and per-company same as
+     * `minimum_lead_hours`.
+     */
+    sp_minimum_lead_hours: number;
     exclude_weekends: boolean;
     weekend_days: number[];
     timezone: string;
@@ -25,6 +35,7 @@ export type FeasibilityConfig = {
 
 export const DEFAULT_FEASIBILITY_CONFIG: FeasibilityConfig = {
     minimum_lead_hours: 24,
+    sp_minimum_lead_hours: 2,
     exclude_weekends: true,
     weekend_days: [0, 6],
     timezone: "Asia/Dubai",
@@ -62,6 +73,10 @@ export const resolveFeasibilityConfig = (config: unknown): FeasibilityConfig => 
             feasibility.minimum_lead_hours,
             DEFAULT_FEASIBILITY_CONFIG.minimum_lead_hours
         ),
+        sp_minimum_lead_hours: toPositiveNumber(
+            feasibility.sp_minimum_lead_hours,
+            DEFAULT_FEASIBILITY_CONFIG.sp_minimum_lead_hours
+        ),
         exclude_weekends:
             typeof feasibility.exclude_weekends === "boolean"
                 ? feasibility.exclude_weekends
@@ -74,15 +89,14 @@ export const resolveFeasibilityConfig = (config: unknown): FeasibilityConfig => 
     };
 };
 
-const resolveCompanyLeadTimeOverride = (settings: unknown): number | null => {
+const resolveCompanyLeadTimeOverride = (
+    settings: unknown,
+    key: "minimum_lead_hours" | "sp_minimum_lead_hours"
+): number | null => {
     const feasibility = (settings as any)?.feasibility || {};
-    if (feasibility.minimum_lead_hours === undefined || feasibility.minimum_lead_hours === null) {
-        return null;
-    }
-    return toPositiveNumber(
-        feasibility.minimum_lead_hours,
-        DEFAULT_FEASIBILITY_CONFIG.minimum_lead_hours
-    );
+    const raw = feasibility[key];
+    if (raw === undefined || raw === null) return null;
+    return toPositiveNumber(raw, DEFAULT_FEASIBILITY_CONFIG[key]);
 };
 
 export const getWeekdayInTimezone = (date: Date, timezone: string): number => {
@@ -163,11 +177,49 @@ export const getPlatformFeasibilityConfig = async (
     }
 
     const resolved = resolveFeasibilityConfig(platform.config);
-    const override = companyRows[0]
-        ? resolveCompanyLeadTimeOverride(companyRows[0].settings)
-        : null;
-    if (override !== null) {
-        resolved.minimum_lead_hours = override;
+    // Each lead-hours field can be overridden independently per-company. The
+    // rest of the feasibility block (weekends, timezone) remains platform-
+    // wide — those are operating-calendar facts, not per-tenant decisions.
+    if (companyRows[0]) {
+        const orderOverride = resolveCompanyLeadTimeOverride(
+            companyRows[0].settings,
+            "minimum_lead_hours"
+        );
+        if (orderOverride !== null) resolved.minimum_lead_hours = orderOverride;
+
+        const spOverride = resolveCompanyLeadTimeOverride(
+            companyRows[0].settings,
+            "sp_minimum_lead_hours"
+        );
+        if (spOverride !== null) resolved.sp_minimum_lead_hours = spOverride;
     }
     return resolved;
+};
+
+/**
+ * Pick the lead hours for a given entity type. Orders use the longer
+ * `minimum_lead_hours` (logistics needs prep time to dispatch trucks and
+ * crews); self-pickups use `sp_minimum_lead_hours` (the client handles
+ * their own logistics, so all we need is warehouse pick-pack time).
+ */
+export const leadHoursForEntity = (
+    config: FeasibilityConfig,
+    entityType: FeasibilityEntityType
+): number =>
+    entityType === "SELF_PICKUP" ? config.sp_minimum_lead_hours : config.minimum_lead_hours;
+
+/**
+ * Compute the earliest feasible datetime for a given entity type. Mirrors
+ * `computeLeadFloorDatetime` but takes an explicit entity-type param so
+ * self-pickup submit can check against sp_minimum_lead_hours without
+ * duplicating the business-day math.
+ */
+export const computeLeadFloorDatetimeForEntity = (
+    config: FeasibilityConfig,
+    entityType: FeasibilityEntityType
+): string => {
+    const leadHours = leadHoursForEntity(config, entityType);
+    const leadWindowStart = new Date(Date.now() + leadHours * 60 * 60 * 1000);
+    const floorDate = advanceToNextBusinessDay(leadWindowStart, config);
+    return floorDate.toISOString();
 };

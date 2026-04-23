@@ -21,6 +21,10 @@ import { AuthUser } from "../../interface/common";
 import { PricingService } from "../../services/pricing.service";
 import { eventBus, EVENT_TYPES } from "../../events";
 import { resolveEffectiveFeature } from "../../constants/common";
+import {
+    getPlatformFeasibilityConfig,
+    computeLeadFloorDatetimeForEntity,
+} from "../../shared/feasibility/feasibility.core";
 import { SubmitSelfPickupPayload, SelfPickupListParams } from "./self-pickup.interfaces";
 import {
     canCancelSelfPickup,
@@ -190,6 +194,28 @@ const submitSelfPickupFromCart = async (
 
     const calculatedVolume = totalVolume.toFixed(3);
     const calculatedWeight = totalWeight.toFixed(2);
+
+    // Step 2.5: Enforce the self-pickup lead-time floor. Orders use
+    // `minimum_lead_hours` (default 24h for truck/crew prep); self-pickups
+    // use a separate `sp_minimum_lead_hours` (default 2h — client brings
+    // their own vehicle, we only need pick-pack time). Both are per-
+    // platform with optional per-company overrides.
+    const feasibilityConfig = await getPlatformFeasibilityConfig(platformId, companyId);
+    const floorIso = computeLeadFloorDatetimeForEntity(feasibilityConfig, "SELF_PICKUP");
+    const pickupStartMs = new Date(pickup_window.start).getTime();
+    if (!Number.isFinite(pickupStartMs)) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Invalid pickup window start");
+    }
+    if (pickupStartMs < new Date(floorIso).getTime()) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Pickup is too soon. Earliest possible pickup is ${floorIso} (based on a ${feasibilityConfig.sp_minimum_lead_hours}h lead time).`,
+            {
+                lead_floor_datetime: floorIso,
+                sp_minimum_lead_hours: feasibilityConfig.sp_minimum_lead_hours,
+            }
+        );
+    }
 
     // Step 3: Create pricing (same pattern as orders)
     const volume = parseFloat(calculatedVolume);

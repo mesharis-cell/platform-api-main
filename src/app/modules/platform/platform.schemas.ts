@@ -40,6 +40,11 @@ const configSchema = z.object({
                 .int("Minimum lead hours must be a whole number")
                 .min(0, "Minimum lead hours must be 0 or greater")
                 .optional(),
+            sp_minimum_lead_hours: z
+                .number("Self-pickup lead hours must be a number")
+                .int("Self-pickup lead hours must be a whole number")
+                .min(0, "Self-pickup lead hours must be 0 or greater")
+                .optional(),
             exclude_weekends: z.boolean().optional(),
             weekend_days: z
                 .array(z.number().int().min(0).max(6))

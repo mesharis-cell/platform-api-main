@@ -16,6 +16,11 @@ const settingsSchema = z.object({
                 .int("Lead time override must be a whole number")
                 .min(0, "Lead time override must be 0 or greater")
                 .optional(),
+            sp_minimum_lead_hours: z
+                .number("Self-pickup lead time override should be a number")
+                .int("Self-pickup lead time override must be a whole number")
+                .min(0, "Self-pickup lead time override must be 0 or greater")
+                .optional(),
         })
         .default({}),
 });
