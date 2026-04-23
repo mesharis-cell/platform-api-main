@@ -134,6 +134,29 @@ const exportFamilyStockMovements = catchAsync(async (req: Request, res: Response
     sendCsv(res, `stock-movements-${safeName}.csv`, csv);
 });
 
+const exportAssetCatalog = catchAsync(async (req: Request, res: Response) => {
+    const filters = req.query as any;
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+
+    const result = await ExportServices.exportAssetCatalogService(filters, user, platformId);
+    const safeCompany = (result.companyName ?? "all").replace(/[^a-z0-9-_]+/gi, "_").slice(0, 60);
+    const datestamp = new Date().toISOString().slice(0, 10);
+
+    if (result.format === "xlsx") {
+        const filename = `asset-catalog-${safeCompany}-${datestamp}.xlsx`;
+        res.setHeader(
+            "Content-Type",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        );
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        res.status(httpStatus.OK).send(result.buffer);
+        return;
+    }
+
+    sendCsv(res, `asset-catalog-${safeCompany}-${datestamp}.csv`, result.csv ?? "");
+});
+
 export const ExportControllers = {
     exportOrders,
     exportOrderHistory,
@@ -147,4 +170,5 @@ export const ExportControllers = {
     exportWorkSummary,
     exportClientIssuanceLog,
     exportFamilyStockMovements,
+    exportAssetCatalog,
 };
