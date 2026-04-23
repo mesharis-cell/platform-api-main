@@ -22,7 +22,7 @@ const createAssetSchema = z.object({
                 .min(1, "Name is required")
                 .max(200, "Name must be under 200 characters"),
             description: z.string().optional().nullable(),
-            category: z.string().min(1, "Category is required").max(100).optional(),
+            category: z.string().min(1, "Category is required").max(100).optional().nullable(),
             images: z.array(assetImageSchema).optional().default([]),
             on_display_image: z.string().url("Invalid on display image URL").optional(),
             tracking_method: z
@@ -72,7 +72,7 @@ const createAssetSchema = z.object({
                 })
                 .optional()
                 .default("GREEN"),
-            condition_notes: z.string().optional(),
+            condition_notes: z.string().optional().nullable(),
             refurb_days_estimate: z
                 .number({ message: "Refurbishment days must be a number" })
                 .int("Refurbishment days must be an integer")
@@ -169,7 +169,7 @@ const updateAssetSchema = z.object({
             .max(200, "Name must be under 200 characters")
             .optional(),
         description: z.string().optional().nullable(),
-        category: z.string().optional(),
+        category: z.string().optional().nullable(),
         images: z.array(assetImageSchema).optional(),
         on_display_image: z.string().url("Invalid on display image URL").optional().nullable(),
         tracking_method: z
