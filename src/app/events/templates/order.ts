@@ -1,5 +1,5 @@
 import { EmailTemplate } from "./index";
-import { actionButton, footer, formatAmount, infoBox, infoRow, wrap } from "./base";
+import { actionButton, footer, formatAmount, formatWindow, infoBox, infoRow, wrap } from "./base";
 
 const p = (payload: Record<string, unknown>) => payload as Record<string, any>;
 
@@ -542,7 +542,7 @@ export const orderReadyAdmin: EmailTemplate = {
                 `
                 ${infoRow("Order ID", d.entity_id_readable)}
                 ${infoRow("Venue", d.venue_name)}
-                ${d.delivery_window ? infoRow("Delivery Window", d.delivery_window) : ""}
+                ${d.delivery_window ? infoRow("Delivery Window", formatWindow(d.delivery_window)) : ""}
             `,
                 "#f5f3ff"
             )}
@@ -564,7 +564,7 @@ export const orderInTransitClient: EmailTemplate = {
                 `
                 ${infoRow("Order ID", d.entity_id_readable)}
                 ${infoRow("Venue", `${d.venue_name}, ${d.venue_city}`)}
-                ${d.delivery_window ? infoRow("Estimated Delivery", d.delivery_window) : ""}
+                ${d.delivery_window ? infoRow("Estimated Delivery", formatWindow(d.delivery_window)) : ""}
             `,
                 "#f0f9ff"
             )}
@@ -587,7 +587,7 @@ export const orderInTransitAdmin: EmailTemplate = {
                 ${infoRow("Order ID", d.entity_id_readable)}
                 ${infoRow("Company", d.company_name)}
                 ${infoRow("Venue", `${d.venue_name}, ${d.venue_city}`)}
-                ${d.delivery_window ? infoRow("Delivery Window", d.delivery_window) : ""}
+                ${d.delivery_window ? infoRow("Delivery Window", formatWindow(d.delivery_window)) : ""}
             `)}
             ${actionButton("View Order", d.order_url, "#0ea5e9")}
             ${footer()}
@@ -606,7 +606,7 @@ export const orderDeliveredClient: EmailTemplate = {
             ${infoBox(`
                 ${infoRow("Order ID", d.entity_id_readable)}
                 ${infoRow("Venue", d.venue_name)}
-                ${d.pickup_window ? infoRow("Pickup Window", d.pickup_window) : ""}
+                ${d.pickup_window ? infoRow("Pickup Window", formatWindow(d.pickup_window)) : ""}
             `)}
             <p style="margin: 16px 0;">Please remember to prepare items for return during the scheduled pickup window.</p>
             ${actionButton("View Order", d.order_url, "#10b981")}
@@ -627,7 +627,7 @@ export const orderDeliveredAdmin: EmailTemplate = {
                 ${infoRow("Order ID", d.entity_id_readable)}
                 ${infoRow("Company", d.company_name)}
                 ${infoRow("Venue", d.venue_name)}
-                ${d.pickup_window ? infoRow("Pickup Window", d.pickup_window) : ""}
+                ${d.pickup_window ? infoRow("Pickup Window", formatWindow(d.pickup_window)) : ""}
             `)}
             ${actionButton("View Order", d.order_url, "#10b981")}
             ${footer()}
@@ -646,7 +646,7 @@ export const orderDeliveredLogistics: EmailTemplate = {
             ${infoBox(`
                 ${infoRow("Order ID", d.entity_id_readable)}
                 ${infoRow("Venue", d.venue_name)}
-                ${d.pickup_window ? infoRow("Scheduled Pickup", d.pickup_window) : ""}
+                ${d.pickup_window ? infoRow("Scheduled Pickup", formatWindow(d.pickup_window)) : ""}
             `)}
             ${actionButton("View Order", d.order_url, "#10b981")}
             ${footer()}
@@ -665,7 +665,7 @@ export const pickupReminderClient: EmailTemplate = {
             ${infoBox(
                 `
                 ${infoRow("Order ID", d.entity_id_readable)}
-                ${infoRow("Pickup Window", d.pickup_window)}
+                ${infoRow("Pickup Window", formatWindow(d.pickup_window))}
                 ${infoRow("Venue", d.venue_name)}
             `,
                 "#fef3c7",
@@ -691,7 +691,7 @@ export const pickupReminderAdmin: EmailTemplate = {
                 ${infoRow("Order ID", d.entity_id_readable)}
                 ${infoRow("Company", d.company_name)}
                 ${infoRow("Venue", d.venue_name)}
-                ${infoRow("Pickup Window", d.pickup_window)}
+                ${infoRow("Pickup Window", formatWindow(d.pickup_window))}
             `,
                 "#fef3c7",
                 "#f59e0b"
@@ -715,7 +715,7 @@ export const pickupReminderLogistics: EmailTemplate = {
                 ${infoRow("Order ID", d.entity_id_readable)}
                 ${infoRow("Company", d.company_name)}
                 ${infoRow("Venue", d.venue_name)}
-                ${infoRow("Pickup Window", d.pickup_window)}
+                ${infoRow("Pickup Window", formatWindow(d.pickup_window))}
             `,
                 "#fef3c7",
                 "#f59e0b"
@@ -759,8 +759,8 @@ export const timeWindowsUpdatedClient: EmailTemplate = {
             ${infoBox(
                 `
                 ${infoRow("Order ID", d.entity_id_readable)}
-                ${d.delivery_window ? infoRow("Delivery Window", d.delivery_window) : ""}
-                ${d.pickup_window ? infoRow("Pickup Window", d.pickup_window) : ""}
+                ${d.delivery_window ? infoRow("Delivery Window", formatWindow(d.delivery_window)) : ""}
+                ${d.pickup_window ? infoRow("Pickup Window", formatWindow(d.pickup_window)) : ""}
             `,
                 "#eff6ff"
             )}
@@ -782,8 +782,8 @@ export const timeWindowsUpdatedAdmin: EmailTemplate = {
             ${infoBox(`
                 ${infoRow("Order ID", d.entity_id_readable)}
                 ${infoRow("Company", d.company_name)}
-                ${d.delivery_window ? infoRow("Delivery Window", d.delivery_window) : ""}
-                ${d.pickup_window ? infoRow("Pickup Window", d.pickup_window) : ""}
+                ${d.delivery_window ? infoRow("Delivery Window", formatWindow(d.delivery_window)) : ""}
+                ${d.pickup_window ? infoRow("Pickup Window", formatWindow(d.pickup_window)) : ""}
             `)}
             ${actionButton("View Order", d.order_url)}
             ${footer()}

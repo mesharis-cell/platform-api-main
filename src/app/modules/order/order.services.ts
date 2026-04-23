@@ -1686,7 +1686,12 @@ const progressOrderStatus = async (
 
     // Step 8: Emit event for status transitions that have notifications
     const statusTransitionEventMap: Record<string, string> = {
-        "CONFIRMED->IN_PREPARATION": EVENT_TYPES.ORDER_CONFIRMED,
+        // NOTE: `ORDER_CONFIRMED` used to fire on CONFIRMED -> IN_PREPARATION
+        // which is the wrong moment — logistics themselves trigger that
+        // transition, so the notification was a self-notify. Moved to fire
+        // inside `approveQuote` (QUOTED -> CONFIRMED, i.e. when the order
+        // actually becomes confirmed by the client) so logistics + client
+        // learn about it the moment it happens.
         "READY_FOR_DELIVERY->IN_TRANSIT": EVENT_TYPES.ORDER_IN_TRANSIT,
         "IN_TRANSIT->DELIVERED": EVENT_TYPES.ORDER_DELIVERED,
     };
@@ -2050,6 +2055,33 @@ const approveQuote = async (
             company_name: (order.company as any)?.name || "N/A",
             contact_name: order.contact_name,
             final_total: String(approvedOrderTotal),
+            order_url: "",
+        },
+    });
+
+    // Also emit ORDER_CONFIRMED at the moment the order actually becomes
+    // confirmed (= client approves quote). Prior wiring fired this on
+    // CONFIRMED -> IN_PREPARATION which was logistics self-notifying
+    // after they started prep. Operational payload — deliberately no
+    // pricing, since this goes to LOGISTICS and CLIENT (via ENTITY_OWNER)
+    // recipients who must not see SELL totals / margins.
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: EVENT_TYPES.ORDER_CONFIRMED,
+        entity_type: "ORDER",
+        entity_id: order.id,
+        actor_id: user.id,
+        actor_role: user.role,
+        payload: {
+            entity_id_readable: order.order_id,
+            company_id: order.company_id,
+            company_name: (order.company as any)?.name || "N/A",
+            contact_name: order.contact_name,
+            event_start_date: order.event_start_date?.toISOString().split("T")[0] || "",
+            venue_name: order.venue_name || "",
+            venue_city: "",
+            delivery_window: order.delivery_window || "",
+            pickup_window: order.pickup_window || "",
             order_url: "",
         },
     });

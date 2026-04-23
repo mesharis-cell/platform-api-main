@@ -44,3 +44,14 @@ export type ExportStockMovementsQuery = {
     date_to?: string;
     movement_type?: string;
 };
+
+export type ExportAssetCatalogQuery = {
+    company_id?: string;
+    brand_id?: string;
+    condition?: string;
+    status?: string;
+    category_id?: string;
+    // "true" → XLSX with embedded thumbnails (first image per asset).
+    // "false" or omitted → CSV with the same columns + a Photo URL column only.
+    include_photos?: string;
+};
