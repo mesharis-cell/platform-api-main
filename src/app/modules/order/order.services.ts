@@ -2130,6 +2130,14 @@ const declineQuote = async (
     }
 
     await db.transaction(async (tx) => {
+        // Release any asset bookings tied to the order. Today this is a
+        // no-op (orders don't create bookings until QUOTED→CONFIRMED), but
+        // Phase 2 moves booking creation to submit — a QUOTED order will
+        // then carry live bookings that must be freed on decline. Lands now
+        // so declineQuote is future-proof and the Phase 2 PR doesn't need
+        // to revisit this site.
+        await releaseOrderBookingsAndRestoreAvailability(tx, orderId, platformId);
+
         // Step 4: Update order status to DECLINED and financial status to CANCELLED
         await tx
             .update(orders)

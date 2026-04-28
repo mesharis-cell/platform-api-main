@@ -1,6 +1,7 @@
-import { and, eq, lt, or, sql } from "drizzle-orm";
+import { and, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { db } from "../../../db";
 import {
+    financialStatusHistory,
     orders,
     orderStatusHistory,
     otp,
@@ -438,9 +439,217 @@ const transitionSelfPickupReturns = async () => {
     }
 };
 
+/**
+ * Cancel orders + self-pickups stuck in pre-CONFIRMED states for more than
+ * 30 days. Releases their asset bookings so the inventory frees up.
+ *
+ * Why this exists: when client portal users abandon a quote (or a quote sits
+ * un-actioned), the entity stays in SUBMITTED / PRICING_REVIEW /
+ * PENDING_APPROVAL / QUOTED with bookings holding stock. Without this cron,
+ * inventory rots indefinitely. SP already books at submit (live since
+ * 2026-04-22 on Red Bull); orders move to submit-time booking in a follow-up
+ * PR. Lands now so both entity types are protected from day one of that flip.
+ *
+ * Idempotent on re-run: only acts on rows still in the stuck statuses, so
+ * re-invoking the cron after a successful run is a no-op for processed rows.
+ */
+const expireStuckQuotes = async () => {
+    try {
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - 30);
+
+        const stuckOrderStatuses = [
+            "SUBMITTED",
+            "PRICING_REVIEW",
+            "PENDING_APPROVAL",
+            "QUOTED",
+        ] as const;
+        const stuckPickupStatuses = [
+            "SUBMITTED",
+            "PRICING_REVIEW",
+            "PENDING_APPROVAL",
+            "QUOTED",
+        ] as const;
+
+        const [stuckOrders, stuckPickups] = await Promise.all([
+            db.query.orders.findMany({
+                where: and(
+                    inArray(orders.order_status, stuckOrderStatuses as any),
+                    lt(orders.updated_at, cutoff)
+                ),
+                columns: {
+                    id: true,
+                    order_id: true,
+                    platform_id: true,
+                    company_id: true,
+                    contact_name: true,
+                    order_status: true,
+                },
+            }),
+            db.query.selfPickups.findMany({
+                where: and(
+                    inArray(selfPickups.self_pickup_status, stuckPickupStatuses as any),
+                    lt(selfPickups.updated_at, cutoff)
+                ),
+                columns: {
+                    id: true,
+                    self_pickup_id: true,
+                    platform_id: true,
+                    company_id: true,
+                    self_pickup_status: true,
+                },
+            }),
+        ]);
+
+        if (stuckOrders.length === 0 && stuckPickups.length === 0) {
+            console.log("✅ Stuck-quote expiry cron: nothing to expire");
+            return;
+        }
+
+        // Dynamic import — order.utils imports from order modules that may
+        // create cycles when pulled at module-init. Mirrors the existing
+        // pattern in self-pickup.services.ts:cancelSelfPickup.
+        const { releaseBookingsAndRestoreAvailability } = await import("../order/order.utils");
+
+        // Process orders.
+        for (const order of stuckOrders) {
+            const systemUser = await getSystemUser(order.platform_id);
+            if (!systemUser) {
+                console.warn(
+                    `⚠️ Stuck-quote expiry: no system user for platform ${order.platform_id}, skipping order ${order.id}`
+                );
+                continue;
+            }
+
+            const previousStatus = order.order_status;
+            const note = `Auto-expired after 30 days in ${previousStatus}`;
+
+            await db.transaction(async (tx) => {
+                // Release first so available_quantity is restored even if
+                // the status update somehow fails downstream. Today this is
+                // a no-op for orders (no bookings until CONFIRMED) but
+                // future-proof for the submit-time-booking move.
+                await releaseBookingsAndRestoreAvailability(
+                    tx,
+                    "ORDER",
+                    order.id,
+                    order.platform_id
+                );
+
+                await tx
+                    .update(orders)
+                    .set({
+                        order_status: "CANCELLED",
+                        financial_status: "CANCELLED",
+                        updated_at: new Date(),
+                    })
+                    .where(eq(orders.id, order.id));
+
+                await tx.insert(orderStatusHistory).values({
+                    platform_id: order.platform_id,
+                    order_id: order.id,
+                    status: "CANCELLED",
+                    notes: note,
+                    updated_by: systemUser.id,
+                });
+
+                await tx.insert(financialStatusHistory).values({
+                    platform_id: order.platform_id,
+                    order_id: order.id,
+                    status: "CANCELLED",
+                    notes: note,
+                    updated_by: systemUser.id,
+                });
+            });
+
+            await eventBus.emit({
+                platform_id: order.platform_id,
+                event_type: EVENT_TYPES.ORDER_CANCELLED,
+                entity_type: "ORDER",
+                entity_id: order.id,
+                actor_id: systemUser.id,
+                actor_role: "SYSTEM",
+                payload: {
+                    entity_id_readable: order.order_id,
+                    company_id: order.company_id,
+                    contact_name: order.contact_name,
+                    cancellation_reason: "AUTO_EXPIRED",
+                    cancellation_notes: note,
+                    suppress_entity_owner: false,
+                    order_url: "",
+                },
+            });
+        }
+
+        // Process self-pickups.
+        for (const pickup of stuckPickups) {
+            const systemUser = await getSystemUser(pickup.platform_id);
+            if (!systemUser) {
+                console.warn(
+                    `⚠️ Stuck-quote expiry: no system user for platform ${pickup.platform_id}, skipping pickup ${pickup.id}`
+                );
+                continue;
+            }
+
+            const previousStatus = pickup.self_pickup_status;
+            const note = `Auto-expired after 30 days in ${previousStatus}`;
+
+            await db.transaction(async (tx) => {
+                await releaseBookingsAndRestoreAvailability(
+                    tx,
+                    "SELF_PICKUP",
+                    pickup.id,
+                    pickup.platform_id
+                );
+
+                await tx
+                    .update(selfPickups)
+                    .set({
+                        self_pickup_status: "CANCELLED",
+                        financial_status: "CANCELLED",
+                        updated_at: new Date(),
+                    })
+                    .where(eq(selfPickups.id, pickup.id));
+
+                await tx.insert(selfPickupStatusHistory).values({
+                    platform_id: pickup.platform_id,
+                    self_pickup_id: pickup.id,
+                    status: "CANCELLED",
+                    notes: note,
+                    updated_by: systemUser.id,
+                });
+            });
+
+            await eventBus.emit({
+                platform_id: pickup.platform_id,
+                event_type: EVENT_TYPES.SELF_PICKUP_CANCELLED,
+                entity_type: "SELF_PICKUP",
+                entity_id: pickup.id,
+                actor_id: systemUser.id,
+                actor_role: "SYSTEM",
+                payload: {
+                    entity_id_readable: pickup.self_pickup_id,
+                    company_id: pickup.company_id,
+                    cancellation_reason: "AUTO_EXPIRED",
+                    cancellation_notes: note,
+                    suppress_entity_owner: false,
+                },
+            });
+        }
+
+        console.log(
+            `✅ Stuck-quote expiry cron: cancelled ${stuckOrders.length} order(s) + ${stuckPickups.length} self-pickup(s)`
+        );
+    } catch (error: any) {
+        console.error("❌ Stuck-quote expiry cron error:", error);
+        throw error;
+    }
+};
+
 export const CronServices = {
     transitionOrdersBasedOnEventDates,
     sendPickupReminders,
     deleteExpiredOTPs,
     transitionSelfPickupReturns,
+    expireStuckQuotes,
 };

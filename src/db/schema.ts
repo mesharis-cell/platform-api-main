@@ -2,6 +2,7 @@ import { relations, sql } from "drizzle-orm";
 import {
     type AnyPgColumn,
     boolean,
+    check,
     decimal,
     foreignKey,
     index,
@@ -2109,6 +2110,15 @@ export const assetBookings = pgTable(
     (table) => [
         index("asset_bookings_dates_idx").on(table.blocked_from, table.blocked_until),
         index("asset_bookings_self_pickup_idx").on(table.self_pickup_id),
+        // Defensive invariants — also enforced at the DB layer via migration
+        // 0051_asset_bookings_check_constraints.sql. The check() calls here
+        // exist so future readers of schema.ts see the contract; they don't
+        // generate migrations (we hand-write all migrations per CLAUDE.md).
+        check("asset_bookings_quantity_positive_chk", sql`${table.quantity} > 0`),
+        check(
+            "asset_bookings_window_valid_chk",
+            sql`${table.blocked_from} <= ${table.blocked_until}`
+        ),
     ]
 );
 

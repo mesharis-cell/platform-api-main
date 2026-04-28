@@ -351,6 +351,13 @@
             "when": 1777204800000,
             "tag": "0050_notification_rules_role_client_constraint",
             "breakpoints": true
+        },
+        {
+            "idx": 50,
+            "version": "7",
+            "when": 1777291200000,
+            "tag": "0051_asset_bookings_check_constraints",
+            "breakpoints": true
         }
     ]
 }
