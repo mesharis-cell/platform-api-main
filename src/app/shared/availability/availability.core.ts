@@ -234,10 +234,18 @@ export const checkAvailability = async (params: {
     // were found; missing assets short-circuit with NOT_FOUND below.
     const foundIds = foundAssets.map((a) => a.id);
 
-    const bookingRows =
+    // When lockForUpdate is on, lock the booking rows we read so that
+    // concurrent submits can't both pass the availability gate against the
+    // same stale snapshot. Without this, locking only the asset row leaves
+    // the bookings table racey: tx1 reads bookings (no lock), tx1 acquires
+    // the asset lock, tx1 inserts a booking and commits; tx2 had already
+    // read bookings before tx1's insert and proceeds to insert too —
+    // silent oversell. Adding FOR UPDATE here forces tx2 to wait for tx1's
+    // bookings to be visible AND lockable, then re-evaluate.
+    const bookingsQuery =
         foundIds.length === 0 || !window
-            ? []
-            : await database
+            ? null
+            : database
                   .select({
                       asset_id: assetBookings.asset_id,
                       order_id: assetBookings.order_id,
@@ -255,6 +263,12 @@ export const checkAvailability = async (params: {
                           sql`${assetBookings.blocked_until} >= ${window.start}`
                       )
                   );
+
+    const bookingRows = !bookingsQuery
+        ? []
+        : lockForUpdate
+          ? await bookingsQuery.for("update")
+          : await bookingsQuery;
 
     // Self-bookings are indefinite (no window). Any quantity currently out
     // blocks the pool for every window until returned. The self-bookings

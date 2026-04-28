@@ -1976,40 +1976,68 @@ const approveQuote = async (
     // rows. This serializes concurrent approvals for the same asset/window
     // and prevents oversell under READ COMMITTED.
     await db.transaction(async (tx) => {
+        // Pass excludeOrderId so the availability re-check ignores any
+        // bookings already tied to THIS order. Two scenarios:
+        //   (1) Today (orders book at CONFIRMED): no bookings exist yet for
+        //       this order, so excludeOrderId is a no-op. Harmless.
+        //   (2) After the submit-time-booking flip (follow-up PR): submit
+        //       creates the booking, approveQuote re-checks. Without
+        //       excludeOrderId, the order's own booking would be counted as
+        //       a competing reservation and the re-check would falsely
+        //       reject the approval. Lands now so approveQuote is correct
+        //       under both timing models.
         const foundAssets = await checkAssetsForOrder(
             platformId,
             order.company_id,
             requiredAssets,
             order.event_start_date,
             order.event_end_date,
-            { tx }
+            { tx, excludeOrderId: orderId }
         );
 
-        const assetBookingItems = foundAssets.map((item) => {
-            const totalPrepDays = PREP_BUFFER_DAYS + (item.refurb_days_estimate || 0);
-            const blockedFrom = dayjs(order.event_start_date)
-                .subtract(totalPrepDays, "day")
-                .toDate();
-            const blockedUntil = dayjs(order.event_end_date)
-                .add(RETURN_BUFFER_DAYS, "day")
-                .toDate();
-            const requiredAsset = requiredAssets.find((a) => a.id === item.id);
-            return {
-                asset_id: item.id,
-                order_id: orderId,
-                quantity: requiredAsset?.quantity || 0,
-                blocked_from: blockedFrom,
-                blocked_until: blockedUntil,
-            };
-        });
+        // Idempotent insert. If bookings already exist for this order
+        // (e.g. created at submit under the new model, or via a partial
+        // retry of approveQuote), skip the insert — they're already there
+        // and the re-check above (with excludeOrderId) confirmed they're
+        // still valid against current inventory. Without this guard,
+        // re-running approveQuote would either duplicate rows or hit a
+        // future unique-constraint violation. SELECT-then-INSERT inside
+        // the same tx is sufficient: FOR UPDATE locking on asset_bookings
+        // (availability.core.ts) serializes concurrent approveQuote calls
+        // for the same asset.
+        const existingBookings = await tx
+            .select({ id: assetBookings.id })
+            .from(assetBookings)
+            .where(eq(assetBookings.order_id, orderId))
+            .limit(1);
 
-        await tx.insert(assetBookings).values(assetBookingItems);
+        if (existingBookings.length === 0) {
+            const assetBookingItems = foundAssets.map((item) => {
+                const totalPrepDays = PREP_BUFFER_DAYS + (item.refurb_days_estimate || 0);
+                const blockedFrom = dayjs(order.event_start_date)
+                    .subtract(totalPrepDays, "day")
+                    .toDate();
+                const blockedUntil = dayjs(order.event_end_date)
+                    .add(RETURN_BUFFER_DAYS, "day")
+                    .toDate();
+                const requiredAsset = requiredAssets.find((a) => a.id === item.id);
+                return {
+                    asset_id: item.id,
+                    order_id: orderId,
+                    quantity: requiredAsset?.quantity || 0,
+                    blocked_from: blockedFrom,
+                    blocked_until: blockedUntil,
+                };
+            });
 
-        for (const asset of foundAssets) {
-            await tx
-                .update(assets)
-                .set({ status: asset.status, available_quantity: asset.available_quantity })
-                .where(eq(assets.id, asset.id));
+            await tx.insert(assetBookings).values(assetBookingItems);
+
+            for (const asset of foundAssets) {
+                await tx
+                    .update(assets)
+                    .set({ status: asset.status, available_quantity: asset.available_quantity })
+                    .where(eq(assets.id, asset.id));
+            }
         }
     });
     const nextStatus = "CONFIRMED";
