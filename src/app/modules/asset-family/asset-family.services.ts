@@ -16,7 +16,27 @@ import {
 import { AssetCategoryServices } from "../asset-categories/asset-categories.services";
 import CustomizedError from "../../error/customized-error";
 import paginationMaker from "../../utils/pagination-maker";
+import { moveS3Object, s3KeyFromUrl } from "../../services/s3.service";
 import { CreateAssetFamilyPayload, UpdateAssetFamilyPayload } from "./asset-family.interfaces";
+
+// Mirrors the asset service's helper. Move any drafts/ S3 objects to the
+// permanent images/{companyId}/assets/ path so the S3 lifecycle sweep doesn't
+// invalidate them. No-op for already-permanent URLs.
+const promoteDraftImages = async (
+    images: { url: string; note?: string }[],
+    companyId: string
+): Promise<{ url: string; note?: string }[]> => {
+    return Promise.all(
+        images.map(async (img) => {
+            if (!img.url.includes("/drafts/")) return img;
+            const fromKey = s3KeyFromUrl(img.url);
+            const filename = fromKey.split("/").pop() ?? fromKey;
+            const toKey = `images/${companyId}/assets/${Date.now()}-${filename}`;
+            const newUrl = await moveS3Object(fromKey, toKey);
+            return { ...img, url: newUrl };
+        })
+    );
+};
 
 const validateFamilyScope = async (
     platformId: string,
@@ -619,6 +639,14 @@ const createAssetFamily = async (
         }
     }
 
+    const promotedImages =
+        Array.isArray(payload.images) && payload.images.length > 0
+            ? await promoteDraftImages(
+                  payload.images as { url: string; note?: string }[],
+                  payload.company_id
+              )
+            : (payload.images ?? []);
+
     const created = await db.transaction(async (tx) => {
         const categoryId = await resolveCategoryId(tx, platformId, payload, userId);
 
@@ -633,7 +661,7 @@ const createAssetFamily = async (
                 company_item_code: payload.company_item_code?.trim() || null,
                 description: payload.description ?? null,
                 category_id: categoryId,
-                images: payload.images ?? [],
+                images: promotedImages,
                 on_display_image: payload.on_display_image ?? null,
                 stock_mode: payload.stock_mode,
                 packaging: payload.packaging ?? null,
@@ -688,6 +716,20 @@ const updateAssetFamily = async (
         );
     }
 
+    // Promote any drafts/ URLs that came in on this update — covers the new
+    // inline image editor on the family detail page. No-op for permanent URLs.
+    let promotedImages: { url: string; note?: string }[] | undefined;
+    if (payload.images !== undefined) {
+        const targetCompanyId = payload.company_id ?? existing.company_id;
+        promotedImages =
+            Array.isArray(payload.images) && payload.images.length > 0
+                ? await promoteDraftImages(
+                      payload.images as { url: string; note?: string }[],
+                      targetCompanyId
+                  )
+                : (payload.images as { url: string; note?: string }[]);
+    }
+
     const [updated] = await db
         .update(assetFamilies)
         .set({
@@ -700,7 +742,7 @@ const updateAssetFamily = async (
             }),
             ...(payload.description !== undefined && { description: payload.description ?? null }),
             ...(resolvedCategoryId !== undefined && { category_id: resolvedCategoryId }),
-            ...(payload.images !== undefined && { images: payload.images }),
+            ...(promotedImages !== undefined && { images: promotedImages }),
             ...(payload.on_display_image !== undefined && {
                 on_display_image: payload.on_display_image ?? null,
             }),

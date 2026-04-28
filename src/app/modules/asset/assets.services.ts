@@ -1066,6 +1066,28 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
             if (data.condition === "GREEN") dbData.refurb_days_estimate = null;
         }
 
+        // Promote any draft S3 images to permanent paths — symmetric with createAsset.
+        // Without this, drafts/ URLs uploaded via the inline edit flow persisted in the DB
+        // and broke once the S3 lifecycle rule swept them.
+        const targetCompanyId = data.company_id || existingAsset.company_id;
+        if (Array.isArray(dbData.images) && dbData.images.length > 0) {
+            dbData.images = await promoteDraftImages(
+                dbData.images as { url: string; note?: string }[],
+                targetCompanyId
+            );
+        }
+        if (Array.isArray(dbData.condition_photos) && dbData.condition_photos.length > 0) {
+            dbData.condition_photos = await Promise.all(
+                dbData.condition_photos.map(async (url: string) => {
+                    if (!url.includes("/drafts/")) return url;
+                    const fromKey = s3KeyFromUrl(url);
+                    const filename = fromKey.split("/").pop() ?? fromKey;
+                    const toKey = `images/${targetCompanyId}/assets/${Date.now()}-${filename}`;
+                    return moveS3Object(fromKey, toKey);
+                })
+            );
+        }
+
         // Step 9: Update asset
         const [result] = await db.update(assets).set(dbData).where(eq(assets.id, id)).returning();
 
