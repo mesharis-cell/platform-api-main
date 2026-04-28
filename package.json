@@ -47,6 +47,8 @@
         "asset-family:backfill:report": "bun --preload ./src/bootstrap/env-preload.ts ./src/db/scripts/generate-asset-family-backfill.ts",
         "asset-family:backfill:apply": "bun --preload ./src/bootstrap/env-preload.ts ./src/db/scripts/apply-asset-family-backfill.ts",
         "asset-family:backfill:validate": "bun --preload ./src/bootstrap/env-preload.ts ./src/db/scripts/validate-asset-family-backfill.ts",
+        "bookings:backfill:dry": "bun --preload ./src/bootstrap/env-preload.ts ./src/db/scripts/backfill-pre-confirmed-bookings.ts --dry-run",
+        "bookings:backfill:apply": "bun --preload ./src/bootstrap/env-preload.ts ./src/db/scripts/backfill-pre-confirmed-bookings.ts",
         "import:pr-assets": "bun --preload ./src/bootstrap/env-preload.ts ./src/db/scripts/seed-pr-assets.ts",
         "import:pr-assets:dry": "bun --preload ./src/bootstrap/env-preload.ts ./src/db/scripts/seed-pr-assets.ts --dry-run",
         "import:pr-assets:no-photos": "bun --preload ./src/bootstrap/env-preload.ts ./src/db/scripts/seed-pr-assets.ts --skip-photos"
