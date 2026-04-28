@@ -36,3 +36,7 @@ src/db/scripts/seed-users.ts
 # One-off prod data-fix scripts — scoped to specific entity IDs, not
 # reusable, shouldn't live in git history. Name pattern: fix-*.ts
 src/db/scripts/fix-*.ts
+
+# Local backups written by fix-* scripts before destructive operations.
+# Keep these out of git — they can contain prod data and accumulate.
+backups/
