@@ -1334,6 +1334,11 @@ const getAssetAvailabilityStats = async (id: string, user: AuthUser, platformId:
     // Step 2: Calculate BOOKED quantity from active bookings. `asset_bookings`
     // is polymorphic (gotcha #36) — we must union ORDER-linked rows AND
     // SELF_PICKUP-linked rows, filtering each by their parent's active statuses.
+    // Uses AvailabilityCore.ACTIVE_PARENT_STATUSES_FOR_BOOKINGS so this counter stays consistent
+    // with the family stats counter and the self-bookings availability gate.
+    // The list now includes tentative pre-confirmation statuses (SUBMITTED..
+    // QUOTED) so admin/warehouse "Booked" reflects reality the moment a client
+    // submits — see plan file's "Booked includes tentative" UX choice.
     const activeOrderBookings = await db
         .select({ quantity: assetBookings.quantity })
         .from(assetBookings)
@@ -1341,15 +1346,10 @@ const getAssetAvailabilityStats = async (id: string, user: AuthUser, platformId:
         .where(
             and(
                 eq(assetBookings.asset_id, id),
-                inArray(orders.order_status, [
-                    "CONFIRMED",
-                    "IN_PREPARATION",
-                    "READY_FOR_DELIVERY",
-                    "IN_TRANSIT",
-                    "DELIVERED",
-                    "IN_USE",
-                    "AWAITING_RETURN",
-                ])
+                inArray(
+                    orders.order_status,
+                    AvailabilityCore.ACTIVE_PARENT_STATUSES_FOR_BOOKINGS.ORDER
+                )
             )
         );
 
@@ -1360,12 +1360,10 @@ const getAssetAvailabilityStats = async (id: string, user: AuthUser, platformId:
         .where(
             and(
                 eq(assetBookings.asset_id, id),
-                inArray(selfPickups.self_pickup_status, [
-                    "CONFIRMED",
-                    "READY_FOR_PICKUP",
-                    "PICKED_UP",
-                    "AWAITING_RETURN",
-                ])
+                inArray(
+                    selfPickups.self_pickup_status,
+                    AvailabilityCore.ACTIVE_PARENT_STATUSES_FOR_BOOKINGS.SELF_PICKUP
+                )
             )
         );
 

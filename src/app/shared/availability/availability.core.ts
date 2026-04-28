@@ -24,6 +24,89 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "../../../db";
 import { assets, assetBookings, selfBookingItems } from "../../../db/schema";
 
+/**
+ * Order + self-pickup statuses that should count as active asset reservations.
+ *
+ * Single source of truth for stats consumers (asset stats, family stats,
+ * self-bookings gate, etc.) so the "is this booking still alive?" question
+ * has one answer everywhere — no drift between modules.
+ *
+ * Includes the tentative pre-confirmation statuses (SUBMITTED, PRICING_REVIEW,
+ * PENDING_APPROVAL, QUOTED) because under the submit-time-booking model, a
+ * client submitting an order should immediately reduce admin-visible
+ * availability. Anything DRAFT (not submitted) or DECLINED / CANCELLED /
+ * CLOSED (terminal) is excluded — those bookings have been released or
+ * never existed.
+ *
+ * Note: DERIG and RETURN_IN_TRANSIT are included for orders. The legacy
+ * inline lists at multiple consumer sites omitted them, which silently
+ * undercounted booked inventory for orders in those late-stage states.
+ * Consolidating to this constant fixes that drift as a side effect.
+ *
+ * Types are deliberately the literal-union types of the enum columns so
+ * Drizzle's inArray() accepts the array directly without a string-cast
+ * dance at each call site.
+ */
+type ActiveOrderStatus =
+    | "SUBMITTED"
+    | "PRICING_REVIEW"
+    | "PENDING_APPROVAL"
+    | "QUOTED"
+    | "CONFIRMED"
+    | "IN_PREPARATION"
+    | "READY_FOR_DELIVERY"
+    | "IN_TRANSIT"
+    | "DELIVERED"
+    | "IN_USE"
+    | "DERIG"
+    | "AWAITING_RETURN"
+    | "RETURN_IN_TRANSIT";
+
+type ActiveSelfPickupStatus =
+    | "SUBMITTED"
+    | "PRICING_REVIEW"
+    | "PENDING_APPROVAL"
+    | "QUOTED"
+    | "CONFIRMED"
+    | "READY_FOR_PICKUP"
+    | "PICKED_UP"
+    | "AWAITING_RETURN";
+
+export const ACTIVE_PARENT_STATUSES_FOR_BOOKINGS: {
+    ORDER: ActiveOrderStatus[];
+    SELF_PICKUP: ActiveSelfPickupStatus[];
+} = {
+    ORDER: [
+        // Tentative — booking exists from submit but quote not yet accepted
+        "SUBMITTED",
+        "PRICING_REVIEW",
+        "PENDING_APPROVAL",
+        "QUOTED",
+        // Confirmed — booking is committed
+        "CONFIRMED",
+        "IN_PREPARATION",
+        "READY_FOR_DELIVERY",
+        "IN_TRANSIT",
+        "DELIVERED",
+        "IN_USE",
+        "DERIG",
+        "AWAITING_RETURN",
+        "RETURN_IN_TRANSIT",
+    ],
+    SELF_PICKUP: [
+        // Tentative
+        "SUBMITTED",
+        "PRICING_REVIEW",
+        "PENDING_APPROVAL",
+        "QUOTED",
+        // Confirmed
+        "CONFIRMED",
+        "READY_FOR_PICKUP",
+        "PICKED_UP",
+        "AWAITING_RETURN",
+    ],
+};
+
 export type AvailabilityWindow = { start: Date; end: Date };
 
 export type AvailabilityRequest = {

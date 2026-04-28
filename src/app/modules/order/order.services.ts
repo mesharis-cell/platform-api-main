@@ -61,12 +61,11 @@ import {
 } from "./order.interfaces";
 import {
     checkAssetsForOrder,
+    computeBookingWindow,
     isValidTransition,
     NON_CANCELLABLE_STATUSES,
     orderQueryValidationConfig,
     orderSortableFields,
-    PREP_BUFFER_DAYS,
-    RETURN_BUFFER_DAYS,
     releaseOrderBookingsAndRestoreAvailability,
     validateInboundScanningComplete,
     validateRoleBasedTransition,
@@ -684,6 +683,56 @@ const submitOrderFromCart = async (
             order_id: order.id,
         }));
         const insertedItems = await tx.insert(orderItems).values(itemsToInsert).returning();
+
+        // Step 6.c-bookings: Create asset_bookings + decrement available_quantity
+        // at SUBMIT (this is the Phase 2 timing flip — orders now hold inventory
+        // immediately, mirroring self-pickups). Re-runs the availability check
+        // INSIDE the tx with FOR UPDATE on assets + asset_bookings so concurrent
+        // client submits can't oversell. The earlier checkAssetsForOrder() call
+        // (line 485+) is the early-bail-out for fast UX feedback; this is the
+        // race-safe gate.
+        //
+        // approveQuote retains an idempotent safety-net insert so any in-flight
+        // pre-CONFIRMED order without bookings (created before this PR landed)
+        // still gets bookings on quote approval. After Phase 5 backfill, that
+        // safety net rarely fires.
+        const lockedAssetsAtSubmit = await checkAssetsForOrder(
+            platformId,
+            companyId,
+            requiredAssets,
+            eventStartDate,
+            eventEndDate,
+            { tx, excludeOrderId: order.id }
+        );
+
+        for (const lockedAsset of lockedAssetsAtSubmit) {
+            const requiredAsset = requiredAssets.find((a) => a.id === lockedAsset.id);
+            if (!requiredAsset) continue;
+            // Refurb estimate snapshot is on order_items; pull the matching one
+            // so the booking window matches what approveQuote would have used.
+            const orderItem = orderItemsData.find((oi) => oi.asset_id === lockedAsset.id);
+            const refurbDays = orderItem?.maintenance_refurb_days_snapshot ?? 0;
+            const { blockedFrom, blockedUntil } = computeBookingWindow(
+                eventStartDate,
+                eventEndDate,
+                refurbDays
+            );
+
+            await tx.insert(assetBookings).values({
+                asset_id: lockedAsset.id,
+                order_id: order.id,
+                quantity: requiredAsset.quantity,
+                blocked_from: blockedFrom,
+                blocked_until: blockedUntil,
+            });
+
+            await tx
+                .update(assets)
+                .set({
+                    available_quantity: sql`GREATEST(0, ${assets.available_quantity} - ${requiredAsset.quantity})`,
+                })
+                .where(eq(assets.id, lockedAsset.id));
+        }
 
         // Step 6.d: Auto-create MAINTENANCE SRs for RED and ORANGE FIX_IN_ORDER items
         let srCodeIndex = 0;
@@ -2013,13 +2062,11 @@ const approveQuote = async (
 
         if (existingBookings.length === 0) {
             const assetBookingItems = foundAssets.map((item) => {
-                const totalPrepDays = PREP_BUFFER_DAYS + (item.refurb_days_estimate || 0);
-                const blockedFrom = dayjs(order.event_start_date)
-                    .subtract(totalPrepDays, "day")
-                    .toDate();
-                const blockedUntil = dayjs(order.event_end_date)
-                    .add(RETURN_BUFFER_DAYS, "day")
-                    .toDate();
+                const { blockedFrom, blockedUntil } = computeBookingWindow(
+                    order.event_start_date,
+                    order.event_end_date,
+                    item.refurb_days_estimate
+                );
                 const requiredAsset = requiredAssets.find((a) => a.id === item.id);
                 return {
                     asset_id: item.id,

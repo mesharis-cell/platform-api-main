@@ -546,7 +546,16 @@ const exportRevenueReportService = async (
 ): Promise<string> => {
     const { company_id, date_from, date_to } = query;
     const scopedCompanyId = getScopedCompanyId(company_id, user);
-    const conditions: any[] = [eq(orders.platform_id, platformId)];
+    // Revenue counts only confirmed+ orders. Pre-2026-04 the report had no
+    // status filter — that was already loose (DRAFT/DECLINED/CANCELLED were
+    // counted as revenue) but became materially wrong after the submit-time-
+    // booking flip, when tentative orders carry full pricing snapshots from
+    // the moment of submit. Exclude every status that hasn't actually
+    // generated revenue yet.
+    const conditions: any[] = [
+        eq(orders.platform_id, platformId),
+        sql`${orders.order_status} NOT IN ('DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL', 'QUOTED', 'DECLINED', 'CANCELLED')`,
+    ];
     const { fromDate, toDate } = parseDateRange({ date_from, date_to });
 
     if (scopedCompanyId) conditions.push(eq(orders.company_id, scopedCompanyId));
@@ -603,7 +612,12 @@ const exportCostReportService = async (
 ): Promise<string> => {
     const { company_id, date_from, date_to } = query;
     const scopedCompanyId = getScopedCompanyId(company_id, user);
-    const conditions: any[] = [eq(orders.platform_id, platformId)];
+    // Same scope filter as the revenue report: tentative orders carry pricing
+    // but no committed cost; pre-confirmed/cancelled rows aren't real cost yet.
+    const conditions: any[] = [
+        eq(orders.platform_id, platformId),
+        sql`${orders.order_status} NOT IN ('DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL', 'QUOTED', 'DECLINED', 'CANCELLED')`,
+    ];
     const { fromDate, toDate } = parseDateRange({ date_from, date_to });
 
     if (scopedCompanyId) conditions.push(eq(orders.company_id, scopedCompanyId));

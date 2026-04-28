@@ -1,10 +1,18 @@
-import { and, eq, ilike, or, desc, count } from "drizzle-orm";
+import { and, eq, ilike, inArray, or, desc, count } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { assets, assetBookings, orders, selfBookings, selfBookingItems } from "../../../db/schema";
+import {
+    assets,
+    assetBookings,
+    orders,
+    selfBookings,
+    selfBookingItems,
+    selfPickups,
+} from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { eventBus } from "../../events/event-bus";
 import { EVENT_TYPES } from "../../events/event-types";
+import * as AvailabilityCore from "../../shared/availability/availability.core";
 import type { AuthUser } from "../../interface/common";
 
 // ----------------------------------- CREATE -----------------------------------
@@ -32,7 +40,11 @@ const createSelfBooking = async (
 
         const totalQuantity = asset.total_quantity;
 
-        // Sum order-based bookings (active orders)
+        // Sum bookings from active orders + active self-pickups. asset_bookings
+        // is polymorphic (gotcha #36) and the previous implementation only
+        // counted orders, letting self-bookings oversell against any asset
+        // already reserved by a self-pickup. Now uses the shared status
+        // constant so the gate stays in sync with asset/family stats.
         const orderBookings = await db
             .select({ qty: assetBookings.quantity })
             .from(assetBookings)
@@ -40,19 +52,30 @@ const createSelfBooking = async (
             .where(
                 and(
                     eq(assetBookings.asset_id, item.asset_id),
-                    or(
-                        eq(orders.order_status, "CONFIRMED"),
-                        eq(orders.order_status, "IN_PREPARATION"),
-                        eq(orders.order_status, "READY_FOR_DELIVERY"),
-                        eq(orders.order_status, "IN_TRANSIT"),
-                        eq(orders.order_status, "DELIVERED"),
-                        eq(orders.order_status, "IN_USE"),
-                        eq(orders.order_status, "AWAITING_RETURN")
+                    inArray(
+                        orders.order_status,
+                        AvailabilityCore.ACTIVE_PARENT_STATUSES_FOR_BOOKINGS.ORDER
                     )
                 )
             );
 
-        const orderBookedQty = orderBookings.reduce((s, b) => s + b.qty, 0);
+        const selfPickupBookings = await db
+            .select({ qty: assetBookings.quantity })
+            .from(assetBookings)
+            .innerJoin(selfPickups, eq(assetBookings.self_pickup_id, selfPickups.id))
+            .where(
+                and(
+                    eq(assetBookings.asset_id, item.asset_id),
+                    inArray(
+                        selfPickups.self_pickup_status,
+                        AvailabilityCore.ACTIVE_PARENT_STATUSES_FOR_BOOKINGS.SELF_PICKUP
+                    )
+                )
+            );
+
+        const orderBookedQty =
+            orderBookings.reduce((s, b) => s + b.qty, 0) +
+            selfPickupBookings.reduce((s, b) => s + b.qty, 0);
 
         // Sum existing self-bookings (OUT items)
         const selfBooked = await db
