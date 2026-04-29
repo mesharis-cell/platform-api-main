@@ -440,23 +440,35 @@ const transitionSelfPickupReturns = async () => {
 };
 
 /**
- * Cancel orders + self-pickups stuck in pre-CONFIRMED states for more than
- * 30 days. Releases their asset bookings so the inventory frees up.
+ * Cancel orders + self-pickups whose event has fully passed and a grace
+ * period has elapsed without the quote being approved. Releases their asset
+ * bookings so the inventory frees up.
  *
- * Why this exists: when client portal users abandon a quote (or a quote sits
- * un-actioned), the entity stays in SUBMITTED / PRICING_REVIEW /
- * PENDING_APPROVAL / QUOTED with bookings holding stock. Without this cron,
- * inventory rots indefinitely. SP already books at submit (live since
- * 2026-04-22 on Red Bull); orders move to submit-time booking in a follow-up
- * PR. Lands now so both entity types are protected from day one of that flip.
+ * Why event-based, not activity-based: long-lead bookings are real. A
+ * sponsorship event 60 days out can legitimately sit as QUOTED untouched for
+ * weeks while the client routes the quote through their own approval chain.
+ * If the cron killed orders by `updated_at` age alone, those long-lead
+ * quotes would get auto-cancelled mid-cycle and the client would lose the
+ * reservation. Pinning the staleness check to `event_end_date` instead means:
+ *   - Future event → never cancelled, regardless of how long the quote sits.
+ *   - Event happening now → never cancelled.
+ *   - Event ended N days ago → cancelled when N > GRACE_DAYS_AFTER_EVENT.
+ * The grace window allows for retroactive client approval (rare but real —
+ * sometimes a quote gets signed off after the event "for the books").
  *
  * Idempotent on re-run: only acts on rows still in the stuck statuses, so
- * re-invoking the cron after a successful run is a no-op for processed rows.
+ * re-invoking after a successful run is a no-op for processed rows.
+ *
+ * SP equivalent uses pickup_window->>'end' since SPs don't have an
+ * event_end_date column; the pickup window's end is the analog of an order's
+ * event end (when the assets should physically be back).
  */
+const GRACE_DAYS_AFTER_EVENT = 14;
+
 const expireStuckQuotes = async () => {
     try {
-        const cutoff = new Date();
-        cutoff.setDate(cutoff.getDate() - 30);
+        const eventCutoff = new Date();
+        eventCutoff.setDate(eventCutoff.getDate() - GRACE_DAYS_AFTER_EVENT);
 
         const stuckOrderStatuses = [
             "SUBMITTED",
@@ -475,7 +487,7 @@ const expireStuckQuotes = async () => {
             db.query.orders.findMany({
                 where: and(
                     inArray(orders.order_status, stuckOrderStatuses as any),
-                    lt(orders.updated_at, cutoff)
+                    lt(orders.event_end_date, eventCutoff)
                 ),
                 columns: {
                     id: true,
@@ -489,7 +501,9 @@ const expireStuckQuotes = async () => {
             db.query.selfPickups.findMany({
                 where: and(
                     inArray(selfPickups.self_pickup_status, stuckPickupStatuses as any),
-                    lt(selfPickups.updated_at, cutoff)
+                    // SP has no event_end column; pickup_window is JSONB
+                    // {start, end}. Compare the parsed timestamp directly.
+                    sql`(${selfPickups.pickup_window} ->> 'end')::timestamptz < ${eventCutoff}`
                 ),
                 columns: {
                     id: true,
