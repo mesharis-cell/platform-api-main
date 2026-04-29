@@ -241,12 +241,27 @@ export const stockMovementTypeEnum = pgEnum("stock_movement_type", [
     "WRITE_OFF",
     "ADJUSTMENT",
     "INITIAL",
+    // OUTBOUND_AD_HOC: operator walks into the warehouse and removes a unit
+    // for a known purpose (replacement, install consumption, repurposing,
+    // etc.) outside the booking lifecycle. Decrements BOTH total_quantity
+    // AND available_quantity (unlike WRITE_OFF which only decrements total).
+    // See gotcha #44 + migrations 0052/0053.
+    "OUTBOUND_AD_HOC",
 ]);
 
 export const stockWriteOffReasonEnum = pgEnum("stock_write_off_reason", [
     "CONSUMED",
     "LOST",
     "DAMAGED",
+    "OTHER",
+]);
+
+// Reasons specific to OUTBOUND_AD_HOC movements. The operator's intent
+// when removing a unit outside the booking flow.
+export const stockOutboundAdHocReasonEnum = pgEnum("outbound_ad_hoc_reason", [
+    "REPLACEMENT",
+    "INSTALL_CONSUMPTION",
+    "REPURPOSED",
     "OTHER",
 ]);
 
@@ -851,6 +866,16 @@ export const assets = pgTable(
             columns: [table.transformed_to],
             foreignColumns: [table.id],
         }),
+        // Defensive invariant — also enforced at the DB layer via migration
+        // 0053. The check() call here exists so future readers of schema.ts
+        // see the contract; it doesn't generate migrations (we hand-write
+        // all migrations per CLAUDE.md). available > total is mathematically
+        // impossible (you can't have more units free than exist) and was the
+        // failure mode that the WRITE_OFF-without-link bug produced.
+        check(
+            "assets_available_le_total",
+            sql`${table.available_quantity} <= ${table.total_quantity}`
+        ),
     ]
 );
 
@@ -2970,6 +2995,10 @@ export const stockMovements = pgTable(
         delta: integer("delta").notNull(), // positive (stock in) or negative (stock out)
         movement_type: stockMovementTypeEnum("movement_type").notNull(),
         write_off_reason: stockWriteOffReasonEnum("write_off_reason"), // only when movement_type = WRITE_OFF
+        // Only when movement_type = OUTBOUND_AD_HOC. Distinct from
+        // write_off_reason because the semantic vocabulary differs (a unit
+        // walked off the shelf for replacement is not "consumed" or "lost").
+        outbound_ad_hoc_reason: stockOutboundAdHocReasonEnum("outbound_ad_hoc_reason"),
         note: text("note"),
         linked_entity_type: varchar("linked_entity_type", { length: 20 }), // "ORDER", "SELF_PICKUP"
         linked_entity_id: uuid("linked_entity_id"),

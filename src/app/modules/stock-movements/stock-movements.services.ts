@@ -27,6 +27,7 @@ const getAssetStockHistory = async (
                 delta: stockMovements.delta,
                 movement_type: stockMovements.movement_type,
                 write_off_reason: stockMovements.write_off_reason,
+                outbound_ad_hoc_reason: stockMovements.outbound_ad_hoc_reason,
                 note: stockMovements.note,
                 linked_entity_type: stockMovements.linked_entity_type,
                 linked_entity_id: stockMovements.linked_entity_id,
@@ -134,11 +135,32 @@ const createManualAdjustment = async (
         asset_id: string;
         delta: number;
         reason_note: string;
-        movement_type?: "ADJUSTMENT" | "WRITE_OFF";
-        write_off_reason?: "CONSUMED" | "LOST" | "DAMAGED" | "OTHER";
+        movement_type?: "ADJUSTMENT" | "OUTBOUND_AD_HOC";
+        outbound_ad_hoc_reason?: "REPLACEMENT" | "INSTALL_CONSUMPTION" | "REPURPOSED" | "OTHER";
+        linked_entity_type?: "ORDER" | "SELF_PICKUP";
+        linked_entity_id?: string;
     }
 ) => {
-    const { asset_id, delta, reason_note, movement_type, write_off_reason } = payload;
+    const {
+        asset_id,
+        delta,
+        reason_note,
+        movement_type,
+        outbound_ad_hoc_reason,
+        linked_entity_type,
+        linked_entity_id,
+    } = payload;
+
+    // Defense in depth: schema rejects WRITE_OFF, but check at service layer
+    // too in case the schema is bypassed (programmatic callers, tests, etc.).
+    // Settlement WRITE_OFFs must come through the inbound-scan settlement
+    // flow which has the booking context to set linked_entity automatically.
+    if ((movement_type as string) === "WRITE_OFF") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "WRITE_OFF cannot be created via manual adjustment. For settlement of an unreturned booking, use the inbound-scan flow. For ad-hoc removal, use OUTBOUND_AD_HOC with a sub-reason."
+        );
+    }
 
     const asset = await db.query.assets.findFirst({
         where: and(eq(assets.id, asset_id), eq(assets.platform_id, platformId)),
@@ -148,21 +170,24 @@ const createManualAdjustment = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found");
     }
 
-    // Delegate to StockMovementService — handles ledger write, qty adjustment, threshold check
+    // Delegate to StockMovementService — handles ledger write, qty
+    // adjustment, threshold check, and CHECK-violation translation.
     const { StockMovementService } = await import("../../services/stock-movement.service");
     const movement = await StockMovementService.record(null, {
         platformId,
         assetId: asset_id,
         delta,
         movementType: movement_type ?? "ADJUSTMENT",
-        writeOffReason: write_off_reason ?? null,
+        outboundAdHocReason: outbound_ad_hoc_reason ?? null,
         note: reason_note,
+        linkedEntityType: linked_entity_type ?? null,
+        linkedEntityId: linked_entity_id ?? null,
         userId: user.id,
     });
 
     const updatedAsset = await db.query.assets.findFirst({
         where: eq(assets.id, asset_id),
-        columns: { available_quantity: true },
+        columns: { available_quantity: true, total_quantity: true },
     });
 
     return {
@@ -170,6 +195,7 @@ const createManualAdjustment = async (
         asset_id,
         delta,
         new_available_quantity: updatedAsset?.available_quantity ?? 0,
+        new_total_quantity: updatedAsset?.total_quantity ?? 0,
     };
 };
 

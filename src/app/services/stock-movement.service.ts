@@ -7,11 +7,18 @@
  * stock_movements or UPDATEs asset quantities for stock reasons.
  *
  * Movement types:
- *   OUTBOUND  — items leaving warehouse (scan out). Audit only.
- *   INBOUND   — items returning to warehouse (scan in). Audit only.
- *   WRITE_OFF — items permanently gone (consumed, lost, damaged). Decrements total_quantity.
- *   ADJUSTMENT — manual admin correction. Adjusts both total + available.
- *   INITIAL   — recorded at asset creation. Audit only.
+ *   OUTBOUND        — items leaving warehouse (scan out). Audit only.
+ *   INBOUND         — items returning to warehouse (scan in). Audit only.
+ *   WRITE_OFF       — settlement: a booked unit didn't fully return. Decrements
+ *                     total_quantity only (the booking already accounted for
+ *                     available). Fired by the inbound-scan settlement flow.
+ *   OUTBOUND_AD_HOC — operator removed a unit from the warehouse outside the
+ *                     booking lifecycle (replacement, install consumption,
+ *                     repurposing). Decrements BOTH total_quantity AND
+ *                     available_quantity — the unit was sitting freely on the
+ *                     shelf, both counters need to drop. See gotcha #44.
+ *   ADJUSTMENT      — manual count correction. Decrements both.
+ *   INITIAL         — recorded at asset creation. Audit only.
  *
  * "Audit only" means the movement is recorded in the ledger but does NOT
  * change asset quantities — those are managed by the booking lifecycle
@@ -19,14 +26,23 @@
  */
 
 import { and, desc, eq, sql } from "drizzle-orm";
+import httpStatus from "http-status";
 import { db } from "../../db";
 import { assets, assetFamilies, stockMovements, users } from "../../db/schema";
+import CustomizedError from "../error/customized-error";
 import { eventBus, EVENT_TYPES } from "../events";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-export type MovementType = "OUTBOUND" | "INBOUND" | "WRITE_OFF" | "ADJUSTMENT" | "INITIAL";
+export type MovementType =
+    | "OUTBOUND"
+    | "INBOUND"
+    | "WRITE_OFF"
+    | "ADJUSTMENT"
+    | "INITIAL"
+    | "OUTBOUND_AD_HOC";
 export type WriteOffReason = "CONSUMED" | "LOST" | "DAMAGED" | "OTHER";
+export type OutboundAdHocReason = "REPLACEMENT" | "INSTALL_CONSUMPTION" | "REPURPOSED" | "OTHER";
 
 export interface RecordMovementParams {
     platformId: string;
@@ -34,6 +50,7 @@ export interface RecordMovementParams {
     delta: number;
     movementType: MovementType;
     writeOffReason?: WriteOffReason | null;
+    outboundAdHocReason?: OutboundAdHocReason | null;
     note?: string | null;
     linkedEntityType?: string | null; // "ORDER", "SELF_PICKUP"
     linkedEntityId?: string | null;
@@ -41,9 +58,15 @@ export interface RecordMovementParams {
     userId: string;
 }
 
-// Movement types that cause real quantity changes on assets
-const TOTAL_QTY_AFFECTING: Set<MovementType> = new Set(["WRITE_OFF", "ADJUSTMENT"]);
-const AVAILABLE_QTY_AFFECTING: Set<MovementType> = new Set(["ADJUSTMENT"]);
+// Movement types that cause real quantity changes on assets.
+// OUTBOUND_AD_HOC matches ADJUSTMENT semantics: decrements both because the
+// unit was sitting in available before the operator walked off with it.
+const TOTAL_QTY_AFFECTING: Set<MovementType> = new Set([
+    "WRITE_OFF",
+    "ADJUSTMENT",
+    "OUTBOUND_AD_HOC",
+]);
+const AVAILABLE_QTY_AFFECTING: Set<MovementType> = new Set(["ADJUSTMENT", "OUTBOUND_AD_HOC"]);
 
 // ─── Core: record() ────────────────────────────────────────────────────────
 
@@ -61,6 +84,7 @@ async function record(
             delta: params.delta,
             movement_type: params.movementType,
             write_off_reason: params.writeOffReason || null,
+            outbound_ad_hoc_reason: params.outboundAdHocReason || null,
             note: params.note || null,
             linked_entity_type: params.linkedEntityType || null,
             linked_entity_id: params.linkedEntityId || null,
@@ -69,7 +93,11 @@ async function record(
         })
         .returning({ id: stockMovements.id });
 
-    // 2. Apply quantity changes based on movement type
+    // 2. Apply quantity changes based on movement type.
+    // The UPDATE may trip the assets_available_le_total CHECK constraint
+    // (added in migration 0053) if a code path produces an impossible state.
+    // Translate the raw PG error 23514 into a friendly CustomizedError so the
+    // FE sees an actionable 400 instead of a generic 500.
     const ex = executor ?? db;
 
     if (TOTAL_QTY_AFFECTING.has(params.movementType)) {
@@ -81,7 +109,18 @@ async function record(
             updates.available_quantity = sql`GREATEST(0, ${assets.available_quantity} + ${params.delta})`;
         }
 
-        await ex.update(assets).set(updates).where(eq(assets.id, params.assetId));
+        try {
+            await ex.update(assets).set(updates).where(eq(assets.id, params.assetId));
+        } catch (err: any) {
+            // PG error code 23514 = check_violation
+            if (err?.code === "23514" || err?.cause?.code === "23514") {
+                throw new CustomizedError(
+                    httpStatus.BAD_REQUEST,
+                    "This adjustment would put inventory in an impossible state (available > total). For ad-hoc removal use Stock Out + Correction or Stock Out + Used for an order/pickup."
+                );
+            }
+            throw err;
+        }
     }
 
     // 3. Check threshold crossing (for quantity-affecting movements)
@@ -166,6 +205,7 @@ async function getAssetHistory(
             delta: stockMovements.delta,
             movement_type: stockMovements.movement_type,
             write_off_reason: stockMovements.write_off_reason,
+            outbound_ad_hoc_reason: stockMovements.outbound_ad_hoc_reason,
             note: stockMovements.note,
             linked_entity_type: stockMovements.linked_entity_type,
             linked_entity_id: stockMovements.linked_entity_id,
@@ -200,6 +240,7 @@ async function getFamilyHistory(
             delta: stockMovements.delta,
             movement_type: stockMovements.movement_type,
             write_off_reason: stockMovements.write_off_reason,
+            outbound_ad_hoc_reason: stockMovements.outbound_ad_hoc_reason,
             note: stockMovements.note,
             linked_entity_type: stockMovements.linked_entity_type,
             linked_entity_id: stockMovements.linked_entity_id,
