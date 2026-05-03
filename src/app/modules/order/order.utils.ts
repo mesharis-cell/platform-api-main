@@ -1,4 +1,5 @@
 import { and, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import dayjs from "dayjs";
 import { db } from "../../../db";
 import {
     assetBookings,
@@ -143,6 +144,36 @@ export const PREP_BUFFER_DAYS = 5;
 
 // Return buffer days (time needed after event for return and processing)
 export const RETURN_BUFFER_DAYS = 3;
+
+/**
+ * Compute the booking window (`blocked_from` / `blocked_until`) for a given
+ * event window + per-asset refurb estimate.
+ *
+ * Pure — no DB. Single source of truth for the math, used by:
+ *   - approveQuote (legacy in-flight orders without bookings yet)
+ *   - submitOrderFromCart (Phase 2 — booking moved to submit)
+ *   - backfill script (Phase 5 — populating bookings for pre-CONFIRMED
+ *     orders that exist at deploy time)
+ *
+ * Logic:
+ *   blocked_from  = event_start - PREP_BUFFER_DAYS - refurb_days_estimate
+ *   blocked_until = event_end   + RETURN_BUFFER_DAYS
+ *
+ * The refurb component captures the time needed to refurbish RED/ORANGE
+ * assets before they're event-ready. If an asset has no refurb requirement
+ * (`refurb_days_estimate` null/undefined/0), only the standard prep buffer
+ * applies.
+ */
+export function computeBookingWindow(
+    eventStartDate: Date,
+    eventEndDate: Date,
+    refurbDaysEstimate?: number | null
+): { blockedFrom: Date; blockedUntil: Date } {
+    const totalPrepDays = PREP_BUFFER_DAYS + (refurbDaysEstimate || 0);
+    const blockedFrom = dayjs(eventStartDate).subtract(totalPrepDays, "day").toDate();
+    const blockedUntil = dayjs(eventEndDate).add(RETURN_BUFFER_DAYS, "day").toDate();
+    return { blockedFrom, blockedUntil };
+}
 
 // ----------------------------------- VALIDATE INBOUND SCANNING COMPLETE ----------------------
 /**
@@ -462,7 +493,11 @@ export const checkAssetsForOrder = async (
         );
     }
 
-    // Step 2: Delegate to the shared core.
+    // Step 2: Delegate to the shared core. When called inside a tx (opts.tx
+    // present), pass lockForUpdate=true so the core's asset_bookings SELECT
+    // also takes FOR UPDATE — required for race-safe concurrent submits.
+    // Without this, the asset row lock above is necessary but not sufficient:
+    // tx1 + tx2 could both pass with stale snapshots of competing bookings.
     const availabilityMap = await AvailabilityCore.checkAvailability({
         tx: database,
         platformId,
@@ -472,6 +507,7 @@ export const checkAssetsForOrder = async (
         excludeEntity: opts?.excludeOrderId
             ? { type: "ORDER", id: opts.excludeOrderId }
             : undefined,
+        lockForUpdate: !!opts?.tx,
     });
 
     const failures: AvailabilityCore.AvailabilityResult[] = [];

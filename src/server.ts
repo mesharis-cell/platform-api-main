@@ -39,6 +39,7 @@ async function main() {
                 await CronServices.sendPickupReminders();
                 await CronServices.transitionSelfPickupReturns();
                 await CronServices.deleteExpiredOTPs();
+                await CronServices.expireStuckQuotes();
             } catch (error) {
                 console.error("❌ Cron job failed:", error);
             }

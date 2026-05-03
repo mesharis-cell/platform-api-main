@@ -61,12 +61,11 @@ import {
 } from "./order.interfaces";
 import {
     checkAssetsForOrder,
+    computeBookingWindow,
     isValidTransition,
     NON_CANCELLABLE_STATUSES,
     orderQueryValidationConfig,
     orderSortableFields,
-    PREP_BUFFER_DAYS,
-    RETURN_BUFFER_DAYS,
     releaseOrderBookingsAndRestoreAvailability,
     validateInboundScanningComplete,
     validateRoleBasedTransition,
@@ -684,6 +683,56 @@ const submitOrderFromCart = async (
             order_id: order.id,
         }));
         const insertedItems = await tx.insert(orderItems).values(itemsToInsert).returning();
+
+        // Step 6.c-bookings: Create asset_bookings + decrement available_quantity
+        // at SUBMIT (this is the Phase 2 timing flip — orders now hold inventory
+        // immediately, mirroring self-pickups). Re-runs the availability check
+        // INSIDE the tx with FOR UPDATE on assets + asset_bookings so concurrent
+        // client submits can't oversell. The earlier checkAssetsForOrder() call
+        // (line 485+) is the early-bail-out for fast UX feedback; this is the
+        // race-safe gate.
+        //
+        // approveQuote retains an idempotent safety-net insert so any in-flight
+        // pre-CONFIRMED order without bookings (created before this PR landed)
+        // still gets bookings on quote approval. After Phase 5 backfill, that
+        // safety net rarely fires.
+        const lockedAssetsAtSubmit = await checkAssetsForOrder(
+            platformId,
+            companyId,
+            requiredAssets,
+            eventStartDate,
+            eventEndDate,
+            { tx, excludeOrderId: order.id }
+        );
+
+        for (const lockedAsset of lockedAssetsAtSubmit) {
+            const requiredAsset = requiredAssets.find((a) => a.id === lockedAsset.id);
+            if (!requiredAsset) continue;
+            // Refurb estimate snapshot is on order_items; pull the matching one
+            // so the booking window matches what approveQuote would have used.
+            const orderItem = orderItemsData.find((oi) => oi.asset_id === lockedAsset.id);
+            const refurbDays = orderItem?.maintenance_refurb_days_snapshot ?? 0;
+            const { blockedFrom, blockedUntil } = computeBookingWindow(
+                eventStartDate,
+                eventEndDate,
+                refurbDays
+            );
+
+            await tx.insert(assetBookings).values({
+                asset_id: lockedAsset.id,
+                order_id: order.id,
+                quantity: requiredAsset.quantity,
+                blocked_from: blockedFrom,
+                blocked_until: blockedUntil,
+            });
+
+            await tx
+                .update(assets)
+                .set({
+                    available_quantity: sql`GREATEST(0, ${assets.available_quantity} - ${requiredAsset.quantity})`,
+                })
+                .where(eq(assets.id, lockedAsset.id));
+        }
 
         // Step 6.d: Auto-create MAINTENANCE SRs for RED and ORANGE FIX_IN_ORDER items
         let srCodeIndex = 0;
@@ -1976,40 +2025,66 @@ const approveQuote = async (
     // rows. This serializes concurrent approvals for the same asset/window
     // and prevents oversell under READ COMMITTED.
     await db.transaction(async (tx) => {
+        // Pass excludeOrderId so the availability re-check ignores any
+        // bookings already tied to THIS order. Two scenarios:
+        //   (1) Today (orders book at CONFIRMED): no bookings exist yet for
+        //       this order, so excludeOrderId is a no-op. Harmless.
+        //   (2) After the submit-time-booking flip (follow-up PR): submit
+        //       creates the booking, approveQuote re-checks. Without
+        //       excludeOrderId, the order's own booking would be counted as
+        //       a competing reservation and the re-check would falsely
+        //       reject the approval. Lands now so approveQuote is correct
+        //       under both timing models.
         const foundAssets = await checkAssetsForOrder(
             platformId,
             order.company_id,
             requiredAssets,
             order.event_start_date,
             order.event_end_date,
-            { tx }
+            { tx, excludeOrderId: orderId }
         );
 
-        const assetBookingItems = foundAssets.map((item) => {
-            const totalPrepDays = PREP_BUFFER_DAYS + (item.refurb_days_estimate || 0);
-            const blockedFrom = dayjs(order.event_start_date)
-                .subtract(totalPrepDays, "day")
-                .toDate();
-            const blockedUntil = dayjs(order.event_end_date)
-                .add(RETURN_BUFFER_DAYS, "day")
-                .toDate();
-            const requiredAsset = requiredAssets.find((a) => a.id === item.id);
-            return {
-                asset_id: item.id,
-                order_id: orderId,
-                quantity: requiredAsset?.quantity || 0,
-                blocked_from: blockedFrom,
-                blocked_until: blockedUntil,
-            };
-        });
+        // Idempotent insert. If bookings already exist for this order
+        // (e.g. created at submit under the new model, or via a partial
+        // retry of approveQuote), skip the insert — they're already there
+        // and the re-check above (with excludeOrderId) confirmed they're
+        // still valid against current inventory. Without this guard,
+        // re-running approveQuote would either duplicate rows or hit a
+        // future unique-constraint violation. SELECT-then-INSERT inside
+        // the same tx is sufficient: FOR UPDATE locking on asset_bookings
+        // (availability.core.ts) serializes concurrent approveQuote calls
+        // for the same asset.
+        const existingBookings = await tx
+            .select({ id: assetBookings.id })
+            .from(assetBookings)
+            .where(eq(assetBookings.order_id, orderId))
+            .limit(1);
 
-        await tx.insert(assetBookings).values(assetBookingItems);
+        if (existingBookings.length === 0) {
+            const assetBookingItems = foundAssets.map((item) => {
+                const { blockedFrom, blockedUntil } = computeBookingWindow(
+                    order.event_start_date,
+                    order.event_end_date,
+                    item.refurb_days_estimate
+                );
+                const requiredAsset = requiredAssets.find((a) => a.id === item.id);
+                return {
+                    asset_id: item.id,
+                    order_id: orderId,
+                    quantity: requiredAsset?.quantity || 0,
+                    blocked_from: blockedFrom,
+                    blocked_until: blockedUntil,
+                };
+            });
 
-        for (const asset of foundAssets) {
-            await tx
-                .update(assets)
-                .set({ status: asset.status, available_quantity: asset.available_quantity })
-                .where(eq(assets.id, asset.id));
+            await tx.insert(assetBookings).values(assetBookingItems);
+
+            for (const asset of foundAssets) {
+                await tx
+                    .update(assets)
+                    .set({ status: asset.status, available_quantity: asset.available_quantity })
+                    .where(eq(assets.id, asset.id));
+            }
         }
     });
     const nextStatus = "CONFIRMED";
@@ -2130,6 +2205,14 @@ const declineQuote = async (
     }
 
     await db.transaction(async (tx) => {
+        // Release any asset bookings tied to the order. Today this is a
+        // no-op (orders don't create bookings until QUOTED→CONFIRMED), but
+        // Phase 2 moves booking creation to submit — a QUOTED order will
+        // then carry live bookings that must be freed on decline. Lands now
+        // so declineQuote is future-proof and the Phase 2 PR doesn't need
+        // to revisit this site.
+        await releaseOrderBookingsAndRestoreAvailability(tx, orderId, platformId);
+
         // Step 4: Update order status to DECLINED and financial status to CANCELLED
         await tx
             .update(orders)

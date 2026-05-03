@@ -150,12 +150,11 @@ const submitSelfPickupFromCart = async (
             throw new CustomizedError(httpStatus.BAD_REQUEST, `Asset not found: ${item.asset_id}`);
         }
 
-        if (asset.available_quantity < item.quantity) {
-            throw new CustomizedError(
-                httpStatus.BAD_REQUEST,
-                `Insufficient stock for ${asset.name}: available ${asset.available_quantity}, requested ${item.quantity}`
-            );
-        }
+        // Note: availability gate is asserted INSIDE the tx with FOR UPDATE
+        // (see step 4-pre below). The outside-tx read here is metadata only —
+        // dimensions, name, condition. Reading available_quantity here would
+        // be racey against concurrent submits; the in-tx re-read is the
+        // canonical gate.
 
         const itemVolume = parseFloat(asset.volume_per_unit) * item.quantity;
         const itemWeight = parseFloat(asset.weight_per_unit) * item.quantity;
@@ -257,6 +256,44 @@ const submitSelfPickupFromCart = async (
     };
 
     const result = await db.transaction(async (tx) => {
+        // 4-pre: Re-check availability with FOR UPDATE lock on each asset row.
+        // The outside-tx read at line 140+ is metadata only; concurrent submits
+        // could otherwise both pass an `available_quantity` gate against stale
+        // snapshots and oversell the same pool. Locking the asset row here
+        // serializes them: the second submit waits, re-reads after the first
+        // commits, and rejects cleanly if stock is now insufficient.
+        for (const item of items) {
+            const lockedRows = await tx
+                .select({
+                    available_quantity: assets.available_quantity,
+                    name: assets.name,
+                })
+                .from(assets)
+                .where(
+                    and(
+                        eq(assets.id, item.asset_id),
+                        eq(assets.platform_id, platformId),
+                        eq(assets.company_id, companyId)
+                    )
+                )
+                .for("update")
+                .limit(1);
+
+            const lockedAsset = lockedRows[0];
+            if (!lockedAsset) {
+                throw new CustomizedError(
+                    httpStatus.BAD_REQUEST,
+                    `Asset not found: ${item.asset_id}`
+                );
+            }
+            if (lockedAsset.available_quantity < item.quantity) {
+                throw new CustomizedError(
+                    httpStatus.BAD_REQUEST,
+                    `Insufficient stock for ${lockedAsset.name}: available ${lockedAsset.available_quantity}, requested ${item.quantity}`
+                );
+            }
+        }
+
         // 4a: Insert pricing row
         const [pickupPricing] = await tx
             .insert(prices)
@@ -775,6 +812,16 @@ const clientDeclineQuote = async (
         .update(selfPickups)
         .set({ decline_reason: payload.decline_reason })
         .where(and(eq(selfPickups.id, id), eq(selfPickups.platform_id, platformId)));
+
+    // Release bookings so inventory frees up for re-booking. Declined SPs
+    // previously left their asset_bookings rows + available_quantity decrement
+    // in place forever — silent stock leak. Same shape as cancelSelfPickup
+    // (line 656+) minus the OUTBOUND-scan compensation since a QUOTED pickup
+    // hasn't been handed over yet.
+    const { releaseBookingsAndRestoreAvailability } = await import("../order/order.utils");
+    await db.transaction(async (tx) => {
+        await releaseBookingsAndRestoreAvailability(tx, "SELF_PICKUP", id, platformId);
+    });
 
     return transitionStatus(
         id,

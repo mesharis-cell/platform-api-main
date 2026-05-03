@@ -41,6 +41,7 @@ import {
 import {
     generateAssetCatalogCsvRows,
     generateAssetCatalogXlsx,
+    MAX_ROWS_WITH_PHOTOS,
     type AssetCatalogRow,
 } from "../../utils/asset-catalog-xlsx";
 import { orderQueryValidationConfig, orderSortableFields } from "../order/order.utils";
@@ -545,7 +546,16 @@ const exportRevenueReportService = async (
 ): Promise<string> => {
     const { company_id, date_from, date_to } = query;
     const scopedCompanyId = getScopedCompanyId(company_id, user);
-    const conditions: any[] = [eq(orders.platform_id, platformId)];
+    // Revenue counts only confirmed+ orders. Pre-2026-04 the report had no
+    // status filter — that was already loose (DRAFT/DECLINED/CANCELLED were
+    // counted as revenue) but became materially wrong after the submit-time-
+    // booking flip, when tentative orders carry full pricing snapshots from
+    // the moment of submit. Exclude every status that hasn't actually
+    // generated revenue yet.
+    const conditions: any[] = [
+        eq(orders.platform_id, platformId),
+        sql`${orders.order_status} NOT IN ('DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL', 'QUOTED', 'DECLINED', 'CANCELLED')`,
+    ];
     const { fromDate, toDate } = parseDateRange({ date_from, date_to });
 
     if (scopedCompanyId) conditions.push(eq(orders.company_id, scopedCompanyId));
@@ -602,7 +612,12 @@ const exportCostReportService = async (
 ): Promise<string> => {
     const { company_id, date_from, date_to } = query;
     const scopedCompanyId = getScopedCompanyId(company_id, user);
-    const conditions: any[] = [eq(orders.platform_id, platformId)];
+    // Same scope filter as the revenue report: tentative orders carry pricing
+    // but no committed cost; pre-confirmed/cancelled rows aren't real cost yet.
+    const conditions: any[] = [
+        eq(orders.platform_id, platformId),
+        sql`${orders.order_status} NOT IN ('DRAFT', 'SUBMITTED', 'PRICING_REVIEW', 'PENDING_APPROVAL', 'QUOTED', 'DECLINED', 'CANCELLED')`,
+    ];
     const { fromDate, toDate } = parseDateRange({ date_from, date_to });
 
     if (scopedCompanyId) conditions.push(eq(orders.company_id, scopedCompanyId));
@@ -1377,6 +1392,16 @@ const exportAssetCatalogService = async (
     });
 
     if (includePhotos) {
+        // Hard row cap for the photos path. Without this, a tenant with
+        // thousands of assets would fire thousands of parallel image fetches
+        // and OOM-kill the instance. Callers must narrow filters (company,
+        // condition, status, category) or disable photos for large exports.
+        if (rows.length > MAX_ROWS_WITH_PHOTOS) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                `Asset catalog with photos is capped at ${MAX_ROWS_WITH_PHOTOS} assets per export (got ${rows.length}). Narrow the filters (company / condition / status / category) or turn the "Include photos" toggle off for a full CSV.`
+            );
+        }
         const buffer = await generateAssetCatalogXlsx(rows, {
             includePhotos: true,
             companyName,

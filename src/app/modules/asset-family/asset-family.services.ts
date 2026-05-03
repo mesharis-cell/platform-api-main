@@ -11,8 +11,10 @@ import {
     orders,
     scanEvents,
     selfBookingItems,
+    selfPickups,
     teams,
 } from "../../../db/schema";
+import * as AvailabilityCore from "../../shared/availability/availability.core";
 import { AssetCategoryServices } from "../asset-categories/asset-categories.services";
 import CustomizedError from "../../error/customized-error";
 import paginationMaker from "../../utils/pagination-maker";
@@ -454,26 +456,41 @@ const getAssetFamilyAvailabilityStats = async (
         };
     }
 
-    const activeBookings = await db
-        .select({
-            quantity: assetBookings.quantity,
-        })
+    // asset_bookings is polymorphic — must union ORDER-linked and SELF_PICKUP-
+    // linked rows. The previous implementation only joined `orders` and
+    // silently undercounted any family asset booked via a self-pickup. That
+    // meant a family backing several active SPs would show 0 booked when in
+    // reality those SPs were holding inventory. Fixing as part of the broader
+    // status-filter refactor (Phase 2f) since both touch the same query.
+    const activeOrderBookings = await db
+        .select({ quantity: assetBookings.quantity })
         .from(assetBookings)
         .innerJoin(orders, eq(assetBookings.order_id, orders.id))
         .where(
             and(
                 inArray(assetBookings.asset_id, assetIds),
-                inArray(orders.order_status, [
-                    "CONFIRMED",
-                    "IN_PREPARATION",
-                    "READY_FOR_DELIVERY",
-                    "IN_TRANSIT",
-                    "DELIVERED",
-                    "IN_USE",
-                    "AWAITING_RETURN",
-                ])
+                inArray(
+                    orders.order_status,
+                    AvailabilityCore.ACTIVE_PARENT_STATUSES_FOR_BOOKINGS.ORDER
+                )
             )
         );
+
+    const activeSelfPickupBookings = await db
+        .select({ quantity: assetBookings.quantity })
+        .from(assetBookings)
+        .innerJoin(selfPickups, eq(assetBookings.self_pickup_id, selfPickups.id))
+        .where(
+            and(
+                inArray(assetBookings.asset_id, assetIds),
+                inArray(
+                    selfPickups.self_pickup_status,
+                    AvailabilityCore.ACTIVE_PARENT_STATUSES_FOR_BOOKINGS.SELF_PICKUP
+                )
+            )
+        );
+
+    const activeBookings = [...activeOrderBookings, ...activeSelfPickupBookings];
 
     const outboundScans = await db
         .select({
