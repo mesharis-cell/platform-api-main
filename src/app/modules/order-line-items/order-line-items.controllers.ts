@@ -8,8 +8,9 @@ import { LineItemsServices } from "./order-line-items.services";
 // ----------------------------------- GET LINE ITEMS -----------------------------------------
 const getLineItems = catchAsync(async (req: Request, res: Response) => {
     const platformId = (req as any).platformId;
+    const user = (req as any).user;
 
-    const items = await LineItemsServices.getLineItems(platformId, req.query);
+    const items = await LineItemsServices.getLineItems(platformId, req.query, user?.role);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
@@ -108,13 +109,14 @@ const patchLineItemMetadata = catchAsync(async (req: Request, res: Response) => 
     });
 });
 
-// ----------------------------------- PATCH LINE ITEM CLIENT VISIBILITY --------------------------
-const patchLineItemClientVisibility = catchAsync(async (req: Request, res: Response) => {
+// ----------------------------------- PATCH LINE ITEM VISIBILITY --------------------------
+// Combined: accepts client_price_visible and/or logistics_visible.
+const patchLineItemVisibility = catchAsync(async (req: Request, res: Response) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
     const itemId = getRequiredString(req.params.itemId, "itemId");
 
-    const result = await LineItemsServices.patchLineItemClientVisibility(
+    const result = await LineItemsServices.patchLineItemVisibility(
         itemId,
         platformId,
         req.body,
@@ -124,17 +126,17 @@ const patchLineItemClientVisibility = catchAsync(async (req: Request, res: Respo
     sendResponse(res, {
         statusCode: httpStatus.OK,
         success: true,
-        message: "Line item client visibility updated successfully",
+        message: "Line item visibility updated successfully",
         data: result,
     });
 });
 
-// ----------------------------------- BULK PATCH ENTITY CLIENT VISIBILITY ------------------------
-const patchEntityLineItemsClientVisibility = catchAsync(async (req: Request, res: Response) => {
+// ----------------------------------- BULK PATCH ENTITY VISIBILITY ------------------------
+const patchEntityLineItemsVisibility = catchAsync(async (req: Request, res: Response) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
 
-    const result = await LineItemsServices.patchEntityLineItemsClientVisibility(
+    const result = await LineItemsServices.patchEntityLineItemsVisibility(
         platformId,
         req.body,
         user.id
@@ -143,7 +145,7 @@ const patchEntityLineItemsClientVisibility = catchAsync(async (req: Request, res
     sendResponse(res, {
         statusCode: httpStatus.OK,
         success: true,
-        message: "Entity line items client visibility updated successfully",
+        message: "Entity line items visibility updated successfully",
         data: result,
     });
 });
@@ -175,7 +177,7 @@ export const LineItemsControllers = {
     createCustomLineItem,
     updateLineItem,
     patchLineItemMetadata,
-    patchLineItemClientVisibility,
-    patchEntityLineItemsClientVisibility,
+    patchLineItemVisibility,
+    patchEntityLineItemsVisibility,
     voidLineItem,
 };

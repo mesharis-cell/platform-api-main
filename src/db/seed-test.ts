@@ -35,7 +35,9 @@ import {
     seedDemoCatalog,
     seedDemoOrders,
     seedDemoScanEvents,
+    seedDemoSelfPickups,
     seedDemoServiceRequest,
+    seedDemoStockMovements,
     seedNotificationRules,
     seedServiceTypes,
     seedWorkflowDefinitions,
@@ -458,6 +460,31 @@ const main = async () => {
         logisticsUserId: logisticsUser.id,
     });
 
+    await seedDemoSelfPickups({
+        platformId: platform.id,
+        companyId: company.id,
+        brandId: DEMO_UUIDS.brands.primary,
+        clientUserId: DEMO_UUIDS.users.docsClient,
+        adminUserId: adminUser.id,
+        logisticsUserId: logisticsUser.id,
+        pooledAsset: {
+            id: catalog.assets.eventChairsBatch.id,
+            name: "Event Chair (batch)",
+            weightPerUnit: "3.20",
+            volumePerUnit: "0.203",
+        },
+    });
+
+    // Stock movements run last — they depend on the OUTBOUND scan from
+    // Order 4 + the INBOUND scan from Order 5 already existing, and they
+    // mutate the chair's total/available quantities relative to whatever
+    // the order + self-pickup bookings left behind.
+    await seedDemoStockMovements({
+        platformId: platform.id,
+        adminUserId: adminUser.id,
+        logisticsUserId: logisticsUser.id,
+    });
+
     console.log("\n✅ E2E TEST SEED COMPLETE\n");
     console.log("Summary:");
     console.log(`  Platform : ${platform.name} (${platform.domain})`);
@@ -469,7 +496,13 @@ const main = async () => {
     console.log(`  Brands   : ${brands.length}`);
     console.log(`  Warehouse: ${warehouse.name} — zone ${zone.name}\n`);
     console.log(
-        `  Orders   : 6 demo orders (ORD-DEMO-001…006) on Alex Chen — see src/db/seeds/demo-orders.ts\n`
+        `  Orders   : 6 demo orders (ORD-DEMO-001…006) on Alex Chen — see src/db/seeds/demo-orders.ts`
+    );
+    console.log(
+        `  Pickups  : 6 demo self-pickups (SPK-DEMO-001…006) on Alex Chen — see src/db/seeds/demo-self-pickups.ts`
+    );
+    console.log(
+        `  Stock    : 9 stock-movement rows on Event Chair — see src/db/seeds/demo-stock-movements.ts\n`
     );
     process.exit(0);
 };

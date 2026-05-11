@@ -59,6 +59,13 @@ type BreakdownLine = {
     voided_at: string | null;
     void_reason: string | null;
     client_price_visible: boolean;
+    // Resolved effective values at snapshot time. apply_margin is the final
+    // boolean used to gate the sell math for this line (after service_type
+    // inheritance + SYSTEM hardcode). logistics_visible mirrors the line
+    // column verbatim. Both are exposed to ADMIN clients so the frontend
+    // can render policy indicators without re-querying.
+    apply_margin: boolean;
+    logistics_visible: boolean;
 };
 
 type BuildInitialPricingParams = {
@@ -194,6 +201,10 @@ const toBreakdownLine = (line: unknown): BreakdownLine | null => {
         voided_at: toIso(row.voided_at as Date | string | null | undefined),
         void_reason: row.void_reason ? String(row.void_reason) : null,
         client_price_visible: !!row.client_price_visible,
+        // Default true when reading a legacy snapshot that pre-dates the
+        // policy fields. New snapshots always carry explicit values.
+        apply_margin: row.apply_margin === false ? false : true,
+        logistics_visible: row.logistics_visible === false ? false : true,
     };
 };
 
@@ -297,7 +308,10 @@ const loadEntityLineItems = async (
             service_type_id: lineItems.service_type_id,
             service_type_name: serviceTypes.name,
             service_type_rate: serviceTypes.default_rate,
+            service_type_apply_margin: serviceTypes.apply_margin,
             client_price_visible: lineItems.client_price_visible,
+            apply_margin: lineItems.apply_margin,
+            logistics_visible: lineItems.logistics_visible,
         })
         .from(lineItems)
         .leftJoin(serviceTypes, eq(lineItems.service_type_id, serviceTypes.id))
@@ -317,14 +331,32 @@ const buildBreakdownLinesFromLineItems = (
             quantity > 0
                 ? roundCurrency(buyTotal / quantity)
                 : roundCurrency(toNum(item.unit_rate || 0));
-        const sellTotal = applyMarginPerLine(buyTotal, marginPercent);
-        const sellUnitPrice =
-            quantity > 0
-                ? roundCurrency(sellTotal / quantity)
-                : applyMarginPerLine(buyUnitPrice, marginPercent);
-        const nowIso = new Date().toISOString();
         const systemKey = item.system_key ? String(item.system_key) : null;
         const isSystemBaseOps = item.line_item_type === "SYSTEM" && systemKey === "BASE_OPS";
+
+        // Resolve effective apply_margin per line.
+        // SYSTEM BASE_OPS is hardcoded to true (entity-wide ops markup always
+        // applies). Otherwise: line override → service_type default → true.
+        const effectiveApplyMargin = isSystemBaseOps
+            ? true
+            : item.apply_margin === false
+              ? false
+              : item.apply_margin === true
+                ? true
+                : item.service_type_apply_margin === false
+                  ? false
+                  : true;
+
+        const sellTotal = effectiveApplyMargin
+            ? applyMarginPerLine(buyTotal, marginPercent)
+            : buyTotal;
+        const sellUnitPrice = effectiveApplyMargin
+            ? quantity > 0
+                ? roundCurrency(sellTotal / quantity)
+                : applyMarginPerLine(buyUnitPrice, marginPercent)
+            : buyUnitPrice;
+
+        const nowIso = new Date().toISOString();
         return {
             line_id: String(item.line_item_id || ""),
             line_kind: isSystemBaseOps
@@ -374,6 +406,8 @@ const buildBreakdownLinesFromLineItems = (
             voided_at: toIso(item.voided_at as Date | string | null | undefined),
             void_reason: item.void_reason ? String(item.void_reason) : null,
             client_price_visible: !!item.client_price_visible,
+            apply_margin: effectiveApplyMargin,
+            logistics_visible: item.logistics_visible === false ? false : true,
         };
     });
 
@@ -954,7 +988,14 @@ const projectByRole = (pricing: RawPricingRecord | null | undefined, role: Prici
     }
 
     if (role === "LOGISTICS") {
-        const logisticsLines = lines.map((line) => ({
+        // Strip lines flagged logistics_visible=false BEFORE building the
+        // display rows AND BEFORE computing totals. Logistics-hidden lines
+        // must not appear in their view and must not count toward their
+        // buy_total — otherwise the displayed lines would not sum to the
+        // total and logistics would see a phantom delta they can't explain.
+        const visibleLines = lines.filter((line) => line.logistics_visible !== false);
+        const logisticsTotals = calculateBreakdownTotals(visibleLines, vatPercent);
+        const logisticsLines = visibleLines.map((line) => ({
             line_id: line.line_id,
             line_kind: line.line_kind,
             category: line.category,
@@ -971,19 +1012,19 @@ const projectByRole = (pricing: RawPricingRecord | null | undefined, role: Prici
             breakdown_lines: logisticsLines,
             lines: logisticsLines,
             totals: {
-                base_ops_total: totals.buy_base_ops_total,
-                rate_card_total: totals.buy_rate_card_total,
-                custom_total: totals.buy_custom_total,
-                total: totals.buy_total,
+                base_ops_total: logisticsTotals.buy_base_ops_total,
+                rate_card_total: logisticsTotals.buy_rate_card_total,
+                custom_total: logisticsTotals.buy_custom_total,
+                total: logisticsTotals.buy_total,
             },
             calculated_at: pricing.calculated_at,
             // Legacy compatibility fields
-            base_ops_total: totals.buy_base_ops_total,
+            base_ops_total: logisticsTotals.buy_base_ops_total,
             line_items: {
-                catalog_total: totals.buy_rate_card_total,
-                custom_total: totals.buy_custom_total,
+                catalog_total: logisticsTotals.buy_rate_card_total,
+                custom_total: logisticsTotals.buy_custom_total,
             },
-            final_total: totals.buy_total.toFixed(2),
+            final_total: logisticsTotals.buy_total.toFixed(2),
         };
     }
 
@@ -1085,11 +1126,21 @@ const projectLineItemsForRole = (
         const buyTotal = toNum(item.total);
         const buyUnitRate =
             qty > 0 ? roundCurrency(buyTotal / qty) : toNum(item.unit_rate ?? item.unitRate);
-        const sellTotal = applyMarginPerLine(buyTotal, marginPercent);
-        const sellUnitRate =
-            qty > 0
+
+        // Resolve effective apply_margin for legacy/raw line item callers.
+        // No service_type fallback here (the raw shape doesn't always carry
+        // it). Pure line override → default true.
+        const applyMarginFlag =
+            (item as Record<string, unknown>).apply_margin === false ||
+            (item as Record<string, unknown>).applyMargin === false
+                ? false
+                : true;
+        const sellTotal = applyMarginFlag ? applyMarginPerLine(buyTotal, marginPercent) : buyTotal;
+        const sellUnitRate = applyMarginFlag
+            ? qty > 0
                 ? roundCurrency(sellTotal / qty)
-                : applyMarginPerLine(buyUnitRate, marginPercent);
+                : applyMarginPerLine(buyUnitRate, marginPercent)
+            : buyUnitRate;
         const itemId = item.line_item_id || item.id || "";
 
         if (role === "CLIENT") {
@@ -1137,6 +1188,24 @@ const projectForRole = (
     _lineItems: RawLineItem[],
     role: PricingRole
 ) => projectByRole(pricing, role);
+
+/**
+ * Build all three role projections from a single pricing snapshot.
+ * Used by admin-facing entity detail endpoints so the admin frontend can
+ * preview Logistics + Client views without extra round-trips — and so the
+ * preview is 1:1 with what each role actually receives (same projectByRole
+ * function, same inputs).
+ *
+ * Cost: two extra in-memory projections; no DB calls. Negligible.
+ */
+const projectAllRolesForAdmin = (pricing: RawPricingRecord | null | undefined) => {
+    if (!pricing) return null;
+    return {
+        admin: projectByRole(pricing, "ADMIN"),
+        logistics: projectByRole(pricing, "LOGISTICS"),
+        client: projectByRole(pricing, "CLIENT"),
+    };
+};
 
 // ----------------------------------- MARK ENTITY AS NO-COST ------------------------------
 // Entity-agnostic helper. Voids all active line items for this entity, zeros
@@ -1237,6 +1306,7 @@ export const PricingService = {
     projectForRole,
     projectSummaryForRole,
     projectLineItemsForRole,
+    projectAllRolesForAdmin,
     sumLineItems,
     parseBreakdownLines,
     calculateBreakdownTotals,

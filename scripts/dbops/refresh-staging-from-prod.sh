@@ -304,7 +304,8 @@ where email is not null
       'logistics@test.com',
       'ahmed.logistics@a2logistics.com',
       'client@pernod-ricard.com',
-      'client@diageo.com'
+      'client@diageo.com',
+      'system@kadence.ae'
   );
 
 -- 2) Company contact_email -> same -staging suffix. No exclusions.

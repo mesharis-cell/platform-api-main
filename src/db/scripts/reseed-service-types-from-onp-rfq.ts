@@ -140,14 +140,14 @@ const truckHireRates: Record<string, [number, number]> = {
 };
 for (const [location, [sevenTon, tenTon]] of Object.entries(truckHireRates)) {
     rows.push({
-        name: `Truck Hire — ${location} — 7-ton`,
+        name: `Transport — ${location} — 7-ton`,
         category: "TRANSPORT",
         unit: "trip",
         sheet_sell: sevenTon,
         description: `7-ton truck hire, pickup DIP → event location in ${location}, one way.`,
     });
     rows.push({
-        name: `Truck Hire — ${location} — 10-ton`,
+        name: `Transport — ${location} — 10-ton`,
         category: "TRANSPORT",
         unit: "trip",
         sheet_sell: tenTon,
@@ -263,6 +263,28 @@ const LEGACY_PLACEHOLDER_NAMES = [
     "Transport - Sharjah · 7 Ton Truck (Round-trip)",
     "Transport - Sharjah · 10 Ton Truck (One-way)",
     "Transport - Sharjah · 10 Ton Truck (Round-trip)",
+    // Cohort 3 — "Truck Hire — …" prefix superseded by "Transport — …"
+    // (renamed in-place via rename-truck-hire-to-transport.ts; listed here
+    //  defensively so future reseeds deactivate any stragglers if a request
+    //  approval flow re-creates one).
+    "Truck Hire — Dubai — 7-ton",
+    "Truck Hire — Dubai — 10-ton",
+    "Truck Hire — Abu Dhabi City — 7-ton",
+    "Truck Hire — Abu Dhabi City — 10-ton",
+    "Truck Hire — Musaffah — 7-ton",
+    "Truck Hire — Musaffah — 10-ton",
+    "Truck Hire — Sharjah Hamriya — 7-ton",
+    "Truck Hire — Sharjah Hamriya — 10-ton",
+    "Truck Hire — Sharjah City — 7-ton",
+    "Truck Hire — Sharjah City — 10-ton",
+    "Truck Hire — Al Ain — 7-ton",
+    "Truck Hire — Al Ain — 10-ton",
+    "Truck Hire — Ajman — 7-ton",
+    "Truck Hire — Ajman — 10-ton",
+    "Truck Hire — Fujairah — 7-ton",
+    "Truck Hire — Fujairah — 10-ton",
+    "Truck Hire — RAK City — 7-ton",
+    "Truck Hire — RAK City — 10-ton",
 ];
 
 async function main() {

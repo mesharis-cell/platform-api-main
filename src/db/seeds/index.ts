@@ -37,8 +37,16 @@ export {
 } from "./asset-categories";
 
 // Demo-seed helpers (deterministic IDs + timestamps for docs screenshots)
-export { DEMO_EPOCH, daysFromEpoch, DEMO_UUIDS, DEMO_ORDER_IDS } from "./demo-deterministic";
+export {
+    DEMO_EPOCH,
+    daysFromEpoch,
+    DEMO_UUIDS,
+    DEMO_ORDER_IDS,
+    DEMO_SELF_PICKUP_IDS,
+} from "./demo-deterministic";
 export { seedDemoCatalog, type SeedDemoCatalogOpts, type SeededCatalog } from "./demo-catalog";
 export { seedDemoOrders, type SeedDemoOrdersOpts, type SeededOrders } from "./demo-orders";
 export { seedDemoScanEvents, type SeedDemoScanEventsOpts } from "./demo-scan-events";
 export { seedDemoServiceRequest, type SeedDemoServiceRequestOpts } from "./demo-service-request";
+export { seedDemoSelfPickups, type SeedDemoSelfPickupsOpts } from "./demo-self-pickups";
+export { seedDemoStockMovements, type SeedDemoStockMovementsOpts } from "./demo-stock-movements";

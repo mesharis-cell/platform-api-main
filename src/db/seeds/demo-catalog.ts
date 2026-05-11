@@ -34,6 +34,7 @@ export type SeededCatalog = {
         eventChairs: { id: string };
         backdropPanels: { id: string };
         ledScreens: { id: string };
+        singleStockTest: { id: string };
     };
     assets: {
         eventChairsBatch: { id: string };
@@ -44,6 +45,7 @@ export type SeededCatalog = {
         ledScreen1: { id: string };
         ledScreen2: { id: string };
         ledScreen3: { id: string };
+        singleStockMicrophone: { id: string };
     };
     collection: { id: string };
 };
@@ -96,6 +98,24 @@ export const seedDemoCatalog = async (opts: SeedDemoCatalogOpts): Promise<Seeded
             dimensions: { length: 50, width: 8, height: 50 },
             volume_per_unit: "0.020",
             images: placeholderImage("LED Screens", "4b5563"),
+            is_active: true,
+        },
+        {
+            // Tiny POOLED family that owns the single-stock test asset.
+            // Kept separate from `eventChairs` so race-condition fixtures
+            // don't interfere with the chair narrative used elsewhere.
+            id: DEMO_UUIDS.families.singleStockTest,
+            platform_id: opts.platformId,
+            company_id: opts.companyId,
+            brand_id: opts.brandPrimaryId,
+            name: "Single-Stock Test Items",
+            category_id: DEMO_UUIDS.assetCategories.general,
+            description: "Pooled single-unit items reserved for race-condition tests.",
+            stock_mode: "POOLED",
+            weight_per_unit: "0.40",
+            dimensions: { length: 25, width: 5, height: 5 },
+            volume_per_unit: "0.001",
+            images: placeholderImage("Single Stock", "0f766e"),
             is_active: true,
         },
     ]);
@@ -263,6 +283,29 @@ export const seedDemoCatalog = async (opts: SeedDemoCatalogOpts): Promise<Seeded
             condition: "GREEN",
             status: "AVAILABLE",
         },
+
+        // Single-stock POOLED asset (qty 1) — feeds the concurrent-submit
+        // race-condition tests for both orders (S2) and self-pickups (S6).
+        // Two parallel submits requesting qty=1 must serialize at the
+        // FOR UPDATE lock; one wins (available 1 → 0), the other rejects.
+        {
+            ...baseAssetCols,
+            id: DEMO_UUIDS.assets.singleStockMicrophone,
+            brand_id: opts.brandPrimaryId,
+            family_id: DEMO_UUIDS.families.singleStockTest,
+            name: "Premium Wireless Microphone",
+            category: "AV Equipment",
+            tracking_method: "BATCH",
+            total_quantity: 1,
+            available_quantity: 1,
+            qr_code: "DEMO-SINGLE-MIC-001",
+            weight_per_unit: "0.40",
+            dimensions: { length: 25, width: 5, height: 5 },
+            volume_per_unit: "0.001",
+            images: placeholderImage("Wireless Mic", "0f766e"),
+            condition: "GREEN",
+            status: "AVAILABLE",
+        },
     ]);
 
     // ─── Collection ──────────────────────────────────────────
@@ -312,13 +355,14 @@ export const seedDemoCatalog = async (opts: SeedDemoCatalogOpts): Promise<Seeded
         },
     ]);
 
-    console.log(`  ✓ 3 families + 8 assets + 1 collection (4 items)`);
+    console.log(`  ✓ 4 families + 9 assets + 1 collection (4 items)`);
 
     return {
         families: {
             eventChairs: { id: DEMO_UUIDS.families.eventChairs },
             backdropPanels: { id: DEMO_UUIDS.families.backdropPanels },
             ledScreens: { id: DEMO_UUIDS.families.ledScreens },
+            singleStockTest: { id: DEMO_UUIDS.families.singleStockTest },
         },
         assets: {
             eventChairsBatch: { id: DEMO_UUIDS.assets.eventChairsBatch },
@@ -329,6 +373,7 @@ export const seedDemoCatalog = async (opts: SeedDemoCatalogOpts): Promise<Seeded
             ledScreen1: { id: DEMO_UUIDS.assets.ledScreen1 },
             ledScreen2: { id: DEMO_UUIDS.assets.ledScreen2 },
             ledScreen3: { id: DEMO_UUIDS.assets.ledScreen3 },
+            singleStockMicrophone: { id: DEMO_UUIDS.assets.singleStockMicrophone },
         },
         collection: { id: DEMO_UUIDS.collection },
     };

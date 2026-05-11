@@ -21,11 +21,11 @@ export type UpdateLineItemPayload = z.infer<typeof LineItemsSchemas.updateLineIt
 export type PatchLineItemMetadataPayload = z.infer<
     typeof LineItemsSchemas.patchLineItemMetadataSchema
 >["body"];
-export type PatchLineItemClientVisibilityPayload = z.infer<
-    typeof LineItemsSchemas.patchLineItemClientVisibilitySchema
+export type PatchLineItemVisibilityPayload = z.infer<
+    typeof LineItemsSchemas.patchLineItemVisibilitySchema
 >["body"];
-export type PatchEntityLineItemsClientVisibilityPayload = z.infer<
-    typeof LineItemsSchemas.patchEntityLineItemsClientVisibilitySchema
+export type PatchEntityLineItemsVisibilityPayload = z.infer<
+    typeof LineItemsSchemas.patchEntityLineItemsVisibilitySchema
 >["body"];
 
 export type VoidLineItemPayload = z.infer<typeof LineItemsSchemas.voidLineItemSchema>["body"] & {
@@ -53,6 +53,8 @@ export interface OrderLineItem {
     notes: string | null;
     metadata: Record<string, unknown>;
     client_price_visible: boolean;
+    apply_margin: boolean | null;
+    logistics_visible: boolean;
     is_voided: boolean;
     voided_at: Date | null;
     voided_by: string | null;

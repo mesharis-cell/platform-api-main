@@ -94,6 +94,7 @@ const createServiceType = async (data: CreateServiceTypePayload) => {
         description,
         display_order,
         is_active,
+        apply_margin,
     } = data;
 
     // Check for duplicate name
@@ -125,6 +126,7 @@ const createServiceType = async (data: CreateServiceTypePayload) => {
             description: description || null,
             display_order: display_order ?? 0,
             is_active: is_active ?? true,
+            apply_margin: apply_margin ?? true,
         })
         .returning();
 

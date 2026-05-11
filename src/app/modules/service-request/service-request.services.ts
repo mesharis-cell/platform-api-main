@@ -301,9 +301,20 @@ const getServiceRequestById = async (id: string, platformId: string, user: AuthU
               .then((rows) => rows[0] || null)
         : null;
 
+    // Admin receives all three role projections nested under `projections`
+    // so the breakdown card can preview Logistics + Client. Non-admins get
+    // only their own projection.
+    const srBaseProjection = PricingService.projectByRole(pricingRow as any, user.role as any);
+    const srAdminProjections =
+        user.role === "ADMIN" ? PricingService.projectAllRolesForAdmin(pricingRow as any) : null;
+    const srPricingPayload =
+        user.role === "ADMIN" && srAdminProjections
+            ? { ...(srBaseProjection as any), projections: srAdminProjections }
+            : srBaseProjection;
+
     return {
         ...serviceRequest,
-        request_pricing: PricingService.projectByRole(pricingRow as any, user.role as any),
+        request_pricing: srPricingPayload,
     };
 };
 
