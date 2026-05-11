@@ -372,6 +372,13 @@
             "when": 1777381200000,
             "tag": "0053_backfill_outbound_ad_hoc_and_assets_check",
             "breakpoints": true
+        },
+        {
+            "idx": 53,
+            "version": "7",
+            "when": 1778572800000,
+            "tag": "0054_pricing_policy_flags",
+            "breakpoints": true
         }
     ]
 }

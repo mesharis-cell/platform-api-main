@@ -1049,6 +1049,11 @@ export const serviceTypes = pgTable(
             .default(sql`'{}'::jsonb`),
         description: text("description"),
 
+        // Pricing policy default for lines added from this service type.
+        // false => lines default to buy = sell (no margin markup). Per-line
+        // override available via line_items.apply_margin.
+        apply_margin: boolean("apply_margin").notNull().default(true),
+
         display_order: integer("display_order").notNull().default(0),
         is_active: boolean("is_active").notNull().default(true),
         created_at: timestamp("created_at").notNull().defaultNow(),
@@ -1285,6 +1290,17 @@ export const lineItems = pgTable(
             .notNull()
             .default(sql`'{}'::jsonb`),
         client_price_visible: boolean("client_price_visible").notNull().default(false),
+
+        // Per-line override of the service-type margin policy.
+        // NULL means "inherit": resolves to service_type.apply_margin for
+        // CATALOG lines, true for CUSTOM/SYSTEM lines with no service_type.
+        apply_margin: boolean("apply_margin"),
+
+        // Per-line audience flag. When false, the line is stripped from
+        // LOGISTICS role projections entirely (display rows + totals).
+        // CLIENT projection is unaffected (clients still see it subject to
+        // client_price_visible). ADMIN always sees it.
+        logistics_visible: boolean("logistics_visible").notNull().default(true),
 
         // Voiding (for cancellations, reskin cancellations)
         is_voided: boolean("is_voided").notNull().default(false),

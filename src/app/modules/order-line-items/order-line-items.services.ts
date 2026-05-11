@@ -17,8 +17,8 @@ import {
     CreateCustomLineItemPayload,
     LineItemEditability,
     LineItemsTotals,
-    PatchEntityLineItemsClientVisibilityPayload,
-    PatchLineItemClientVisibilityPayload,
+    PatchEntityLineItemsVisibilityPayload,
+    PatchLineItemVisibilityPayload,
     PatchLineItemMetadataPayload,
     UpdateLineItemPayload,
     VoidLineItemPayload,
@@ -164,7 +164,11 @@ const getLineItemEditability = async (
 };
 
 // ----------------------------------- GET LINE ITEMS -----------------------------------------
-const getLineItems = async (platformId: string, query: Record<string, any>) => {
+const getLineItems = async (
+    platformId: string,
+    query: Record<string, any>,
+    callerRole?: "ADMIN" | "LOGISTICS"
+) => {
     const { order_id, inbound_request_id, service_request_id, self_pickup_id, purpose_type } =
         query;
 
@@ -200,6 +204,15 @@ const getLineItems = async (platformId: string, query: Record<string, any>) => {
     if (purpose_type) {
         queryValidator(lineItemQueryValidationConfig, "purpose_type", purpose_type);
         conditions.push(eq(lineItems.purpose_type, purpose_type));
+    }
+
+    // LOGISTICS callers must NEVER see lines flagged logistics_visible=false.
+    // Server-side filter — without it, warehouse OrderLineItemsList would
+    // render hidden lines and defeat the whole visibility model. ADMIN sees
+    // all rows so the role-preview tabs work; the projectByRole filter is
+    // what governs what each tab actually renders.
+    if (callerRole === "LOGISTICS") {
+        conditions.push(eq(lineItems.logistics_visible, true));
     }
 
     const results = await db
@@ -282,6 +295,11 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
     // Calculate total
     const total = quantity * Number(serviceType.default_rate);
 
+    // Per-line apply_margin: NULL by default (inherits from service_type).
+    // Caller can explicitly override to true/false here.
+    const applyMarginValue =
+        data.apply_margin === undefined ? null : (data.apply_margin as boolean | null);
+
     const result = await runWithLineItemIdRetry(async () =>
         db.transaction(async (tx) => {
             const lineItemId = await lineItemIdGenerator(platform_id, tx);
@@ -308,6 +326,8 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
                     notes: notes || null,
                     metadata: effectiveMetadata,
                     client_price_visible: data.client_price_visible ?? false,
+                    apply_margin: applyMarginValue,
+                    logistics_visible: data.logistics_visible ?? true,
                 })
                 .returning();
             return inserted;
@@ -414,6 +434,12 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
     const effectiveBillingMode =
         added_by_role === "LOGISTICS" ? "BILLABLE" : billing_mode || "BILLABLE";
 
+    // Custom lines have no service_type to inherit from. NULL apply_margin
+    // therefore resolves to true at projection time. Callers (fuel-surcharge
+    // style usage) pass false explicitly.
+    const customApplyMargin =
+        data.apply_margin === undefined ? null : (data.apply_margin as boolean | null);
+
     const result = await runWithLineItemIdRetry(async () =>
         db.transaction(async (tx) => {
             const lineItemId = await lineItemIdGenerator(platform_id, tx);
@@ -440,6 +466,8 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
                     notes: notes || null,
                     metadata: parsedMetadata,
                     client_price_visible: data.client_price_visible ?? false,
+                    apply_margin: customApplyMargin,
+                    logistics_visible: data.logistics_visible ?? true,
                 })
                 .returning();
             return inserted;
@@ -534,11 +562,16 @@ const updateLineItem = async (
     }
 
     const editability = await getLineItemEditability(existing, platformId);
+    // apply_margin is a pricing-affecting field — flipping it changes sell
+    // totals. Treat it like quantity / unit_rate / billing_mode for the
+    // pricing-lock gate. logistics_visible is NOT pricing-affecting (it's
+    // a display filter); admin can flip it any time, including post-lock.
     const pricingFieldRequested =
         data.quantity !== undefined ||
         data.unit !== undefined ||
         data.unit_rate !== undefined ||
-        data.billing_mode !== undefined;
+        data.billing_mode !== undefined ||
+        data.apply_margin !== undefined;
     if (!editability.can_edit_pricing_fields && pricingFieldRequested) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
@@ -551,6 +584,18 @@ const updateLineItem = async (
             "Only Platform Admin can change billing mode"
         );
     }
+    if (userRole === "LOGISTICS" && data.apply_margin !== undefined) {
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            "Only Platform Admin can change margin policy"
+        );
+    }
+    if (userRole === "LOGISTICS" && data.logistics_visible !== undefined) {
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            "Only Platform Admin can change visibility"
+        );
+    }
 
     const dbData: any = {
         ...(data.notes !== undefined && { notes: data.notes }),
@@ -558,6 +603,10 @@ const updateLineItem = async (
         ...(data.metadata !== undefined && { metadata: data.metadata }),
         ...(data.client_price_visible !== undefined && {
             client_price_visible: data.client_price_visible,
+        }),
+        ...(data.apply_margin !== undefined && { apply_margin: data.apply_margin }),
+        ...(data.logistics_visible !== undefined && {
+            logistics_visible: data.logistics_visible,
         }),
     };
 
@@ -599,7 +648,18 @@ const updateLineItem = async (
 
     const [result] = await db.update(lineItems).set(dbData).where(eq(lineItems.id, id)).returning();
 
-    if (pricingFieldRequested) {
+    // Trigger a rebuild whenever apply_margin / logistics_visible / client_price_visible
+    // change, in addition to the existing pricing fields. apply_margin alters
+    // sell totals; logistics_visible affects what LOGISTICS sees in the snapshot;
+    // client_price_visible affects what CLIENT sees per line. All need the
+    // breakdown_lines JSONB to be refreshed so downstream readers see the new state.
+    const visibilityOrPolicyChanged =
+        data.apply_margin !== undefined ||
+        data.logistics_visible !== undefined ||
+        data.client_price_visible !== undefined;
+    const shouldTriggerRebuild = pricingFieldRequested || visibilityOrPolicyChanged;
+
+    if (shouldTriggerRebuild) {
         // Update order pricing after line item change
         if (result.order_id) {
             await updateOrderPricingAfterLineItemChange(result.order_id, platformId, userId);
@@ -741,11 +801,14 @@ const patchLineItemMetadata = async (
     };
 };
 
-// ----------------------------------- PATCH LINE ITEM CLIENT VISIBILITY ------------------------
-const patchLineItemClientVisibility = async (
+// ----------------------------------- PATCH LINE ITEM VISIBILITY ------------------------
+// Combined audience patch. client_price_visible and/or logistics_visible —
+// at least one is required (schema-enforced). Triggers a rebuild so the
+// breakdown_lines snapshot picks up the new policy.
+const patchLineItemVisibility = async (
     id: string,
     platformId: string,
-    data: PatchLineItemClientVisibilityPayload,
+    data: PatchLineItemVisibilityPayload,
     userId: string
 ) => {
     const [existing] = await db
@@ -761,11 +824,38 @@ const patchLineItemClientVisibility = async (
     const [result] = await db
         .update(lineItems)
         .set({
-            client_price_visible: data.client_price_visible,
+            ...(data.client_price_visible !== undefined && {
+                client_price_visible: data.client_price_visible,
+            }),
+            ...(data.logistics_visible !== undefined && {
+                logistics_visible: data.logistics_visible,
+            }),
             updated_at: new Date(),
         })
         .where(eq(lineItems.id, id))
         .returning();
+
+    // Refresh the breakdown snapshot so role projections reflect the new flag(s).
+    if (result.order_id) {
+        await updateOrderPricingAfterLineItemChange(result.order_id, platformId, userId);
+    }
+    if (result.inbound_request_id) {
+        await updateInboundRequestPricingAfterLineItemChange(
+            result.inbound_request_id,
+            platformId,
+            userId
+        );
+    }
+    if (result.service_request_id) {
+        await updateServiceRequestPricingAfterLineItemChange(
+            result.service_request_id,
+            platformId,
+            userId
+        );
+    }
+    if (result.self_pickup_id) {
+        await updateSelfPickupPricingAfterLineItemChange(result.self_pickup_id, platformId, userId);
+    }
 
     await eventBus.emit({
         platform_id: platformId,
@@ -787,7 +877,8 @@ const patchLineItemClientVisibility = async (
             entity_id_readable: result.line_item_id,
             line_item_id: result.line_item_id,
             purpose_type: result.purpose_type,
-            client_price_visible: data.client_price_visible,
+            client_price_visible: result.client_price_visible,
+            logistics_visible: result.logistics_visible,
         },
     });
 
@@ -795,13 +886,14 @@ const patchLineItemClientVisibility = async (
         id: result.id,
         line_item_id: result.line_item_id,
         client_price_visible: result.client_price_visible,
+        logistics_visible: result.logistics_visible,
     };
 };
 
-// ----------------------------------- BULK PATCH ENTITY CLIENT VISIBILITY ---------------------
-const patchEntityLineItemsClientVisibility = async (
+// ----------------------------------- BULK PATCH ENTITY VISIBILITY ---------------------
+const patchEntityLineItemsVisibility = async (
     platformId: string,
-    data: PatchEntityLineItemsClientVisibilityPayload,
+    data: PatchEntityLineItemsVisibilityPayload,
     userId: string
 ) => {
     const targetId =
@@ -843,11 +935,32 @@ const patchEntityLineItemsClientVisibility = async (
     const updated = await db
         .update(lineItems)
         .set({
-            client_price_visible: data.client_price_visible,
+            ...(data.client_price_visible !== undefined && {
+                client_price_visible: data.client_price_visible,
+            }),
+            ...(data.logistics_visible !== undefined && {
+                logistics_visible: data.logistics_visible,
+            }),
             updated_at: new Date(),
         })
         .where(and(...conditions))
         .returning({ id: lineItems.id });
+
+    // Refresh the breakdown for the parent entity so role projections update.
+    switch (data.purpose_type) {
+        case "ORDER":
+            await updateOrderPricingAfterLineItemChange(targetId, platformId, userId);
+            break;
+        case "INBOUND_REQUEST":
+            await updateInboundRequestPricingAfterLineItemChange(targetId, platformId, userId);
+            break;
+        case "SERVICE_REQUEST":
+            await updateServiceRequestPricingAfterLineItemChange(targetId, platformId, userId);
+            break;
+        case "SELF_PICKUP":
+            await updateSelfPickupPricingAfterLineItemChange(targetId, platformId, userId);
+            break;
+    }
 
     await eventBus.emit({
         platform_id: platformId,
@@ -864,6 +977,7 @@ const patchEntityLineItemsClientVisibility = async (
             entity_id_readable: targetId,
             purpose_type: data.purpose_type,
             client_price_visible: data.client_price_visible,
+            logistics_visible: data.logistics_visible,
             updated_count: updated.length,
         },
     });
@@ -872,6 +986,7 @@ const patchEntityLineItemsClientVisibility = async (
         purpose_type: data.purpose_type,
         target_id: targetId,
         client_price_visible: data.client_price_visible,
+        logistics_visible: data.logistics_visible,
         updated_count: updated.length,
     };
 };
@@ -1220,8 +1335,8 @@ export const LineItemsServices = {
     createCustomLineItem,
     updateLineItem,
     patchLineItemMetadata,
-    patchLineItemClientVisibility,
-    patchEntityLineItemsClientVisibility,
+    patchLineItemVisibility,
+    patchEntityLineItemsVisibility,
     voidLineItem,
     calculateOrderLineItemsTotals,
     calculateInboundRequestLineItemsTotals,

@@ -27,6 +27,11 @@ const createServiceTypeSchema = z.object({
             description: z.string().optional(),
             display_order: z.number().int().optional().default(0),
             is_active: z.boolean().optional().default(true),
+            // Per-type pricing policy default. Lines created from a service
+            // type with apply_margin=false default to NULL apply_margin which
+            // resolves to false at projection time. Admin can still override
+            // per-line.
+            apply_margin: z.boolean().optional().default(true),
         })
         .strict(),
 });
@@ -49,6 +54,7 @@ const updateServiceTypeSchema = z.object({
             description: z.string().optional(),
             display_order: z.number().int().optional(),
             is_active: z.boolean().optional(),
+            apply_margin: z.boolean().optional(),
         })
         .strict(),
 });

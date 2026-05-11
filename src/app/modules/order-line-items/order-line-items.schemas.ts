@@ -6,6 +6,11 @@ const billingModeSchema = z.enum(["BILLABLE", "NON_BILLABLE", "COMPLIMENTARY"], 
     message: "Invalid billing mode",
 });
 
+// Per-line pricing policy. Nullable so callers can express the
+// "inherit from service_type / default true" semantic.
+const applyMarginSchema = z.boolean().nullable().optional();
+const logisticsVisibleSchema = z.boolean().optional();
+
 const createCatalogLineItemSchema = z.object({
     body: z
         .object({
@@ -25,6 +30,8 @@ const createCatalogLineItemSchema = z.object({
             billing_mode: billingModeSchema.optional().default("BILLABLE"),
             metadata: z.record(z.string(), z.unknown()).optional().default({}),
             client_price_visible: z.boolean().optional().default(false),
+            apply_margin: applyMarginSchema,
+            logistics_visible: logisticsVisibleSchema,
         })
         .refine((data) => {
             if (data.purpose_type === "ORDER" && !data.order_id) {
@@ -79,6 +86,8 @@ const createCustomLineItemSchema = z.object({
             billing_mode: billingModeSchema.optional().default("BILLABLE"),
             metadata: z.record(z.string(), z.unknown()).optional().default({}),
             client_price_visible: z.boolean().optional().default(false),
+            apply_margin: applyMarginSchema,
+            logistics_visible: logisticsVisibleSchema,
         })
         .refine((data) => {
             if (data.purpose_type === "ORDER" && !data.order_id) return false;
@@ -100,6 +109,8 @@ const updateLineItemSchema = z.object({
             billing_mode: billingModeSchema.optional(),
             metadata: z.record(z.string(), z.unknown()).optional(),
             client_price_visible: z.boolean().optional(),
+            apply_margin: applyMarginSchema,
+            logistics_visible: logisticsVisibleSchema,
         })
         .strict(),
 });
@@ -113,17 +124,26 @@ const patchLineItemMetadataSchema = z.object({
         .strict(),
 });
 
-const patchLineItemClientVisibilitySchema = z.object({
+// Visibility patch — single line. Accepts both audience flags so the
+// audience chip's popover saves once. At least one must be present.
+const patchLineItemVisibilitySchema = z.object({
     body: z
         .object({
-            client_price_visible: z.boolean({
-                message: "client_price_visible must be a boolean",
-            }),
+            client_price_visible: z
+                .boolean({ message: "client_price_visible must be a boolean" })
+                .optional(),
+            logistics_visible: z
+                .boolean({ message: "logistics_visible must be a boolean" })
+                .optional(),
         })
+        .refine(
+            (d) => d.client_price_visible !== undefined || d.logistics_visible !== undefined,
+            "At least one of client_price_visible or logistics_visible is required"
+        )
         .strict(),
 });
 
-const patchEntityLineItemsClientVisibilitySchema = z.object({
+const patchEntityLineItemsVisibilitySchema = z.object({
     body: z
         .object({
             purpose_type: z.enum(
@@ -134,9 +154,8 @@ const patchEntityLineItemsClientVisibilitySchema = z.object({
             inbound_request_id: z.uuid("Invalid inbound request ID").optional(),
             service_request_id: z.uuid("Invalid service request ID").optional(),
             self_pickup_id: z.uuid("Invalid self-pickup ID").optional(),
-            client_price_visible: z.boolean({
-                message: "client_price_visible must be a boolean",
-            }),
+            client_price_visible: z.boolean().optional(),
+            logistics_visible: z.boolean().optional(),
             line_item_ids: z.array(z.uuid("Invalid line item id")).optional(),
         })
         .refine((data) => {
@@ -146,6 +165,10 @@ const patchEntityLineItemsClientVisibilitySchema = z.object({
             if (data.purpose_type === "SELF_PICKUP" && !data.self_pickup_id) return false;
             return true;
         }, "Parent entity ID is required matching the purpose_type (order_id / inbound_request_id / service_request_id / self_pickup_id)")
+        .refine(
+            (d) => d.client_price_visible !== undefined || d.logistics_visible !== undefined,
+            "At least one of client_price_visible or logistics_visible is required"
+        )
         .strict(),
 });
 
@@ -164,7 +187,7 @@ export const LineItemsSchemas = {
     createCustomLineItemSchema,
     updateLineItemSchema,
     patchLineItemMetadataSchema,
-    patchLineItemClientVisibilitySchema,
-    patchEntityLineItemsClientVisibilitySchema,
+    patchLineItemVisibilitySchema,
+    patchEntityLineItemsVisibilitySchema,
     voidLineItemSchema,
 };

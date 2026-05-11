@@ -2,7 +2,31 @@ import httpStatus from "http-status";
 import catchAsync from "../../shared/catch-async";
 import sendResponse from "../../shared/send-response";
 import { SelfPickupServices } from "./self-pickup.services";
+import { PricingService } from "../../services/pricing.service";
 import { getRequiredString } from "../../utils/request";
+
+/**
+ * Wrap a raw self-pickup detail response so its self_pickup_pricing is
+ * projected for the calling role. Admin additionally receives all three
+ * role projections nested under `projections` to power the role-preview
+ * tabs on the breakdown card.
+ *
+ * The base getSelfPickupById returns the raw prices row — internal callers
+ * (status transitions, mark-no-cost) want it unprojected. The HTTP layer
+ * is where role context lives, so projection happens here.
+ */
+const withProjectedPricing = (pickup: any, role: "ADMIN" | "LOGISTICS" | "CLIENT") => {
+    if (!pickup) return pickup;
+    const rawPricing = pickup.self_pickup_pricing;
+    const baseProjection = PricingService.projectByRole(rawPricing as any, role);
+    const projections =
+        role === "ADMIN" ? PricingService.projectAllRolesForAdmin(rawPricing as any) : null;
+    const projected =
+        role === "ADMIN" && projections
+            ? { ...(baseProjection as any), projections }
+            : baseProjection;
+    return { ...pickup, self_pickup_pricing: projected };
+};
 
 // ----------------------------------- CLIENT ENDPOINTS ------------------------------------
 
@@ -46,6 +70,7 @@ const clientList = catchAsync(async (req, res) => {
 
 const clientDetail = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
+    const user = (req as any).user;
     const id = getRequiredString(req.params.id, "id");
     const result = await SelfPickupServices.getSelfPickupById(id, platformId);
 
@@ -53,7 +78,7 @@ const clientDetail = catchAsync(async (req, res) => {
         statusCode: httpStatus.OK,
         success: true,
         message: "Self-pickup details fetched",
-        data: result,
+        data: withProjectedPricing(result, user?.role || "CLIENT"),
     });
 });
 
@@ -138,6 +163,7 @@ const adminList = catchAsync(async (req, res) => {
 
 const adminDetail = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
+    const user = (req as any).user;
     const id = getRequiredString(req.params.id, "id");
     const result = await SelfPickupServices.getSelfPickupById(id, platformId);
 
@@ -145,7 +171,7 @@ const adminDetail = catchAsync(async (req, res) => {
         statusCode: httpStatus.OK,
         success: true,
         message: "Self-pickup details fetched",
-        data: result,
+        data: withProjectedPricing(result, user?.role || "ADMIN"),
     });
 });
 

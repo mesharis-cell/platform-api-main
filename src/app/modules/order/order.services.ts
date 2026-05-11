@@ -1386,6 +1386,24 @@ const getOrderById = async (
         };
     }
 
+    // Admin receives all three projections nested under `projections` so the
+    // breakdown card can preview Logistics + Client without an extra round-trip.
+    // The flat fields remain (existing readers depend on them) and projections
+    // is purely additive.
+    const baseProjection = PricingService.projectForRole(
+        orderData.order_pricing,
+        lineItems,
+        user.role
+    );
+    const adminProjections =
+        user.role === "ADMIN"
+            ? PricingService.projectAllRolesForAdmin(orderData.order_pricing as any)
+            : null;
+    const orderPricingPayload =
+        user.role === "ADMIN" && adminProjections
+            ? { ...(baseProjection as any), projections: adminProjections }
+            : baseProjection;
+
     return {
         ...orderData.order,
         company: orderData.company,
@@ -1397,7 +1415,7 @@ const getOrderById = async (
         financial_status_history: financialHistory,
         order_status_history: orderHistory,
         venue_city: orderData.venue_city?.name || null,
-        order_pricing: PricingService.projectForRole(orderData.order_pricing, lineItems, user.role),
+        order_pricing: orderPricingPayload,
         invoice: invoiceData,
     };
 };

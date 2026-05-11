@@ -49,22 +49,24 @@ router.patch(
     LineItemsControllers.patchLineItemMetadata
 );
 
-// Patch client price visibility for one line item
+// Patch visibility (client price + logistics line visibility) for one item.
+// Combined endpoint — single audience chip on the frontend saves both flags
+// in one round-trip.
 router.patch(
-    "/:itemId/client-visibility",
+    "/:itemId/visibility",
     platformValidator,
     auth("ADMIN"),
-    payloadValidator(LineItemsSchemas.patchLineItemClientVisibilitySchema),
-    LineItemsControllers.patchLineItemClientVisibility
+    payloadValidator(LineItemsSchemas.patchLineItemVisibilitySchema),
+    LineItemsControllers.patchLineItemVisibility
 );
 
-// Bulk patch client price visibility for an entity
+// Bulk visibility patch — same combined shape for an entire entity.
 router.patch(
-    "/client-visibility",
+    "/visibility",
     platformValidator,
     auth("ADMIN"),
-    payloadValidator(LineItemsSchemas.patchEntityLineItemsClientVisibilitySchema),
-    LineItemsControllers.patchEntityLineItemsClientVisibility
+    payloadValidator(LineItemsSchemas.patchEntityLineItemsVisibilitySchema),
+    LineItemsControllers.patchEntityLineItemsVisibility
 );
 
 // Void (soft delete) line item

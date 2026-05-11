@@ -436,6 +436,24 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
         .where(eq(invoices.inbound_request_id, requestId));
 
     // Step 7: Format the response
+    // Admin gets a nested `projections` object carrying all three role views
+    // (admin / logistics / client) so the breakdown card can preview Logistics
+    // and Client without extra API calls. Non-admin callers receive only their
+    // own projection at the top level.
+    const inboundBaseProjection = PricingService.projectForRole(
+        result.request_pricing,
+        lineItemsData,
+        user.role
+    );
+    const inboundAdminProjections =
+        user.role === "ADMIN"
+            ? PricingService.projectAllRolesForAdmin(result.request_pricing as any)
+            : null;
+    const requestPricingPayload =
+        user.role === "ADMIN" && inboundAdminProjections
+            ? { ...(inboundBaseProjection as any), projections: inboundAdminProjections }
+            : inboundBaseProjection;
+
     return {
         id: result.request.id,
         inbound_request_id: result.request.inbound_request_id,
@@ -446,11 +464,7 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
         financial_status: result.request.financial_status,
         company: result.company,
         requester: result.requester,
-        request_pricing: PricingService.projectForRole(
-            result.request_pricing,
-            lineItemsData,
-            user.role
-        ),
+        request_pricing: requestPricingPayload,
         items: items.map((item) => {
             const inboundItem = item.item as typeof inboundRequestItems.$inferSelect;
             const asset = item.asset?.id
