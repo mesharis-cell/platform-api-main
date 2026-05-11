@@ -45,14 +45,10 @@
 
 import "dotenv/config";
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import readline from "node:readline";
-import {
-    HeadObjectCommand,
-    PutObjectCommand,
-    S3Client,
-} from "@aws-sdk/client-s3";
+import { HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { db, pool } from "../index";
@@ -248,29 +244,102 @@ type SizingProfile = {
 };
 
 const SIZING_PROFILES: SizingProfile[] = [
-    { key: "large_installation", lengthRange: [180, 420], widthRange: [50, 140], heightRange: [180, 320], weightRange: [80, 320] },
-    { key: "bar_or_counter", lengthRange: [120, 300], widthRange: [50, 90], heightRange: [90, 120], weightRange: [35, 140] },
-    { key: "table_display", lengthRange: [60, 220], widthRange: [60, 120], heightRange: [45, 110], weightRange: [8, 60] },
-    { key: "chair_stool", lengthRange: [35, 60], widthRange: [35, 60], heightRange: [45, 120], weightRange: [4, 18] },
-    { key: "shelving_display", lengthRange: [60, 180], widthRange: [30, 60], heightRange: [120, 240], weightRange: [18, 90] },
-    { key: "fridge_cooler", lengthRange: [55, 120], widthRange: [55, 90], heightRange: [85, 220], weightRange: [35, 140] },
-    { key: "sign_lighting", lengthRange: [40, 180], widthRange: [8, 30], heightRange: [40, 160], weightRange: [3, 28] },
-    { key: "plinth_podium", lengthRange: [30, 80], widthRange: [30, 80], heightRange: [80, 140], weightRange: [10, 45] },
-    { key: "small_accessory", lengthRange: [15, 80], widthRange: [15, 60], heightRange: [5, 60], weightRange: [1, 20] },
-    { key: "default", lengthRange: [50, 180], widthRange: [30, 90], heightRange: [40, 180], weightRange: [6, 75] },
+    {
+        key: "large_installation",
+        lengthRange: [180, 420],
+        widthRange: [50, 140],
+        heightRange: [180, 320],
+        weightRange: [80, 320],
+    },
+    {
+        key: "bar_or_counter",
+        lengthRange: [120, 300],
+        widthRange: [50, 90],
+        heightRange: [90, 120],
+        weightRange: [35, 140],
+    },
+    {
+        key: "table_display",
+        lengthRange: [60, 220],
+        widthRange: [60, 120],
+        heightRange: [45, 110],
+        weightRange: [8, 60],
+    },
+    {
+        key: "chair_stool",
+        lengthRange: [35, 60],
+        widthRange: [35, 60],
+        heightRange: [45, 120],
+        weightRange: [4, 18],
+    },
+    {
+        key: "shelving_display",
+        lengthRange: [60, 180],
+        widthRange: [30, 60],
+        heightRange: [120, 240],
+        weightRange: [18, 90],
+    },
+    {
+        key: "fridge_cooler",
+        lengthRange: [55, 120],
+        widthRange: [55, 90],
+        heightRange: [85, 220],
+        weightRange: [35, 140],
+    },
+    {
+        key: "sign_lighting",
+        lengthRange: [40, 180],
+        widthRange: [8, 30],
+        heightRange: [40, 160],
+        weightRange: [3, 28],
+    },
+    {
+        key: "plinth_podium",
+        lengthRange: [30, 80],
+        widthRange: [30, 80],
+        heightRange: [80, 140],
+        weightRange: [10, 45],
+    },
+    {
+        key: "small_accessory",
+        lengthRange: [15, 80],
+        widthRange: [15, 60],
+        heightRange: [5, 60],
+        weightRange: [1, 20],
+    },
+    {
+        key: "default",
+        lengthRange: [50, 180],
+        widthRange: [30, 90],
+        heightRange: [40, 180],
+        weightRange: [6, 75],
+    },
 ];
 
 function inferSizingProfile(title: string): SizingProfile {
     const haystack = title.toLowerCase();
-    if (/(backdrop|wall|arch|frame|fascia|totem|booth|stand|activation|display unit|display wall|installation|structure|gantry|portal|kiosk)/.test(haystack)) return SIZING_PROFILES[0];
-    if (/(bar|counter|station|serve station|sampling unit)/.test(haystack)) return SIZING_PROFILES[1];
+    if (
+        /(backdrop|wall|arch|frame|fascia|totem|booth|stand|activation|display unit|display wall|installation|structure|gantry|portal|kiosk)/.test(
+            haystack
+        )
+    )
+        return SIZING_PROFILES[0];
+    if (/(bar|counter|station|serve station|sampling unit)/.test(haystack))
+        return SIZING_PROFILES[1];
     if (/(table|desk|console|display table)/.test(haystack)) return SIZING_PROFILES[2];
     if (/(chair|stool|bench|seat|seating)/.test(haystack)) return SIZING_PROFILES[3];
-    if (/(shelf|shelving|rack|cabinet|bookcase|display shelf)/.test(haystack)) return SIZING_PROFILES[4];
+    if (/(shelf|shelving|rack|cabinet|bookcase|display shelf)/.test(haystack))
+        return SIZING_PROFILES[4];
     if (/(fridge|cooler|freezer|ice box|chiller)/.test(haystack)) return SIZING_PROFILES[5];
-    if (/(sign|neon|lightbox|light box|lamp|lighting|led)/.test(haystack)) return SIZING_PROFILES[6];
+    if (/(sign|neon|lightbox|light box|lamp|lighting|led)/.test(haystack))
+        return SIZING_PROFILES[6];
     if (/(plinth|podium|pedestal|cube)/.test(haystack)) return SIZING_PROFILES[7];
-    if (/(bucket|tray|crate|menu|props|prop|smallware|accessory|cap|t shirt|tshirt|bag|tokens|pin|diary|book)/.test(haystack)) return SIZING_PROFILES[8];
+    if (
+        /(bucket|tray|crate|menu|props|prop|smallware|accessory|cap|t shirt|tshirt|bag|tokens|pin|diary|book)/.test(
+            haystack
+        )
+    )
+        return SIZING_PROFILES[8];
     return SIZING_PROFILES[9];
 }
 
@@ -279,7 +348,12 @@ function deterministic01(seed: string, salt: string): number {
     return parseInt(digest, 16) / 0xffffffff;
 }
 
-function pickFromRange(seed: string, salt: string, [min, max]: [number, number], precision = 0): number {
+function pickFromRange(
+    seed: string,
+    salt: string,
+    [min, max]: [number, number],
+    precision = 0
+): number {
     const value = min + deterministic01(seed, salt) * (max - min);
     const f = 10 ** precision;
     return Math.round(value * f) / f;
@@ -323,7 +397,9 @@ function s3Client(): S3Client {
     const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
     const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
     if (!region || !accessKeyId || !secretAccessKey) {
-        throw new Error("AWS credentials missing (AWS_REGION / AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY)");
+        throw new Error(
+            "AWS credentials missing (AWS_REGION / AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY)"
+        );
     }
     _s3 = new S3Client({ region, credentials: { accessKeyId, secretAccessKey } });
     return _s3;
@@ -420,7 +496,9 @@ async function checkPreflight(): Promise<PreflightResult> {
     const allCategories = await db.query.assetCategories.findMany({
         where: eq(schema.assetCategories.platform_id, PLATFORM_ID),
     });
-    const categoriesByNameLc = new Map(allCategories.map((c) => [c.name.toLowerCase(), { id: c.id, name: c.name }]));
+    const categoriesByNameLc = new Map(
+        allCategories.map((c) => [c.name.toLowerCase(), { id: c.id, name: c.name }])
+    );
 
     const uniqueCategories = new Set(inventory.map((r) => r.category));
     const missingCategories: string[] = [];
@@ -469,9 +547,10 @@ async function checkPreflight(): Promise<PreflightResult> {
 
     const blockers: string[] = [];
     if (!warehouse) blockers.push(`Warehouse "${WAREHOUSE_NAME}" missing`);
-    if (!zone) blockers.push(`Zone "${ZONE_NAME}" (Bacardi-scoped under "${WAREHOUSE_NAME}") missing`);
+    if (!zone)
+        blockers.push(`Zone "${ZONE_NAME}" (Bacardi-scoped under "${WAREHOUSE_NAME}") missing`);
     if (missingCategories.length) blockers.push(`${missingCategories.length} categories missing`);
-    if ((bacardiState.brands + bacardiState.families + bacardiState.assets) > 0 && !force) {
+    if (bacardiState.brands + bacardiState.families + bacardiState.assets > 0 && !force) {
         blockers.push(
             "Bacardi already has data — run cleanup-bacardi-import.sql or pass --force to override"
         );
@@ -511,7 +590,9 @@ function reportPreflight(r: PreflightResult) {
     console.log();
     console.log(`Source XLSX              : ${r.checksum.xlsx_path}`);
     console.log(`SHA256                   : ${r.checksum.xlsx_sha256}`);
-    console.log(`Size                     : ${(r.checksum.xlsx_size_bytes / 1024 / 1024).toFixed(1)} MB`);
+    console.log(
+        `Size                     : ${(r.checksum.xlsx_size_bytes / 1024 / 1024).toFixed(1)} MB`
+    );
     console.log(`Inventory rows           : ${r.inventory.length}`);
     console.log(
         `Skipped during extract   : ${r.checksum.skipped_header_junk} header-junk, ${r.checksum.skipped_empty_asset_name} empty asset_name`
@@ -765,7 +846,9 @@ async function runImages(pre?: PreflightResult) {
         }
         console.log("\n[--dry-run — populated URL map without HEAD/PUT calls]");
         writeFileSync(IMAGE_URLS_PATH, JSON.stringify(urlMap, null, 2));
-        console.log(`Wrote dry URL map        : ${IMAGE_URLS_PATH}  (${Object.keys(urlMap).length} entries)`);
+        console.log(
+            `Wrote dry URL map        : ${IMAGE_URLS_PATH}  (${Object.keys(urlMap).length} entries)`
+        );
         return;
     }
 
@@ -798,7 +881,9 @@ async function runImages(pre?: PreflightResult) {
             }
             progress++;
             if (progress % 50 === 0 || progress === referencedFilenames.length) {
-                console.log(`  ${progress}/${referencedFilenames.length}  uploaded=${uploaded}  alreadyPresent=${alreadyPresent}`);
+                console.log(
+                    `  ${progress}/${referencedFilenames.length}  uploaded=${uploaded}  alreadyPresent=${alreadyPresent}`
+                );
             }
         },
         IMAGE_UPLOAD_CONCURRENCY
@@ -811,7 +896,9 @@ async function runImages(pre?: PreflightResult) {
     console.log(`Already on S3 (skipped) : ${alreadyPresent}`);
     console.log(`Bytes pushed            : ${(bytesUploaded / 1024 / 1024).toFixed(2)} MB`);
     console.log(`Elapsed                 : ${((Date.now() - startedAt) / 1000).toFixed(1)} s`);
-    console.log(`URL map                 : ${IMAGE_URLS_PATH}  (${Object.keys(urlMap).length} entries)`);
+    console.log(
+        `URL map                 : ${IMAGE_URLS_PATH}  (${Object.keys(urlMap).length} entries)`
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -877,7 +964,9 @@ async function runDb(pre?: PreflightResult) {
     // Build the target row sets in memory before opening the txn so any
     // synthesis errors surface before we hold a DB lock.
     const distinctBrands = Array.from(new Set(r.inventory.map((row) => row.brand))).sort();
-    const distinctFamilyNames = Array.from(new Set(r.inventory.map((row) => row.family_name).filter((n): n is string => Boolean(n))));
+    const distinctFamilyNames = Array.from(
+        new Set(r.inventory.map((row) => row.family_name).filter((n): n is string => Boolean(n)))
+    );
 
     // Each family needs a representative source row (for category, brand, image, measurements).
     // Since multiple source rows may share family_name (4 cases per the data),
@@ -999,8 +1088,11 @@ async function runDb(pre?: PreflightResult) {
         let qrCursor = 0;
         for (const row of r.inventory) {
             const brandId = brandIdByName.get(row.brand) ?? null;
-            const familyId = row.family_name ? familyIdByName.get(row.family_name) ?? null : null;
-            const imgUrl = row.image_filename && row.image_filename !== "image_filename" ? urlMap[row.image_filename] ?? null : null;
+            const familyId = row.family_name ? (familyIdByName.get(row.family_name) ?? null) : null;
+            const imgUrl =
+                row.image_filename && row.image_filename !== "image_filename"
+                    ? (urlMap[row.image_filename] ?? null)
+                    : null;
             const seed = row.family_name ?? row.asset_name;
             const meas = deriveMeasurements(seed, row.asset_name);
             const images = imgUrl ? [{ url: imgUrl }] : [];
@@ -1069,15 +1161,12 @@ async function runDb(pre?: PreflightResult) {
 
         // Pre-seed manifest with EVERY inventory row, including qty=0 ones
         // that produce no asset rows. Keeps the audit complete.
-        const inventoryByKey = new Map(
-            r.inventory.map((rr) => [sourceKey(rr.sheet, rr.row), rr])
-        );
         for (const rr of r.inventory) {
             const k = sourceKey(rr.sheet, rr.row);
-            const familyId = rr.family_name ? familyIdByName.get(rr.family_name) ?? null : null;
+            const familyId = rr.family_name ? (familyIdByName.get(rr.family_name) ?? null) : null;
             const imgUrl =
                 rr.image_filename && rr.image_filename !== "image_filename"
-                    ? urlMap[rr.image_filename] ?? null
+                    ? (urlMap[rr.image_filename] ?? null)
                     : null;
             manifestByKey.set(k, {
                 sheet: rr.sheet,
@@ -1161,8 +1250,9 @@ async function runDb(pre?: PreflightResult) {
         ids: {
             brands: createdBrands,
             families: createdFamilies,
-            entries_by_source: Array.from(manifestByKey.values()).sort((a, b) =>
-                (a.sheet ?? "").localeCompare(b.sheet ?? "") || a.source_row - b.source_row
+            entries_by_source: Array.from(manifestByKey.values()).sort(
+                (a, b) =>
+                    (a.sheet ?? "").localeCompare(b.sheet ?? "") || a.source_row - b.source_row
             ),
         },
     };
@@ -1216,9 +1306,7 @@ async function main() {
             await runAll();
             break;
         default:
-            throw new Error(
-                `Unknown phase "${phase}". Valid: preflight, setup, images, db, all.`
-            );
+            throw new Error(`Unknown phase "${phase}". Valid: preflight, setup, images, db, all.`);
     }
 }
 
