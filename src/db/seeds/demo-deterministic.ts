@@ -17,7 +17,8 @@
  * else with "Invalid <field> ID." Within those constraints we encode entity
  * type in segment 4: 8001=platform, 8002=company, 8010-8019=users,
  * 8020-8029=brands, 8030-8039=families, 8040-8049=assets, 8050-8059=orders,
- * 8060-8069=service requests, etc.
+ * 8060-8069=service requests, 8070-8079=self-pickups,
+ * 8080-8089=stock_movements, etc.
  */
 
 /**
@@ -64,6 +65,7 @@ export const DEMO_UUIDS = {
         eventChairs: "00000000-0000-4000-8030-000000000001",
         backdropPanels: "00000000-0000-4000-8030-000000000002",
         ledScreens: "00000000-0000-4000-8030-000000000003",
+        singleStockTest: "00000000-0000-4000-8030-000000000004",
     },
 
     assets: {
@@ -75,6 +77,7 @@ export const DEMO_UUIDS = {
         ledScreen1: "00000000-0000-4000-8040-000000000020",
         ledScreen2: "00000000-0000-4000-8040-000000000021",
         ledScreen3: "00000000-0000-4000-8040-000000000022",
+        singleStockMicrophone: "00000000-0000-4000-8040-000000000030",
     },
 
     collection: "00000000-0000-4000-8045-000000000001",
@@ -89,6 +92,27 @@ export const DEMO_UUIDS = {
     },
 
     serviceRequest: "00000000-0000-4000-8060-000000000001",
+
+    selfPickups: {
+        sp1PricingReview: "00000000-0000-4000-8070-000000000001",
+        sp2Quoted: "00000000-0000-4000-8070-000000000002",
+        sp3Confirmed: "00000000-0000-4000-8070-000000000003",
+        sp4ReadyForPickup: "00000000-0000-4000-8070-000000000004",
+        sp5Closed: "00000000-0000-4000-8070-000000000005",
+        sp6Cancelled: "00000000-0000-4000-8070-000000000006",
+    },
+
+    stockMovements: {
+        outboundFromOrder4: "00000000-0000-4000-8080-000000000001",
+        inboundFromOrder5: "00000000-0000-4000-8080-000000000002",
+        adjustmentNeg1: "00000000-0000-4000-8080-000000000003",
+        adjustmentPos1: "00000000-0000-4000-8080-000000000004",
+        adHocReplacement: "00000000-0000-4000-8080-000000000005",
+        adHocInstallConsumption: "00000000-0000-4000-8080-000000000006",
+        adHocRepurposed: "00000000-0000-4000-8080-000000000007",
+        adHocOther: "00000000-0000-4000-8080-000000000008",
+        writeOffDamaged: "00000000-0000-4000-8080-000000000009",
+    },
 } as const;
 
 export const DEMO_ORDER_IDS = {
@@ -98,4 +122,13 @@ export const DEMO_ORDER_IDS = {
     order4Delivered: "ORD-DEMO-004",
     order5Closed: "ORD-DEMO-005",
     order6Cancelled: "ORD-DEMO-006",
+} as const;
+
+export const DEMO_SELF_PICKUP_IDS = {
+    sp1PricingReview: "SPK-DEMO-001",
+    sp2Quoted: "SPK-DEMO-002",
+    sp3Confirmed: "SPK-DEMO-003",
+    sp4ReadyForPickup: "SPK-DEMO-004",
+    sp5Closed: "SPK-DEMO-005",
+    sp6Cancelled: "SPK-DEMO-006",
 } as const;
