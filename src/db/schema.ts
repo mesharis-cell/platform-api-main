@@ -3128,3 +3128,68 @@ export const stockMovementsRelations = relations(stockMovements, ({ one }) => ({
         references: [users.id],
     }),
 }));
+
+// ============================================================
+// COMMERCE RULES (Item 6 of the 9-item bundle)
+// Generic, admin-configurable cart-time validation rules. v1 surfaces
+// QUANTITY + COMPANION (warn-only). Schema reserves full forward-compat
+// vocabulary so v2 expansion to CONFLICT / CATEGORY / BRAND rule types
+// and BLOCK / SUGGEST severities needs no migration.
+// ============================================================
+
+export const commerceRuleTypeEnum = pgEnum("commerce_rule_type", [
+    "QUANTITY",
+    "COMPANION",
+    "CONFLICT",
+    "CATEGORY",
+    "BRAND",
+]);
+
+export const commerceRuleSeverityEnum = pgEnum("commerce_rule_severity", [
+    "WARN",
+    "BLOCK",
+    "SUGGEST",
+]);
+
+export const commerceRules = pgTable(
+    "commerce_rules",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        // null = platform-wide; set = company-specific. Resolution at
+        // evaluation time is UNION of (platform-wide ∪ caller-company-specific).
+        company_id: uuid("company_id").references(() => companies.id, {
+            onDelete: "cascade",
+        }),
+        name: varchar("name", { length: 200 }).notNull(),
+        description: text("description"),
+        rule_type: commerceRuleTypeEnum("rule_type").notNull(),
+        severity: commerceRuleSeverityEnum("severity").notNull().default("WARN"),
+        target: jsonb("target").notNull(),
+        predicate: jsonb("predicate").notNull(),
+        message: text("message").notNull(),
+        is_active: boolean("is_active").notNull().default(true),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+        updated_at: timestamp("updated_at")
+            .$onUpdate(() => new Date())
+            .notNull(),
+        deleted_at: timestamp("deleted_at"),
+    },
+    (table) => [
+        index("commerce_rules_platform_idx").on(table.platform_id),
+        index("commerce_rules_company_idx").on(table.company_id),
+    ]
+);
+
+export const commerceRulesRelations = relations(commerceRules, ({ one }) => ({
+    platform: one(platforms, {
+        fields: [commerceRules.platform_id],
+        references: [platforms.id],
+    }),
+    company: one(companies, {
+        fields: [commerceRules.company_id],
+        references: [companies.id],
+    }),
+}));
