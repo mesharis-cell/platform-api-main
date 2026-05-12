@@ -15,6 +15,7 @@ export interface SubmitSelfPickupPayload {
     expected_return_at?: string;
     notes?: string;
     special_instructions?: string;
+    is_permanent_placement: boolean;
     job_number?: string;
     po_number?: string;
 }

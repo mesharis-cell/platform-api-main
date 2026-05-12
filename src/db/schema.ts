@@ -1133,6 +1133,10 @@ export const orders = pgTable(
             .references(() => cities.id),
         venue_location: jsonb("venue_location").notNull(), // {country, city, address, access_notes}
         permit_requirements: jsonb("permit_requirements"),
+        // Item 7: explicit Yes/No collected at checkout — true = items going
+        // out permanently (no return shipment expected), false = normal
+        // rental flow (will come back). Existing rows default to false.
+        is_permanent_placement: boolean("is_permanent_placement").notNull().default(false),
         special_instructions: text("special_instructions"),
 
         // Logistics windows
@@ -2043,6 +2047,9 @@ export const selfPickups = pgTable(
         warehouse_id: uuid("warehouse_id").references(() => warehouses.id, {
             onDelete: "set null",
         }),
+        // Item 7: explicit Yes/No collected at checkout — true = items
+        // going out permanently (no return). Existing rows default to false.
+        is_permanent_placement: boolean("is_permanent_placement").notNull().default(false),
     },
     (table) => [
         unique("self_pickups_platform_self_pickup_id_unique").on(

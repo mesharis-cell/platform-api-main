@@ -204,6 +204,12 @@ const submitOrderSchema = z.object({
                     notes: z.string().max(1000).optional(),
                 })
                 .optional(),
+            // Item 7: required Yes/No — true = items going out permanently
+            // (no return), false = normal rental. No default; client must
+            // explicitly answer at the venue step.
+            is_permanent_placement: z.boolean({
+                message: "Please confirm whether these items are being placed permanently",
+            }),
             special_instructions: z.string("Special instructions should be a text").optional(),
         })
         .strict()

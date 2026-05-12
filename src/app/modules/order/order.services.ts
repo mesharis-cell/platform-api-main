@@ -451,6 +451,7 @@ const submitOrderFromCart = async (
         contact_phone,
         venue_access_notes,
         permit_requirements,
+        is_permanent_placement,
         special_instructions,
         venue_contact,
         requested_delivery_window,
@@ -712,6 +713,7 @@ const submitOrderFromCart = async (
                 },
                 permit_requirements:
                     permit_requirements?.requires_permit === true ? permit_requirements : null,
+                is_permanent_placement: Boolean(is_permanent_placement),
                 special_instructions: special_instructions || null,
                 calculated_totals: {
                     volume: calculatedVolume,

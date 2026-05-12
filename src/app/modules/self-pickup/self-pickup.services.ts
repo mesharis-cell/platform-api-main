@@ -101,6 +101,7 @@ const submitSelfPickupFromCart = async (
         expected_return_at,
         notes,
         special_instructions,
+        is_permanent_placement,
         job_number,
         po_number,
     } = payload;
@@ -345,6 +346,7 @@ const submitSelfPickupFromCart = async (
                 expected_return_at: expected_return_at ? dayjs(expected_return_at).toDate() : null,
                 notes: notes || null,
                 special_instructions: special_instructions || null,
+                is_permanent_placement: Boolean(is_permanent_placement),
                 job_number: job_number || null,
                 po_number: po_number || null,
                 self_pickup_pricing_id: pickupPricing.id,

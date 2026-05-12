@@ -23,7 +23,9 @@ export const createCommerceRuleSchema = z.object({
             severity: z.enum(["WARN", "BLOCK", "SUGGEST"]).default("WARN"),
             target: targetSchema,
             predicate: predicateSchema,
-            message: z.string().min(1).max(1000),
+            // Item 6 review: client surfaces have constrained space (popup
+        // dialog + inline review banner). 240 chars keeps both readable.
+        message: z.string().min(1).max(240),
             is_active: z.boolean().optional().default(true),
         })
         .refine(
@@ -53,7 +55,7 @@ export const updateCommerceRuleSchema = z.object({
         description: z.string().max(2000).nullable().optional(),
         target: targetSchema.optional(),
         predicate: predicateSchema.optional(),
-        message: z.string().min(1).max(1000).optional(),
+        message: z.string().min(1).max(240).optional(),
         is_active: z.boolean().optional(),
     }),
 });
