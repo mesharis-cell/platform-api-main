@@ -258,6 +258,20 @@ const submitOrderSchema = z.object({
                 message: "Permit owner is required when permits are needed",
                 path: ["permit_requirements", "permit_owner"],
             }
+        )
+        // New submissions must pick a concrete owner (CLIENT or PLATFORM) when a
+        // permit is required. UNKNOWN remains in the enum for legacy-data read
+        // compatibility, but is rejected on write per the item 7 spec.
+        .refine(
+            (data) =>
+                !data.permit_requirements?.requires_permit ||
+                data.permit_requirements?.permit_owner === "CLIENT" ||
+                data.permit_requirements?.permit_owner === "PLATFORM",
+            {
+                message:
+                    "Permit owner must be specified (UNKNOWN is not allowed for new orders)",
+                path: ["permit_requirements", "permit_owner"],
+            }
         ),
 });
 
