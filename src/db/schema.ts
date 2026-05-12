@@ -1019,8 +1019,17 @@ export const collectionItems = pgTable(
         notes: text("notes"),
         display_order: integer("display_order"), // Sort order in collection
         created_at: timestamp("created_at").notNull().defaultNow(),
+        deleted_at: timestamp("deleted_at"),
     },
-    (table) => [unique("collection_items_unique").on(table.collection, table.asset)]
+    (table) => [
+        // Partial uniqueness: only one non-deleted row per (collection, asset)
+        // so an asset can be removed and re-added without colliding with the
+        // soft-deleted historical row.
+        uniqueIndex("collection_items_active_unique")
+            .on(table.collection, table.asset)
+            .where(sql`${table.deleted_at} IS NULL`),
+        index("collection_items_deleted_at_idx").on(table.deleted_at),
+    ]
 );
 
 export const collectionItemsRelations = relations(collectionItems, ({ one }) => ({

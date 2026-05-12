@@ -531,10 +531,28 @@ const submitOrderFromCart = async (
                 .where(
                     and(
                         eq(collections.id, item.from_collection_id),
-                        eq(collections.platform_id, platformId)
+                        eq(collections.platform_id, platformId),
+                        isNull(collections.deleted_at)
                     )
                 );
-            collectionName = collection?.name || null;
+
+            if (!collection) {
+                throw new CustomizedError(
+                    httpStatus.NOT_FOUND,
+                    `Collection not found for item: ${asset.name}`
+                );
+            }
+
+            // Cross-company guard — a client cannot submit an order against
+            // another company's collection even if they know the UUID.
+            if (collection.company_id !== companyId) {
+                throw new CustomizedError(
+                    httpStatus.FORBIDDEN,
+                    "Cannot order from a collection that belongs to another company"
+                );
+            }
+
+            collectionName = collection.name;
         }
 
         const requestedDecision = item.maintenance_decision ?? null;

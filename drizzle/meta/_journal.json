@@ -379,6 +379,13 @@
             "when": 1778572800000,
             "tag": "0054_pricing_policy_flags",
             "breakpoints": true
+        },
+        {
+            "idx": 54,
+            "version": "7",
+            "when": 1778976000000,
+            "tag": "0055_collection_items_soft_delete",
+            "breakpoints": true
         }
     ]
 }
