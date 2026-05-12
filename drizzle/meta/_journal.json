@@ -386,6 +386,13 @@
             "when": 1778976000000,
             "tag": "0055_collection_items_soft_delete",
             "breakpoints": true
+        },
+        {
+            "idx": 55,
+            "version": "7",
+            "when": 1778979600000,
+            "tag": "0056_warehouse_company_timings",
+            "breakpoints": true
         }
     ]
 }

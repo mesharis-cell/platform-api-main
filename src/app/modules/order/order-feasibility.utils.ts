@@ -121,8 +121,6 @@ export const validateMaintenanceFeasibilityForAssets = async (
         };
     }
 
-    const config = await getPlatformFeasibilityConfigShared(platformId, companyId);
-
     const normalizedItems = normalizeFeasibilityItems(items);
     const uniqueAssetIds = normalizedItems.map((item) => item.asset_id);
     const foundAssets = await db
@@ -131,6 +129,7 @@ export const validateMaintenanceFeasibilityForAssets = async (
             name: assets.name,
             condition: assets.condition,
             refurb_days_estimate: assets.refurb_days_estimate,
+            warehouse_id: assets.warehouse_id,
         })
         .from(assets)
         .where(
@@ -140,6 +139,14 @@ export const validateMaintenanceFeasibilityForAssets = async (
                 isNull(assets.deleted_at)
             )
         );
+
+    // Item 2: feasibility config is now per-(platform, company, warehouseSet).
+    // Strictest-wins across the warehouses the cart touches; company-level
+    // override applies uniformly across them per the v1 policy.
+    const warehouseIds = Array.from(
+        new Set(foundAssets.map((a) => a.warehouse_id).filter((id): id is string => Boolean(id)))
+    );
+    const config = await getPlatformFeasibilityConfigShared(platformId, companyId, warehouseIds);
 
     const missingIds = uniqueAssetIds.filter((id) => !foundAssets.some((asset) => asset.id === id));
     if (missingIds.length > 0) {

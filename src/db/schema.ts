@@ -609,6 +609,15 @@ export const warehouses = pgTable(
         city: varchar("city", { length: 50 }).notNull(),
         address: text("address").notNull(),
         coordinates: jsonb("coordinates"), // GPS coordinates {lat, lng}
+        // Operating hours by weekday — null = "always open" (no schedule
+        // enforced). Shape: { mon: [openHour, closeHour] | null, ... }.
+        // Hours are interpreted in the platform timezone (Asia/Dubai by
+        // default) via Intl.DateTimeFormat — never use server-local time.
+        operating_hours: jsonb("operating_hours"),
+        // Per-warehouse feasibility overrides. Mirrors
+        // platforms.config.feasibility shape; missing keys fall through to
+        // the platform/company resolver chain.
+        config: jsonb("config").notNull().default(sql`'{}'::jsonb`),
         is_active: boolean("is_active").notNull().default(true),
         created_at: timestamp("created_at").notNull().defaultNow(),
         updated_at: timestamp("updated_at")
@@ -1986,6 +1995,12 @@ export const selfPickups = pgTable(
             .$onUpdate(() => new Date())
             .notNull(),
         deleted_at: timestamp("deleted_at"),
+        // Per-warehouse feasibility resolution (item 2 of the 9-item bundle).
+        // Nullable v1 until a follow-up migration backfills via the asset set
+        // and tightens to NOT NULL.
+        warehouse_id: uuid("warehouse_id").references(() => warehouses.id, {
+            onDelete: "set null",
+        }),
     },
     (table) => [
         unique("self_pickups_platform_self_pickup_id_unique").on(
@@ -1996,6 +2011,7 @@ export const selfPickups = pgTable(
         index("self_pickups_status_idx").on(table.self_pickup_status),
         index("self_pickups_financial_status_idx").on(table.financial_status),
         index("self_pickups_created_at_idx").on(table.created_at),
+        index("self_pickups_warehouse_id_idx").on(table.warehouse_id),
     ]
 );
 
@@ -2009,6 +2025,10 @@ export const selfPickupsRelations = relations(selfPickups, ({ one, many }) => ({
         references: [companies.id],
     }),
     brand: one(brands, { fields: [selfPickups.brand_id], references: [brands.id] }),
+    warehouse: one(warehouses, {
+        fields: [selfPickups.warehouse_id],
+        references: [warehouses.id],
+    }),
     created_by_user: one(users, {
         fields: [selfPickups.created_by],
         references: [users.id],
