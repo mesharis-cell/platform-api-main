@@ -1443,7 +1443,44 @@ export const workflowRequestsRelations = relations(workflowRequests, ({ one, man
         references: [users.id],
     }),
     attachments: many(entityAttachments),
+    status_history: many(workflowRequestStatusHistory),
 }));
+
+// Item 4: audit trail of workflow status transitions. Every status change
+// inserts a row (from_status nullable for the initial create) so the inbox
+// can show "who moved this to SUBMITTED and when" without scanning logs.
+export const workflowRequestStatusHistory = pgTable(
+    "workflow_request_status_history",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        workflow_request_id: uuid("workflow_request_id")
+            .notNull()
+            .references(() => workflowRequests.id, { onDelete: "cascade" }),
+        from_status: varchar("from_status", { length: 50 }),
+        to_status: varchar("to_status", { length: 50 }).notNull(),
+        changed_by: uuid("changed_by").references(() => users.id),
+        changed_at: timestamp("changed_at").notNull().defaultNow(),
+        note: text("note"),
+    },
+    (table) => [
+        index("workflow_request_status_history_request_idx").on(table.workflow_request_id),
+        index("workflow_request_status_history_changed_at_idx").on(table.changed_at),
+    ]
+);
+
+export const workflowRequestStatusHistoryRelations = relations(
+    workflowRequestStatusHistory,
+    ({ one }) => ({
+        workflow_request: one(workflowRequests, {
+            fields: [workflowRequestStatusHistory.workflow_request_id],
+            references: [workflowRequests.id],
+        }),
+        changed_by_user: one(users, {
+            fields: [workflowRequestStatusHistory.changed_by],
+            references: [users.id],
+        }),
+    })
+);
 
 export const workflowDefinitions = pgTable(
     "workflow_definitions",
@@ -1479,6 +1516,11 @@ export const workflowDefinitions = pgTable(
         intake_schema: jsonb("intake_schema")
             .notNull()
             .default(sql`'{}'::jsonb`),
+        // Item 4: rule-matrix payload that drives auto-creation of
+        // workflow_requests at platform trigger events (e.g. ORDER_CONFIRMED).
+        // Shape: { trigger_event, conditions: [{source, operator, value}] }.
+        // null = manual creation only.
+        auto_open_conditions: jsonb("auto_open_conditions"),
         is_active: boolean("is_active").notNull().default(true),
         sort_order: integer("sort_order").notNull().default(0),
         created_at: timestamp("created_at").notNull().defaultNow(),

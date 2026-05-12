@@ -393,6 +393,13 @@
             "when": 1778979600000,
             "tag": "0056_warehouse_company_timings",
             "breakpoints": true
+        },
+        {
+            "idx": 56,
+            "version": "7",
+            "when": 1778983200000,
+            "tag": "0057_workflow_status_history_and_auto_open",
+            "breakpoints": true
         }
     ]
 }

@@ -9,6 +9,7 @@ import {
     serviceRequests,
     workflowDefinitions,
     workflowRequests,
+    workflowRequestStatusHistory,
 } from "../../../db/schema";
 import { eventBus } from "../../events/event-bus";
 import { EVENT_TYPES } from "../../events/event-types";
@@ -101,9 +102,19 @@ const listWorkflowRequestsForEntity = async (
     platformId: string,
     user: AuthUser
 ) => {
-    await resolveEntity(entityType, entityId, platformId);
+    const entity = await resolveEntity(entityType, entityId, platformId);
+    // Item 4: clients can now LIST workflows on their own entities. The
+    // post-fetch filter still gates them to definitions whose viewer_roles
+    // or actor_roles include CLIENT — internal-only workflows stay hidden.
+    // Additionally, scope to the caller's company so a client can't list
+    // workflows on an entity they don't own.
     if (user.role === "CLIENT") {
-        throw new CustomizedError(httpStatus.FORBIDDEN, "Clients cannot access internal workflows");
+        if (!user.company_id || entity.company_id !== user.company_id) {
+            throw new CustomizedError(
+                httpStatus.FORBIDDEN,
+                "You do not have access to this entity"
+            );
+        }
     }
 
     const rows = await db
@@ -351,9 +362,11 @@ const updateWorkflowRequest = async (
     payload: UpdateWorkflowRequestPayload,
     user: AuthUser
 ) => {
-    if (user.role === "CLIENT") {
-        throw new CustomizedError(httpStatus.FORBIDDEN, "Clients cannot update workflows");
-    }
+    // Item 4: client authorization is now definition-aware. The original
+    // blanket CLIENT block is removed because workflow_definitions.actor_roles
+    // already gates who can act. Clients in actor_roles can update their
+    // own workflows (e.g. submit a permit). The role check happens below
+    // against the definition's actor_roles array.
 
     const [existing] = await db
         .select({
@@ -427,6 +440,16 @@ const updateWorkflowRequest = async (
         .limit(1);
 
     if (existing.status !== updated.status) {
+        // Item 4: write a status_history row for every transition so the
+        // inbox can show "who moved this to SUBMITTED and when".
+        await db.insert(workflowRequestStatusHistory).values({
+            workflow_request_id: updated.id,
+            from_status: existing.status,
+            to_status: updated.status,
+            changed_by: user.id,
+            note: null,
+        });
+
         await emitWorkflowEvent(
             EVENT_TYPES.WORKFLOW_REQUEST_STATUS_CHANGED,
             updated,

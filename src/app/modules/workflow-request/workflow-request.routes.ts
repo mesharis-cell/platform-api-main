@@ -21,11 +21,14 @@ router.get(
     WorkflowRequestControllers.listInbox
 );
 
+// Item 4: definition-aware auth — CLIENT can now hit this endpoint, but
+// the service layer asserts the caller's role is in the workflow's
+// actor_roles array before allowing the update. CLIENT lacking the
+// underlying permission still gets blocked there.
 router.patch(
     "/:id",
     platformValidator,
-    auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.WORKFLOW_REQUESTS_UPDATE),
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
     payloadValidator(WorkflowRequestSchemas.updateWorkflowRequestSchema),
     WorkflowRequestControllers.updateWorkflowRequest
 );
