@@ -617,7 +617,9 @@ export const warehouses = pgTable(
         // Per-warehouse feasibility overrides. Mirrors
         // platforms.config.feasibility shape; missing keys fall through to
         // the platform/company resolver chain.
-        config: jsonb("config").notNull().default(sql`'{}'::jsonb`),
+        config: jsonb("config")
+            .notNull()
+            .default(sql`'{}'::jsonb`),
         is_active: boolean("is_active").notNull().default(true),
         created_at: timestamp("created_at").notNull().defaultNow(),
         updated_at: timestamp("updated_at")

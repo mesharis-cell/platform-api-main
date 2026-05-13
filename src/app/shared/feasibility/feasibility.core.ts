@@ -170,10 +170,7 @@ const resolveCompanyOperatingHoursOverride = (settings: unknown): OperatingHours
     return sanitizeOperatingHours(feasibility.operating_hours);
 };
 
-const resolveWarehouseLeadHours = (
-    warehouseConfig: unknown,
-    key: LeadHoursKey
-): number | null => {
+const resolveWarehouseLeadHours = (warehouseConfig: unknown, key: LeadHoursKey): number | null => {
     if (!warehouseConfig || typeof warehouseConfig !== "object") return null;
     const raw = (warehouseConfig as any)[key];
     if (raw === undefined || raw === null) return null;
@@ -237,9 +234,7 @@ export const computeLeadFloorDatetime = (config: FeasibilityConfig): string => {
 // warehouses. For each day, the intersection is the latest open time and
 // earliest close time across all open warehouses; if ANY warehouse is
 // closed that day, the intersection is closed (null).
-const intersectOperatingHours = (
-    maps: Array<OperatingHours | null>
-): OperatingHours | null => {
+const intersectOperatingHours = (maps: Array<OperatingHours | null>): OperatingHours | null => {
     const nonNull = maps.filter((m): m is OperatingHours => m !== null);
     if (nonNull.length === 0) return null;
     const keys: Array<keyof OperatingHours> = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
@@ -365,10 +360,7 @@ export const getPlatformFeasibilityConfig = async (
 
     if (companyRows[0]) {
         for (const key of leadKeys) {
-            const companyOverride = resolveCompanyLeadTimeOverride(
-                companyRows[0].settings,
-                key
-            );
+            const companyOverride = resolveCompanyLeadTimeOverride(companyRows[0].settings, key);
             if (companyOverride !== null) {
                 // Company override REPLACES the resolved value rather than
                 // taking max — the per-client SLA is authoritative for that
@@ -416,15 +408,7 @@ export const computeLeadFloorDatetimeForEntity = (
 };
 
 // Maps a JS Date to a weekday-key in the platform timezone.
-const WEEKDAY_KEYS: Array<keyof OperatingHours> = [
-    "sun",
-    "mon",
-    "tue",
-    "wed",
-    "thu",
-    "fri",
-    "sat",
-];
+const WEEKDAY_KEYS: Array<keyof OperatingHours> = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 
 /**
  * Extract the hour (0-23) of a Date in a given timezone using Intl. Never
@@ -466,10 +450,7 @@ export const isWithinOperatingHours = (date: Date, config: FeasibilityConfig): b
  * `sp_minimum_lead_hours`. Falls back to the standard SP lead when no
  * operating_hours are configured.
  */
-export const spLeadHoursForWindow = (
-    config: FeasibilityConfig,
-    requestedStart: Date
-): number => {
+export const spLeadHoursForWindow = (config: FeasibilityConfig, requestedStart: Date): number => {
     if (!config.operating_hours) return config.sp_minimum_lead_hours;
     return isWithinOperatingHours(requestedStart, config)
         ? config.sp_minimum_lead_hours

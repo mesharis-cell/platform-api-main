@@ -274,8 +274,7 @@ const submitOrderSchema = z.object({
                 data.permit_requirements?.permit_owner === "CLIENT" ||
                 data.permit_requirements?.permit_owner === "PLATFORM",
             {
-                message:
-                    "Permit owner must be specified (UNKNOWN is not allowed for new orders)",
+                message: "Permit owner must be specified (UNKNOWN is not allowed for new orders)",
                 path: ["permit_requirements", "permit_owner"],
             }
         ),

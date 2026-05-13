@@ -25,10 +25,7 @@ const projectRule = (row: typeof commerceRules.$inferSelect): CommerceRule => ({
     message: row.message,
 });
 
-const createCommerceRule = async (
-    payload: CreateCommerceRulePayload,
-    platformId: string
-) => {
+const createCommerceRule = async (payload: CreateCommerceRulePayload, platformId: string) => {
     const [row] = await db
         .insert(commerceRules)
         .values({
@@ -49,7 +46,12 @@ const createCommerceRule = async (
 
 const listCommerceRules = async (
     platformId: string,
-    filters: { company_id?: string; asset_id?: string; family_id?: string; include_inactive?: boolean }
+    filters: {
+        company_id?: string;
+        asset_id?: string;
+        family_id?: string;
+        include_inactive?: boolean;
+    }
 ) => {
     const conditions: any[] = [
         eq(commerceRules.platform_id, platformId),

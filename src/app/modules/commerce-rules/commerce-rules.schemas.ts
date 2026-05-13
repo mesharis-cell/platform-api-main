@@ -24,10 +24,10 @@ export const createCommerceRuleSchema = z.object({
             target: targetSchema,
             predicate: predicateSchema,
             // Item 6 review: client surfaces are popup dialog AT submit + the
-        // inline banner on the review step (the latter has more room).
-        // 360 chars fits ~5 lines in the popup and ~4 in the banner — short
-        // enough to stay readable, long enough for two-sentence guidance.
-        message: z.string().min(1).max(360),
+            // inline banner on the review step (the latter has more room).
+            // 360 chars fits ~5 lines in the popup and ~4 in the banner — short
+            // enough to stay readable, long enough for two-sentence guidance.
+            message: z.string().min(1).max(360),
             is_active: z.boolean().optional().default(true),
         })
         .refine(

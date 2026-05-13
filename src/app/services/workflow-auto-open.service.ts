@@ -195,9 +195,7 @@ export const evaluateAndCreate = async (
 
     const terminalStatuses = new Set(["COMPLETED", "CANCELLED"]);
     const openCodes = new Set(
-        existing
-            .filter((r) => !terminalStatuses.has(String(r.status)))
-            .map((r) => r.workflow_code)
+        existing.filter((r) => !terminalStatuses.has(String(r.status))).map((r) => r.workflow_code)
     );
 
     let created = 0;
