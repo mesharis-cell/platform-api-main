@@ -323,7 +323,7 @@ export const platformsRelations = relations(platforms, ({ many }) => ({
     users: many(users),
     access_policies: many(accessPolicies),
     warehouses: many(warehouses),
-    asset_families: many(assetFamilies),
+    legacy_asset_families: many(legacyAssetFamilies),
     workflow_requests: many(workflowRequests),
     workflow_definitions: many(workflowDefinitions),
     workflow_definition_company_overrides: many(workflowDefinitionCompanyOverrides),
@@ -440,7 +440,7 @@ export const companiesRelations = relations(companies, ({ one, many }) => ({
     domains: many(companyDomains),
     brands: many(brands),
     zones: many(zones),
-    asset_families: many(assetFamilies),
+    legacy_asset_families: many(legacyAssetFamilies),
     assets: many(assets),
     collections: many(collections),
     orders: many(orders),
@@ -591,7 +591,7 @@ export const brandsRelations = relations(brands, ({ one, many }) => ({
         fields: [brands.company_id],
         references: [companies.id],
     }),
-    asset_families: many(assetFamilies),
+    legacy_asset_families: many(legacyAssetFamilies),
     assets: many(assets),
     collections: many(collections),
 }));
@@ -718,12 +718,19 @@ export const assetCategoriesRelations = relations(assetCategories, ({ one, many 
         fields: [assetCategories.company_id],
         references: [companies.id],
     }),
-    asset_families: many(assetFamilies),
+    legacy_asset_families: many(legacyAssetFamilies),
 }));
 
-// ---------------------------------- ASSET FAMILY -----------------------------------------
-export const assetFamilies = pgTable(
-    "asset_families",
+// ---------------------------------- LEGACY ASSET FAMILY -----------------------------------
+// READ-ONLY ARCHIVE — preserved after the squash so that historical reports and
+// audit queries can still resolve the original family identity (name, etc.) for
+// rows that pre-date the cutover. NO service code reads from this table at
+// runtime post-cutover; assets are now self-contained (group_id + group_name +
+// stock_mode live directly on assets). Renamed via migration 0061 from
+// asset_families → legacy_asset_families. Drop fully (separate migration) once
+// confident no report path needs the legacy labels.
+export const legacyAssetFamilies = pgTable(
+    "legacy_asset_families",
     {
         id: uuid("id").primaryKey().defaultRandom(),
         platform_id: uuid("platform_id")
@@ -784,28 +791,30 @@ export const assetFamilies = pgTable(
     ]
 );
 
-export const assetFamiliesRelations = relations(assetFamilies, ({ one, many }) => ({
+export const legacyAssetFamiliesRelations = relations(legacyAssetFamilies, ({ one }) => ({
     platform: one(platforms, {
-        fields: [assetFamilies.platform_id],
+        fields: [legacyAssetFamilies.platform_id],
         references: [platforms.id],
     }),
     company: one(companies, {
-        fields: [assetFamilies.company_id],
+        fields: [legacyAssetFamilies.company_id],
         references: [companies.id],
     }),
     brand: one(brands, {
-        fields: [assetFamilies.brand_id],
+        fields: [legacyAssetFamilies.brand_id],
         references: [brands.id],
     }),
     team: one(teams, {
-        fields: [assetFamilies.team_id],
+        fields: [legacyAssetFamilies.team_id],
         references: [teams.id],
     }),
     category: one(assetCategories, {
-        fields: [assetFamilies.category_id],
+        fields: [legacyAssetFamilies.category_id],
         references: [assetCategories.id],
     }),
-    assets: many(assets),
+    // NOTE: no `assets: many(assets)` relation post-squash — assets no longer
+    // reference this table via FK. To look up assets historically grouped here,
+    // join on assets.group_id = legacyAssetFamilies.id (unenforced UUID match).
 }));
 
 // ---------------------------------- ASSET -----------------------------------------------
@@ -826,7 +835,16 @@ export const assets = pgTable(
             .notNull()
             .references(() => zones.id),
         brand_id: uuid("brand_id").references(() => brands.id),
-        family_id: uuid("family_id").references(() => assetFamilies.id, { onDelete: "set null" }),
+        // group_id: opaque correlation key. Assets sharing this UUID are siblings.
+        // No FK — the value historically equals legacyAssetFamilies.id but is not
+        // enforced at the DB level. NULL means the asset is raw (not part of a group).
+        // Backfilled in migration 0061 from the dropped family_id column.
+        group_id: uuid("group_id"),
+        // group_name: denormalized display label for the catalog card representing
+        // the group. Required at service layer whenever group_id is set. Drifts
+        // across siblings are allowed (no cascade-on-edit); catalog picks the
+        // representative's value.
+        group_name: varchar("group_name", { length: 200 }),
         name: varchar("name", { length: 200 }).notNull(),
         description: text("description"),
         category: varchar("category", { length: 100 }).notNull(),
@@ -834,7 +852,15 @@ export const assets = pgTable(
             .notNull()
             .default(sql`'[]'::jsonb`), // AssetImage[]: {url: string, note?: string}
         on_display_image: text("on_display_image"),
-        tracking_method: trackingMethodEnum("tracking_method").notNull(),
+        // stock_mode: SERIALIZED (one row per physical unit) or POOLED (aggregate
+        // counters). Replaces the legacy tracking_method enum (INDIVIDUAL/BATCH);
+        // semantically identical, single canonical naming. Required.
+        stock_mode: stockModeEnum("stock_mode").notNull(),
+        // low_stock_threshold: per-asset threshold for low-stock alerts. NULL = no
+        // alert configured. Meaningful primarily for POOLED assets (SERIALIZED rows
+        // have available_quantity ∈ {0,1} which makes a threshold trivial). For
+        // siblings, by convention all rows share the same value (no cascade enforce).
+        low_stock_threshold: integer("low_stock_threshold"),
         total_quantity: integer("total_quantity").notNull().default(1),
         available_quantity: integer("available_quantity").notNull().default(1),
         qr_code: varchar("qr_code", { length: 100 }).notNull().unique(),
@@ -869,6 +895,8 @@ export const assets = pgTable(
         index("assets_platform_idx").on(table.platform_id),
         index("assets_company_idx").on(table.company_id),
         index("assets_qr_code_idx").on(table.qr_code),
+        index("assets_group_id_idx").on(table.group_id),
+        index("assets_stock_mode_idx").on(table.stock_mode),
         foreignKey({
             columns: [table.transformed_from],
             foreignColumns: [table.id],
@@ -894,7 +922,9 @@ export const assetsRelations = relations(assets, ({ one, many }) => ({
     company: one(companies, { fields: [assets.company_id], references: [companies.id] }),
     platform: one(platforms, { fields: [assets.platform_id], references: [platforms.id] }),
     brand: one(brands, { fields: [assets.brand_id], references: [brands.id] }),
-    family: one(assetFamilies, { fields: [assets.family_id], references: [assetFamilies.id] }),
+    // NOTE: no `family` relation post-squash. Asset siblings are correlated by
+    // shared group_id (opaque UUID, no FK). For historical legacy-family lookup,
+    // join manually on assets.group_id = legacyAssetFamilies.id (unenforced).
     warehouse: one(warehouses, { fields: [assets.warehouse_id], references: [warehouses.id] }),
     zone: one(zones, { fields: [assets.zone_id], references: [zones.id] }),
     last_scanned_by_user: one(users, { fields: [assets.last_scanned_by], references: [users.id] }),
@@ -937,7 +967,7 @@ export const teamsRelations = relations(teams, ({ one, many }) => ({
     company: one(companies, { fields: [teams.company_id], references: [companies.id] }),
     platform: one(platforms, { fields: [teams.platform_id], references: [platforms.id] }),
     members: many(teamMembers),
-    asset_families: many(assetFamilies),
+    legacy_asset_families: many(legacyAssetFamilies),
     assets: many(assets),
 }));
 
@@ -3082,12 +3112,13 @@ export const stockMovements = pgTable(
         platform_id: uuid("platform_id")
             .notNull()
             .references(() => platforms.id, { onDelete: "cascade" }),
-        // Either asset_id or asset_family_id (or both) — asset_id is set for serialized/batch
-        // movements, asset_family_id for family-level aggregates.
+        // asset_id is the canonical link for all stock movements post-squash.
+        // asset_family_id is retained as a PLAIN uuid (no FK) for historical audit-
+        // ledger lookup against the renamed legacy_asset_families table (rows
+        // written pre-squash carry the old family.id here; rows written post-squash
+        // will leave this NULL). Migration 0061 dropped the FK enforcement.
         asset_id: uuid("asset_id").references(() => assets.id, { onDelete: "set null" }),
-        asset_family_id: uuid("asset_family_id").references(() => assetFamilies.id, {
-            onDelete: "set null",
-        }),
+        asset_family_id: uuid("asset_family_id"),
         delta: integer("delta").notNull(), // positive (stock in) or negative (stock out)
         movement_type: stockMovementTypeEnum("movement_type").notNull(),
         write_off_reason: stockWriteOffReasonEnum("write_off_reason"), // only when movement_type = WRITE_OFF
@@ -3124,9 +3155,12 @@ export const stockMovementsRelations = relations(stockMovements, ({ one }) => ({
         references: [platforms.id],
     }),
     asset: one(assets, { fields: [stockMovements.asset_id], references: [assets.id] }),
-    asset_family: one(assetFamilies, {
+    // Historical lookup only: relates the audit-ledger row to the legacy family
+    // archive (pre-squash rows had a family link; post-squash rows leave this
+    // NULL). Used only by export/report queries that need legacy labels.
+    legacy_asset_family: one(legacyAssetFamilies, {
         fields: [stockMovements.asset_family_id],
-        references: [assetFamilies.id],
+        references: [legacyAssetFamilies.id],
     }),
     scan_event: one(scanEvents, {
         fields: [stockMovements.linked_scan_event_id],

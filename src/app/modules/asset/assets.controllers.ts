@@ -88,6 +88,21 @@ const addAssetUnits = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- BULK GROUP ASSETS -----------------------------------
+const bulkGroupAssets = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+
+    const result = await AssetServices.bulkGroupAssets(req.body, user, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Assets grouped successfully",
+        data: result,
+    });
+});
+
 // ----------------------------------- DELETE ASSET -----------------------------------
 const deleteAsset = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
@@ -272,6 +287,7 @@ export const AssetControllers = {
     getAssetById,
     updateAsset,
     addAssetUnits,
+    bulkGroupAssets,
     deleteAsset,
     getAssetAvailabilityStats,
     getAssetScanHistory,
