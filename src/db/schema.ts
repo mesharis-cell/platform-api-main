@@ -609,6 +609,17 @@ export const warehouses = pgTable(
         city: varchar("city", { length: 50 }).notNull(),
         address: text("address").notNull(),
         coordinates: jsonb("coordinates"), // GPS coordinates {lat, lng}
+        // Operating hours by weekday — null = "always open" (no schedule
+        // enforced). Shape: { mon: [openHour, closeHour] | null, ... }.
+        // Hours are interpreted in the platform timezone (Asia/Dubai by
+        // default) via Intl.DateTimeFormat — never use server-local time.
+        operating_hours: jsonb("operating_hours"),
+        // Per-warehouse feasibility overrides. Mirrors
+        // platforms.config.feasibility shape; missing keys fall through to
+        // the platform/company resolver chain.
+        config: jsonb("config")
+            .notNull()
+            .default(sql`'{}'::jsonb`),
         is_active: boolean("is_active").notNull().default(true),
         created_at: timestamp("created_at").notNull().defaultNow(),
         updated_at: timestamp("updated_at")
@@ -1019,8 +1030,17 @@ export const collectionItems = pgTable(
         notes: text("notes"),
         display_order: integer("display_order"), // Sort order in collection
         created_at: timestamp("created_at").notNull().defaultNow(),
+        deleted_at: timestamp("deleted_at"),
     },
-    (table) => [unique("collection_items_unique").on(table.collection, table.asset)]
+    (table) => [
+        // Partial uniqueness: only one non-deleted row per (collection, asset)
+        // so an asset can be removed and re-added without colliding with the
+        // soft-deleted historical row.
+        uniqueIndex("collection_items_active_unique")
+            .on(table.collection, table.asset)
+            .where(sql`${table.deleted_at} IS NULL`),
+        index("collection_items_deleted_at_idx").on(table.deleted_at),
+    ]
 );
 
 export const collectionItemsRelations = relations(collectionItems, ({ one }) => ({
@@ -1115,6 +1135,10 @@ export const orders = pgTable(
             .references(() => cities.id),
         venue_location: jsonb("venue_location").notNull(), // {country, city, address, access_notes}
         permit_requirements: jsonb("permit_requirements"),
+        // Item 7: explicit Yes/No collected at checkout — true = items going
+        // out permanently (no return shipment expected), false = normal
+        // rental flow (will come back). Existing rows default to false.
+        is_permanent_placement: boolean("is_permanent_placement").notNull().default(false),
         special_instructions: text("special_instructions"),
 
         // Logistics windows
@@ -1425,7 +1449,44 @@ export const workflowRequestsRelations = relations(workflowRequests, ({ one, man
         references: [users.id],
     }),
     attachments: many(entityAttachments),
+    status_history: many(workflowRequestStatusHistory),
 }));
+
+// Item 4: audit trail of workflow status transitions. Every status change
+// inserts a row (from_status nullable for the initial create) so the inbox
+// can show "who moved this to SUBMITTED and when" without scanning logs.
+export const workflowRequestStatusHistory = pgTable(
+    "workflow_request_status_history",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        workflow_request_id: uuid("workflow_request_id")
+            .notNull()
+            .references(() => workflowRequests.id, { onDelete: "cascade" }),
+        from_status: varchar("from_status", { length: 50 }),
+        to_status: varchar("to_status", { length: 50 }).notNull(),
+        changed_by: uuid("changed_by").references(() => users.id),
+        changed_at: timestamp("changed_at").notNull().defaultNow(),
+        note: text("note"),
+    },
+    (table) => [
+        index("workflow_request_status_history_request_idx").on(table.workflow_request_id),
+        index("workflow_request_status_history_changed_at_idx").on(table.changed_at),
+    ]
+);
+
+export const workflowRequestStatusHistoryRelations = relations(
+    workflowRequestStatusHistory,
+    ({ one }) => ({
+        workflow_request: one(workflowRequests, {
+            fields: [workflowRequestStatusHistory.workflow_request_id],
+            references: [workflowRequests.id],
+        }),
+        changed_by_user: one(users, {
+            fields: [workflowRequestStatusHistory.changed_by],
+            references: [users.id],
+        }),
+    })
+);
 
 export const workflowDefinitions = pgTable(
     "workflow_definitions",
@@ -1461,6 +1522,11 @@ export const workflowDefinitions = pgTable(
         intake_schema: jsonb("intake_schema")
             .notNull()
             .default(sql`'{}'::jsonb`),
+        // Item 4: rule-matrix payload that drives auto-creation of
+        // workflow_requests at platform trigger events (e.g. ORDER_CONFIRMED).
+        // Shape: { trigger_event, conditions: [{source, operator, value}] }.
+        // null = manual creation only.
+        auto_open_conditions: jsonb("auto_open_conditions"),
         is_active: boolean("is_active").notNull().default(true),
         sort_order: integer("sort_order").notNull().default(0),
         created_at: timestamp("created_at").notNull().defaultNow(),
@@ -1977,6 +2043,15 @@ export const selfPickups = pgTable(
             .$onUpdate(() => new Date())
             .notNull(),
         deleted_at: timestamp("deleted_at"),
+        // Per-warehouse feasibility resolution (item 2 of the 9-item bundle).
+        // Nullable v1 until a follow-up migration backfills via the asset set
+        // and tightens to NOT NULL.
+        warehouse_id: uuid("warehouse_id").references(() => warehouses.id, {
+            onDelete: "set null",
+        }),
+        // Item 7: explicit Yes/No collected at checkout — true = items
+        // going out permanently (no return). Existing rows default to false.
+        is_permanent_placement: boolean("is_permanent_placement").notNull().default(false),
     },
     (table) => [
         unique("self_pickups_platform_self_pickup_id_unique").on(
@@ -1987,6 +2062,7 @@ export const selfPickups = pgTable(
         index("self_pickups_status_idx").on(table.self_pickup_status),
         index("self_pickups_financial_status_idx").on(table.financial_status),
         index("self_pickups_created_at_idx").on(table.created_at),
+        index("self_pickups_warehouse_id_idx").on(table.warehouse_id),
     ]
 );
 
@@ -2000,6 +2076,10 @@ export const selfPickupsRelations = relations(selfPickups, ({ one, many }) => ({
         references: [companies.id],
     }),
     brand: one(brands, { fields: [selfPickups.brand_id], references: [brands.id] }),
+    warehouse: one(warehouses, {
+        fields: [selfPickups.warehouse_id],
+        references: [warehouses.id],
+    }),
     created_by_user: one(users, {
         fields: [selfPickups.created_by],
         references: [users.id],
@@ -3055,5 +3135,70 @@ export const stockMovementsRelations = relations(stockMovements, ({ one }) => ({
     created_by_user: one(users, {
         fields: [stockMovements.created_by],
         references: [users.id],
+    }),
+}));
+
+// ============================================================
+// COMMERCE RULES (Item 6 of the 9-item bundle)
+// Generic, admin-configurable cart-time validation rules. v1 surfaces
+// QUANTITY + COMPANION (warn-only). Schema reserves full forward-compat
+// vocabulary so v2 expansion to CONFLICT / CATEGORY / BRAND rule types
+// and BLOCK / SUGGEST severities needs no migration.
+// ============================================================
+
+export const commerceRuleTypeEnum = pgEnum("commerce_rule_type", [
+    "QUANTITY",
+    "COMPANION",
+    "CONFLICT",
+    "CATEGORY",
+    "BRAND",
+]);
+
+export const commerceRuleSeverityEnum = pgEnum("commerce_rule_severity", [
+    "WARN",
+    "BLOCK",
+    "SUGGEST",
+]);
+
+export const commerceRules = pgTable(
+    "commerce_rules",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        // null = platform-wide; set = company-specific. Resolution at
+        // evaluation time is UNION of (platform-wide ∪ caller-company-specific).
+        company_id: uuid("company_id").references(() => companies.id, {
+            onDelete: "cascade",
+        }),
+        name: varchar("name", { length: 200 }).notNull(),
+        description: text("description"),
+        rule_type: commerceRuleTypeEnum("rule_type").notNull(),
+        severity: commerceRuleSeverityEnum("severity").notNull().default("WARN"),
+        target: jsonb("target").notNull(),
+        predicate: jsonb("predicate").notNull(),
+        message: text("message").notNull(),
+        is_active: boolean("is_active").notNull().default(true),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+        updated_at: timestamp("updated_at")
+            .$onUpdate(() => new Date())
+            .notNull(),
+        deleted_at: timestamp("deleted_at"),
+    },
+    (table) => [
+        index("commerce_rules_platform_idx").on(table.platform_id),
+        index("commerce_rules_company_idx").on(table.company_id),
+    ]
+);
+
+export const commerceRulesRelations = relations(commerceRules, ({ one }) => ({
+    platform: one(platforms, {
+        fields: [commerceRules.platform_id],
+        references: [platforms.id],
+    }),
+    company: one(companies, {
+        fields: [commerceRules.company_id],
+        references: [companies.id],
     }),
 }));

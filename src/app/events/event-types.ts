@@ -78,6 +78,10 @@ export const EVENT_TYPES = {
     // Stock lifecycle
     STOCK_BELOW_THRESHOLD: "stock.below_threshold",
 
+    // Attachments — audit-only by default; tenants can wire notification rules.
+    ATTACHMENT_ADDED: "attachment.added",
+    ATTACHMENT_DELETED: "attachment.deleted",
+
     // Auth
     AUTH_PASSWORD_RESET_REQUESTED: "auth.password_reset_requested",
 } as const;

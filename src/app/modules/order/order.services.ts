@@ -40,6 +40,8 @@ import {
     users,
     countries,
     orderItems,
+    workflowDefinitions,
+    workflowRequests,
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
@@ -73,6 +75,7 @@ import {
 import { LineItemsServices } from "../order-line-items/order-line-items.services";
 import { eventBus, EVENT_TYPES } from "../../events";
 import { orderIdGenerator } from "./order.utils";
+import { WorkflowAutoOpenService } from "../../services/workflow-auto-open.service";
 import { featureNames, uuidRegex } from "../../constants/common";
 import config from "../../config";
 import { formatDateForEmail } from "../../utils/date-time";
@@ -205,6 +208,32 @@ const hasUnresolvedBlockingServiceRequests = async (orderDbId: string, platformI
         if (request.concession_applied_at) return false;
         return !["COMPLETED", "CANCELLED"].includes(request.request_status);
     });
+};
+
+// Item 4: workflow_definitions can also block fulfillment via
+// blocks_fulfillment_default. Mirror the service-request gate so an order
+// can't progress past CONFIRMED while a blocking workflow is open.
+const hasUnresolvedBlockingWorkflows = async (orderDbId: string, platformId: string) => {
+    const blocking = await db
+        .select({
+            status: workflowRequests.status,
+            blocks_fulfillment_default: workflowDefinitions.blocks_fulfillment_default,
+        })
+        .from(workflowRequests)
+        .innerJoin(
+            workflowDefinitions,
+            eq(workflowDefinitions.id, workflowRequests.workflow_definition_id)
+        )
+        .where(
+            and(
+                eq(workflowRequests.platform_id, platformId),
+                eq(workflowRequests.entity_type, "ORDER"),
+                eq(workflowRequests.entity_id, orderDbId),
+                eq(workflowDefinitions.blocks_fulfillment_default, true)
+            )
+        );
+
+    return blocking.some((row) => !["COMPLETED", "CANCELLED", "APPROVED"].includes(row.status));
 };
 
 const getUnresolvedMaintenanceReadinessItems = async (orderDbId: string, platformId: string) => {
@@ -422,6 +451,7 @@ const submitOrderFromCart = async (
         contact_phone,
         venue_access_notes,
         permit_requirements,
+        is_permanent_placement,
         special_instructions,
         venue_contact,
         requested_delivery_window,
@@ -531,10 +561,28 @@ const submitOrderFromCart = async (
                 .where(
                     and(
                         eq(collections.id, item.from_collection_id),
-                        eq(collections.platform_id, platformId)
+                        eq(collections.platform_id, platformId),
+                        isNull(collections.deleted_at)
                     )
                 );
-            collectionName = collection?.name || null;
+
+            if (!collection) {
+                throw new CustomizedError(
+                    httpStatus.NOT_FOUND,
+                    `Collection not found for item: ${asset.name}`
+                );
+            }
+
+            // Cross-company guard — a client cannot submit an order against
+            // another company's collection even if they know the UUID.
+            if (collection.company_id !== companyId) {
+                throw new CustomizedError(
+                    httpStatus.FORBIDDEN,
+                    "Cannot order from a collection that belongs to another company"
+                );
+            }
+
+            collectionName = collection.name;
         }
 
         const requestedDecision = item.maintenance_decision ?? null;
@@ -665,6 +713,7 @@ const submitOrderFromCart = async (
                 },
                 permit_requirements:
                     permit_requirements?.requires_permit === true ? permit_requirements : null,
+                is_permanent_placement: Boolean(is_permanent_placement),
                 special_instructions: special_instructions || null,
                 calculated_totals: {
                     volume: calculatedVolume,
@@ -1637,6 +1686,15 @@ const progressOrderStatus = async (
             : [];
 
     if (FULFILLMENT_READINESS_STATUSES.has(new_status)) {
+        // Item 4: also block on open workflow_requests whose definition has
+        // blocks_fulfillment_default=true. Same surface as service requests.
+        const hasBlockingWorkflow = await hasUnresolvedBlockingWorkflows(order.id, platformId);
+        if (hasBlockingWorkflow) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Cannot progress order while a blocking workflow is open. Complete or cancel the workflow first."
+            );
+        }
         const hasBlockingSR = await hasUnresolvedBlockingServiceRequests(order.id, platformId);
         if (hasBlockingSR) {
             if (unresolvedMaintenanceItems.length > 0) {
@@ -2178,6 +2236,33 @@ const approveQuote = async (
             order_url: "",
         },
     });
+
+    // Item 4: rule-matrix evaluator runs on ORDER_CONFIRMED. Any workflow
+    // definition with auto_open_conditions.trigger_event === 'ORDER_CONFIRMED'
+    // and matching condition predicates auto-creates a workflow_request on
+    // the order. Permit-handling is the canonical v1 example — when the
+    // client picked "I'll handle the permit" at checkout, a PERMIT_HANDLING
+    // workflow opens here.
+    try {
+        await WorkflowAutoOpenService.evaluateAndCreate(
+            "ORDER_CONFIRMED",
+            {
+                type: "ORDER",
+                id: order.id,
+                payload: order as Record<string, unknown>,
+            },
+            {
+                platformId,
+                companyId: order.company_id,
+                triggeredByUserId: user.id,
+            }
+        );
+    } catch (err) {
+        // Defensive: a downstream rule-matrix failure should never block
+        // the actual quote-approval flow. Log and move on.
+        // eslint-disable-next-line no-console
+        console.error("[order:approveQuote] workflow auto-open evaluator failed", err);
+    }
 
     return {
         id: order.id,

@@ -33,6 +33,7 @@ import { AttachmentsRoutes } from "../modules/attachments/attachments.routes";
 import { WorkflowRequestRoutes } from "../modules/workflow-request/workflow-request.routes";
 import { AccessPolicyRoutes } from "../modules/access-policy/access-policy.routes";
 import { WorkflowDefinitionRoutes } from "../modules/workflow-definition/workflow-definition.routes";
+import { CommerceRulesRoutes } from "../modules/commerce-rules/commerce-rules.routes";
 import { SelfPickupOperationRoutes } from "../modules/self-pickup/self-pickup.routes";
 import { StockMovementsRoutes } from "../modules/stock-movements/stock-movements.routes";
 
@@ -150,6 +151,10 @@ const routes = [
     {
         path: "/workflow-definitions",
         route: WorkflowDefinitionRoutes,
+    },
+    {
+        path: "/commerce-rules",
+        route: CommerceRulesRoutes,
     },
     {
         path: "/order",

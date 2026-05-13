@@ -26,6 +26,11 @@ export const submitSelfPickupSchema = z.object({
         expected_return_at: z.string().optional(),
         notes: z.string().max(2000).optional(),
         special_instructions: z.string().max(2000).optional(),
+        // Item 7: required Yes/No — true = items going out permanently
+        // (no return), false = normal pickup-and-return flow.
+        is_permanent_placement: z.boolean({
+            message: "Please confirm whether these items are being placed permanently",
+        }),
         job_number: z.string().max(50).optional(),
         po_number: z.string().max(100).optional(),
     }),
