@@ -6,7 +6,6 @@ import QRCode from "qrcode";
 import { db } from "../../../db";
 import {
     assetBookings,
-    assetCategories,
     assetConditionHistory,
     assetVersions,
     assets,
@@ -79,7 +78,7 @@ const promoteDraftImages = async (
  * being modified against itself).
  */
 const validateGroupSiblingConstraints = async (
-    tx: typeof db,
+    tx: any,
     {
         groupId,
         platformId,
@@ -139,7 +138,7 @@ const validateGroupSiblingConstraints = async (
  * Pass `currentGroupId` so siblings of the same group aren't counted as conflicts.
  */
 const validateGroupNameUniqueness = async (
-    tx: typeof db,
+    tx: any,
     {
         platformId,
         companyId,
@@ -2429,7 +2428,7 @@ const bulkGroupAssets = async (
         }
 
         // (3) Cross-group name uniqueness within the company
-        await validateGroupNameUniqueness(tx as typeof db, {
+        await validateGroupNameUniqueness(tx, {
             platformId,
             companyId: firstCompany,
             groupName: data.group_name,

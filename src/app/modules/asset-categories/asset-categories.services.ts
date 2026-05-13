@@ -1,7 +1,7 @@
 import { and, asc, count, eq, isNull, or } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { assetCategories, assetFamilies } from "../../../db/schema";
+import { assetCategories, legacyAssetFamilies } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { generateRandomCategoryColor } from "../../utils/color";
 import { findNearMatches } from "../../utils/levenshtein";
@@ -239,8 +239,8 @@ const deleteCategory = async (id: string, platformId: string) => {
     // Guard: reject if families reference this category
     const [familyCount] = await db
         .select({ count: count() })
-        .from(assetFamilies)
-        .where(and(eq(assetFamilies.category_id, id), isNull(assetFamilies.deleted_at)));
+        .from(legacyAssetFamilies)
+        .where(and(eq(legacyAssetFamilies.category_id, id), isNull(legacyAssetFamilies.deleted_at)));
 
     if (Number(familyCount?.count || 0) > 0) {
         throw new CustomizedError(

@@ -16,7 +16,6 @@ import {
     scanEvents,
     selfPickupItems,
     selfPickups,
-    stockMovements,
     teams,
     users,
     warehouses,

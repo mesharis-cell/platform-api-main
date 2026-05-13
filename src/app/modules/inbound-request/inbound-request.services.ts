@@ -2,7 +2,7 @@ import httpStatus from "http-status";
 import { randomUUID } from "crypto";
 import { db } from "../../../db";
 import {
-    assetFamilies,
+    legacyAssetFamilies,
     assets,
     companies,
     inboundRequestItems,
@@ -404,23 +404,23 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
             item: inboundRequestItems,
             asset: {
                 id: assets.id,
-                family_id: assets.family_id,
+                group_id: assets.group_id,
                 name: assets.name,
                 images: assets.images,
                 qr_code: assets.qr_code,
-                tracking_method: assets.tracking_method,
+                stock_mode: assets.stock_mode,
                 category: assets.category,
                 status: assets.status,
                 total_quantity: assets.total_quantity,
                 available_quantity: assets.available_quantity,
-                family_ref_id: assetFamilies.id,
-                family_name: assetFamilies.name,
-                family_stock_mode: assetFamilies.stock_mode,
+                family_ref_id: legacyAssetFamilies.id,
+                family_name: legacyAssetFamilies.name,
+                family_stock_mode: legacyAssetFamilies.stock_mode,
             },
         })
         .from(inboundRequestItems)
         .leftJoin(assets, eq(inboundRequestItems.asset_id, assets.id))
-        .leftJoin(assetFamilies, eq(assets.family_id, assetFamilies.id))
+        .leftJoin(legacyAssetFamilies, eq(assets.group_id, legacyAssetFamilies.id))
         .where(eq(inboundRequestItems.inbound_request_id, requestId));
 
     // Step 5: Fetch line items for this request
@@ -470,11 +470,11 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
             const asset = item.asset?.id
                 ? {
                       id: item.asset.id,
-                      family_id: item.asset.family_id,
+                      group_id: (item.asset as any).group_id ?? null,
                       name: item.asset.name,
                       images: item.asset.images,
                       qr_code: item.asset.qr_code,
-                      tracking_method: item.asset.tracking_method,
+                      stock_mode: (item.asset as any).stock_mode ?? null,
                       category: item.asset.category,
                       status: item.asset.status,
                       total_quantity: item.asset.total_quantity,
@@ -1144,18 +1144,18 @@ const completeInboundRequest = async (
         requestedFamilyIds.length > 0
             ? await db
                   .select({
-                      id: assetFamilies.id,
-                      company_id: assetFamilies.company_id,
-                      brand_id: assetFamilies.brand_id,
-                      team_id: assetFamilies.team_id,
+                      id: legacyAssetFamilies.id,
+                      company_id: legacyAssetFamilies.company_id,
+                      brand_id: legacyAssetFamilies.brand_id,
+                      team_id: legacyAssetFamilies.team_id,
                   })
-                  .from(assetFamilies)
+                  .from(legacyAssetFamilies)
                   .where(
                       and(
-                          eq(assetFamilies.platform_id, platformId),
-                          eq(assetFamilies.company_id, inboundRequest.company_id),
-                          isNull(assetFamilies.deleted_at),
-                          inArray(assetFamilies.id, requestedFamilyIds)
+                          eq(legacyAssetFamilies.platform_id, platformId),
+                          eq(legacyAssetFamilies.company_id, inboundRequest.company_id),
+                          isNull(legacyAssetFamilies.deleted_at),
+                          inArray(legacyAssetFamilies.id, requestedFamilyIds)
                       )
                   )
             : [];
@@ -1244,12 +1244,14 @@ const completeInboundRequest = async (
                             warehouse_id,
                             zone_id,
                             brand_id: assignedFamily?.brand_id ?? item.brand_id,
-                            family_id: assignedFamily?.id ?? null,
+                            // family_id dropped post-squash; group_id auto-generated
+                            // by service layer at proper inbound rebuild time
+                            group_id: null,
                             team_id: assignedFamily?.team_id ?? null,
                             name: item.name,
                             description: item.description,
                             category: item.category,
-                            tracking_method: item.tracking_method,
+                            stock_mode: item.tracking_method === "BATCH" ? "POOLED" : "SERIALIZED",
                             total_quantity: item.quantity,
                             available_quantity: item.quantity,
                             qr_code: qrCode,
@@ -1285,12 +1287,14 @@ const completeInboundRequest = async (
                         warehouse_id: warehouse_id,
                         zone_id: zone_id,
                         brand_id: assignedFamily?.brand_id ?? item.brand_id,
-                        family_id: assignedFamily?.id ?? null,
+                        // family_id dropped post-squash; inbound rebuild will set
+                        // group_id properly when this module is re-implemented.
+                        group_id: null,
                         team_id: assignedFamily?.team_id ?? null,
                         name: item.name,
                         description: item.description,
                         category: item.category,
-                        tracking_method: item.tracking_method,
+                        stock_mode: "SERIALIZED",
                         total_quantity: item.quantity,
                         available_quantity: item.quantity,
                         qr_code: qrCode,
