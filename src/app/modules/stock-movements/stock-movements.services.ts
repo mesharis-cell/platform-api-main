@@ -1,7 +1,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { assets, assetFamilies, stockMovements, users } from "../../../db/schema";
+import { assets, stockMovements, users } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 // eventBus no longer needed here — threshold check moved to StockMovementService
@@ -50,79 +50,41 @@ const getAssetStockHistory = async (
     return { movements, page, limit, total, total_pages: Math.ceil(total / limit) || 1 };
 };
 
-// ----------------------------------- GET FAMILY STOCK HISTORY ----------------------------
+// ----------------------------------- LOW STOCK ASSETS -----------------------------------
+// Per-asset low-stock surface (was getLowStockFamilies pre-squash). No aggregation
+// across siblings. Returns rows where available_quantity < low_stock_threshold.
+// Naturally surfaces POOLED assets — SERIALIZED rows typically have NULL threshold.
 
-const getFamilyStockHistory = async (
-    familyId: string,
-    platformId: string,
-    params: { page?: number; limit?: number }
-) => {
-    const { page = 1, limit = 50 } = params;
-    const offset = (page - 1) * limit;
-
-    const movements = await db
-        .select({
-            id: stockMovements.id,
-            asset_id: stockMovements.asset_id,
-            asset_name: assets.name,
-            delta: stockMovements.delta,
-            movement_type: stockMovements.movement_type,
-            write_off_reason: stockMovements.write_off_reason,
-            note: stockMovements.note,
-            linked_entity_type: stockMovements.linked_entity_type,
-            linked_entity_id: stockMovements.linked_entity_id,
-            created_by_name: users.name,
-            created_at: stockMovements.created_at,
-        })
-        .from(stockMovements)
-        .innerJoin(assets, eq(stockMovements.asset_id, assets.id))
-        .leftJoin(users, eq(stockMovements.created_by, users.id))
-        .where(and(eq(assets.family_id, familyId), eq(stockMovements.platform_id, platformId)))
-        .orderBy(desc(stockMovements.created_at))
-        .limit(limit)
-        .offset(offset);
-
-    return { movements, page, limit };
-};
-
-// ----------------------------------- LOW STOCK FAMILIES ----------------------------------
-
-const getLowStockFamilies = async (platformId: string, companyId?: string) => {
-    // Aggregate available_quantity per family and compare against threshold
+const getLowStockAssets = async (platformId: string, companyId?: string) => {
     const conditions = [
-        eq(assetFamilies.platform_id, platformId),
-        sql`${assetFamilies.low_stock_threshold} IS NOT NULL`,
-        sql`${assetFamilies.deleted_at} IS NULL`,
+        eq(assets.platform_id, platformId),
+        sql`${assets.low_stock_threshold} IS NOT NULL`,
+        sql`${assets.deleted_at} IS NULL`,
+        sql`${assets.available_quantity} < ${assets.low_stock_threshold}`,
     ];
-    if (companyId) conditions.push(eq(assetFamilies.company_id, companyId));
+    if (companyId) conditions.push(eq(assets.company_id, companyId));
 
-    const families = await db
+    const rows = await db
         .select({
-            family_id: assetFamilies.id,
-            family_name: assetFamilies.name,
-            company_id: assetFamilies.company_id,
-            stock_mode: assetFamilies.stock_mode,
-            low_stock_threshold: assetFamilies.low_stock_threshold,
-            total_available: sql<number>`COALESCE(SUM(${assets.available_quantity}), 0)`,
-            total_quantity: sql<number>`COALESCE(SUM(${assets.total_quantity}), 0)`,
+            asset_id: assets.id,
+            asset_name: assets.name,
+            group_id: assets.group_id,
+            group_name: assets.group_name,
+            company_id: assets.company_id,
+            stock_mode: assets.stock_mode,
+            low_stock_threshold: assets.low_stock_threshold,
+            available_quantity: assets.available_quantity,
+            total_quantity: assets.total_quantity,
         })
-        .from(assetFamilies)
-        .leftJoin(
-            assets,
-            and(eq(assets.family_id, assetFamilies.id), sql`${assets.deleted_at} IS NULL`)
-        )
-        .where(and(...conditions))
-        .groupBy(assetFamilies.id)
-        .having(
-            sql`COALESCE(SUM(${assets.available_quantity}), 0) < ${assetFamilies.low_stock_threshold}`
-        );
+        .from(assets)
+        .where(and(...conditions));
 
-    return families.map((f) => ({
-        ...f,
-        total_available: Number(f.total_available),
-        total_quantity: Number(f.total_quantity),
-        low_stock_threshold: Number(f.low_stock_threshold),
-        is_below_threshold: Number(f.total_available) < Number(f.low_stock_threshold),
+    return rows.map((r) => ({
+        ...r,
+        available_quantity: Number(r.available_quantity),
+        total_quantity: Number(r.total_quantity),
+        low_stock_threshold: Number(r.low_stock_threshold),
+        is_below_threshold: true,
     }));
 };
 
@@ -201,7 +163,6 @@ const createManualAdjustment = async (
 
 export const StockMovementsServices = {
     getAssetStockHistory,
-    getFamilyStockHistory,
-    getLowStockFamilies,
+    getLowStockAssets,
     createManualAdjustment,
 };
