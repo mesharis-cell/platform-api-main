@@ -279,7 +279,9 @@ const getCollectionById = async (id: string, user: AuthUser, platformId: string)
                     asset: {
                         columns: {
                             id: true,
-                            family_id: true,
+                            group_id: true,
+                            group_name: true,
+                            stock_mode: true,
                             name: true,
                             category: true,
                             images: true,
@@ -294,15 +296,6 @@ const getCollectionById = async (id: string, user: AuthUser, platformId: string)
                             total_quantity: true,
                             handling_tags: true,
                             deleted_at: true,
-                        },
-                        with: {
-                            family: {
-                                columns: {
-                                    id: true,
-                                    name: true,
-                                    stock_mode: true,
-                                },
-                            },
                         },
                     },
                 },
@@ -481,7 +474,7 @@ const addCollectionItem = async (
                 company_id: assets.company_id,
                 brand_id: assets.brand_id,
                 team_id: assets.team_id,
-                tracking_method: assets.tracking_method,
+                stock_mode: assets.stock_mode,
             })
             .from(assets)
             .where(
@@ -517,13 +510,13 @@ const addCollectionItem = async (
             );
         }
 
-        // INDIVIDUAL-tracked assets represent a single physical unit per asset
-        // row, so a default_quantity above 1 is nonsensical. BATCH (pooled)
-        // assets can have any default_quantity >= 1.
-        if (asset.tracking_method === "INDIVIDUAL" && data.default_quantity !== 1) {
+        // SERIALIZED assets represent a single physical unit per asset row,
+        // so a default_quantity above 1 is nonsensical. POOLED assets can have
+        // any default_quantity >= 1.
+        if (asset.stock_mode === "SERIALIZED" && data.default_quantity !== 1) {
             throw new CustomizedError(
                 httpStatus.BAD_REQUEST,
-                "Default quantity must be 1 for individually-tracked assets"
+                "Default quantity must be 1 for serialized assets"
             );
         }
 
@@ -596,18 +589,18 @@ const updateCollectionItem = async (
             throw new CustomizedError(httpStatus.NOT_FOUND, "Collection item not found");
         }
 
-        // If default_quantity is being changed, re-validate the
-        // tracking-method rule. INDIVIDUAL-tracked assets must stay at qty 1.
+        // If default_quantity is being changed, re-validate the stock_mode
+        // rule. SERIALIZED assets must stay at qty 1.
         if (data.default_quantity !== undefined && data.default_quantity !== 1) {
             const [asset] = await db
-                .select({ tracking_method: assets.tracking_method })
+                .select({ stock_mode: assets.stock_mode })
                 .from(assets)
                 .where(eq(assets.id, existingItem.asset));
 
-            if (asset?.tracking_method === "INDIVIDUAL") {
+            if (asset?.stock_mode === "SERIALIZED") {
                 throw new CustomizedError(
                     httpStatus.BAD_REQUEST,
-                    "Default quantity must be 1 for individually-tracked assets"
+                    "Default quantity must be 1 for serialized assets"
                 );
             }
         }

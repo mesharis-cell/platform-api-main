@@ -2,9 +2,10 @@ import { z } from "zod";
 
 // Item 6: v1 surfaces QUANTITY + COMPANION + WARN only. Schema accepts
 // the full enum so v2 can ship UI for the rest without re-validating.
+// Post-squash: FAMILY kind renamed to GROUP, family_id → group_id.
 const targetSchema = z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("ASSET"), asset_id: z.string().uuid() }),
-    z.object({ kind: z.literal("FAMILY"), family_id: z.string().uuid() }),
+    z.object({ kind: z.literal("GROUP"), group_id: z.string().uuid() }),
 ]);
 
 const predicateSchema = z.discriminatedUnion("kind", [
@@ -67,7 +68,7 @@ export const evaluateCommerceRulesSchema = z.object({
         cart: z.array(
             z.object({
                 asset_id: z.string().uuid(),
-                family_id: z.string().uuid().nullable().optional(),
+                group_id: z.string().uuid().nullable().optional(),
                 quantity: z.number().int().positive(),
             })
         ),

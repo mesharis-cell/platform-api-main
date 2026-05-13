@@ -749,7 +749,7 @@ const cancelSelfPickup = async (
         .select({
             asset_id: scanEvents.asset_id,
             quantity: scanEvents.quantity,
-            tracking_method: assetsTbl.tracking_method,
+            stock_mode: assetsTbl.stock_mode,
         })
         .from(scanEvents)
         .innerJoin(assetsTbl, eq(assetsTbl.id, scanEvents.asset_id))
@@ -757,7 +757,7 @@ const cancelSelfPickup = async (
             and(
                 eq(scanEvents.self_pickup_id, id),
                 eq(scanEvents.scan_type, "OUTBOUND"),
-                eq(assetsTbl.tracking_method, "BATCH")
+                eq(assetsTbl.stock_mode, "POOLED")
             )
         );
 

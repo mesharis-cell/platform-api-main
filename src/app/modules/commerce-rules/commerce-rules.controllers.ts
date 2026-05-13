@@ -18,14 +18,14 @@ const create = catchAsync(async (req: Request, res: Response) => {
 
 const list = catchAsync(async (req: Request, res: Response) => {
     const platformId = (req as any).platformId;
-    const { company_id, asset_id, family_id, include_inactive } = req.query as Record<
+    const { company_id, asset_id, group_id, include_inactive } = req.query as Record<
         string,
         string | undefined
     >;
     const result = await CommerceRulesServices.listCommerceRules(platformId, {
         company_id,
         asset_id,
-        family_id,
+        group_id,
         include_inactive: include_inactive === "true",
     });
     sendResponse(res, {

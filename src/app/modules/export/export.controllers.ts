@@ -112,27 +112,8 @@ const exportClientIssuanceLog = catchAsync(async (req: Request, res: Response) =
     sendCsv(res, "client-issuance-log.csv", csvData);
 });
 
-const exportFamilyStockMovements = catchAsync(async (req: Request, res: Response) => {
-    const filters = req.query as any;
-    const user = (req as any).user;
-    const platformId = (req as any).platformId;
-    const familyId = req.params.family_id;
-
-    if (!familyId) {
-        res.status(httpStatus.BAD_REQUEST).json({ success: false, message: "family_id required" });
-        return;
-    }
-
-    const { csv, familyName } = await ExportServices.exportFamilyStockMovementsService(
-        familyId,
-        filters,
-        user,
-        platformId
-    );
-    // Filename-safe family name (strip non-alphanumerics).
-    const safeName = familyName.replace(/[^a-z0-9-_]+/gi, "_").slice(0, 80) || "family";
-    sendCsv(res, `stock-movements-${safeName}.csv`, csv);
-});
+// exportFamilyStockMovements controller DELETED in the squash (locked
+// decision #10). No group-aggregated stock-movements export exists post-cutover.
 
 // Temporarily stubbed pending hardening + move to a local script. The XLSX
 // photo path lacked sufficient memory guards and was implicated in the
@@ -158,6 +139,5 @@ export const ExportControllers = {
     exportAssetUtilization,
     exportWorkSummary,
     exportClientIssuanceLog,
-    exportFamilyStockMovements,
     exportAssetCatalog,
 };

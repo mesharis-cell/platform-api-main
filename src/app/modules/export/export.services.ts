@@ -5,7 +5,6 @@ import { db } from "../../../db";
 import {
     assetCategories,
     assets,
-    assetFamilies,
     brands,
     cities,
     companies,
@@ -359,7 +358,9 @@ const exportStockReportService = async (
         .select({
             asset: {
                 id: assets.id,
-                family_id: assets.family_id,
+                group_id: assets.group_id,
+                group_name: assets.group_name,
+                stock_mode: assets.stock_mode,
                 name: assets.name,
                 category: assets.category,
                 condition: assets.condition,
@@ -370,16 +371,11 @@ const exportStockReportService = async (
                 last_scanned_at: assets.last_scanned_at,
             },
             company: { name: companies.name },
-            family: {
-                name: assetFamilies.name,
-                stock_mode: assetFamilies.stock_mode,
-            },
             warehouse: { name: warehouses.name },
             zone: { name: zones.name },
         })
         .from(assets)
         .leftJoin(companies, eq(assets.company_id, companies.id))
-        .leftJoin(assetFamilies, eq(assets.family_id, assetFamilies.id))
         .leftJoin(warehouses, eq(assets.warehouse_id, warehouses.id))
         .leftJoin(zones, eq(assets.zone_id, zones.id))
         .where(and(...conditions))
@@ -388,9 +384,9 @@ const exportStockReportService = async (
     return Papa.unparse(
         rows.map((row) => ({
             "Asset ID": row.asset.id,
-            "Family ID": row.asset.family_id || "",
-            "Family Name": row.family?.name || "",
-            "Stock Mode": row.family?.stock_mode || "",
+            "Group ID": row.asset.group_id || "",
+            "Group Name": row.asset.group_name || "",
+            "Stock Mode": row.asset.stock_mode || "",
             "Asset Name": row.asset.name,
             Company: row.company?.name || "",
             Category: row.asset.category,
@@ -685,7 +681,9 @@ const exportAssetUtilizationService = async (
         .select({
             asset: {
                 id: assets.id,
-                family_id: assets.family_id,
+                group_id: assets.group_id,
+                group_name: assets.group_name,
+                stock_mode: assets.stock_mode,
                 name: assets.name,
                 category: assets.category,
                 status: assets.status,
@@ -694,14 +692,9 @@ const exportAssetUtilizationService = async (
                 available_quantity: assets.available_quantity,
             },
             company: { name: companies.name },
-            family: {
-                name: assetFamilies.name,
-                stock_mode: assetFamilies.stock_mode,
-            },
         })
         .from(assets)
         .leftJoin(companies, eq(assets.company_id, companies.id))
-        .leftJoin(assetFamilies, eq(assets.family_id, assetFamilies.id))
         .where(and(...conditions))
         .orderBy(asc(assets.name));
 
@@ -744,9 +737,9 @@ const exportAssetUtilizationService = async (
 
         csvRows.push({
             "Asset ID": row.asset.id,
-            "Family ID": row.asset.family_id || "",
-            "Family Name": row.family?.name || "",
-            "Stock Mode": row.family?.stock_mode || "",
+            "Group ID": row.asset.group_id || "",
+            "Group Name": row.asset.group_name || "",
+            "Stock Mode": row.asset.stock_mode || "",
             "Asset Name": row.asset.name,
             Company: row.company?.name || "",
             Category: row.asset.category,
@@ -982,9 +975,8 @@ const exportClientIssuanceLogService = async (
                 company_name: companies.name,
                 item_quantity: orderItems.quantity,
                 item_asset_name: orderItems.asset_name,
-                family_name: assetFamilies.name,
-                family_item_code: assetFamilies.company_item_code,
-                category_name: assetCategories.name,
+                group_name: assets.group_name,
+                asset_category: assets.category,
             })
             .from(orderItems)
             .innerJoin(orders, eq(orderItems.order_id, orders.id))
@@ -993,8 +985,6 @@ const exportClientIssuanceLogService = async (
             .leftJoin(brands, eq(orders.brand_id, brands.id))
             .leftJoin(companies, eq(orders.company_id, companies.id))
             .leftJoin(assets, eq(orderItems.asset_id, assets.id))
-            .leftJoin(assetFamilies, eq(assets.family_id, assetFamilies.id))
-            .leftJoin(assetCategories, eq(assetFamilies.category_id, assetCategories.id))
             .where(and(...orderConditions))
             .orderBy(desc(orders.event_start_date));
 
@@ -1004,9 +994,9 @@ const exportClientIssuanceLogService = async (
                 "Entity Type": "ORDER",
                 Reference: r.order_ref,
                 "Entity Status": r.order_status,
-                "Item Code": r.family_item_code ?? "",
-                "Item Description": r.family_name ?? r.item_asset_name ?? "",
-                Category: r.category_name ?? "",
+                "Item Code": "",
+                "Item Description": r.group_name ?? r.item_asset_name ?? "",
+                Category: r.asset_category ?? "",
                 "Requested Qty": String(r.item_quantity),
                 "Delivered Qty": String(r.item_quantity),
                 "Line Status": "DELIVERED",
@@ -1067,9 +1057,8 @@ const exportClientIssuanceLogService = async (
                 item_added_midflow: selfPickupItems.added_midflow,
                 item_partial_reason: selfPickupItems.partial_reason,
                 item_asset_name: selfPickupItems.asset_name,
-                family_name: assetFamilies.name,
-                family_item_code: assetFamilies.company_item_code,
-                category_name: assetCategories.name,
+                group_name: assets.group_name,
+                asset_category: assets.category,
             })
             .from(selfPickupItems)
             .innerJoin(selfPickups, eq(selfPickupItems.self_pickup_id, selfPickups.id))
@@ -1077,8 +1066,6 @@ const exportClientIssuanceLogService = async (
             .leftJoin(brands, eq(selfPickups.brand_id, brands.id))
             .leftJoin(companies, eq(selfPickups.company_id, companies.id))
             .leftJoin(assets, eq(selfPickupItems.asset_id, assets.id))
-            .leftJoin(assetFamilies, eq(assets.family_id, assetFamilies.id))
-            .leftJoin(assetCategories, eq(assetFamilies.category_id, assetCategories.id))
             .where(and(...spConditions))
             .orderBy(desc(selfPickups.created_at));
 
@@ -1097,9 +1084,9 @@ const exportClientIssuanceLogService = async (
                 "Entity Type": "SELF_PICKUP",
                 Reference: r.sp_ref,
                 "Entity Status": r.sp_status,
-                "Item Code": r.family_item_code ?? "",
-                "Item Description": r.family_name ?? r.item_asset_name ?? "",
-                Category: r.category_name ?? "",
+                "Item Code": "",
+                "Item Description": r.group_name ?? r.item_asset_name ?? "",
+                Category: r.asset_category ?? "",
                 "Requested Qty": String(r.item_quantity),
                 "Delivered Qty": String(delivered),
                 "Line Status": lineStatus,
@@ -1129,114 +1116,9 @@ const exportClientIssuanceLogService = async (
 
 /**
  * Per-family stock movement export — one row per movement in the family's ledger.
- *
- * Source: `stock_movements` joined by `asset_family_id` OR via assets.family_id (stock
- * movements may be stored at either level depending on write path).
- * Audience: ops (ADMIN/LOGISTICS). Gated by STOCK_MOVEMENTS_READ.
- *
- * Columns match the on-screen audit ledger + linkable entity ref.
- */
-const exportFamilyStockMovementsService = async (
-    familyId: string,
-    query: import("./export.interfaces").ExportStockMovementsQuery,
-    _user: AuthUser,
-    platformId: string
-): Promise<{ csv: string; familyName: string }> => {
-    const family = await db.query.assetFamilies.findFirst({
-        where: and(eq(assetFamilies.id, familyId), eq(assetFamilies.platform_id, platformId)),
-        columns: { id: true, name: true },
-    });
-    if (!family) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Asset family not found");
-    }
-
-    const { fromDate, toDate } = parseDateRange({
-        date_from: query.date_from,
-        date_to: query.date_to,
-    });
-
-    // Union by family_id OR (asset.family_id = familyId) to cover both write paths.
-    // Today most rows carry asset_id; joining via assets.family_id is the reliable path.
-    const conditions: any[] = [
-        eq(stockMovements.platform_id, platformId),
-        sql`(${stockMovements.asset_family_id} = ${familyId} OR ${assets.family_id} = ${familyId})`,
-    ];
-    if (query.movement_type) {
-        conditions.push(sql`${stockMovements.movement_type}::text = ${query.movement_type}`);
-    }
-    if (fromDate) conditions.push(gte(stockMovements.created_at, fromDate));
-    if (toDate) conditions.push(lte(stockMovements.created_at, toDate));
-
-    const rows = await db
-        .select({
-            id: stockMovements.id,
-            created_at: stockMovements.created_at,
-            movement_type: stockMovements.movement_type,
-            write_off_reason: stockMovements.write_off_reason,
-            delta: stockMovements.delta,
-            note: stockMovements.note,
-            linked_entity_type: stockMovements.linked_entity_type,
-            linked_entity_id: stockMovements.linked_entity_id,
-            asset_name: assets.name,
-            created_by_name: users.name,
-        })
-        .from(stockMovements)
-        .leftJoin(assets, eq(stockMovements.asset_id, assets.id))
-        .leftJoin(users, eq(stockMovements.created_by, users.id))
-        .where(and(...conditions))
-        .orderBy(desc(stockMovements.created_at));
-
-    // Resolve human-readable ref per linked entity.
-    const orderIds = new Set<string>();
-    const spIds = new Set<string>();
-    for (const r of rows) {
-        if (!r.linked_entity_id || !r.linked_entity_type) continue;
-        if (r.linked_entity_type === "ORDER") orderIds.add(r.linked_entity_id);
-        if (r.linked_entity_type === "SELF_PICKUP") spIds.add(r.linked_entity_id);
-    }
-
-    const orderRefMap = new Map<string, string>();
-    if (orderIds.size > 0) {
-        const ordersForRef = await db
-            .select({ id: orders.id, ref: orders.order_id })
-            .from(orders)
-            .where(inArray(orders.id, [...orderIds]));
-        ordersForRef.forEach((o) => orderRefMap.set(o.id, o.ref));
-    }
-
-    const spRefMap = new Map<string, string>();
-    if (spIds.size > 0) {
-        const spsForRef = await db
-            .select({ id: selfPickups.id, ref: selfPickups.self_pickup_id })
-            .from(selfPickups)
-            .where(inArray(selfPickups.id, [...spIds]));
-        spsForRef.forEach((s) => spRefMap.set(s.id, s.ref));
-    }
-
-    const csvRows = rows.map((r) => {
-        let linkedRef = "";
-        if (r.linked_entity_type === "ORDER" && r.linked_entity_id) {
-            linkedRef = orderRefMap.get(r.linked_entity_id) ?? r.linked_entity_id;
-        } else if (r.linked_entity_type === "SELF_PICKUP" && r.linked_entity_id) {
-            linkedRef = spRefMap.get(r.linked_entity_id) ?? r.linked_entity_id;
-        }
-        return {
-            "Movement ID": r.id,
-            Date: formatDate(r.created_at),
-            Family: family.name,
-            Asset: r.asset_name ?? "",
-            "Movement Type": r.movement_type,
-            "Write-off Reason": r.write_off_reason ?? "",
-            Delta: String(r.delta),
-            Note: r.note ?? "",
-            "Linked Entity Type": r.linked_entity_type ?? "",
-            "Linked Entity Ref": linkedRef,
-            "Created By": r.created_by_name ?? "",
-        };
-    });
-
-    return { csv: Papa.unparse(csvRows), familyName: family.name };
-};
+// exportFamilyStockMovementsService DELETED in the squash (locked decision #10).
+// No group-aggregated stock-movements export. Per-asset history is the only
+// supply post-cutover.
 
 /**
  * Asset Catalog Export — rich per-asset flat listing for a company.
@@ -1270,74 +1152,69 @@ const exportAssetCatalogService = async (
     if (query.brand_id) conditions.push(eq(assets.brand_id, query.brand_id));
     if (query.condition) conditions.push(eq(assets.condition, query.condition as any));
     if (query.status) conditions.push(eq(assets.status, query.status as any));
-    if (query.category_id) conditions.push(eq(assetFamilies.category_id, query.category_id));
+    // Post-squash: category_id is on assets directly only if migrated (parked
+    // scope — assets.category varchar is still the live source). Filter by the
+    // varchar for now.
+    if (query.category_id) {
+        const cat = await db.query.assetCategories.findFirst({
+            where: eq(assetCategories.id, query.category_id),
+            columns: { name: true },
+        });
+        if (cat) conditions.push(eq(assets.category, cat.name));
+    }
 
     const dbRows = await db
         .select({
             asset_id: assets.id,
             asset_name: assets.name,
             qr_code: assets.qr_code,
-            tracking_method: assets.tracking_method,
+            stock_mode: assets.stock_mode,
             total_quantity: assets.total_quantity,
             available_quantity: assets.available_quantity,
             condition: assets.condition,
             status: assets.status,
             condition_notes: assets.condition_notes,
             refurb_days_estimate: assets.refurb_days_estimate,
-            packaging_asset: assets.packaging,
-            weight_per_unit_asset: assets.weight_per_unit,
-            volume_per_unit_asset: assets.volume_per_unit,
-            dimensions_asset: assets.dimensions,
-            handling_tags_asset: assets.handling_tags,
+            packaging: assets.packaging,
+            weight_per_unit: assets.weight_per_unit,
+            volume_per_unit: assets.volume_per_unit,
+            dimensions: assets.dimensions,
+            handling_tags: assets.handling_tags,
             on_display_image: assets.on_display_image,
-            images_asset: assets.images,
+            images: assets.images,
             last_scanned_at: assets.last_scanned_at,
             created_at: assets.created_at,
             last_scanned_by_name: users.name,
-            // Family
-            family_id: assetFamilies.id,
-            family_name: assetFamilies.name,
-            company_item_code: assetFamilies.company_item_code,
-            description: assetFamilies.description,
-            stock_mode: assetFamilies.stock_mode,
-            low_stock_threshold: assetFamilies.low_stock_threshold,
-            packaging_family: assetFamilies.packaging,
-            weight_per_unit_family: assetFamilies.weight_per_unit,
-            volume_per_unit_family: assetFamilies.volume_per_unit,
-            dimensions_family: assetFamilies.dimensions,
-            handling_tags_family: assetFamilies.handling_tags,
-            images_family: assetFamilies.images,
+            description: assets.description,
+            low_stock_threshold: assets.low_stock_threshold,
+            // Group identity (replaces family fields)
+            group_id: assets.group_id,
+            group_name: assets.group_name,
             // Classification
             company_name: companies.name,
             brand_name: brands.name,
-            category_name: assetCategories.name,
+            category_name: assets.category,
             team_name: teams.name,
             // Location
             warehouse_name: warehouses.name,
             zone_name: zones.name,
         })
         .from(assets)
-        .leftJoin(assetFamilies, eq(assets.family_id, assetFamilies.id))
         .leftJoin(companies, eq(assets.company_id, companies.id))
         .leftJoin(brands, eq(assets.brand_id, brands.id))
-        .leftJoin(assetCategories, eq(assetFamilies.category_id, assetCategories.id))
         .leftJoin(teams, eq(assets.team_id, teams.id))
         .leftJoin(warehouses, eq(assets.warehouse_id, warehouses.id))
         .leftJoin(zones, eq(assets.zone_id, zones.id))
         .leftJoin(users, eq(assets.last_scanned_by, users.id))
         .where(and(...conditions))
-        .orderBy(asc(companies.name), asc(assetFamilies.name), asc(assets.name));
+        .orderBy(asc(companies.name), asc(assets.group_name), asc(assets.name));
 
     const companyName = dbRows.find((r) => r.company_name)?.company_name ?? null;
 
-    // Shape rows — fall through asset → family for shared physical fields,
-    // and resolve the primary image URL via the documented priority chain.
     const resolveImageUrl = (row: (typeof dbRows)[number]): string | null => {
         if (row.on_display_image) return row.on_display_image;
-        const assetImages = (row.images_asset as { url?: string }[] | null) ?? [];
-        if (assetImages.length > 0 && assetImages[0]?.url) return assetImages[0].url;
-        const familyImages = (row.images_family as { url?: string }[] | null) ?? [];
-        if (familyImages.length > 0 && familyImages[0]?.url) return familyImages[0].url;
+        const imgs = (row.images as { url?: string }[] | null) ?? [];
+        if (imgs.length > 0 && imgs[0]?.url) return imgs[0].url;
         return null;
     };
 
@@ -1350,21 +1227,18 @@ const exportAssetCatalogService = async (
     };
 
     const rows: AssetCatalogRow[] = dbRows.map((r) => {
-        const dims = r.dimensions_asset ?? r.dimensions_family;
         return {
             asset_id: r.asset_id,
             asset_name: r.asset_name,
             qr_code: r.qr_code,
-            family_id: r.family_id ?? null,
-            family_name: r.family_name ?? null,
-            company_item_code: r.company_item_code ?? null,
+            group_id: r.group_id ?? null,
+            group_name: r.group_name ?? null,
             description: r.description ?? null,
             company_name: r.company_name ?? null,
             brand_name: r.brand_name ?? null,
             category_name: r.category_name ?? null,
             team_name: r.team_name ?? null,
-            stock_mode: r.stock_mode ?? null,
-            tracking_method: r.tracking_method,
+            stock_mode: r.stock_mode,
             total_quantity: r.total_quantity,
             available_quantity: r.available_quantity,
             low_stock_threshold: r.low_stock_threshold ?? null,
@@ -1372,16 +1246,13 @@ const exportAssetCatalogService = async (
             status: r.status,
             condition_notes: r.condition_notes ?? null,
             refurb_days_estimate: r.refurb_days_estimate ?? null,
-            packaging: r.packaging_asset ?? r.packaging_family ?? null,
-            weight_per_unit: r.weight_per_unit_asset ?? r.weight_per_unit_family ?? null,
-            volume_per_unit: r.volume_per_unit_asset ?? r.volume_per_unit_family ?? null,
-            dimensions_length: readDim(dims, "length"),
-            dimensions_width: readDim(dims, "width"),
-            dimensions_height: readDim(dims, "height"),
-            handling_tags:
-                r.handling_tags_asset && r.handling_tags_asset.length > 0
-                    ? r.handling_tags_asset
-                    : (r.handling_tags_family ?? []),
+            packaging: r.packaging ?? null,
+            weight_per_unit: r.weight_per_unit ?? null,
+            volume_per_unit: r.volume_per_unit ?? null,
+            dimensions_length: readDim(r.dimensions, "length"),
+            dimensions_width: readDim(r.dimensions, "width"),
+            dimensions_height: readDim(r.dimensions, "height"),
+            handling_tags: r.handling_tags ?? [],
             warehouse_name: r.warehouse_name ?? null,
             zone_name: r.zone_name ?? null,
             last_scanned_at: r.last_scanned_at ?? null,
@@ -1425,6 +1296,5 @@ export const ExportServices = {
     exportAssetUtilizationService,
     exportWorkSummaryService,
     exportClientIssuanceLogService,
-    exportFamilyStockMovementsService,
     exportAssetCatalogService,
 };

@@ -95,13 +95,7 @@ router.get(
     ExportControllers.exportClientIssuanceLog
 );
 
-router.get(
-    "/stock-movements/family/:family_id",
-    platformValidator,
-    auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.STOCK_MOVEMENTS_READ),
-    ExportControllers.exportFamilyStockMovements
-);
+// Family stock-movements export route DELETED (locked decision #10).
 
 router.get(
     "/asset-catalog",
