@@ -67,8 +67,9 @@ const promoteDraftImages = async (
 //   1. group_id IS NULL ⟺ group_name IS NULL  (raw assets have no group).
 //   2. Siblings within a group share company_id, brand_id, stock_mode.
 //   3. group_name is unique per company at the *group* level (distinct group_ids
-//      cannot share a name within one company). Drift across siblings of the
-//      same group is allowed (no edit cascade).
+//      cannot share a name within one company).
+//   4. group_name + group presentation media cascade across siblings; drift is
+//      treated as invalid application state.
 
 /**
  * Validates that a candidate asset's company/brand/stock_mode is compatible
@@ -198,6 +199,12 @@ const resolveCreateAssetData = async (data: CreateAssetPayload) => {
             "Packaging description is required for POOLED stock_mode"
         );
     }
+    if (data.low_stock_threshold != null && data.stock_mode !== "POOLED") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Low-stock threshold is only supported for POOLED assets"
+        );
+    }
 
     // Group resolution. Returns groupId + groupName + the sibling-index start
     // for asset.name suffixing (the createAsset caller does the per-unit suffix
@@ -210,6 +217,8 @@ const resolveCreateAssetData = async (data: CreateAssetPayload) => {
     //   - is_part_of_group=false + no group_id ⟶ raw asset; no suffix.
     let groupId: string | null = data.group_id ?? null;
     let groupName: string | null = null;
+    let groupImages: { url: string; note?: string }[] = [];
+    let groupOnDisplayImage: string | null = null;
     let siblingIndexStart: number | null = null;
 
     if (groupId) {
@@ -219,7 +228,7 @@ const resolveCreateAssetData = async (data: CreateAssetPayload) => {
                 eq(assets.platform_id, data.platform_id),
                 isNull(assets.deleted_at)
             ),
-            columns: { group_name: true },
+            columns: { group_name: true, group_images: true, group_on_display_image: true },
         });
         if (!sibling) {
             throw new CustomizedError(
@@ -228,6 +237,10 @@ const resolveCreateAssetData = async (data: CreateAssetPayload) => {
             );
         }
         groupName = sibling.group_name;
+        groupImages = Array.isArray(sibling.group_images)
+            ? (sibling.group_images as { url: string; note?: string }[])
+            : [];
+        groupOnDisplayImage = sibling.group_on_display_image ?? null;
         const siblingCountRows = await db
             .select({ c: sql<number>`COUNT(*)::int` })
             .from(assets)
@@ -242,6 +255,8 @@ const resolveCreateAssetData = async (data: CreateAssetPayload) => {
     } else if (data.is_part_of_group !== false) {
         groupId = randomUUID();
         groupName = data.name;
+        groupImages = data.group_images ?? [];
+        groupOnDisplayImage = data.group_on_display_image ?? null;
         siblingIndexStart = 1;
     }
     // else: raw asset, groupId + groupName + siblingIndexStart stay null
@@ -253,6 +268,8 @@ const resolveCreateAssetData = async (data: CreateAssetPayload) => {
         team_id: data.team_id ?? null,
         group_id: groupId,
         group_name: groupName,
+        group_images: groupId ? groupImages : [],
+        group_on_display_image: groupId ? groupOnDisplayImage : null,
         sibling_index_start: siblingIndexStart, // consumed by createAsset; not stored on row
         // name stays as base (data.name); createAsset suffixes per-unit
         category,
@@ -381,6 +398,11 @@ const createAsset = async (input: CreateAssetPayload, user: AuthUser) => {
                 data.images as { url: string; note?: string }[],
                 data.company_id
             );
+        if (Array.isArray(data.group_images) && data.group_images.length > 0)
+            data.group_images = await promoteDraftImages(
+                data.group_images as { url: string; note?: string }[],
+                data.company_id
+            );
 
         // Promote condition photos (also uploaded as drafts)
         if (data.condition_photos && data.condition_photos.length > 0)
@@ -421,6 +443,8 @@ const createAsset = async (input: CreateAssetPayload, user: AuthUser) => {
                         brand_id: data.brand_id || null,
                         group_id: effectiveGroupId,
                         group_name: effectiveGroupName,
+                        group_images: data.group_images || [],
+                        group_on_display_image: data.group_on_display_image || null,
                         team_id: data.team_id ?? null,
                         name: `${data.name} #${indexStart + i}`,
                         description: data.description || null,
@@ -494,6 +518,8 @@ const createAsset = async (input: CreateAssetPayload, user: AuthUser) => {
             brand_id: data.brand_id || null,
             group_id: data.group_id ?? null,
             group_name: data.group_name ?? null,
+            group_images: data.group_id ? data.group_images || [] : [],
+            group_on_display_image: data.group_id ? data.group_on_display_image || null : null,
             team_id: data.team_id ?? null,
             description: data.description || null,
             images: data.images || [],
@@ -981,6 +1007,19 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
             }
         }
 
+        if (data.stock_mode !== undefined && data.stock_mode !== existingAsset.stock_mode) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "stock_mode is immutable after asset creation. Delete and recreate the asset if the mode is wrong."
+            );
+        }
+        if (data.low_stock_threshold != null && existingAsset.stock_mode !== "POOLED") {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Low-stock threshold is only supported for POOLED assets"
+            );
+        }
+
         // Group move guard: if group_id is being changed (or set/cleared), validate.
         if (data.group_id !== undefined && data.group_id !== existingAsset.group_id) {
             // Block move if the asset has active bookings (same gate as before).
@@ -1018,6 +1057,20 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
 
             // Joining a new group: validate sibling constraints (same company+brand+stock_mode)
             if (data.group_id) {
+                const sibling = await db.query.assets.findFirst({
+                    where: and(
+                        eq(assets.group_id, data.group_id),
+                        eq(assets.platform_id, platformId),
+                        ne(assets.id, id),
+                        isNull(assets.deleted_at)
+                    ),
+                    columns: {
+                        group_name: true,
+                        group_images: true,
+                        group_on_display_image: true,
+                    },
+                });
+
                 await validateGroupSiblingConstraints(db, {
                     groupId: data.group_id,
                     platformId,
@@ -1029,6 +1082,19 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
                     stockMode: data.stock_mode ?? existingAsset.stock_mode,
                     excludeAssetId: id,
                 });
+
+                if (sibling) {
+                    data.group_name = sibling.group_name;
+                    data.group_images = Array.isArray(sibling.group_images)
+                        ? sibling.group_images
+                        : [];
+                    data.group_on_display_image = sibling.group_on_display_image ?? null;
+                } else if (!data.group_name) {
+                    throw new CustomizedError(
+                        httpStatus.BAD_REQUEST,
+                        "group_name is required when creating a new group"
+                    );
+                }
             }
         }
 
@@ -1050,9 +1116,38 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
             });
         }
 
+        if (
+            effectiveGroupId &&
+            (data.company_id !== undefined ||
+                data.brand_id !== undefined ||
+                data.stock_mode !== undefined)
+        ) {
+            await validateGroupSiblingConstraints(db, {
+                groupId: effectiveGroupId,
+                platformId,
+                companyId: data.company_id || existingAsset.company_id,
+                brandId:
+                    data.brand_id === undefined ? existingAsset.brand_id : (data.brand_id ?? null),
+                stockMode: existingAsset.stock_mode,
+                excludeAssetId: id,
+            });
+        }
+
         // Invariant: group_id IS NULL ⟹ group_name IS NULL (auto-clear on move-out)
         if (data.group_id === null) {
             (data as any).group_name = null;
+            (data as any).group_images = [];
+            (data as any).group_on_display_image = null;
+        }
+
+        if (
+            (data.group_images !== undefined || data.group_on_display_image !== undefined) &&
+            !effectiveGroupId
+        ) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Group media can only be edited on grouped assets"
+            );
         }
 
         // Step 6: Validate quantity constraints if either is being updated
@@ -1098,6 +1193,12 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
                 targetCompanyId
             );
         }
+        if (Array.isArray(dbData.group_images) && dbData.group_images.length > 0) {
+            dbData.group_images = await promoteDraftImages(
+                dbData.group_images as { url: string; note?: string }[],
+                targetCompanyId
+            );
+        }
         if (Array.isArray(dbData.condition_photos) && dbData.condition_photos.length > 0) {
             dbData.condition_photos = await Promise.all(
                 dbData.condition_photos.map(async (url: string) => {
@@ -1111,7 +1212,39 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
         }
 
         // Step 9: Update asset
-        const [result] = await db.update(assets).set(dbData).where(eq(assets.id, id)).returning();
+        const groupCascadeData: Record<string, unknown> = {};
+        if (dbData.group_name !== undefined) groupCascadeData.group_name = dbData.group_name;
+        if (dbData.group_images !== undefined) groupCascadeData.group_images = dbData.group_images;
+        if (dbData.group_on_display_image !== undefined) {
+            groupCascadeData.group_on_display_image = dbData.group_on_display_image;
+        }
+
+        const [result] = await db.transaction(async (tx) => {
+            const [updated] = await tx
+                .update(assets)
+                .set(dbData)
+                .where(eq(assets.id, id))
+                .returning();
+
+            if (
+                updated?.group_id &&
+                Object.keys(groupCascadeData).length > 0 &&
+                dbData.group_id !== null
+            ) {
+                await tx
+                    .update(assets)
+                    .set(groupCascadeData)
+                    .where(
+                        and(
+                            eq(assets.platform_id, platformId),
+                            eq(assets.group_id, updated.group_id),
+                            isNull(assets.deleted_at)
+                        )
+                    );
+            }
+
+            return [updated];
+        });
 
         // Step 10: Snapshot the stored post-update state for asset history
         await createAssetVersionSnapshot(id, existingAsset.platform_id, "Manual update", user.id);
@@ -1198,6 +1331,10 @@ const addAssetUnits = async (
     const { baseName } = parseAssetNameSeries(sourceAsset.name);
     let effectiveGroupId = sourceAsset.group_id;
     let effectiveGroupName = sourceAsset.group_name;
+    const effectiveGroupImages = Array.isArray(sourceAsset.group_images)
+        ? sourceAsset.group_images
+        : [];
+    const effectiveGroupOnDisplayImage = sourceAsset.group_on_display_image ?? null;
     let renameSource = false;
     let renamedSourceName = sourceAsset.name;
     if (!effectiveGroupId) {
@@ -1239,6 +1376,8 @@ const addAssetUnits = async (
                 .set({
                     group_id: effectiveGroupId,
                     group_name: effectiveGroupName,
+                    group_images: effectiveGroupImages,
+                    group_on_display_image: effectiveGroupOnDisplayImage,
                     name: renamedSourceName,
                 })
                 .where(eq(assets.id, sourceAsset.id));
@@ -1258,6 +1397,8 @@ const addAssetUnits = async (
                     brand_id: sourceAsset.brand_id,
                     group_id: effectiveGroupId,
                     group_name: effectiveGroupName,
+                    group_images: effectiveGroupImages,
+                    group_on_display_image: effectiveGroupOnDisplayImage,
                     team_id: sourceAsset.team_id,
                     name: unitName,
                     description: sourceAsset.description,
@@ -2355,6 +2496,8 @@ const bulkGroupAssets = async (
         asset_ids: string[];
         target_group_id?: string;
         group_name: string;
+        group_images?: { url: string; note?: string }[];
+        group_on_display_image?: string | null;
     },
     _user: AuthUser,
     platformId: string
@@ -2436,17 +2579,26 @@ const bulkGroupAssets = async (
         });
 
         // (4) Atomic write
+        const promotedGroupImages =
+            data.group_images && data.group_images.length > 0
+                ? await promoteDraftImages(data.group_images, firstCompany)
+                : [];
+
         await tx
             .update(assets)
             .set({
                 group_id: targetGroupId,
                 group_name: data.group_name,
+                group_images: promotedGroupImages,
+                group_on_display_image: data.group_on_display_image ?? null,
             })
             .where(inArray(assets.id, data.asset_ids));
 
         return {
             group_id: targetGroupId,
             group_name: data.group_name,
+            group_images: promotedGroupImages,
+            group_on_display_image: data.group_on_display_image ?? null,
             assets_grouped: data.asset_ids.length,
         };
     });

@@ -58,6 +58,7 @@ const getAssetStockHistory = async (
 const getLowStockAssets = async (platformId: string, companyId?: string) => {
     const conditions = [
         eq(assets.platform_id, platformId),
+        eq(assets.stock_mode, "POOLED"),
         sql`${assets.low_stock_threshold} IS NOT NULL`,
         sql`${assets.deleted_at} IS NULL`,
         sql`${assets.available_quantity} < ${assets.low_stock_threshold}`,

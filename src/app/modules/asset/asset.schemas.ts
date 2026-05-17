@@ -41,6 +41,12 @@ const createAssetSchema = z.object({
             category: z.string().min(1, "Category is required").max(100).optional().nullable(),
             images: z.array(assetImageSchema).optional().default([]),
             on_display_image: z.string().url("Invalid on display image URL").optional(),
+            group_images: z.array(assetImageSchema).optional().default([]),
+            group_on_display_image: z
+                .string()
+                .url("Invalid group on display image URL")
+                .optional()
+                .nullable(),
             // stock_mode replaces tracking_method. Required.
             stock_mode: z.enum(stockModeEnum.enumValues, {
                 message: enumMessageGenerator("Stock mode", stockModeEnum.enumValues),
@@ -153,7 +159,13 @@ const updateAssetSchema = z.object({
         category: z.string().optional().nullable(),
         images: z.array(assetImageSchema).optional(),
         on_display_image: z.string().url("Invalid on display image URL").optional().nullable(),
-        // stock_mode — changing this is blocked at service layer if asset has active bookings
+        group_images: z.array(assetImageSchema).optional(),
+        group_on_display_image: z
+            .string()
+            .url("Invalid group on display image URL")
+            .optional()
+            .nullable(),
+        // stock_mode is immutable after creation; service rejects updates.
         stock_mode: z
             .enum(stockModeEnum.enumValues, {
                 message: enumMessageGenerator("Stock mode", stockModeEnum.enumValues),
@@ -233,6 +245,12 @@ const bulkGroupAssetsSchema = z.object({
             .string({ message: "Group name is required" })
             .min(1, "Group name cannot be empty")
             .max(200, "Group name must be under 200 characters"),
+        group_images: z.array(assetImageSchema).optional(),
+        group_on_display_image: z
+            .string()
+            .url("Invalid group on display image URL")
+            .optional()
+            .nullable(),
     }),
 });
 

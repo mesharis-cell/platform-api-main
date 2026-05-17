@@ -99,7 +99,10 @@ async function main() {
         .from(assets)
         .where(and(eq(assets.company_id, BACARDI_COMPANY), isNull(assets.deleted_at)))
         .limit(20);
-    const pool = bacardiAssets.slice(12, 15).length === 3 ? bacardiAssets.slice(12, 15) : bacardiAssets.slice(0, 3);
+    const pool =
+        bacardiAssets.slice(12, 15).length === 3
+            ? bacardiAssets.slice(12, 15)
+            : bacardiAssets.slice(0, 3);
     const [a1, a2, a3] = pool;
     if (!a1 || !a2 || !a3) throw new Error("Need ≥3 Bacardi assets");
 

@@ -19,6 +19,10 @@ export type ExportBaseQuery = {
 };
 
 export type ExportStockQuery = ExportBaseQuery & {
+    brand_id?: string;
+    category_id?: string;
+    group_id?: string;
+    group_name?: string;
     condition?: string;
     category?: string;
     status?: string;
@@ -40,6 +44,12 @@ export type ExportClientIssuanceLogQuery = ExportBaseQuery & {
 };
 
 export type ExportStockMovementsQuery = {
+    company_id?: string;
+    brand_id?: string;
+    category_id?: string;
+    group_id?: string;
+    group_name?: string;
+    asset_id?: string;
     date_from?: string;
     date_to?: string;
     movement_type?: string;

@@ -841,9 +841,8 @@ export const assets = pgTable(
         // Backfilled in migration 0061 from the dropped family_id column.
         group_id: uuid("group_id"),
         // group_name: denormalized display label for the catalog card representing
-        // the group. Required at service layer whenever group_id is set. Drifts
-        // across siblings are allowed (no cascade-on-edit); catalog picks the
-        // representative's value.
+        // the group. Required at service layer whenever group_id is set. Edits
+        // cascade across siblings; drift is treated as invalid application state.
         group_name: varchar("group_name", { length: 200 }),
         name: varchar("name", { length: 200 }).notNull(),
         description: text("description"),
@@ -852,14 +851,21 @@ export const assets = pgTable(
             .notNull()
             .default(sql`'[]'::jsonb`), // AssetImage[]: {url: string, note?: string}
         on_display_image: text("on_display_image"),
+        // Shared group-level presentation media. These are meaningful only when
+        // group_id is set and cascade across siblings, like group_name. They are
+        // intentionally denormalized onto assets so groups remain thin and not a
+        // first-class table.
+        group_images: jsonb("group_images")
+            .notNull()
+            .default(sql`'[]'::jsonb`),
+        group_on_display_image: text("group_on_display_image"),
         // stock_mode: SERIALIZED (one row per physical unit) or POOLED (aggregate
         // counters). Replaces the legacy tracking_method enum (INDIVIDUAL/BATCH);
         // semantically identical, single canonical naming. Required.
         stock_mode: stockModeEnum("stock_mode").notNull(),
         // low_stock_threshold: per-asset threshold for low-stock alerts. NULL = no
         // alert configured. Meaningful primarily for POOLED assets (SERIALIZED rows
-        // have available_quantity ∈ {0,1} which makes a threshold trivial). For
-        // siblings, by convention all rows share the same value (no cascade enforce).
+        // have available_quantity ∈ {0,1} which makes a threshold trivial).
         low_stock_threshold: integer("low_stock_threshold"),
         total_quantity: integer("total_quantity").notNull().default(1),
         available_quantity: integer("available_quantity").notNull().default(1),

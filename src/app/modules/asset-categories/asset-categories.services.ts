@@ -1,7 +1,7 @@
 import { and, asc, count, eq, isNull, or } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
-import { assetCategories, legacyAssetFamilies } from "../../../db/schema";
+import { assetCategories, assets, collections } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { generateRandomCategoryColor } from "../../utils/color";
 import { findNearMatches } from "../../utils/levenshtein";
@@ -236,16 +236,37 @@ const deleteCategory = async (id: string, platformId: string) => {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Category not found");
     }
 
-    // Guard: reject if families reference this category
-    const [familyCount] = await db
-        .select({ count: count() })
-        .from(legacyAssetFamilies)
-        .where(and(eq(legacyAssetFamilies.category_id, id), isNull(legacyAssetFamilies.deleted_at)));
+    const assetConditions = [
+        eq(assets.platform_id, platformId),
+        eq(assets.category, existing.name),
+        isNull(assets.deleted_at),
+    ];
+    const collectionConditions = [
+        eq(collections.platform_id, platformId),
+        eq(collections.category, existing.name),
+        isNull(collections.deleted_at),
+    ];
+    if (existing.company_id) {
+        assetConditions.push(eq(assets.company_id, existing.company_id));
+        collectionConditions.push(eq(collections.company_id, existing.company_id));
+    }
 
-    if (Number(familyCount?.count || 0) > 0) {
+    const [[assetCount], [collectionCount]] = await Promise.all([
+        db
+            .select({ count: count() })
+            .from(assets)
+            .where(and(...assetConditions)),
+        db
+            .select({ count: count() })
+            .from(collections)
+            .where(and(...collectionConditions)),
+    ]);
+
+    const liveReferences = Number(assetCount?.count || 0) + Number(collectionCount?.count || 0);
+    if (liveReferences > 0) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            `Cannot delete — ${familyCount.count} asset families use this category. Reassign them first.`
+            `Cannot delete — ${liveReferences} live assets or collections use this category. Reassign them first.`
         );
     }
 

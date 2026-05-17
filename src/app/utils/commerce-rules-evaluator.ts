@@ -4,8 +4,8 @@
  * Pure function — no DB access. Given a normalized cart and a list of
  * rules already fetched by the caller, returns the rule hits the client
  * should be warned about. v1 supports:
- *   - QUANTITY rules: warn if cart-level qty for a target asset/group
- *     is below (QUANTITY_LT) or above (QUANTITY_GT) a threshold.
+ *   - QUANTITY rules: warn if cart-level qty for a target asset is below
+ *     (QUANTITY_LT) or above (QUANTITY_GT) a threshold.
  *   - COMPANION rules: warn if the cart contains the rule's target but
  *     does NOT contain the rule's companion target.
  *
@@ -13,12 +13,11 @@
  * and BLOCK / SUGGEST severities. Adding them later is UI-only; the
  * evaluator's discriminated unions force exhaustiveness.
  *
- * Post-squash: FAMILY target kind renamed to GROUP; family_id → group_id.
+ * Post-squash: group/family rules are intentionally out of scope. Grouped
+ * catalog quick-add resolves to raw asset cart lines before evaluation.
  */
 
-export type CommerceRuleTarget =
-    | { kind: "ASSET"; asset_id: string }
-    | { kind: "GROUP"; group_id: string };
+export type CommerceRuleTarget = { kind: "ASSET"; asset_id: string };
 
 export type CommerceRulePredicate =
     | { kind: "QUANTITY_LT"; threshold: number }
@@ -40,7 +39,6 @@ export type CommerceRule = {
 
 export type CartLine = {
     asset_id: string;
-    group_id?: string | null;
     quantity: number;
 };
 
@@ -50,13 +48,10 @@ export type CommerceRuleHit = {
     message: string;
     rule_name: string;
     related_asset_id?: string;
-    related_group_id?: string;
 };
 
 const matchesTarget = (line: CartLine, target: CommerceRuleTarget): boolean => {
-    if (target.kind === "ASSET") return line.asset_id === target.asset_id;
-    if (target.kind === "GROUP") return line.group_id === target.group_id;
-    return false;
+    return line.asset_id === target.asset_id;
 };
 
 const totalQtyOnTarget = (cart: CartLine[], target: CommerceRuleTarget): number =>
@@ -85,10 +80,7 @@ export const evaluateCommerceRules = (
                         rule_name: rule.name,
                         severity: rule.severity,
                         message: rule.message,
-                        related_asset_id:
-                            rule.target.kind === "ASSET" ? rule.target.asset_id : undefined,
-                        related_group_id:
-                            rule.target.kind === "GROUP" ? rule.target.group_id : undefined,
+                        related_asset_id: rule.target.asset_id,
                     });
                 }
                 if (pred.kind === "QUANTITY_GT" && total > pred.threshold) {
@@ -97,10 +89,7 @@ export const evaluateCommerceRules = (
                         rule_name: rule.name,
                         severity: rule.severity,
                         message: rule.message,
-                        related_asset_id:
-                            rule.target.kind === "ASSET" ? rule.target.asset_id : undefined,
-                        related_group_id:
-                            rule.target.kind === "GROUP" ? rule.target.group_id : undefined,
+                        related_asset_id: rule.target.asset_id,
                     });
                 }
                 break;
@@ -114,10 +103,7 @@ export const evaluateCommerceRules = (
                     rule_name: rule.name,
                     severity: rule.severity,
                     message: rule.message,
-                    related_asset_id:
-                        rule.target.kind === "ASSET" ? rule.target.asset_id : undefined,
-                    related_group_id:
-                        rule.target.kind === "GROUP" ? rule.target.group_id : undefined,
+                    related_asset_id: rule.target.asset_id,
                 });
                 break;
             }

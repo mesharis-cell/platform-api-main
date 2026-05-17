@@ -49,6 +49,15 @@ const exportStockReport = catchAsync(async (req: Request, res: Response) => {
     sendCsv(res, "stock-report.csv", csvData);
 });
 
+const exportStockMovements = catchAsync(async (req: Request, res: Response) => {
+    const filters = req.query as any;
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+
+    const csvData = await ExportServices.exportStockMovementsService(filters, user, platformId);
+    sendCsv(res, "stock-movements.csv", csvData);
+});
+
 const exportAssetsOut = catchAsync(async (req: Request, res: Response) => {
     const filters = req.query as any;
     const user = (req as any).user;
@@ -112,9 +121,6 @@ const exportClientIssuanceLog = catchAsync(async (req: Request, res: Response) =
     sendCsv(res, "client-issuance-log.csv", csvData);
 });
 
-// exportFamilyStockMovements controller DELETED in the squash (locked
-// decision #10). No group-aggregated stock-movements export exists post-cutover.
-
 // Temporarily stubbed pending hardening + move to a local script. The XLSX
 // photo path lacked sufficient memory guards and was implicated in the
 // 2026-04-23 staging outage. Keep the route registered so clients get a
@@ -132,6 +138,7 @@ export const ExportControllers = {
     exportOrderHistory,
     exportAccountsReconciliation,
     exportStockReport,
+    exportStockMovements,
     exportAssetsOut,
     exportInboundLog,
     exportRevenueReport,

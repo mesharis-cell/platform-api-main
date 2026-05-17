@@ -16,6 +16,7 @@ import {
     scanEvents,
     selfPickupItems,
     selfPickups,
+    stockMovements,
     teams,
     users,
     warehouses,
@@ -35,6 +36,7 @@ import {
     ExportBaseQuery,
     ExportOrderQuery,
     ExportStockQuery,
+    ExportStockMovementsQuery,
 } from "./export.interfaces";
 import {
     generateAssetCatalogCsvRows,
@@ -344,14 +346,28 @@ const exportStockReportService = async (
     user: AuthUser,
     platformId: string
 ): Promise<string> => {
-    const { company_id, condition, category, status } = query;
+    const { company_id, brand_id, category_id, condition, category, status, group_id, group_name } =
+        query;
     const scopedCompanyId = getScopedCompanyId(company_id, user);
     const conditions: any[] = [eq(assets.platform_id, platformId), isNull(assets.deleted_at)];
 
     if (scopedCompanyId) conditions.push(eq(assets.company_id, scopedCompanyId));
+    if (brand_id) conditions.push(eq(assets.brand_id, brand_id));
     if (condition) conditions.push(eq(assets.condition, condition as any));
     if (category) conditions.push(eq(assets.category, category));
+    if (category_id) {
+        const categoryRow = await db.query.assetCategories.findFirst({
+            where: and(
+                eq(assetCategories.id, category_id),
+                eq(assetCategories.platform_id, platformId)
+            ),
+            columns: { name: true },
+        });
+        conditions.push(categoryRow ? eq(assets.category, categoryRow.name) : sql`1 = 0`);
+    }
     if (status) conditions.push(eq(assets.status, status as any));
+    if (group_id) conditions.push(eq(assets.group_id, group_id));
+    if (group_name) conditions.push(ilike(assets.group_name, `%${group_name}%`));
 
     const rows = await db
         .select({
@@ -378,7 +394,7 @@ const exportStockReportService = async (
         .leftJoin(warehouses, eq(assets.warehouse_id, warehouses.id))
         .leftJoin(zones, eq(assets.zone_id, zones.id))
         .where(and(...conditions))
-        .orderBy(asc(companies.name), asc(assets.name));
+        .orderBy(asc(companies.name), asc(assets.group_name), asc(assets.name));
 
     return Papa.unparse(
         rows.map((row) => ({
@@ -397,6 +413,108 @@ const exportStockReportService = async (
             Zone: row.zone?.name || "",
             "QR Code": row.asset.qr_code,
             "Last Scanned At": formatDate(row.asset.last_scanned_at),
+        }))
+    );
+};
+
+const exportStockMovementsService = async (
+    query: ExportStockMovementsQuery,
+    user: AuthUser,
+    platformId: string
+): Promise<string> => {
+    const {
+        company_id,
+        brand_id,
+        category_id,
+        group_id,
+        group_name,
+        asset_id,
+        date_from,
+        date_to,
+        movement_type,
+    } = query;
+    const scopedCompanyId = getScopedCompanyId(company_id, user);
+    const { fromDate, toDate } = parseDateRange({ date_from, date_to });
+    const conditions: any[] = [eq(stockMovements.platform_id, platformId)];
+
+    if (fromDate) conditions.push(gte(stockMovements.created_at, fromDate));
+    if (toDate) conditions.push(lte(stockMovements.created_at, toDate));
+    if (movement_type) conditions.push(eq(stockMovements.movement_type, movement_type as any));
+    if (asset_id) conditions.push(eq(stockMovements.asset_id, asset_id));
+    if (scopedCompanyId) conditions.push(eq(assets.company_id, scopedCompanyId));
+    if (brand_id) conditions.push(eq(assets.brand_id, brand_id));
+    if (group_id) conditions.push(eq(assets.group_id, group_id));
+    if (group_name) conditions.push(ilike(assets.group_name, `%${group_name}%`));
+    if (category_id) {
+        const categoryRow = await db.query.assetCategories.findFirst({
+            where: and(
+                eq(assetCategories.id, category_id),
+                eq(assetCategories.platform_id, platformId)
+            ),
+            columns: { name: true },
+        });
+        conditions.push(categoryRow ? eq(assets.category, categoryRow.name) : sql`1 = 0`);
+    }
+
+    const rows = await db
+        .select({
+            movement: {
+                id: stockMovements.id,
+                created_at: stockMovements.created_at,
+                movement_type: stockMovements.movement_type,
+                delta: stockMovements.delta,
+                write_off_reason: stockMovements.write_off_reason,
+                outbound_ad_hoc_reason: stockMovements.outbound_ad_hoc_reason,
+                linked_entity_type: stockMovements.linked_entity_type,
+                linked_entity_id: stockMovements.linked_entity_id,
+                note: stockMovements.note,
+            },
+            asset: {
+                id: assets.id,
+                name: assets.name,
+                qr_code: assets.qr_code,
+                group_id: assets.group_id,
+                group_name: assets.group_name,
+                category: assets.category,
+                stock_mode: assets.stock_mode,
+                total_quantity: assets.total_quantity,
+                available_quantity: assets.available_quantity,
+            },
+            company: { name: companies.name },
+            brand: { name: brands.name },
+            user: { name: users.name },
+        })
+        .from(stockMovements)
+        .leftJoin(assets, eq(stockMovements.asset_id, assets.id))
+        .leftJoin(companies, eq(assets.company_id, companies.id))
+        .leftJoin(brands, eq(assets.brand_id, brands.id))
+        .leftJoin(users, eq(stockMovements.created_by, users.id))
+        .where(and(...conditions))
+        .orderBy(desc(stockMovements.created_at));
+
+    return Papa.unparse(
+        rows.map((row) => ({
+            "Movement ID": row.movement.id,
+            "Created At": formatDate(row.movement.created_at),
+            Company: row.company?.name || "",
+            Brand: row.brand?.name || "",
+            "Group ID": row.asset?.group_id || "",
+            "Group Name": row.asset?.group_name || "",
+            "Asset ID": row.asset?.id || "",
+            "Asset Name": row.asset?.name || "",
+            "QR Code": row.asset?.qr_code || "",
+            Category: row.asset?.category || "",
+            "Stock Mode": row.asset?.stock_mode || "",
+            "Movement Type": row.movement.movement_type,
+            Delta: row.movement.delta.toString(),
+            "Write-off Reason": row.movement.write_off_reason || "",
+            "Ad-hoc Reason": row.movement.outbound_ad_hoc_reason || "",
+            "Linked Entity Type": row.movement.linked_entity_type || "",
+            "Linked Entity ID": row.movement.linked_entity_id || "",
+            "Created By": row.user?.name || "",
+            "Current Total Quantity": row.asset?.total_quantity?.toString() || "",
+            "Current Available Quantity": row.asset?.available_quantity?.toString() || "",
+            Note: row.movement.note || "",
         }))
     );
 };
@@ -1114,25 +1232,18 @@ const exportClientIssuanceLogService = async (
 };
 
 /**
- * Per-family stock movement export — one row per movement in the family's ledger.
-// exportFamilyStockMovementsService DELETED in the squash (locked decision #10).
-// No group-aggregated stock-movements export. Per-asset history is the only
-// supply post-cutover.
-
-/**
  * Asset Catalog Export — rich per-asset flat listing for a company.
  *
  * Audience: ADMIN. Purpose: visibility of what the company has in stock —
  * not tied to movement or orders. One row per asset with all salient fields
- * (family, item code, dimensions, weight, volume, condition, status, location,
+ * (group, item code, dimensions, weight, volume, condition, status, location,
  * handling tags, threshold, etc.).
  *
  * Photo behavior: driven by `include_photos` toggle.
  *   - OFF (default) → CSV output. Photo URL column included as text only.
  *   - ON → XLSX output with first-image thumbnail embedded per row.
  *
- * Image-source priority per asset: assets.on_display_image > assets.images[0]
- * > asset_families.images[0] (fallback when the asset has no own images).
+ * Image-source priority per asset: assets.on_display_image > assets.images[0].
  */
 const exportAssetCatalogService = async (
     query: ExportAssetCatalogQuery,
@@ -1288,6 +1399,7 @@ export const ExportServices = {
     exportOrderHistoryService,
     exportAccountsReconciliationService,
     exportStockReportService,
+    exportStockMovementsService,
     exportAssetsOutService,
     exportInboundLogService,
     exportRevenueReportService,

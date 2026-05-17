@@ -49,7 +49,6 @@ const listCommerceRules = async (
     filters: {
         company_id?: string;
         asset_id?: string;
-        group_id?: string;
         include_inactive?: boolean;
     }
 ) => {
@@ -70,24 +69,19 @@ const listCommerceRules = async (
         .where(and(...conditions))
         .orderBy(desc(commerceRules.created_at));
 
-    // Asset / group contextual filtering happens in memory — the target
-    // and predicate are JSONBs so a SQL filter would be awkward, and the
-    // volume per platform is small.
-    if (filters.asset_id || filters.group_id) {
+    // Asset contextual filtering happens in memory — target/predicate are
+    // JSONBs and volume per platform is small.
+    if (filters.asset_id) {
         return rows.filter((row) => {
             const target = row.target as any;
             const predicate = row.predicate as any;
             const refs: string[] = [];
             if (target?.kind === "ASSET") refs.push(target.asset_id);
-            if (target?.kind === "GROUP") refs.push(target.group_id);
             if (predicate?.kind === "COMPANION_REQUIRED") {
                 const ct = predicate.companion_target;
                 if (ct?.kind === "ASSET") refs.push(ct.asset_id);
-                if (ct?.kind === "GROUP") refs.push(ct.group_id);
             }
-            if (filters.asset_id && refs.includes(filters.asset_id)) return true;
-            if (filters.group_id && refs.includes(filters.group_id)) return true;
-            return false;
+            return refs.includes(filters.asset_id as string);
         });
     }
 
@@ -180,7 +174,6 @@ const evaluateCart = async (
     const rules: CommerceRule[] = rows.map(projectRule);
     const cart: CartLine[] = payload.cart.map((line) => ({
         asset_id: line.asset_id,
-        group_id: line.group_id || null,
         quantity: line.quantity,
     }));
     const hits = evaluatePure(cart, rules);

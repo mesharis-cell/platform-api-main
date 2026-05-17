@@ -3,14 +3,15 @@
 -- One-shot cutover: asset_families becomes a renamed read-only archive
 -- (legacy_asset_families). Assets become self-contained — they own name,
 -- category, brand, dimensions, weight, packaging, handling_tags, images
--- directly, plus three new fields: group_id (opaque correlation key
--- replacing family_id), group_name (denormalized display label), and
+-- directly, plus group fields: group_id (opaque correlation key replacing
+-- family_id), group_name (denormalized display label), group_images /
+-- group_on_display_image (denormalized group presentation media), and
 -- stock_mode (SERIALIZED|POOLED, replacing tracking_method).
 --
 -- See plan: ~/.claude/plans/dont-worry-about-dates-peppy-acorn.md
 --
 -- Stages (all in this single migration file):
---   A — ADD group_id, group_name, stock_mode, low_stock_threshold on assets
+--   A — ADD group_id, group_name, group media, stock_mode, low_stock_threshold on assets
 --   B — BACKFILL from asset_families + commerce_rules JSON rewrite
 --   C — VALIDATE backfill + SET NOT NULL on assets.stock_mode
 --   D — RENAME asset_families → legacy_asset_families,
@@ -33,6 +34,8 @@
 
 ALTER TABLE "assets" ADD COLUMN IF NOT EXISTS "group_id" uuid NULL;
 ALTER TABLE "assets" ADD COLUMN IF NOT EXISTS "group_name" varchar(200) NULL;
+ALTER TABLE "assets" ADD COLUMN IF NOT EXISTS "group_images" jsonb NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE "assets" ADD COLUMN IF NOT EXISTS "group_on_display_image" text NULL;
 ALTER TABLE "assets" ADD COLUMN IF NOT EXISTS "stock_mode" "stock_mode" NULL;
 ALTER TABLE "assets" ADD COLUMN IF NOT EXISTS "low_stock_threshold" integer NULL;
 
@@ -52,6 +55,16 @@ SET group_name = af.name
 FROM "asset_families" af
 WHERE a.family_id = af.id;
 
+-- group presentation media comes from the old family-level curated media.
+-- This preserves explicit catalog visuals without keeping asset_families as a
+-- runtime table.
+UPDATE "assets" a
+SET
+    group_images = COALESCE(af.images, '[]'::jsonb),
+    group_on_display_image = af.on_display_image
+FROM "asset_families" af
+WHERE a.family_id = af.id;
+
 -- stock_mode from family for grouped assets
 UPDATE "assets" a
 SET stock_mode = af.stock_mode
@@ -65,36 +78,32 @@ WHERE stock_mode IS NULL AND tracking_method = 'INDIVIDUAL';
 UPDATE "assets" SET stock_mode = 'POOLED'::"stock_mode"
 WHERE stock_mode IS NULL AND tracking_method = 'BATCH';
 
--- low_stock_threshold from family (NULL stays NULL — threshold is opt-in)
+-- low_stock_threshold from family for pooled assets only (NULL stays NULL —
+-- threshold is opt-in and serialized thresholds are not exposed post-squash).
 UPDATE "assets" a
 SET low_stock_threshold = af.low_stock_threshold
 FROM "asset_families" af
-WHERE a.family_id = af.id AND af.low_stock_threshold IS NOT NULL;
+WHERE a.family_id = af.id
+  AND af.low_stock_threshold IS NOT NULL
+  AND af.stock_mode = 'POOLED'::"stock_mode";
 
--- commerce_rules.target JSON rewrite: kind FAMILY → GROUP, family_id → group_id.
--- UUIDs stay valid: assets.group_id = old family.id; rule's UUID target still maps
--- to the same logical set of assets. No-op if no FAMILY-kind rules exist.
+-- Commerce rules are raw-asset-only post-squash. Existing family-targeted
+-- rules cannot be mapped safely to thin presentation groups, so disable them
+-- instead of silently changing booking behavior.
 UPDATE "commerce_rules"
-SET target = jsonb_set(
-    jsonb_set(target, '{kind}', '"GROUP"'),
-    '{group_id}', target->'family_id'
-) #- '{family_id}'
-WHERE target->>'kind' = 'FAMILY';
-
--- commerce_rules.predicate.companion_target rewrite for COMPANION_REQUIRED rules.
--- Schema: { kind: 'COMPANION_REQUIRED', companion_target: { kind, asset_id?, family_id? } }
--- Per commerce-rules.schemas.ts:13. Rewrites the nested target shape FAMILY → GROUP.
-UPDATE "commerce_rules"
-SET predicate = jsonb_set(
-    predicate,
-    '{companion_target}',
-    jsonb_set(
-        jsonb_set(predicate->'companion_target', '{kind}', '"GROUP"'),
-        '{group_id}', predicate->'companion_target'->'family_id'
-    ) #- '{family_id}'
-)
-WHERE predicate->>'kind' = 'COMPANION_REQUIRED'
-  AND predicate->'companion_target'->>'kind' = 'FAMILY';
+SET
+    is_active = false,
+    deleted_at = COALESCE(deleted_at, NOW()),
+    updated_at = NOW()
+WHERE deleted_at IS NULL
+  AND (
+      target->>'kind' = 'FAMILY'
+      OR target->>'kind' = 'GROUP'
+      OR (
+          predicate->>'kind' = 'COMPANION_REQUIRED'
+          AND predicate->'companion_target'->>'kind' IN ('FAMILY', 'GROUP')
+      )
+  );
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- Stage C: VALIDATE backfill + ENFORCE stock_mode NOT NULL

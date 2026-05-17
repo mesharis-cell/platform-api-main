@@ -1041,9 +1041,7 @@ async function main() {
         updated_at: new Date(),
     });
 
-    console.log(
-        `  ✓ ${orderRef4} — PENDING_APPROVAL — 3 assets, quote awaiting client approval\n`
-    );
+    console.log(`  ✓ ${orderRef4} — PENDING_APPROVAL — 3 assets, quote awaiting client approval\n`);
 
     console.log("=== Done! 4 Bacardi demo orders created ===");
     console.log(`  1. ${orderRef1} — DELIVERED — Bacardi Carnival 2026`);
