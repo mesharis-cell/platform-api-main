@@ -20,6 +20,7 @@ import { eventBus, EVENT_TYPES } from "../../events";
 import { OTPVerifier } from "../../utils/otp-verifier";
 import { PERMISSIONS } from "../../constants/permissions";
 import { companyFeatures, featureNames, featureRegistry } from "../../constants/common";
+import { PlatformMaintenanceService } from "../../services/platform-maintenance.service";
 
 const FEATURE_KEYS = Object.values(featureNames);
 
@@ -261,6 +262,11 @@ const getConfigByHostname = async (originOrHost?: string | null) => {
                     name: platforms.name,
                     config: platforms.config,
                     features: platforms.features,
+                    maintenance_mode: platforms.maintenance_mode,
+                    maintenance_message: platforms.maintenance_message,
+                    maintenance_until: platforms.maintenance_until,
+                    maintenance_updated_at: platforms.maintenance_updated_at,
+                    maintenance_updated_by: platforms.maintenance_updated_by,
                 })
                 .from(platforms)
                 .where(eq(platforms.domain, rootDomain))
@@ -291,6 +297,7 @@ const getConfigByHostname = async (originOrHost?: string | null) => {
                     features: platformFeatures,
                     effective_admin_features: effectiveAdminFeatures,
                     feature_registry: featureRegistry,
+                    maintenance: PlatformMaintenanceService.projectMaintenance(platform),
                 };
             }
             return null;
@@ -305,6 +312,11 @@ const getConfigByHostname = async (originOrHost?: string | null) => {
                 settings: companies.settings,
                 company_features: companies.features,
                 platform_features: platforms.features,
+                maintenance_mode: platforms.maintenance_mode,
+                maintenance_message: platforms.maintenance_message,
+                maintenance_until: platforms.maintenance_until,
+                maintenance_updated_at: platforms.maintenance_updated_at,
+                maintenance_updated_by: platforms.maintenance_updated_by,
             })
             .from(companyDomains)
             .innerJoin(companies, eq(companyDomains.company_id, companies.id))
@@ -329,6 +341,7 @@ const getConfigByHostname = async (originOrHost?: string | null) => {
                 features: { ...platformFeatures, ...companyFeatures },
                 platform_features: platformFeatures,
                 company_features: companyFeatures,
+                maintenance: PlatformMaintenanceService.projectMaintenance(result),
             };
         }
 
@@ -341,6 +354,11 @@ const getConfigByHostname = async (originOrHost?: string | null) => {
                 name: platforms.name,
                 config: platforms.config,
                 features: platforms.features,
+                maintenance_mode: platforms.maintenance_mode,
+                maintenance_message: platforms.maintenance_message,
+                maintenance_until: platforms.maintenance_until,
+                maintenance_updated_at: platforms.maintenance_updated_at,
+                maintenance_updated_by: platforms.maintenance_updated_by,
             })
             .from(platforms)
             .where(eq(platforms.domain, hostname))
@@ -369,6 +387,7 @@ const getConfigByHostname = async (originOrHost?: string | null) => {
                 features: platformFeatures,
                 effective_admin_features: effectiveAdminFeatures,
                 feature_registry: featureRegistry,
+                maintenance: PlatformMaintenanceService.projectMaintenance(platform),
             };
         }
 
@@ -380,6 +399,11 @@ const getConfigByHostname = async (originOrHost?: string | null) => {
                 settings: companies.settings,
                 company_features: companies.features,
                 platform_features: platforms.features,
+                maintenance_mode: platforms.maintenance_mode,
+                maintenance_message: platforms.maintenance_message,
+                maintenance_until: platforms.maintenance_until,
+                maintenance_updated_at: platforms.maintenance_updated_at,
+                maintenance_updated_by: platforms.maintenance_updated_by,
             })
             .from(companyDomains)
             .innerJoin(companies, eq(companyDomains.company_id, companies.id))
@@ -404,6 +428,7 @@ const getConfigByHostname = async (originOrHost?: string | null) => {
                 features: { ...platformFeatures, ...companyFeatures },
                 platform_features: platformFeatures,
                 company_features: companyFeatures,
+                maintenance: PlatformMaintenanceService.projectMaintenance(result),
             };
         }
 
