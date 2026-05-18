@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import httpStatus from "http-status";
 import catchAsync from "../../shared/catch-async";
 import sendResponse from "../../shared/send-response";
+import CustomizedError from "../../error/customized-error";
 import { getRequiredString } from "../../utils/request";
 import { CommerceRulesServices } from "./commerce-rules.services";
 
@@ -71,10 +72,35 @@ const evaluate = catchAsync(async (req: Request, res: Response) => {
     });
 });
 
+const listAcknowledgements = catchAsync(async (req: Request, res: Response) => {
+    const platformId = (req as any).platformId;
+    const { entity_type, entity_id } = req.query as Record<string, string | undefined>;
+    if (entity_type !== "ORDER" && entity_type !== "SELF_PICKUP") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "entity_type must be ORDER or SELF_PICKUP"
+        );
+    }
+    if (!entity_id) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "entity_id is required");
+    }
+    const result = await CommerceRulesServices.listAcknowledgements(platformId, {
+        entity_type,
+        entity_id,
+    });
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Commerce rule acknowledgements fetched",
+        data: result,
+    });
+});
+
 export const CommerceRulesControllers = {
     create,
     list,
     update,
     remove,
     evaluate,
+    listAcknowledgements,
 };

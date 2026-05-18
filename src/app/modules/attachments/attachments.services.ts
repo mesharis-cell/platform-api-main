@@ -9,11 +9,13 @@ import {
     selfPickups,
     serviceRequests,
     users,
+    workflowDefinitions,
     workflowRequests,
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { eventBus, EVENT_TYPES } from "../../events";
+import { isWorkflowClientEditableStatus } from "../../utils/workflow-intake";
 import {
     CreateEntityAttachmentsPayload,
     CreateWorkflowAttachmentsPayload,
@@ -36,6 +38,9 @@ const resolveEntity = async (
     entity_id: string;
     company_id: string | null;
     created_by?: string | null;
+    workflow_status?: string | null;
+    workflow_status_model_key?: string | null;
+    workflow_actor_roles?: string[] | null;
 }> => {
     if (entityType === "ORDER") {
         const [row] = await executor
@@ -104,8 +109,19 @@ const resolveEntity = async (
     }
 
     const [row] = await executor
-        .select({ id: workflowRequests.id })
+        .select({
+            id: workflowRequests.id,
+            entity_type: workflowRequests.entity_type,
+            entity_id: workflowRequests.entity_id,
+            status: workflowRequests.status,
+            status_model_key: workflowRequests.status_model_key,
+            actor_roles: workflowDefinitions.actor_roles,
+        })
         .from(workflowRequests)
+        .innerJoin(
+            workflowDefinitions,
+            eq(workflowDefinitions.id, workflowRequests.workflow_definition_id)
+        )
         .where(and(eq(workflowRequests.id, entityId), eq(workflowRequests.platform_id, platformId)))
         .limit(1);
 
@@ -113,10 +129,21 @@ const resolveEntity = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "WORKFLOW REQUEST not found");
     }
 
+    const parent = await resolveEntity(
+        executor,
+        row.entity_type as Exclude<AttachmentEntityType, "WORKFLOW_REQUEST">,
+        row.entity_id,
+        platformId
+    );
+
     return {
         entity_type: entityType,
         entity_id: row.id,
-        company_id: null,
+        company_id: parent.company_id,
+        created_by: parent.created_by,
+        workflow_status: row.status,
+        workflow_status_model_key: row.status_model_key,
+        workflow_actor_roles: row.actor_roles,
     };
 };
 
@@ -133,10 +160,36 @@ const assertEntityAccess = (
         throw new CustomizedError(httpStatus.FORBIDDEN, "You do not have access to this entity");
     }
     if (
-        (entity.entity_type === "ORDER" || entity.entity_type === "SELF_PICKUP") &&
+        (entity.entity_type === "ORDER" ||
+            entity.entity_type === "SELF_PICKUP" ||
+            entity.entity_type === "WORKFLOW_REQUEST") &&
+        entity.created_by &&
         entity.created_by !== user.id
     ) {
         throw new CustomizedError(httpStatus.FORBIDDEN, "You do not have access to this entity");
+    }
+};
+
+const assertWorkflowAttachmentMutationAllowed = (
+    entity: Awaited<ReturnType<typeof resolveEntity>>,
+    user: AuthUser
+) => {
+    if (entity.entity_type !== "WORKFLOW_REQUEST" || user.role !== "CLIENT") return;
+    if (!entity.workflow_actor_roles?.includes("CLIENT")) {
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            "You do not have permission to upload files for this workflow"
+        );
+    }
+    if (
+        !entity.workflow_status_model_key ||
+        !entity.workflow_status ||
+        !isWorkflowClientEditableStatus(entity.workflow_status_model_key, entity.workflow_status)
+    ) {
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            "This workflow is under review and can no longer be edited by the client"
+        );
     }
 };
 
@@ -213,6 +266,7 @@ const createAttachmentRecords = async (
 ) => {
     const entity = await resolveEntity(tx, entityType, entityId, platformId);
     assertEntityAccess(entity, user);
+    assertWorkflowAttachmentMutationAllowed(entity, user);
 
     const types = await tx
         .select()

@@ -33,6 +33,16 @@ export const submitSelfPickupSchema = z.object({
         }),
         job_number: z.string().max(50).optional(),
         po_number: z.string().max(100).optional(),
+        commerce_rule_acknowledgements: z
+            .array(
+                z
+                    .object({
+                        rule_id: z.string().uuid("Invalid commerce rule id"),
+                    })
+                    .strict()
+            )
+            .optional()
+            .default([]),
     }),
 });
 

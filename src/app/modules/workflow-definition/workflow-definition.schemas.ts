@@ -15,6 +15,59 @@ const workflowStatusModelValues = listWorkflowStatusModelOptions().map((item) =>
     ...string[],
 ];
 
+const intakeFieldSchema = z
+    .object({
+        key: z
+            .string()
+            .trim()
+            .min(1)
+            .max(64)
+            .regex(/^[a-zA-Z0-9_]+$/, "Field key must use letters, numbers, and underscores"),
+        label: z.string().trim().min(1).max(120),
+        type: z.enum(["text", "textarea", "date", "number"]),
+        required: z.boolean().optional().default(false),
+    })
+    .strict();
+
+const intakeSchema = z
+    .object({
+        fields: z.array(intakeFieldSchema).optional().default([]),
+        required_attachment_type_ids: z.array(z.uuid()).optional().default([]),
+    })
+    .strict()
+    .optional()
+    .default({ fields: [], required_attachment_type_ids: [] });
+
+const autoOpenConditionsSchema = z
+    .object({
+        trigger_event: z.enum([
+            "ORDER_SUBMITTED",
+            "ORDER_CONFIRMED",
+            "SELF_PICKUP_SUBMITTED",
+            "SELF_PICKUP_CONFIRMED",
+        ]),
+        conditions: z
+            .array(
+                z
+                    .object({
+                        source: z.string().trim().min(1).max(120),
+                        operator: z.enum([
+                            "equals",
+                            "not_equals",
+                            "in",
+                            "not_in",
+                            "truthy",
+                            "falsy",
+                        ]),
+                        value: z.unknown().optional(),
+                    })
+                    .strict()
+            )
+            .optional()
+            .default([]),
+    })
+    .strict();
+
 const workflowDefinitionBody = z
     .object({
         code: z
@@ -69,7 +122,8 @@ const workflowDefinitionBody = z
         priority_enabled: z.boolean().optional(),
         sla_hours: z.number().int().positive().optional().nullable(),
         blocks_fulfillment_default: z.boolean().optional(),
-        intake_schema: z.record(z.string(), z.unknown()).optional(),
+        intake_schema: intakeSchema,
+        auto_open_conditions: autoOpenConditionsSchema.nullable().optional(),
         is_active: z.boolean().optional(),
         sort_order: z.number().int().optional(),
     })

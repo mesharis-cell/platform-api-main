@@ -7,6 +7,7 @@ import {
     inboundRequests,
     orders,
     platforms,
+    selfPickups,
     serviceRequests,
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
@@ -56,6 +57,7 @@ const resolveAttachmentFeatureState = async (
         | "ORDER"
         | "INBOUND_REQUEST"
         | "SERVICE_REQUEST"
+        | "SELF_PICKUP"
         | undefined;
     const entityId = filters?.entity_id;
 
@@ -93,6 +95,18 @@ const resolveAttachmentFeatureState = async (
                 )
                 .limit(1);
             companyId = row?.company_id ?? null;
+        } else if (contextEntityType === "SELF_PICKUP") {
+            const [row] = await db
+                .select({ company_id: selfPickups.company_id })
+                .from(selfPickups)
+                .where(
+                    and(
+                        eq(selfPickups.id, contextEntityId),
+                        eq(selfPickups.platform_id, platformId)
+                    )
+                )
+                .limit(1);
+            companyId = row?.company_id ?? null;
         }
     } else if (entityType && entityId) {
         if (entityType === "ORDER") {
@@ -124,6 +138,13 @@ const resolveAttachmentFeatureState = async (
                         eq(serviceRequests.platform_id, platformId)
                     )
                 )
+                .limit(1);
+            companyId = row?.company_id ?? null;
+        } else if (entityType === "SELF_PICKUP") {
+            const [row] = await db
+                .select({ company_id: selfPickups.company_id })
+                .from(selfPickups)
+                .where(and(eq(selfPickups.id, entityId), eq(selfPickups.platform_id, platformId)))
                 .limit(1);
             companyId = row?.company_id ?? null;
         }

@@ -7,6 +7,8 @@ const conditionFieldSchema = z.enum([
     "workflow_code",
     "workflow_status",
     "lifecycle_state",
+    "client_action_required",
+    "client_visible",
     "billing_mode",
     "request_type",
 ]);

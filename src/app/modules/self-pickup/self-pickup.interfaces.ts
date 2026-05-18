@@ -18,6 +18,7 @@ export interface SubmitSelfPickupPayload {
     is_permanent_placement: boolean;
     job_number?: string;
     po_number?: string;
+    commerce_rule_acknowledgements?: Array<{ rule_id: string }>;
 }
 
 export interface SelfPickupListParams {

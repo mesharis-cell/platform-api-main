@@ -40,8 +40,6 @@ import {
     users,
     countries,
     orderItems,
-    workflowDefinitions,
-    workflowRequests,
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
@@ -83,6 +81,8 @@ import { DocumentService } from "../../services/document.service";
 import { GoodsFormType, generateGoodsFormXlsx } from "../../utils/goods-form-xlsx";
 import { PricingService } from "../../services/pricing.service";
 import { validateMaintenanceFeasibilityForAssets } from "./order-feasibility.utils";
+import { CommerceRulesServices } from "../commerce-rules/commerce-rules.services";
+import { WorkflowRequestServices } from "../workflow-request/workflow-request.services";
 
 const FULFILLMENT_READINESS_STATUSES = new Set([
     "IN_PREPARATION",
@@ -208,32 +208,6 @@ const hasUnresolvedBlockingServiceRequests = async (orderDbId: string, platformI
         if (request.concession_applied_at) return false;
         return !["COMPLETED", "CANCELLED"].includes(request.request_status);
     });
-};
-
-// Item 4: workflow_definitions can also block fulfillment via
-// blocks_fulfillment_default. Mirror the service-request gate so an order
-// can't progress past CONFIRMED while a blocking workflow is open.
-const hasUnresolvedBlockingWorkflows = async (orderDbId: string, platformId: string) => {
-    const blocking = await db
-        .select({
-            status: workflowRequests.status,
-            blocks_fulfillment_default: workflowDefinitions.blocks_fulfillment_default,
-        })
-        .from(workflowRequests)
-        .innerJoin(
-            workflowDefinitions,
-            eq(workflowDefinitions.id, workflowRequests.workflow_definition_id)
-        )
-        .where(
-            and(
-                eq(workflowRequests.platform_id, platformId),
-                eq(workflowRequests.entity_type, "ORDER"),
-                eq(workflowRequests.entity_id, orderDbId),
-                eq(workflowDefinitions.blocks_fulfillment_default, true)
-            )
-        );
-
-    return blocking.some((row) => !["COMPLETED", "CANCELLED", "APPROVED"].includes(row.status));
 };
 
 const getUnresolvedMaintenanceReadinessItems = async (orderDbId: string, platformId: string) => {
@@ -456,6 +430,7 @@ const submitOrderFromCart = async (
         venue_contact,
         requested_delivery_window,
         requested_pickup_window,
+        commerce_rule_acknowledgements,
     } = payload;
 
     const eventStartDate = dayjs(event_start_date).toDate();
@@ -849,6 +824,18 @@ const submitOrderFromCart = async (
         base_ops_total_override: baseOpsTotal,
     });
 
+    await CommerceRulesServices.recordCheckoutAcknowledgementAudit({
+        platformId,
+        entityType: "ORDER",
+        entityId: orderResult.id,
+        user,
+        cart: items.map((item) => ({
+            asset_id: item.asset_id,
+            quantity: item.quantity,
+        })),
+        acknowledgedRuleIds: commerce_rule_acknowledgements?.map((ack) => ack.rule_id) || [],
+    });
+
     // Step 7: Emit order.submitted event
     await eventBus.emit({
         platform_id: platformId,
@@ -872,6 +859,30 @@ const submitOrderFromCart = async (
             order_url: "",
         },
     });
+
+    try {
+        await WorkflowAutoOpenService.evaluateAndCreate(
+            "ORDER_SUBMITTED",
+            {
+                type: "ORDER",
+                id: orderResult.id,
+                payload: {
+                    ...(orderResult as unknown as Record<string, unknown>),
+                    permit_requirements:
+                        permit_requirements?.requires_permit === true ? permit_requirements : null,
+                    is_permanent_placement: Boolean(is_permanent_placement),
+                },
+            },
+            {
+                platformId,
+                companyId,
+                triggeredByUserId: user.id,
+                triggeredByRole: user.role,
+            }
+        );
+    } catch (err) {
+        console.error("[order:submitOrderFromCart] workflow auto-open evaluator failed", err);
+    }
 
     // Step 8: Return order details to client
     return {
@@ -1686,15 +1697,6 @@ const progressOrderStatus = async (
             : [];
 
     if (FULFILLMENT_READINESS_STATUSES.has(new_status)) {
-        // Item 4: also block on open workflow_requests whose definition has
-        // blocks_fulfillment_default=true. Same surface as service requests.
-        const hasBlockingWorkflow = await hasUnresolvedBlockingWorkflows(order.id, platformId);
-        if (hasBlockingWorkflow) {
-            throw new CustomizedError(
-                httpStatus.BAD_REQUEST,
-                "Cannot progress order while a blocking workflow is open. Complete or cancel the workflow first."
-            );
-        }
         const hasBlockingSR = await hasUnresolvedBlockingServiceRequests(order.id, platformId);
         if (hasBlockingSR) {
             if (unresolvedMaintenanceItems.length > 0) {
@@ -2255,12 +2257,12 @@ const approveQuote = async (
                 platformId,
                 companyId: order.company_id,
                 triggeredByUserId: user.id,
+                triggeredByRole: user.role,
             }
         );
     } catch (err) {
         // Defensive: a downstream rule-matrix failure should never block
         // the actual quote-approval flow. Log and move on.
-        // eslint-disable-next-line no-console
         console.error("[order:approveQuote] workflow auto-open evaluator failed", err);
     }
 
@@ -2315,6 +2317,14 @@ const declineQuote = async (
         // so declineQuote is future-proof and the Phase 2 PR doesn't need
         // to revisit this site.
         await releaseOrderBookingsAndRestoreAvailability(tx, orderId, platformId);
+        await WorkflowRequestServices.cancelOpenWorkflowRequestsForEntity(
+            "ORDER",
+            orderId,
+            platformId,
+            user.id,
+            `Parent order declined: ${decline_reason}`,
+            tx as any
+        );
 
         // Step 4: Update order status to DECLINED and financial status to CANCELLED
         await tx
@@ -2890,6 +2900,14 @@ export async function cancelOrder(
 
         // 2. Release all bookings and restore availability
         await releaseOrderBookingsAndRestoreAvailability(tx, orderId, platformId);
+        await WorkflowRequestServices.cancelOpenWorkflowRequestsForEntity(
+            "ORDER",
+            orderId,
+            platformId,
+            user.id,
+            `Parent order cancelled: ${reason}`,
+            tx as any
+        );
 
         // 2b. Cancel all non-terminal INTERNAL_ONLY SRs linked to this order
         await tx

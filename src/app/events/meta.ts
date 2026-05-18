@@ -235,6 +235,10 @@ export const TEMPLATES_BY_EVENT: Record<string, TemplateMeta[]> = {
             key: "workflow_request_submitted_logistics",
             label: "Logistics — Workflow Request Submitted",
         },
+        {
+            key: "workflow_request_action_required_client",
+            label: "Client — Workflow Action Required",
+        },
     ],
     "workflow_request.status_changed": [
         {
@@ -245,8 +249,16 @@ export const TEMPLATES_BY_EVENT: Record<string, TemplateMeta[]> = {
             key: "workflow_request_status_changed_logistics",
             label: "Logistics — Workflow Request Status Changed",
         },
+        {
+            key: "workflow_request_action_required_client",
+            label: "Client — Workflow Action Required",
+        },
     ],
     "workflow_request.completed": [
+        {
+            key: "workflow_request_completed_client",
+            label: "Client — Workflow Request Completed",
+        },
         {
             key: "workflow_request_completed_admin",
             label: "Admin — Workflow Request Completed",

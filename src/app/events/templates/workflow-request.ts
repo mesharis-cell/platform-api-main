@@ -9,7 +9,9 @@ const buildWorkflowTemplate = (
     subject: (payload: Record<string, unknown>) =>
         `${heading}: ${String(payload.title || payload.workflow_label || payload.workflow_code || "")}`,
     html: (payload: Record<string, unknown>) => {
-        const requestUrl = String(payload.request_url || payload.order_url || "");
+        const requestUrl = String(
+            payload.request_url || payload.order_url || payload.self_pickup_url || ""
+        );
         return wrap(`
             <h1 style="margin: 0 0 12px; font-size: 22px; color: #111827;">${heading}</h1>
             <p style="margin: 0 0 16px; font-size: 14px; color: #374151;">${intro}</p>
@@ -55,6 +57,13 @@ export const workflowRequestSubmittedLogistics = buildWorkflowTemplate(
     "REQUESTED"
 );
 
+export const workflowRequestActionRequiredClient = buildWorkflowTemplate(
+    "Action Required",
+    "A task needs your attention on the related record.",
+    "#ca8a04",
+    "ACTION_REQUIRED"
+);
+
 export const workflowRequestStatusChangedAdmin = buildWorkflowTemplate(
     "Workflow Status Changed",
     "An internal workflow request changed status.",
@@ -79,6 +88,13 @@ export const workflowRequestCompletedAdmin = buildWorkflowTemplate(
 export const workflowRequestCompletedLogistics = buildWorkflowTemplate(
     "Workflow Completed",
     "An internal workflow request reached a completed state.",
+    "#15803d",
+    "COMPLETED"
+);
+
+export const workflowRequestCompletedClient = buildWorkflowTemplate(
+    "Task Completed",
+    "A task on your related record has been completed.",
     "#15803d",
     "COMPLETED"
 );

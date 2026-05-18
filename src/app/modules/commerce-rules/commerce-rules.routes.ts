@@ -2,19 +2,34 @@ import { Router } from "express";
 import auth from "../../middleware/auth";
 import payloadValidator from "../../middleware/payload-validator";
 import platformValidator from "../../middleware/platform-validator";
+import requirePermission from "../../middleware/permission";
+import { PERMISSIONS } from "../../constants/permissions";
 import { CommerceRulesControllers } from "./commerce-rules.controllers";
 import { CommerceRulesSchemas } from "./commerce-rules.schemas";
 
 const router = Router();
 
-// Admin-only management. CLIENT can hit /evaluate to preview their cart
-// against the active rule set.
-router.get("/", platformValidator, auth("ADMIN"), CommerceRulesControllers.list);
+router.get(
+    "/",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.ASSETS_READ, PERMISSIONS.ASSETS_UPDATE),
+    CommerceRulesControllers.list
+);
+
+router.get(
+    "/acknowledgements",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.ASSETS_READ, PERMISSIONS.ASSETS_UPDATE),
+    CommerceRulesControllers.listAcknowledgements
+);
 
 router.post(
     "/",
     platformValidator,
-    auth("ADMIN"),
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.ASSETS_UPDATE),
     payloadValidator(CommerceRulesSchemas.createCommerceRuleSchema),
     CommerceRulesControllers.create
 );
@@ -22,12 +37,19 @@ router.post(
 router.patch(
     "/:id",
     platformValidator,
-    auth("ADMIN"),
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.ASSETS_UPDATE),
     payloadValidator(CommerceRulesSchemas.updateCommerceRuleSchema),
     CommerceRulesControllers.update
 );
 
-router.delete("/:id", platformValidator, auth("ADMIN"), CommerceRulesControllers.remove);
+router.delete(
+    "/:id",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.ASSETS_UPDATE),
+    CommerceRulesControllers.remove
+);
 
 router.post(
     "/evaluate",

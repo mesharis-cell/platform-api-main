@@ -211,6 +211,16 @@ const submitOrderSchema = z.object({
                 message: "Please confirm whether these items are being placed permanently",
             }),
             special_instructions: z.string("Special instructions should be a text").optional(),
+            commerce_rule_acknowledgements: z
+                .array(
+                    z
+                        .object({
+                            rule_id: z.uuid("Invalid commerce rule id"),
+                        })
+                        .strict()
+                )
+                .optional()
+                .default([]),
         })
         .strict()
         .superRefine((data, ctx) => {

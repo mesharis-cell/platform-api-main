@@ -15,7 +15,8 @@ const listAttachmentTypes = catchAsync(async (req: Request, res: Response) => {
         context_entity_type:
             req.query.context_entity_type === "ORDER" ||
             req.query.context_entity_type === "INBOUND_REQUEST" ||
-            req.query.context_entity_type === "SERVICE_REQUEST"
+            req.query.context_entity_type === "SERVICE_REQUEST" ||
+            req.query.context_entity_type === "SELF_PICKUP"
                 ? req.query.context_entity_type
                 : undefined,
         context_entity_id:

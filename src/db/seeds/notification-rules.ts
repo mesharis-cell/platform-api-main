@@ -24,6 +24,7 @@ type NotificationRuleDef = {
     recipient_value: string | null;
     template_key: string;
     sort_order: number;
+    conditions?: Array<Record<string, unknown>>;
 };
 
 export const PLATFORM_DEFAULT_NOTIFICATION_RULES: NotificationRuleDef[] = [
@@ -435,6 +436,14 @@ export const PLATFORM_DEFAULT_NOTIFICATION_RULES: NotificationRuleDef[] = [
         sort_order: 1,
     },
     {
+        event_type: "workflow_request.submitted",
+        recipient_type: "ENTITY_OWNER",
+        recipient_value: null,
+        template_key: "workflow_request_action_required_client",
+        sort_order: 2,
+        conditions: [{ field: "client_action_required", operator: "equals", value: "true" }],
+    },
+    {
         event_type: "workflow_request.status_changed",
         recipient_type: "ROLE",
         recipient_value: "ADMIN",
@@ -447,6 +456,22 @@ export const PLATFORM_DEFAULT_NOTIFICATION_RULES: NotificationRuleDef[] = [
         recipient_value: "LOGISTICS",
         template_key: "workflow_request_status_changed_logistics",
         sort_order: 1,
+    },
+    {
+        event_type: "workflow_request.status_changed",
+        recipient_type: "ENTITY_OWNER",
+        recipient_value: null,
+        template_key: "workflow_request_action_required_client",
+        sort_order: 2,
+        conditions: [{ field: "client_action_required", operator: "equals", value: "true" }],
+    },
+    {
+        event_type: "workflow_request.completed",
+        recipient_type: "ENTITY_OWNER",
+        recipient_value: null,
+        template_key: "workflow_request_completed_client",
+        sort_order: 2,
+        conditions: [{ field: "client_visible", operator: "equals", value: "true" }],
     },
     {
         event_type: "workflow_request.completed",
@@ -527,6 +552,7 @@ export const seedNotificationRules = async (opts: SeedNotificationRulesOpts) => 
         company_id: null,
         is_enabled: true,
         ...r,
+        conditions: r.conditions ?? [],
     }));
     return db.insert(schema.notificationRules).values(rows).returning();
 };

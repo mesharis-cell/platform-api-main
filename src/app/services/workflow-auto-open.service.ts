@@ -31,6 +31,7 @@ import {
 import { eventBus, EVENT_TYPES } from "../events";
 import { getWorkflowInitialStatus } from "../utils/workflow-catalog";
 import { getSystemUser } from "../utils/helper-query";
+import { isWorkflowClientActionRequired, isWorkflowClientVisible } from "../utils/workflow-intake";
 
 export type WorkflowTriggerEvent =
     | "ORDER_CONFIRMED"
@@ -100,6 +101,7 @@ export type AutoOpenContext = {
     platformId: string;
     companyId?: string | null;
     triggeredByUserId?: string | null;
+    triggeredByRole?: "ADMIN" | "LOGISTICS" | "CLIENT" | null;
 };
 
 export type AutoOpenEntityRef = {
@@ -131,6 +133,8 @@ export const evaluateAndCreate = async (
             status_model_key: workflowDefinitions.status_model_key,
             allowed_entity_types: workflowDefinitions.allowed_entity_types,
             blocks_fulfillment_default: workflowDefinitions.blocks_fulfillment_default,
+            viewer_roles: workflowDefinitions.viewer_roles,
+            actor_roles: workflowDefinitions.actor_roles,
             auto_open_conditions: workflowDefinitions.auto_open_conditions,
         })
         .from(workflowDefinitions)
@@ -157,13 +161,12 @@ export const evaluateAndCreate = async (
     // attribute to the triggering user when available; otherwise fall back
     // to the platform system user.
     let requesterId = ctx.triggeredByUserId ?? null;
-    let requesterRole: "ADMIN" | "LOGISTICS" | "CLIENT" = "ADMIN";
+    let requesterRole: "ADMIN" | "LOGISTICS" | "CLIENT" = ctx.triggeredByRole || "ADMIN";
     if (!requesterId) {
         const systemUser = await getSystemUser(ctx.platformId);
         if (!systemUser) {
             // Without a system user we can't satisfy the FK — log and bail
             // rather than crash the parent flow.
-            // eslint-disable-next-line no-console
             console.warn(
                 `[workflow-auto-open] No system user on platform ${ctx.platformId}; skipping auto-open for trigger ${trigger}`
             );
@@ -239,12 +242,23 @@ export const evaluateAndCreate = async (
                 entity_type: entity.type as any,
                 entity_id: entity.id,
                 actor_id: ctx.triggeredByUserId || undefined,
+                actor_role: ctx.triggeredByRole || undefined,
                 payload: {
                     workflow_request_id: row.id,
                     workflow_code: def.code,
                     workflow_label: def.label,
                     workflow_family: def.workflow_family,
                     workflow_status: initialStatus,
+                    lifecycle_state: "OPEN",
+                    client_action_required: isWorkflowClientActionRequired(
+                        def.status_model_key,
+                        initialStatus,
+                        def.actor_roles as string[]
+                    ),
+                    client_visible: isWorkflowClientVisible(
+                        def.viewer_roles as string[],
+                        def.actor_roles as string[]
+                    ),
                     auto_opened: true,
                     trigger_event: trigger,
                 },

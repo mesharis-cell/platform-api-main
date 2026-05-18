@@ -3242,3 +3242,69 @@ export const commerceRulesRelations = relations(commerceRules, ({ one }) => ({
         references: [companies.id],
     }),
 }));
+
+export const commerceRuleAcknowledgements = pgTable(
+    "commerce_rule_acknowledgements",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        entity_type: workflowRequestEntityTypeEnum("entity_type").notNull(),
+        entity_id: uuid("entity_id").notNull(),
+        rule_id: uuid("rule_id").references(() => commerceRules.id, { onDelete: "set null" }),
+        rule_name: varchar("rule_name", { length: 200 }).notNull(),
+        rule_type: commerceRuleTypeEnum("rule_type").notNull(),
+        severity: commerceRuleSeverityEnum("severity").notNull(),
+        message: text("message").notNull(),
+        related_asset_id: uuid("related_asset_id").references(() => assets.id, {
+            onDelete: "set null",
+        }),
+        acknowledged: boolean("acknowledged").notNull().default(false),
+        acknowledged_by: uuid("acknowledged_by").references(() => users.id, {
+            onDelete: "set null",
+        }),
+        acknowledged_at: timestamp("acknowledged_at"),
+        cart_snapshot: jsonb("cart_snapshot")
+            .notNull()
+            .default(sql`'[]'::jsonb`),
+        hit_snapshot: jsonb("hit_snapshot")
+            .notNull()
+            .default(sql`'{}'::jsonb`),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+    },
+    (table) => [
+        index("commerce_rule_ack_parent_idx").on(
+            table.platform_id,
+            table.entity_type,
+            table.entity_id
+        ),
+        index("commerce_rule_ack_rule_idx").on(table.rule_id),
+        check(
+            "commerce_rule_ack_entity_type_check",
+            sql`${table.entity_type} IN ('ORDER', 'SELF_PICKUP')`
+        ),
+    ]
+);
+
+export const commerceRuleAcknowledgementsRelations = relations(
+    commerceRuleAcknowledgements,
+    ({ one }) => ({
+        platform: one(platforms, {
+            fields: [commerceRuleAcknowledgements.platform_id],
+            references: [platforms.id],
+        }),
+        rule: one(commerceRules, {
+            fields: [commerceRuleAcknowledgements.rule_id],
+            references: [commerceRules.id],
+        }),
+        related_asset: one(assets, {
+            fields: [commerceRuleAcknowledgements.related_asset_id],
+            references: [assets.id],
+        }),
+        acknowledged_by_user: one(users, {
+            fields: [commerceRuleAcknowledgements.acknowledged_by],
+            references: [users.id],
+        }),
+    })
+);

@@ -3,8 +3,10 @@ import httpStatus from "http-status";
 import { db } from "../../../db";
 import {
     companies,
+    attachmentTypes,
     inboundRequests,
     orders,
+    selfPickups,
     serviceRequests,
     workflowDefinitionCompanyOverrides,
     workflowDefinitions,
@@ -33,6 +35,7 @@ type WorkflowDefinitionPayload = Partial<{
     sla_hours: number | null;
     blocks_fulfillment_default: boolean;
     intake_schema: Record<string, unknown>;
+    auto_open_conditions: Record<string, unknown> | null;
     is_active: boolean;
     sort_order: number;
 }>;
@@ -87,6 +90,63 @@ const getDefinitionById = async (id: string, platformId: string) => {
     return definition;
 };
 
+const getRequiredAttachmentTypeIds = (intakeSchema: unknown) => {
+    if (!intakeSchema || typeof intakeSchema !== "object") return [];
+    const ids = (intakeSchema as Record<string, unknown>).required_attachment_type_ids;
+    return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
+};
+
+const assertWorkflowDefinitionConfig = async (
+    platformId: string,
+    payload: WorkflowDefinitionPayload
+) => {
+    const actorRoles = payload.actor_roles || [];
+    const requiredAttachmentTypeIds = getRequiredAttachmentTypeIds(payload.intake_schema);
+    if (requiredAttachmentTypeIds.length === 0) return;
+
+    const rows = await db
+        .select({
+            id: attachmentTypes.id,
+            label: attachmentTypes.label,
+            allowed_entity_types: attachmentTypes.allowed_entity_types,
+            upload_roles: attachmentTypes.upload_roles,
+            view_roles: attachmentTypes.view_roles,
+            is_active: attachmentTypes.is_active,
+        })
+        .from(attachmentTypes)
+        .where(
+            and(
+                eq(attachmentTypes.platform_id, platformId),
+                inArray(attachmentTypes.id, requiredAttachmentTypeIds)
+            )
+        );
+
+    if (rows.length !== requiredAttachmentTypeIds.length) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "One or more required attachment types are invalid"
+        );
+    }
+
+    for (const row of rows) {
+        if (!row.is_active || !row.allowed_entity_types.includes("WORKFLOW_REQUEST" as any)) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                `${row.label} is not an active workflow attachment type`
+            );
+        }
+        if (
+            actorRoles.includes("CLIENT") &&
+            (!row.upload_roles.includes("CLIENT") || !row.view_roles.includes("CLIENT"))
+        ) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                `${row.label} must allow CLIENT upload and view before it can be required on a client-action workflow`
+            );
+        }
+    }
+};
+
 const listWorkflowDefinitions = async (platformId: string) => {
     const definitions = await db
         .select()
@@ -104,6 +164,7 @@ const listWorkflowDefinitions = async (platformId: string) => {
 
 const createWorkflowDefinition = async (platformId: string, payload: WorkflowDefinitionPayload) => {
     assertWorkflowBehavior(payload.workflow_family!, payload.status_model_key!);
+    await assertWorkflowDefinitionConfig(platformId, payload);
 
     const [created] = await db
         .insert(workflowDefinitions)
@@ -122,6 +183,7 @@ const createWorkflowDefinition = async (platformId: string, payload: WorkflowDef
             sla_hours: payload.sla_hours ?? null,
             blocks_fulfillment_default: payload.blocks_fulfillment_default ?? false,
             intake_schema: payload.intake_schema ?? {},
+            auto_open_conditions: payload.auto_open_conditions ?? null,
             is_active: payload.is_active ?? true,
             sort_order: payload.sort_order ?? 0,
         })
@@ -150,6 +212,14 @@ const getEntityCompanyId = async (
             .where(
                 and(eq(inboundRequests.id, entityId), eq(inboundRequests.platform_id, platformId))
             )
+            .limit(1);
+        return row?.company_id ?? null;
+    }
+    if (entityType === "SELF_PICKUP") {
+        const [row] = await db
+            .select({ company_id: selfPickups.company_id })
+            .from(selfPickups)
+            .where(and(eq(selfPickups.id, entityId), eq(selfPickups.platform_id, platformId)))
             .limit(1);
         return row?.company_id ?? null;
     }
@@ -222,6 +292,19 @@ const updateWorkflowDefinition = async (
     const workflowFamily = payload.workflow_family ?? existing.workflow_family;
     const statusModelKey = payload.status_model_key ?? existing.status_model_key;
     assertWorkflowBehavior(workflowFamily, statusModelKey);
+    await assertWorkflowDefinitionConfig(platformId, {
+        ...existing,
+        ...payload,
+        allowed_entity_types: (payload.allowed_entity_types ??
+            existing.allowed_entity_types) as string[],
+        requester_roles: (payload.requester_roles ?? existing.requester_roles) as string[],
+        viewer_roles: (payload.viewer_roles ?? existing.viewer_roles) as string[],
+        actor_roles: (payload.actor_roles ?? existing.actor_roles) as string[],
+        intake_schema: (payload.intake_schema ?? existing.intake_schema) as Record<string, unknown>,
+        auto_open_conditions: (payload.auto_open_conditions ??
+            existing.auto_open_conditions ??
+            null) as Record<string, unknown> | null,
+    });
 
     const [updated] = await db
         .update(workflowDefinitions)
@@ -260,6 +343,9 @@ const updateWorkflowDefinition = async (
             }),
             ...(payload.intake_schema !== undefined && {
                 intake_schema: payload.intake_schema,
+            }),
+            ...(payload.auto_open_conditions !== undefined && {
+                auto_open_conditions: payload.auto_open_conditions,
             }),
             ...(payload.is_active !== undefined && { is_active: payload.is_active }),
             ...(payload.sort_order !== undefined && { sort_order: payload.sort_order }),

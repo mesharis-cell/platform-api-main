@@ -1,12 +1,14 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, notInArray } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
 import {
     companies,
+    entityAttachments,
     inboundRequests,
     orders,
     selfPickups,
     serviceRequests,
+    users,
     workflowDefinitions,
     workflowRequests,
     workflowRequestStatusHistory,
@@ -16,6 +18,15 @@ import { EVENT_TYPES } from "../../events/event-types";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { getWorkflowInitialStatus, getWorkflowLifecycleState } from "../../utils/workflow-catalog";
+import {
+    getWorkflowIntakeValues,
+    isBlankWorkflowValue,
+    isWorkflowClientActionRequired,
+    isWorkflowClientEditableStatus,
+    isWorkflowClientVisible,
+    isWorkflowSubmitForReviewStatus,
+    normalizeWorkflowIntakeSchema,
+} from "../../utils/workflow-intake";
 import { AttachmentsServices } from "../attachments/attachments.services";
 import { WorkflowDefinitionServices } from "../workflow-definition/workflow-definition.services";
 import {
@@ -32,7 +43,12 @@ const resolveEntity = async (
 ) => {
     if (entityType === "ORDER") {
         const [row] = await db
-            .select({ id: orders.id, company_id: orders.company_id, readable_id: orders.order_id })
+            .select({
+                id: orders.id,
+                company_id: orders.company_id,
+                readable_id: orders.order_id,
+                created_by: orders.created_by,
+            })
             .from(orders)
             .where(and(eq(orders.id, entityId), eq(orders.platform_id, platformId)))
             .limit(1);
@@ -64,6 +80,7 @@ const resolveEntity = async (
                 id: selfPickups.id,
                 company_id: selfPickups.company_id,
                 readable_id: selfPickups.self_pickup_id,
+                created_by: selfPickups.created_by,
             })
             .from(selfPickups)
             .where(and(eq(selfPickups.id, entityId), eq(selfPickups.platform_id, platformId)))
@@ -96,6 +113,114 @@ const projectWorkflowRequest = (workflow: any) => ({
     lifecycle_state: getWorkflowLifecycleState(workflow.status_model_key, workflow.status),
 });
 
+const assertWorkflowReadyForReview = async (workflow: {
+    id: string;
+    metadata: unknown;
+    intake_schema: unknown;
+}) => {
+    const intakeSchema = normalizeWorkflowIntakeSchema(workflow.intake_schema);
+    const values = getWorkflowIntakeValues(workflow.metadata);
+    const missingFields = (intakeSchema.fields || [])
+        .filter((field) => field.required && isBlankWorkflowValue(values[field.key]))
+        .map((field) => field.label);
+
+    if (missingFields.length > 0) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Complete required workflow fields before submitting for review: ${missingFields.join(", ")}`
+        );
+    }
+
+    const requiredAttachmentTypeIds = intakeSchema.required_attachment_type_ids || [];
+    if (requiredAttachmentTypeIds.length === 0) return;
+
+    const attachmentRows = await db
+        .select({
+            attachment_type_id: entityAttachments.attachment_type_id,
+        })
+        .from(entityAttachments)
+        .where(
+            and(
+                eq(entityAttachments.entity_type, "WORKFLOW_REQUEST"),
+                eq(entityAttachments.entity_id, workflow.id),
+                inArray(entityAttachments.attachment_type_id, requiredAttachmentTypeIds)
+            )
+        );
+    const present = new Set(attachmentRows.map((row) => row.attachment_type_id));
+    const missingDocs = requiredAttachmentTypeIds.filter((id) => !present.has(id));
+    if (missingDocs.length > 0) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Upload all required workflow documents before submitting for review"
+        );
+    }
+};
+
+type WorkflowStatusHistoryEntry = {
+    id: string;
+    workflow_request_id: string;
+    from_status: string | null;
+    to_status: string;
+    changed_by: string | null;
+    changed_at: Date;
+    note: string | null;
+    changed_by_user: {
+        id: string;
+        name: string | null;
+        email: string | null;
+    } | null;
+};
+
+const attachStatusHistory = async <T extends { id: string }>(workflows: T[]) => {
+    if (workflows.length === 0) return workflows;
+
+    const workflowIds = workflows.map((workflow) => workflow.id);
+    const historyRows = await db
+        .select({
+            id: workflowRequestStatusHistory.id,
+            workflow_request_id: workflowRequestStatusHistory.workflow_request_id,
+            from_status: workflowRequestStatusHistory.from_status,
+            to_status: workflowRequestStatusHistory.to_status,
+            changed_by: workflowRequestStatusHistory.changed_by,
+            changed_at: workflowRequestStatusHistory.changed_at,
+            note: workflowRequestStatusHistory.note,
+            changed_by_user: {
+                id: users.id,
+                name: users.name,
+                email: users.email,
+            },
+        })
+        .from(workflowRequestStatusHistory)
+        .leftJoin(users, eq(workflowRequestStatusHistory.changed_by, users.id))
+        .where(inArray(workflowRequestStatusHistory.workflow_request_id, workflowIds))
+        .orderBy(
+            asc(workflowRequestStatusHistory.workflow_request_id),
+            asc(workflowRequestStatusHistory.changed_at)
+        );
+
+    const historyByWorkflowId = new Map<string, WorkflowStatusHistoryEntry[]>();
+    for (const row of historyRows) {
+        const rows = historyByWorkflowId.get(row.workflow_request_id) || [];
+        const changedByUser = row.changed_by_user?.id
+            ? {
+                  id: row.changed_by_user.id,
+                  name: row.changed_by_user.name,
+                  email: row.changed_by_user.email,
+              }
+            : null;
+        rows.push({
+            ...row,
+            changed_by_user: changedByUser,
+        });
+        historyByWorkflowId.set(row.workflow_request_id, rows);
+    }
+
+    return workflows.map((workflow) => ({
+        ...workflow,
+        status_history: historyByWorkflowId.get(workflow.id) || [],
+    }));
+};
+
 const listWorkflowRequestsForEntity = async (
     entityType: WorkflowEntityType,
     entityId: string,
@@ -110,6 +235,17 @@ const listWorkflowRequestsForEntity = async (
     // workflows on an entity they don't own.
     if (user.role === "CLIENT") {
         if (!user.company_id || entity.company_id !== user.company_id) {
+            throw new CustomizedError(
+                httpStatus.FORBIDDEN,
+                "You do not have access to this entity"
+            );
+        }
+        if (
+            (entityType === "ORDER" || entityType === "SELF_PICKUP") &&
+            "created_by" in entity &&
+            entity.created_by &&
+            entity.created_by !== user.id
+        ) {
             throw new CustomizedError(
                 httpStatus.FORBIDDEN,
                 "You do not have access to this entity"
@@ -140,6 +276,7 @@ const listWorkflowRequestsForEntity = async (
             metadata: workflowRequests.metadata,
             created_at: workflowRequests.created_at,
             updated_at: workflowRequests.updated_at,
+            intake_schema: workflowDefinitions.intake_schema,
             viewer_roles: workflowDefinitions.viewer_roles,
             actor_roles: workflowDefinitions.actor_roles,
         })
@@ -157,13 +294,15 @@ const listWorkflowRequestsForEntity = async (
         )
         .orderBy(desc(workflowRequests.requested_at));
 
-    return rows
+    const workflows = rows
         .filter(
             (row) => row.viewer_roles.includes(user.role) || row.actor_roles.includes(user.role)
         )
         .map(({ viewer_roles: _viewerRoles, actor_roles: _actorRoles, ...row }) =>
             projectWorkflowRequest(row)
         );
+
+    return attachStatusHistory(workflows);
 };
 
 const listWorkflowInbox = async (
@@ -198,6 +337,7 @@ const listWorkflowInbox = async (
             metadata: workflowRequests.metadata,
             created_at: workflowRequests.created_at,
             updated_at: workflowRequests.updated_at,
+            intake_schema: workflowDefinitions.intake_schema,
             viewer_roles: workflowDefinitions.viewer_roles,
             actor_roles: workflowDefinitions.actor_roles,
         })
@@ -209,7 +349,7 @@ const listWorkflowInbox = async (
         .where(eq(workflowRequests.platform_id, platformId))
         .orderBy(desc(workflowRequests.requested_at));
 
-    return rows
+    const workflows = rows
         .filter(
             (row) => row.viewer_roles.includes(user.role) || row.actor_roles.includes(user.role)
         )
@@ -225,6 +365,8 @@ const listWorkflowInbox = async (
             }
             return true;
         });
+
+    return attachStatusHistory(workflows);
 };
 
 const emitWorkflowEvent = async (
@@ -240,6 +382,9 @@ const emitWorkflowEvent = async (
         description: string | null;
         entity_type: WorkflowEntityType;
         entity_id: string;
+        intake_schema?: unknown;
+        viewer_roles?: string[];
+        actor_roles?: string[];
     },
     entity: { id: string; company_id: string; readable_id: string },
     companyName: string,
@@ -267,6 +412,15 @@ const emitWorkflowEvent = async (
             new_status: workflow.status,
             title: workflow.title,
             description: workflow.description || "",
+            client_action_required: isWorkflowClientActionRequired(
+                workflow.status_model_key,
+                workflow.status,
+                workflow.actor_roles || []
+            ),
+            client_visible: isWorkflowClientVisible(
+                workflow.viewer_roles || [],
+                workflow.actor_roles || []
+            ),
         },
     });
 };
@@ -342,18 +496,37 @@ const createWorkflowRequest = async (
             );
         }
 
+        await tx.insert(workflowRequestStatusHistory).values({
+            workflow_request_id: workflow.id,
+            from_status: null,
+            to_status: initialStatus,
+            changed_by: user.id,
+            note: "Workflow requested",
+        });
+
         return workflow;
     });
 
     await emitWorkflowEvent(
         EVENT_TYPES.WORKFLOW_REQUEST_SUBMITTED,
-        created,
+        {
+            ...created,
+            intake_schema: definition.intake_schema,
+            viewer_roles: definition.viewer_roles,
+            actor_roles: definition.actor_roles,
+        },
         entity,
         company?.name || "",
         user
     );
 
-    return projectWorkflowRequest(created);
+    const [withHistory] = await attachStatusHistory([
+        projectWorkflowRequest({
+            ...created,
+            intake_schema: definition.intake_schema,
+        }),
+    ]);
+    return withHistory;
 };
 
 const updateWorkflowRequest = async (
@@ -383,6 +556,8 @@ const updateWorkflowRequest = async (
             title: workflowRequests.title,
             description: workflowRequests.description,
             metadata: workflowRequests.metadata,
+            intake_schema: workflowDefinitions.intake_schema,
+            viewer_roles: workflowDefinitions.viewer_roles,
             actor_roles: workflowDefinitions.actor_roles,
         })
         .from(workflowRequests)
@@ -407,15 +582,55 @@ const updateWorkflowRequest = async (
     const nextStatus = payload.status || existing.status;
     WorkflowDefinitionServices.assertWorkflowStatusIsValid(existing.status_model_key, nextStatus);
 
+    const entity = await resolveEntity(existing.entity_type, existing.entity_id, platformId);
+    if (user.role === "CLIENT") {
+        if (!user.company_id || entity.company_id !== user.company_id) {
+            throw new CustomizedError(
+                httpStatus.FORBIDDEN,
+                "You do not have access to this workflow"
+            );
+        }
+        if (
+            (existing.entity_type === "ORDER" || existing.entity_type === "SELF_PICKUP") &&
+            "created_by" in entity &&
+            entity.created_by &&
+            entity.created_by !== user.id
+        ) {
+            throw new CustomizedError(
+                httpStatus.FORBIDDEN,
+                "You do not have access to this workflow"
+            );
+        }
+        if (!isWorkflowClientEditableStatus(existing.status_model_key, existing.status)) {
+            throw new CustomizedError(
+                httpStatus.FORBIDDEN,
+                "This workflow is under review and can no longer be edited by the client"
+            );
+        }
+    }
+
+    const nextMetadata = payload.metadata !== undefined ? payload.metadata : existing.metadata;
+    if (payload.status && isWorkflowSubmitForReviewStatus(existing.status_model_key, nextStatus)) {
+        await assertWorkflowReadyForReview({
+            id: existing.id,
+            metadata: nextMetadata,
+            intake_schema: existing.intake_schema,
+        });
+    }
+
     const [updated] = await db
         .update(workflowRequests)
         .set({
             ...(payload.title !== undefined && { title: payload.title }),
             ...(payload.description !== undefined && { description: payload.description || null }),
-            ...(payload.metadata !== undefined && { metadata: payload.metadata }),
+            ...(payload.metadata !== undefined && { metadata: nextMetadata }),
             ...(payload.status !== undefined && { status: payload.status }),
             ...(payload.status === "ACKNOWLEDGED" && { acknowledged_at: new Date() }),
-            ...(payload.status === "COMPLETED" && { completed_at: new Date(), cancelled_at: null }),
+            ...(payload.status !== undefined &&
+                ["COMPLETED", "APPROVED", "REJECTED"].includes(nextStatus) && {
+                    completed_at: new Date(),
+                    cancelled_at: null,
+                }),
             ...(payload.status === "CANCELLED" && { cancelled_at: new Date(), completed_at: null }),
             ...([
                 "REQUESTED",
@@ -432,27 +647,36 @@ const updateWorkflowRequest = async (
         .where(eq(workflowRequests.id, id))
         .returning();
 
-    const entity = await resolveEntity(existing.entity_type, existing.entity_id, platformId);
     const [company] = await db
         .select({ name: companies.name })
         .from(companies)
         .where(eq(companies.id, entity.company_id))
         .limit(1);
 
-    if (existing.status !== updated.status) {
-        // Item 4: write a status_history row for every transition so the
-        // inbox can show "who moved this to SUBMITTED and when".
+    const transitionNote = payload.transition_note?.trim() || null;
+    const statusChanged = existing.status !== updated.status;
+
+    if (statusChanged || transitionNote) {
+        // Item 4: keep workflow operational notes in the audit trail. Notes
+        // without a status change are stored with from_status === to_status.
         await db.insert(workflowRequestStatusHistory).values({
             workflow_request_id: updated.id,
             from_status: existing.status,
             to_status: updated.status,
             changed_by: user.id,
-            note: null,
+            note: transitionNote,
         });
+    }
 
+    if (statusChanged) {
         await emitWorkflowEvent(
             EVENT_TYPES.WORKFLOW_REQUEST_STATUS_CHANGED,
-            updated,
+            {
+                ...updated,
+                intake_schema: existing.intake_schema,
+                viewer_roles: existing.viewer_roles,
+                actor_roles: existing.actor_roles,
+            },
             entity,
             company?.name || "",
             user,
@@ -462,7 +686,12 @@ const updateWorkflowRequest = async (
         if (updated.status === "COMPLETED" || updated.status === "APPROVED") {
             await emitWorkflowEvent(
                 EVENT_TYPES.WORKFLOW_REQUEST_COMPLETED,
-                updated,
+                {
+                    ...updated,
+                    intake_schema: existing.intake_schema,
+                    viewer_roles: existing.viewer_roles,
+                    actor_roles: existing.actor_roles,
+                },
                 entity,
                 company?.name || "",
                 user,
@@ -473,7 +702,12 @@ const updateWorkflowRequest = async (
         if (updated.status === "CANCELLED") {
             await emitWorkflowEvent(
                 EVENT_TYPES.WORKFLOW_REQUEST_CANCELLED,
-                updated,
+                {
+                    ...updated,
+                    intake_schema: existing.intake_schema,
+                    viewer_roles: existing.viewer_roles,
+                    actor_roles: existing.actor_roles,
+                },
                 entity,
                 company?.name || "",
                 user,
@@ -482,7 +716,76 @@ const updateWorkflowRequest = async (
         }
     }
 
-    return projectWorkflowRequest(updated);
+    const [withHistory] = await attachStatusHistory([
+        projectWorkflowRequest({
+            ...updated,
+            intake_schema: existing.intake_schema,
+        }),
+    ]);
+    return withHistory;
+};
+
+const cancelOpenWorkflowRequestsForEntity = async (
+    entityType: WorkflowEntityType,
+    entityId: string,
+    platformId: string,
+    actorId: string,
+    note: string,
+    tx: typeof db = db
+) => {
+    const openRows = await tx
+        .select({
+            id: workflowRequests.id,
+            status: workflowRequests.status,
+        })
+        .from(workflowRequests)
+        .where(
+            and(
+                eq(workflowRequests.platform_id, platformId),
+                eq(workflowRequests.entity_type, entityType),
+                eq(workflowRequests.entity_id, entityId),
+                notInArray(workflowRequests.status, [
+                    "COMPLETED",
+                    "APPROVED",
+                    "REJECTED",
+                    "CANCELLED",
+                ])
+            )
+        );
+
+    if (openRows.length === 0) return { cancelled: 0 };
+
+    await tx
+        .update(workflowRequests)
+        .set({
+            status: "CANCELLED",
+            cancelled_at: new Date(),
+            completed_at: null,
+            updated_at: new Date(),
+        })
+        .where(
+            and(
+                eq(workflowRequests.platform_id, platformId),
+                eq(workflowRequests.entity_type, entityType),
+                eq(workflowRequests.entity_id, entityId),
+                inArray(
+                    workflowRequests.id,
+                    openRows.map((row) => row.id)
+                )
+            )
+        );
+
+    await tx.insert(workflowRequestStatusHistory).values(
+        openRows.map((row) => ({
+            workflow_request_id: row.id,
+            from_status: row.status,
+            to_status: "CANCELLED",
+            changed_by: actorId,
+            note,
+        }))
+    );
+
+    return { cancelled: openRows.length };
 };
 
 export const WorkflowRequestServices = {
@@ -490,4 +793,5 @@ export const WorkflowRequestServices = {
     listWorkflowInbox,
     createWorkflowRequest,
     updateWorkflowRequest,
+    cancelOpenWorkflowRequestsForEntity,
 };

@@ -26,6 +26,8 @@ type NotificationCondition = {
         | "workflow_code"
         | "workflow_status"
         | "lifecycle_state"
+        | "client_action_required"
+        | "client_visible"
         | "billing_mode"
         | "request_type";
     operator: "equals" | "in";
@@ -199,6 +201,10 @@ const getConditionValue = (event: SystemEvent, field: NotificationCondition["fie
             return String(payload.workflow_status || payload.new_status || "");
         case "lifecycle_state":
             return String(payload.lifecycle_state || "");
+        case "client_action_required":
+            return String(payload.client_action_required === true);
+        case "client_visible":
+            return String(payload.client_visible === true);
         case "billing_mode":
             return String(payload.billing_mode || "");
         case "request_type":

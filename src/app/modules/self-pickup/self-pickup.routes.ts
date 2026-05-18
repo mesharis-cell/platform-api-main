@@ -221,7 +221,7 @@ export const SelfPickupOperationRoutes = (() => {
     router.get(
         "/:id/workflow-requests",
         platformValidator,
-        auth("ADMIN", "LOGISTICS"),
+        auth("ADMIN", "LOGISTICS", "CLIENT"),
         featureValidator(featureNames.enable_workflows),
         WorkflowRequestControllers.listForEntity("SELF_PICKUP")
     );

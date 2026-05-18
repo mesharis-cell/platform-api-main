@@ -31,6 +31,7 @@ const updateWorkflowRequestSchema = z.object({
             title: z.string().trim().min(1).max(200).optional(),
             description: z.string().trim().max(2000).optional(),
             metadata: z.record(z.string(), z.unknown()).optional(),
+            transition_note: z.string().trim().max(1000).optional(),
         })
         .strict(),
 });

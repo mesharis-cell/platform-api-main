@@ -52,6 +52,7 @@ export const updateCommerceRuleSchema = z.object({
     body: z.object({
         name: z.string().min(1).max(200).optional(),
         description: z.string().max(2000).nullable().optional(),
+        rule_type: z.enum(["QUANTITY", "COMPANION"]).optional(),
         target: targetSchema.optional(),
         predicate: predicateSchema.optional(),
         message: z.string().min(1).max(360).optional(),

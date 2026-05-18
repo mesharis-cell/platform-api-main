@@ -19,6 +19,7 @@ import {
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { PricingService } from "../../services/pricing.service";
+import { WorkflowAutoOpenService } from "../../services/workflow-auto-open.service";
 import { eventBus, EVENT_TYPES } from "../../events";
 import { resolveEffectiveFeature } from "../../constants/common";
 import {
@@ -37,6 +38,8 @@ import {
     canMarkReadyForPickup,
     canTriggerReturn,
 } from "./self-pickup-validation.utils";
+import { CommerceRulesServices } from "../commerce-rules/commerce-rules.services";
+import { WorkflowRequestServices } from "../workflow-request/workflow-request.services";
 
 // ----------------------------------- STATUS → EVENT MAP ----------------------------------
 // Maps a new status to the specific event type that should fire alongside
@@ -104,6 +107,7 @@ const submitSelfPickupFromCart = async (
         is_permanent_placement,
         job_number,
         po_number,
+        commerce_rule_acknowledgements,
     } = payload;
 
     // Step 1: Verify company exists and belongs to the platform
@@ -412,6 +416,18 @@ const submitSelfPickupFromCart = async (
         base_ops_total_override: baseOpsTotal,
     });
 
+    await CommerceRulesServices.recordCheckoutAcknowledgementAudit({
+        platformId,
+        entityType: "SELF_PICKUP",
+        entityId: result.id,
+        user,
+        cart: items.map((item) => ({
+            asset_id: item.asset_id,
+            quantity: item.quantity,
+        })),
+        acknowledgedRuleIds: commerce_rule_acknowledgements?.map((ack) => ack.rule_id) || [],
+    });
+
     // Step 6: Emit event
     await eventBus.emit({
         platform_id: platformId,
@@ -431,6 +447,28 @@ const submitSelfPickupFromCart = async (
             total_volume: calculatedVolume,
         },
     });
+
+    try {
+        await WorkflowAutoOpenService.evaluateAndCreate(
+            "SELF_PICKUP_SUBMITTED",
+            {
+                type: "SELF_PICKUP",
+                id: result.id,
+                payload: {
+                    ...(result as unknown as Record<string, unknown>),
+                    is_permanent_placement: Boolean(is_permanent_placement),
+                },
+            },
+            {
+                platformId,
+                companyId,
+                triggeredByUserId: user.id,
+                triggeredByRole: user.role,
+            }
+        );
+    } catch (err) {
+        console.error("[self-pickup:submitFromCart] workflow auto-open evaluator failed", err);
+    }
 
     return {
         self_pickup_id: selfPickupId,
@@ -621,6 +659,30 @@ const transitionStatus = async (
         },
     });
 
+    if (newStatus === "CONFIRMED") {
+        try {
+            await WorkflowAutoOpenService.evaluateAndCreate(
+                "SELF_PICKUP_CONFIRMED",
+                {
+                    type: "SELF_PICKUP",
+                    id: selfPickupId,
+                    payload: pickup as unknown as Record<string, unknown>,
+                },
+                {
+                    platformId,
+                    companyId: pickup.company_id,
+                    triggeredByUserId: user.id,
+                    triggeredByRole: user.role,
+                }
+            );
+        } catch (err) {
+            console.error(
+                "[self-pickup:transitionStatus] workflow auto-open evaluator failed",
+                err
+            );
+        }
+    }
+
     return { self_pickup_id: pickup.self_pickup_id, new_status: newStatus };
 };
 
@@ -763,6 +825,14 @@ const cancelSelfPickup = async (
 
     await db.transaction(async (tx) => {
         await releaseBookingsAndRestoreAvailability(tx, "SELF_PICKUP", id, platformId);
+        await WorkflowRequestServices.cancelOpenWorkflowRequestsForEntity(
+            "SELF_PICKUP",
+            id,
+            platformId,
+            user.id,
+            `Parent self-pickup cancelled: ${payload.reason}`,
+            tx as any
+        );
 
         // Aggregate per-asset OUTBOUND totals, then emit matching INBOUND
         // ledger rows (audit-only; available_quantity unaffected).
@@ -851,6 +921,14 @@ const clientDeclineQuote = async (
     const { releaseBookingsAndRestoreAvailability } = await import("../order/order.utils");
     await db.transaction(async (tx) => {
         await releaseBookingsAndRestoreAvailability(tx, "SELF_PICKUP", id, platformId);
+        await WorkflowRequestServices.cancelOpenWorkflowRequestsForEntity(
+            "SELF_PICKUP",
+            id,
+            platformId,
+            user.id,
+            `Parent self-pickup declined: ${payload.decline_reason}`,
+            tx as any
+        );
     });
 
     return transitionStatus(
