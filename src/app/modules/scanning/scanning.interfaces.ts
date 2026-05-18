@@ -16,7 +16,7 @@ export interface InboundScanPayload {
     damage_media?: DamageReportEntryPayload[];
     refurb_days_estimate?: number;
     discrepancy_reason?: "BROKEN" | "LOST" | "OTHER";
-    quantity?: number; // For BATCH assets
+    quantity?: number; // For POOLED assets
 }
 
 export interface ScanProgressResponse {
@@ -40,7 +40,7 @@ export interface AssetProgress {
     asset_id: string;
     asset_name: string;
     qr_code: string;
-    tracking_method: "INDIVIDUAL" | "BATCH";
+    stock_mode: "SERIALIZED" | "POOLED";
     required_quantity: number;
     scanned_quantity: number;
     is_complete: boolean;
@@ -91,7 +91,7 @@ export interface OutboundScanResponse {
     asset: {
         asset_id: string;
         asset_name: string;
-        tracking_method: "INDIVIDUAL" | "BATCH";
+        stock_mode: "SERIALIZED" | "POOLED";
         scanned_quantity: number;
         required_quantity: number;
         remaining_quantity: number;

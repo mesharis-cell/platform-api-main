@@ -135,7 +135,8 @@ router.patch(
     AssetControllers.updateAsset
 );
 
-// Add units to an INDIVIDUAL asset (creates new unit rows with unique QR codes)
+// Add units to a SERIALIZED asset (creates new unit rows with unique QR codes).
+// Promotes a raw asset into a group if the source has group_id IS NULL.
 router.post(
     "/:id/add-units",
     platformValidator,
@@ -143,6 +144,17 @@ router.post(
     requirePermission(PERMISSIONS.ASSETS_UPDATE),
     payloadValidator(AssetSchemas.addAssetUnitsSchema),
     AssetControllers.addAssetUnits
+);
+
+// Bulk-group N selected assets under one group_id. Validates same
+// company+brand+stock_mode across selections; rejects cross-group conflicts.
+router.post(
+    "/bulk-group",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.ASSETS_UPDATE),
+    payloadValidator(AssetSchemas.bulkGroupAssetsSchema),
+    AssetControllers.bulkGroupAssets
 );
 
 // Delete asset

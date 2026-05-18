@@ -1,13 +1,12 @@
-import { and, asc, count, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
 import { moveS3Object, s3KeyFromUrl } from "../../services/s3.service";
 import httpStatus from "http-status";
 import QRCode from "qrcode";
 import { db } from "../../../db";
 import {
     assetBookings,
-    assetCategories,
     assetConditionHistory,
-    assetFamilies,
     assetVersions,
     assets,
     brands,
@@ -55,205 +54,237 @@ const promoteDraftImages = async (
     );
 };
 
-const mapStockModeToTrackingMethod = (stockMode: "SERIALIZED" | "POOLED") =>
-    stockMode === "SERIALIZED" ? "INDIVIDUAL" : "BATCH";
+// ═══════════════════════════════════════════════════════════════════════════
+// GROUP HELPERS (post-squash)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Groups are not a separate entity. They are a correlation on the assets table:
+// assets sharing a `group_id` are siblings of the same product. Every asset
+// also carries `group_name` (denormalized) — the display label used on the
+// catalog group card.
+//
+// Group invariants (enforced at service layer; no DB CHECK):
+//   1. group_id IS NULL ⟺ group_name IS NULL  (raw assets have no group).
+//   2. Siblings within a group share company_id, brand_id, stock_mode.
+//   3. group_name is unique per company at the *group* level (distinct group_ids
+//      cannot share a name within one company).
+//   4. group_name + group presentation media cascade across siblings; drift is
+//      treated as invalid application state.
 
-const getAssetFamilyForCreate = async ({
-    familyId,
-    platformId,
-}: {
-    familyId?: string | null;
-    platformId: string;
-}) => {
-    if (!familyId) return null;
-
-    const [family] = await db
-        .select()
-        .from(assetFamilies)
-        .where(
-            and(
-                eq(assetFamilies.id, familyId),
-                eq(assetFamilies.platform_id, platformId),
-                isNull(assetFamilies.deleted_at)
-            )
-        );
-
-    if (!family) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Asset family not found");
+/**
+ * Validates that a candidate asset's company/brand/stock_mode is compatible
+ * with the existing siblings of a target group. Throws on mismatch.
+ *
+ * Pass `excludeAssetId` when validating an UPDATE (to skip checking the asset
+ * being modified against itself).
+ */
+const validateGroupSiblingConstraints = async (
+    tx: any,
+    {
+        groupId,
+        platformId,
+        companyId,
+        brandId,
+        stockMode,
+        excludeAssetId,
+    }: {
+        groupId: string;
+        platformId: string;
+        companyId: string;
+        brandId: string | null;
+        stockMode: "SERIALIZED" | "POOLED";
+        excludeAssetId?: string;
     }
+) => {
+    const conditions = [
+        eq(assets.group_id, groupId),
+        eq(assets.platform_id, platformId),
+        isNull(assets.deleted_at),
+    ];
+    if (excludeAssetId) conditions.push(ne(assets.id, excludeAssetId));
 
-    return family;
+    const sibling = await tx.query.assets.findFirst({
+        where: and(...conditions),
+        columns: { company_id: true, brand_id: true, stock_mode: true },
+    });
+
+    if (!sibling) return; // empty group (or only the excluded asset) — no constraint to check
+
+    if (sibling.company_id !== companyId) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Group siblings must share the same company"
+        );
+    }
+    if ((sibling.brand_id ?? null) !== (brandId ?? null)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Group siblings must share the same brand"
+        );
+    }
+    if (sibling.stock_mode !== stockMode) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Group siblings must share the same stock_mode (SERIALIZED or POOLED)"
+        );
+    }
 };
 
-const validateAssetFamily = async ({
-    familyId,
-    platformId,
-    companyId,
-    brandId,
-    teamId,
-}: {
-    familyId?: string | null;
-    platformId: string;
-    companyId: string;
-    brandId?: string | null;
-    teamId?: string | null;
-}) => {
-    if (!familyId) return null;
-
-    const [family] = await db
-        .select()
-        .from(assetFamilies)
-        .where(
-            and(
-                eq(assetFamilies.id, familyId),
-                eq(assetFamilies.platform_id, platformId),
-                eq(assetFamilies.company_id, companyId),
-                isNull(assetFamilies.deleted_at)
-            )
-        );
-
-    if (!family) {
-        throw new CustomizedError(httpStatus.NOT_FOUND, "Asset family not found");
+/**
+ * Validates that no OTHER group_id in the same company is using the supplied
+ * group_name. Service-layer enforcement only — DB cannot use a standard unique
+ * index because group_name is denormalized onto every sibling row. Acceptable
+ * race window for concurrent group creates.
+ *
+ * Pass `currentGroupId` so siblings of the same group aren't counted as conflicts.
+ */
+const validateGroupNameUniqueness = async (
+    tx: any,
+    {
+        platformId,
+        companyId,
+        groupName,
+        currentGroupId,
+    }: {
+        platformId: string;
+        companyId: string;
+        groupName: string;
+        currentGroupId: string | null;
+    }
+) => {
+    const conditions = [
+        eq(assets.platform_id, platformId),
+        eq(assets.company_id, companyId),
+        eq(assets.group_name, groupName),
+        isNull(assets.deleted_at),
+    ];
+    if (currentGroupId) {
+        conditions.push(ne(assets.group_id, currentGroupId));
     }
 
-    if (brandId && family.brand_id && family.brand_id !== brandId) {
+    const conflict = await tx.query.assets.findFirst({
+        where: and(...conditions),
+        columns: { id: true, group_id: true },
+    });
+
+    if (conflict && conflict.group_id !== null) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            "Asset family brand does not match the selected brand"
+            `Group name "${groupName}" is already in use by another group in this company`
         );
     }
-
-    if (teamId && family.team_id && family.team_id !== teamId) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            "Asset family team does not match the selected team"
-        );
-    }
-
-    return family;
 };
 
 const resolveCreateAssetData = async (data: CreateAssetPayload) => {
-    const family = await getAssetFamilyForCreate({
-        familyId: data.family_id,
-        platformId: data.platform_id,
-    });
-
-    const companyId = data.company_id ?? family?.company_id;
-    if (!companyId) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            "company_id is required when asset family is not provided"
-        );
+    if (!data.company_id) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "company_id is required");
+    }
+    if (!data.stock_mode) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "stock_mode is required");
+    }
+    if (data.weight_per_unit === undefined || data.weight_per_unit === null) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "weight_per_unit is required");
+    }
+    if (data.volume_per_unit === undefined || data.volume_per_unit === null) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "volume_per_unit is required");
     }
 
-    if (family && data.company_id && family.company_id !== data.company_id) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            "Asset family company does not match the selected company"
-        );
-    }
-
-    const brandId =
-        data.brand_id !== undefined ? (data.brand_id ?? null) : (family?.brand_id ?? null);
-    if (family && data.brand_id && family.brand_id && family.brand_id !== data.brand_id) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            "Asset family brand does not match the selected brand"
-        );
-    }
-
-    const teamId = data.team_id !== undefined ? (data.team_id ?? null) : (family?.team_id ?? null);
-    if (family && data.team_id && family.team_id && family.team_id !== data.team_id) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            "Asset family team does not match the selected team"
-        );
-    }
-
-    const trackingMethod =
-        data.tracking_method ??
-        (family ? mapStockModeToTrackingMethod(family.stock_mode) : undefined);
-    if (!trackingMethod) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            "tracking_method is required when asset family is not provided"
-        );
-    }
-
-    // Category: resolve from the family's category record if not supplied directly.
-    // assets.category varchar is still populated (parked scope — not dropped yet)
-    // but sourced from the new asset_categories table via family.category_id.
-    let category = data.category;
-    if (!category && family?.category_id) {
-        const catRow = await db.query.assetCategories.findFirst({
-            where: eq(assetCategories.id, family.category_id),
-            columns: { name: true },
-        });
-        category = catRow?.name ?? "Unknown";
-    }
-    if (!category) {
-        category = "Unknown";
-    }
-
-    const weightPerUnit =
-        data.weight_per_unit ??
-        (family?.weight_per_unit === null || family?.weight_per_unit === undefined
-            ? undefined
-            : Number(family.weight_per_unit));
-    if (weightPerUnit === undefined) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            "weight_per_unit is required when it is not defined on the asset family"
-        );
-    }
-
-    const volumePerUnit =
-        data.volume_per_unit ??
-        (family?.volume_per_unit === null || family?.volume_per_unit === undefined
-            ? undefined
-            : Number(family.volume_per_unit));
-    if (volumePerUnit === undefined) {
-        throw new CustomizedError(
-            httpStatus.BAD_REQUEST,
-            "volume_per_unit is required when it is not defined on the asset family"
-        );
-    }
-
+    const category = data.category ?? "Unknown";
     const totalQuantity = data.total_quantity ?? 1;
     const availableQuantity = data.available_quantity ?? totalQuantity;
-    const packaging = data.packaging ?? family?.packaging ?? null;
-    if (trackingMethod === "BATCH" && !packaging) {
+    const packaging = data.packaging ?? null;
+    if (data.stock_mode === "POOLED" && !packaging) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            "Packaging description is required for BATCH tracking method"
+            "Packaging description is required for POOLED stock_mode"
         );
     }
+    if (data.low_stock_threshold != null && data.stock_mode !== "POOLED") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Low-stock threshold is only supported for POOLED assets"
+        );
+    }
+
+    // Group resolution. Returns groupId + groupName + the sibling-index start
+    // for asset.name suffixing (the createAsset caller does the per-unit suffix
+    // inside its loop or single-create path).
+    //
+    //   - group_id provided ⟶ join existing group; copy group_name from a sibling;
+    //     siblingIndexStart = current sibling count + 1.
+    //   - is_part_of_group=true (default) + no group_id ⟶ create a new group;
+    //     group_name = data.name; siblingIndexStart = 1.
+    //   - is_part_of_group=false + no group_id ⟶ raw asset; no suffix.
+    let groupId: string | null = data.group_id ?? null;
+    let groupName: string | null = null;
+    let groupImages: { url: string; note?: string }[] = [];
+    let groupOnDisplayImage: string | null = null;
+    let siblingIndexStart: number | null = null;
+
+    if (groupId) {
+        const sibling = await db.query.assets.findFirst({
+            where: and(
+                eq(assets.group_id, groupId),
+                eq(assets.platform_id, data.platform_id),
+                isNull(assets.deleted_at)
+            ),
+            columns: { group_name: true, group_images: true, group_on_display_image: true },
+        });
+        if (!sibling) {
+            throw new CustomizedError(
+                httpStatus.NOT_FOUND,
+                "Target group not found (no live siblings)"
+            );
+        }
+        groupName = sibling.group_name;
+        groupImages = Array.isArray(sibling.group_images)
+            ? (sibling.group_images as { url: string; note?: string }[])
+            : [];
+        groupOnDisplayImage = sibling.group_on_display_image ?? null;
+        const siblingCountRows = await db
+            .select({ c: sql<number>`COUNT(*)::int` })
+            .from(assets)
+            .where(
+                and(
+                    eq(assets.group_id, groupId),
+                    eq(assets.platform_id, data.platform_id),
+                    isNull(assets.deleted_at)
+                )
+            );
+        siblingIndexStart = (siblingCountRows[0]?.c ?? 0) + 1;
+    } else if (data.is_part_of_group !== false) {
+        groupId = randomUUID();
+        groupName = data.name;
+        groupImages = data.group_images ?? [];
+        groupOnDisplayImage = data.group_on_display_image ?? null;
+        siblingIndexStart = 1;
+    }
+    // else: raw asset, groupId + groupName + siblingIndexStart stay null
 
     return {
         ...data,
-        company_id: companyId,
-        brand_id: brandId,
-        family_id: family?.id ?? data.family_id ?? null,
-        team_id: teamId,
+        company_id: data.company_id,
+        brand_id: data.brand_id ?? null,
+        team_id: data.team_id ?? null,
+        group_id: groupId,
+        group_name: groupName,
+        group_images: groupId ? groupImages : [],
+        group_on_display_image: groupId ? groupOnDisplayImage : null,
+        sibling_index_start: siblingIndexStart, // consumed by createAsset; not stored on row
+        // name stays as base (data.name); createAsset suffixes per-unit
         category,
-        description: data.description ?? family?.description ?? undefined,
-        images: data.images?.length ? data.images : (family?.images ?? []),
-        on_display_image: data.on_display_image ?? family?.on_display_image ?? null,
-        tracking_method: trackingMethod,
+        description: data.description ?? undefined,
+        images: data.images ?? [],
+        on_display_image: data.on_display_image ?? null,
+        stock_mode: data.stock_mode,
         total_quantity: totalQuantity,
         available_quantity: availableQuantity,
         packaging,
-        weight_per_unit: weightPerUnit,
-        dimensions:
-            data.dimensions && Object.keys(data.dimensions).length > 0
-                ? data.dimensions
-                : ((family?.dimensions as Record<string, unknown> | undefined) ?? {}),
-        volume_per_unit: volumePerUnit,
-        handling_tags:
-            data.handling_tags && data.handling_tags.length > 0
-                ? data.handling_tags
-                : (family?.handling_tags ?? []),
+        weight_per_unit: data.weight_per_unit,
+        dimensions: data.dimensions ?? {},
+        volume_per_unit: data.volume_per_unit,
+        handling_tags: data.handling_tags ?? [],
+        low_stock_threshold: data.low_stock_threshold ?? null,
     };
 };
 
@@ -340,18 +371,36 @@ const createAsset = async (input: CreateAssetPayload, user: AuthUser) => {
             }
         }
 
-        await validateAssetFamily({
-            familyId: data.family_id,
-            platformId: data.platform_id,
-            companyId: data.company_id,
-            brandId: data.brand_id,
-            teamId: data.team_id,
-        });
+        // Validate group invariants if joining an existing group OR creating a new
+        // one with a supplied name. (Cross-group name uniqueness, sibling shape.)
+        if (data.group_id && data.sibling_index_start && data.sibling_index_start > 1) {
+            // Joining an existing group — validate sibling shape against the candidate
+            await validateGroupSiblingConstraints(db, {
+                groupId: data.group_id,
+                platformId: data.platform_id,
+                companyId: data.company_id,
+                brandId: data.brand_id,
+                stockMode: data.stock_mode,
+            });
+        }
+        if (data.group_id && data.group_name) {
+            await validateGroupNameUniqueness(db, {
+                platformId: data.platform_id,
+                companyId: data.company_id,
+                groupName: data.group_name,
+                currentGroupId: data.group_id,
+            });
+        }
 
         // Promote any draft S3 images to permanent paths
         if (Array.isArray(data.images) && data.images.length > 0)
             data.images = await promoteDraftImages(
                 data.images as { url: string; note?: string }[],
+                data.company_id
+            );
+        if (Array.isArray(data.group_images) && data.group_images.length > 0)
+            data.group_images = await promoteDraftImages(
+                data.group_images as { url: string; note?: string }[],
                 data.company_id
             );
 
@@ -367,8 +416,16 @@ const createAsset = async (input: CreateAssetPayload, user: AuthUser) => {
                 })
             );
 
-        // Step 3: Handle INDIVIDUAL tracking with quantity > 1 - Create N separate assets
-        if (data.tracking_method === "INDIVIDUAL" && data.total_quantity > 1) {
+        // Step 3: Handle SERIALIZED with quantity > 1 — create N separate asset rows.
+        // For SERIALIZED+qty>1 we ALWAYS force grouping (even if is_part_of_group was
+        // false), since multiple distinct units of the same name only make sense as
+        // siblings. resolveCreateAssetData ensures group_id is set when is_part_of_group
+        // is true (default); we override here to make qty>1 always grouped.
+        if (data.stock_mode === "SERIALIZED" && data.total_quantity > 1) {
+            // Force grouping if caller opted out — qty>1 implies siblings
+            const effectiveGroupId = data.group_id ?? randomUUID();
+            const effectiveGroupName = data.group_name ?? data.name;
+            const indexStart = data.sibling_index_start ?? 1;
             const createdAssets: any[] = [];
 
             for (let i = 0; i < data.total_quantity; i++) {
@@ -384,14 +441,17 @@ const createAsset = async (input: CreateAssetPayload, user: AuthUser) => {
                         warehouse_id: data.warehouse_id,
                         zone_id: data.zone_id,
                         brand_id: data.brand_id || null,
-                        family_id: data.family_id || null,
+                        group_id: effectiveGroupId,
+                        group_name: effectiveGroupName,
+                        group_images: data.group_images || [],
+                        group_on_display_image: data.group_on_display_image || null,
                         team_id: data.team_id ?? null,
-                        name: `${data.name} #${i + 1}`, // Add unit number to name
+                        name: `${data.name} #${indexStart + i}`,
                         description: data.description || null,
                         category: data.category,
                         images: data.images || [],
                         on_display_image: data.on_display_image || null,
-                        tracking_method: "INDIVIDUAL",
+                        stock_mode: "SERIALIZED",
                         total_quantity: 1,
                         available_quantity: 1,
                         qr_code: qrCode,
@@ -404,6 +464,7 @@ const createAsset = async (input: CreateAssetPayload, user: AuthUser) => {
                         refurb_days_estimate: data.refurb_days_estimate || null,
                         handling_tags: data.handling_tags || [],
                         status: data.status || "AVAILABLE",
+                        low_stock_threshold: data.low_stock_threshold ?? null,
                     })
                     .returning();
 
@@ -436,16 +497,29 @@ const createAsset = async (input: CreateAssetPayload, user: AuthUser) => {
             };
         }
 
-        // Step 4: INDIVIDUAL tracking with quantity=1 OR BATCH tracking - Create single asset
+        // Step 4: SERIALIZED qty=1 OR POOLED — create single asset row.
+        // Apply group #1 suffix if we're creating a new group via the wizard's
+        // "Part of a group" toggle (sibling_index_start === 1 means new group).
         const qrCode = await qrCodeGenerator(data.company_id);
+        const finalName =
+            data.group_id && data.group_name
+                ? `${data.name} #${data.sibling_index_start ?? 1}`
+                : data.name;
+
+        // Strip the transient sibling_index_start before INSERT — it's not a column.
+        const { sibling_index_start: _sis, is_part_of_group: _ipog, ...rest } = data as any;
 
         const dbData = {
-            ...data,
+            ...rest,
             qr_code: qrCode,
+            name: finalName,
             weight_per_unit: data.weight_per_unit.toString(),
             volume_per_unit: data.volume_per_unit.toString(),
             brand_id: data.brand_id || null,
-            family_id: data.family_id || null,
+            group_id: data.group_id ?? null,
+            group_name: data.group_name ?? null,
+            group_images: data.group_id ? data.group_images || [] : [],
+            group_on_display_image: data.group_id ? data.group_on_display_image || null : null,
             team_id: data.team_id ?? null,
             description: data.description || null,
             images: data.images || [],
@@ -457,6 +531,7 @@ const createAsset = async (input: CreateAssetPayload, user: AuthUser) => {
             refurb_days_estimate: data.refurb_days_estimate || null,
             handling_tags: data.handling_tags || [],
             status: data.status || "AVAILABLE",
+            low_stock_threshold: data.low_stock_threshold ?? null,
         };
 
         const [result] = await db.insert(assets).values(dbData).returning();
@@ -504,12 +579,12 @@ const getAssets = async (query: Record<string, any>, user: AuthUser, platformId:
         sort_by,
         sort_order,
         company_id,
-        family_id,
+        group_id,
         warehouse_id,
         zone_id,
         brand_id,
         category,
-        tracking_method,
+        stock_mode,
         condition,
         status,
         include_inactive,
@@ -539,14 +614,14 @@ const getAssets = async (query: Record<string, any>, user: AuthUser, platformId:
         }
     }
 
-    // Step 3b: Search by asset name, QR code, or family name
+    // Step 3b: Search by asset name, QR code, or group name
     if (search_term) {
         const term = `%${search_term.trim()}%`;
         conditions.push(
             or(
                 ilike(assets.name, term),
                 ilike(assets.qr_code, term),
-                sql`EXISTS (SELECT 1 FROM asset_families af WHERE af.id = ${assets.family_id} AND af.name ILIKE ${term})`
+                ilike(assets.group_name, term)
             )
         );
     }
@@ -556,9 +631,9 @@ const getAssets = async (query: Record<string, any>, user: AuthUser, platformId:
         conditions.push(eq(assets.company_id, company_id));
     }
 
-    // Step 3d: Filter by family ID
-    if (family_id) {
-        conditions.push(eq(assets.family_id, family_id));
+    // Step 3d: Filter by group ID (siblings filter for "View all in group" navigation)
+    if (group_id) {
+        conditions.push(eq(assets.group_id, group_id));
     }
 
     // Step 3e: Filter by warehouse ID
@@ -581,9 +656,9 @@ const getAssets = async (query: Record<string, any>, user: AuthUser, platformId:
         conditions.push(eq(assets.category, category));
     }
 
-    // Step 3i: Filter by tracking method
-    if (tracking_method) {
-        conditions.push(eq(assets.tracking_method, tracking_method));
+    // Step 3i: Filter by stock_mode (SERIALIZED | POOLED)
+    if (stock_mode) {
+        conditions.push(eq(assets.stock_mode, stock_mode));
     }
 
     // Step 3j: Filter by condition (supports multiple values: GREEN,ORANGE,RED)
@@ -645,24 +720,8 @@ const getAssets = async (query: Record<string, any>, user: AuthUser, platformId:
                         name: true,
                     },
                 },
-                family: {
-                    columns: {
-                        id: true,
-                        name: true,
-                        stock_mode: true,
-                        category_id: true,
-                    },
-                    with: {
-                        category: {
-                            columns: {
-                                id: true,
-                                name: true,
-                                slug: true,
-                                color: true,
-                            },
-                        },
-                    },
-                },
+                // No `family` relation post-squash. group_id + group_name + stock_mode
+                // are top-level columns on each asset row.
             },
             orderBy: orderDirection,
             limit: limitNumber,
@@ -765,26 +824,9 @@ const getAssetById = async (id: string, user: AuthUser, platformId: string) => {
                     logo_url: true,
                 },
             },
-            family: {
-                columns: {
-                    id: true,
-                    company_id: true,
-                    brand_id: true,
-                    team_id: true,
-                    name: true,
-                    description: true,
-                    category_id: true,
-                    images: true,
-                    on_display_image: true,
-                    stock_mode: true,
-                    packaging: true,
-                    weight_per_unit: true,
-                    dimensions: true,
-                    volume_per_unit: true,
-                    handling_tags: true,
-                    is_active: true,
-                },
-            },
+            // No `family` relation post-squash. Group identity (group_id, group_name)
+            // and product attributes (stock_mode, dimensions, weight_per_unit, etc.)
+            // are all top-level columns on the asset row itself.
         },
     });
 
@@ -965,9 +1007,23 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
             }
         }
 
-        if (data.family_id !== undefined) {
-            // Guard: block move if asset has active bookings on open orders
-            if (data.family_id !== existingAsset.family_id && existingAsset.family_id) {
+        if (data.stock_mode !== undefined && data.stock_mode !== existingAsset.stock_mode) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "stock_mode is immutable after asset creation. Delete and recreate the asset if the mode is wrong."
+            );
+        }
+        if (data.low_stock_threshold != null && existingAsset.stock_mode !== "POOLED") {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Low-stock threshold is only supported for POOLED assets"
+            );
+        }
+
+        // Group move guard: if group_id is being changed (or set/cleared), validate.
+        if (data.group_id !== undefined && data.group_id !== existingAsset.group_id) {
+            // Block move if the asset has active bookings (same gate as before).
+            if (existingAsset.group_id) {
                 const activeBookings = await db
                     .select({ id: assetBookings.id })
                     .from(assetBookings)
@@ -976,7 +1032,6 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
                         and(
                             eq(assetBookings.asset_id, id),
                             or(
-                                // Order bookings with active statuses
                                 inArray(orders.order_status, [
                                     "CONFIRMED",
                                     "IN_PREPARATION",
@@ -986,7 +1041,6 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
                                     "IN_USE",
                                     "AWAITING_RETURN",
                                 ]),
-                                // Self-pickup bookings (non-null self_pickup_id = active)
                                 sql`${assetBookings.self_pickup_id} IS NOT NULL`
                             )
                         )
@@ -999,38 +1053,101 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
                         "Cannot move — this item has active bookings on open orders"
                     );
                 }
+            }
 
-                // Guard: block stock_mode mismatch (POOLED ↔ SERIALIZED)
-                const [sourceFamily] = await db
-                    .select({ stock_mode: assetFamilies.stock_mode })
-                    .from(assetFamilies)
-                    .where(eq(assetFamilies.id, existingAsset.family_id))
-                    .limit(1);
-                const [targetFamily] = await db
-                    .select({ stock_mode: assetFamilies.stock_mode })
-                    .from(assetFamilies)
-                    .where(eq(assetFamilies.id, data.family_id))
-                    .limit(1);
-                if (
-                    sourceFamily &&
-                    targetFamily &&
-                    sourceFamily.stock_mode !== targetFamily.stock_mode
-                ) {
+            // Joining a new group: validate sibling constraints (same company+brand+stock_mode)
+            if (data.group_id) {
+                const sibling = await db.query.assets.findFirst({
+                    where: and(
+                        eq(assets.group_id, data.group_id),
+                        eq(assets.platform_id, platformId),
+                        ne(assets.id, id),
+                        isNull(assets.deleted_at)
+                    ),
+                    columns: {
+                        group_name: true,
+                        group_images: true,
+                        group_on_display_image: true,
+                    },
+                });
+
+                await validateGroupSiblingConstraints(db, {
+                    groupId: data.group_id,
+                    platformId,
+                    companyId: data.company_id || existingAsset.company_id,
+                    brandId:
+                        data.brand_id === undefined
+                            ? existingAsset.brand_id
+                            : (data.brand_id ?? null),
+                    stockMode: data.stock_mode ?? existingAsset.stock_mode,
+                    excludeAssetId: id,
+                });
+
+                if (sibling) {
+                    data.group_name = sibling.group_name;
+                    data.group_images = Array.isArray(sibling.group_images)
+                        ? sibling.group_images
+                        : [];
+                    data.group_on_display_image = sibling.group_on_display_image ?? null;
+                } else if (!data.group_name) {
                     throw new CustomizedError(
                         httpStatus.BAD_REQUEST,
-                        "Cannot move to a family with a different stock mode (Pooled ↔ Serialized)"
+                        "group_name is required when creating a new group"
                     );
                 }
             }
+        }
 
-            await validateAssetFamily({
-                familyId: data.family_id,
+        // Group name uniqueness: validate when setting/changing group_name OR group_id
+        const effectiveGroupId =
+            data.group_id !== undefined ? data.group_id : existingAsset.group_id;
+        const effectiveGroupName =
+            data.group_name !== undefined ? data.group_name : existingAsset.group_name;
+        if (
+            effectiveGroupId &&
+            effectiveGroupName &&
+            (data.group_id !== undefined || data.group_name !== undefined)
+        ) {
+            await validateGroupNameUniqueness(db, {
+                platformId,
+                companyId: data.company_id || existingAsset.company_id,
+                groupName: effectiveGroupName,
+                currentGroupId: effectiveGroupId,
+            });
+        }
+
+        if (
+            effectiveGroupId &&
+            (data.company_id !== undefined ||
+                data.brand_id !== undefined ||
+                data.stock_mode !== undefined)
+        ) {
+            await validateGroupSiblingConstraints(db, {
+                groupId: effectiveGroupId,
                 platformId,
                 companyId: data.company_id || existingAsset.company_id,
                 brandId:
                     data.brand_id === undefined ? existingAsset.brand_id : (data.brand_id ?? null),
-                teamId: data.team_id === undefined ? existingAsset.team_id : (data.team_id ?? null),
+                stockMode: existingAsset.stock_mode,
+                excludeAssetId: id,
             });
+        }
+
+        // Invariant: group_id IS NULL ⟹ group_name IS NULL (auto-clear on move-out)
+        if (data.group_id === null) {
+            (data as any).group_name = null;
+            (data as any).group_images = [];
+            (data as any).group_on_display_image = null;
+        }
+
+        if (
+            (data.group_images !== undefined || data.group_on_display_image !== undefined) &&
+            !effectiveGroupId
+        ) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Group media can only be edited on grouped assets"
+            );
         }
 
         // Step 6: Validate quantity constraints if either is being updated
@@ -1076,6 +1193,12 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
                 targetCompanyId
             );
         }
+        if (Array.isArray(dbData.group_images) && dbData.group_images.length > 0) {
+            dbData.group_images = await promoteDraftImages(
+                dbData.group_images as { url: string; note?: string }[],
+                targetCompanyId
+            );
+        }
         if (Array.isArray(dbData.condition_photos) && dbData.condition_photos.length > 0) {
             dbData.condition_photos = await Promise.all(
                 dbData.condition_photos.map(async (url: string) => {
@@ -1089,7 +1212,39 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
         }
 
         // Step 9: Update asset
-        const [result] = await db.update(assets).set(dbData).where(eq(assets.id, id)).returning();
+        const groupCascadeData: Record<string, unknown> = {};
+        if (dbData.group_name !== undefined) groupCascadeData.group_name = dbData.group_name;
+        if (dbData.group_images !== undefined) groupCascadeData.group_images = dbData.group_images;
+        if (dbData.group_on_display_image !== undefined) {
+            groupCascadeData.group_on_display_image = dbData.group_on_display_image;
+        }
+
+        const [result] = await db.transaction(async (tx) => {
+            const [updated] = await tx
+                .update(assets)
+                .set(dbData)
+                .where(eq(assets.id, id))
+                .returning();
+
+            if (
+                updated?.group_id &&
+                Object.keys(groupCascadeData).length > 0 &&
+                dbData.group_id !== null
+            ) {
+                await tx
+                    .update(assets)
+                    .set(groupCascadeData)
+                    .where(
+                        and(
+                            eq(assets.platform_id, platformId),
+                            eq(assets.group_id, updated.group_id),
+                            isNull(assets.deleted_at)
+                        )
+                    );
+            }
+
+            return [updated];
+        });
 
         // Step 10: Snapshot the stored post-update state for asset history
         await createAssetVersionSnapshot(id, existingAsset.platform_id, "Manual update", user.id);
@@ -1159,14 +1314,36 @@ const addAssetUnits = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found");
     }
 
-    if (sourceAsset.tracking_method !== "INDIVIDUAL") {
+    if (sourceAsset.stock_mode !== "SERIALIZED") {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            "Add units is only supported for INDIVIDUAL tracking assets"
+            "Add units is only supported for SERIALIZED assets"
         );
     }
 
+    // Resolve group context. Two paths:
+    //   - source already belongs to a group ⟶ new units inherit group_id + group_name.
+    //   - source is raw ⟶ this action promotes the source into a group. We generate a
+    //     fresh group_id, set group_name to the source's name, rename the source asset
+    //     to "<source.name> #1", and create new siblings as "<source.name> #2..#N+1".
+    //     Admin sees a confirmation in the UI before the promote-and-add (frontend
+    //     concern; backend just executes).
     const { baseName } = parseAssetNameSeries(sourceAsset.name);
+    let effectiveGroupId = sourceAsset.group_id;
+    let effectiveGroupName = sourceAsset.group_name;
+    const effectiveGroupImages = Array.isArray(sourceAsset.group_images)
+        ? sourceAsset.group_images
+        : [];
+    const effectiveGroupOnDisplayImage = sourceAsset.group_on_display_image ?? null;
+    let renameSource = false;
+    let renamedSourceName = sourceAsset.name;
+    if (!effectiveGroupId) {
+        effectiveGroupId = randomUUID();
+        effectiveGroupName = sourceAsset.name;
+        renameSource = true;
+        renamedSourceName = `${sourceAsset.name} #1`;
+    }
+
     const siblingRows = await db
         .select({ name: assets.name })
         .from(assets)
@@ -1179,7 +1356,7 @@ const addAssetUnits = async (
             )
         );
 
-    let maxSuffixNumber = 1;
+    let maxSuffixNumber = renameSource ? 1 : 1;
     for (const row of siblingRows) {
         const parsed = parseAssetNameSeries(row.name);
         if (parsed.baseName !== baseName) continue;
@@ -1191,6 +1368,20 @@ const addAssetUnits = async (
 
     const createdAssets = await db.transaction(async (tx) => {
         const created: Array<{ id: string; name: string; qr_code: string }> = [];
+
+        // Promote source asset into the group (raw → grouped) if we generated a new group_id
+        if (renameSource) {
+            await tx
+                .update(assets)
+                .set({
+                    group_id: effectiveGroupId,
+                    group_name: effectiveGroupName,
+                    group_images: effectiveGroupImages,
+                    group_on_display_image: effectiveGroupOnDisplayImage,
+                    name: renamedSourceName,
+                })
+                .where(eq(assets.id, sourceAsset.id));
+        }
 
         for (let index = 0; index < data.quantity; index += 1) {
             const qrCode = await qrCodeGenerator(sourceAsset.company_id);
@@ -1204,14 +1395,17 @@ const addAssetUnits = async (
                     warehouse_id: sourceAsset.warehouse_id,
                     zone_id: sourceAsset.zone_id,
                     brand_id: sourceAsset.brand_id,
-                    family_id: sourceAsset.family_id,
+                    group_id: effectiveGroupId,
+                    group_name: effectiveGroupName,
+                    group_images: effectiveGroupImages,
+                    group_on_display_image: effectiveGroupOnDisplayImage,
                     team_id: sourceAsset.team_id,
                     name: unitName,
                     description: sourceAsset.description,
                     category: sourceAsset.category,
                     images: sourceAsset.images || [],
                     on_display_image: sourceAsset.on_display_image,
-                    tracking_method: "INDIVIDUAL",
+                    stock_mode: "SERIALIZED",
                     total_quantity: 1,
                     available_quantity: 1,
                     qr_code: qrCode,
@@ -1224,6 +1418,7 @@ const addAssetUnits = async (
                     refurb_days_estimate: sourceAsset.refurb_days_estimate,
                     handling_tags: sourceAsset.handling_tags || [],
                     status: "AVAILABLE",
+                    low_stock_threshold: sourceAsset.low_stock_threshold ?? null,
                 })
                 .returning({
                     id: assets.id,
@@ -1463,7 +1658,7 @@ const getAssetScanHistory = async (id: string, user: AuthUser, platformId: strin
                     id: true,
                     name: true,
                     qr_code: true,
-                    tracking_method: true,
+                    stock_mode: true,
                 },
             },
             scanned_by_user: {
@@ -1785,7 +1980,6 @@ const createAssetVersionSnapshot = async (
         where: and(eq(assets.id, assetId), eq(assets.platform_id, platformId)),
         with: {
             brand: { columns: { id: true, name: true } },
-            family: { columns: { id: true, name: true, stock_mode: true } },
             warehouse: { columns: { id: true, name: true } },
             zone: { columns: { id: true, name: true } },
         },
@@ -1801,9 +1995,10 @@ const createAssetVersionSnapshot = async (
 
     const snapshot = {
         name: asset.name,
-        family_id: asset.family_id,
-        family_name: asset.family?.name || null,
-        stock_mode: asset.family?.stock_mode || null,
+        group_id: asset.group_id,
+        group_name: asset.group_name,
+        stock_mode: asset.stock_mode,
+        low_stock_threshold: asset.low_stock_threshold,
         brand_id: asset.brand_id,
         brand_name: asset.brand?.name || null,
         category: asset.category,
@@ -2285,12 +2480,137 @@ const getAssetUsageReport = async (assetId: string, user: AuthUser, platformId: 
     };
 };
 
+// ----------------------------------- BULK GROUP ASSETS -----------------------------------
+// Admin/Logistics action to gather N selected assets into a single group_id.
+// Validation:
+//   1. All selected assets must share the same company_id, brand_id, and stock_mode
+//      (group sibling constraint per locked decision #3).
+//   2. Any selected asset's existing group_id must match the target OR be NULL
+//      (reject if any asset belongs to a different group — must un-group first).
+//   3. Cross-group name uniqueness for the supplied group_name within the company.
+//   4. target_group_id is reused if provided; otherwise a fresh UUID is generated.
+//
+// Atomic: writes group_id + group_name to all selected assets in one transaction.
+const bulkGroupAssets = async (
+    data: {
+        asset_ids: string[];
+        target_group_id?: string;
+        group_name: string;
+        group_images?: { url: string; note?: string }[];
+        group_on_display_image?: string | null;
+    },
+    _user: AuthUser,
+    platformId: string
+) => {
+    if (!data.asset_ids || data.asset_ids.length < 2) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Bulk-group requires at least 2 asset IDs"
+        );
+    }
+
+    return db.transaction(async (tx) => {
+        const selected = await tx
+            .select({
+                id: assets.id,
+                company_id: assets.company_id,
+                brand_id: assets.brand_id,
+                stock_mode: assets.stock_mode,
+                group_id: assets.group_id,
+            })
+            .from(assets)
+            .where(
+                and(
+                    inArray(assets.id, data.asset_ids),
+                    eq(assets.platform_id, platformId),
+                    isNull(assets.deleted_at)
+                )
+            );
+
+        if (selected.length !== data.asset_ids.length) {
+            throw new CustomizedError(
+                httpStatus.NOT_FOUND,
+                "One or more selected assets were not found"
+            );
+        }
+
+        // (1) Company/brand/stock_mode parity check
+        const firstCompany = selected[0].company_id;
+        const firstBrand = selected[0].brand_id;
+        const firstStockMode = selected[0].stock_mode;
+        for (const row of selected) {
+            if (row.company_id !== firstCompany) {
+                throw new CustomizedError(
+                    httpStatus.BAD_REQUEST,
+                    "All selected assets must share the same company"
+                );
+            }
+            if ((row.brand_id ?? null) !== (firstBrand ?? null)) {
+                throw new CustomizedError(
+                    httpStatus.BAD_REQUEST,
+                    "All selected assets must share the same brand"
+                );
+            }
+            if (row.stock_mode !== firstStockMode) {
+                throw new CustomizedError(
+                    httpStatus.BAD_REQUEST,
+                    "All selected assets must share the same stock_mode (SERIALIZED or POOLED)"
+                );
+            }
+        }
+
+        // (2) Group conflict check
+        const targetGroupId = data.target_group_id ?? randomUUID();
+        for (const row of selected) {
+            if (row.group_id && row.group_id !== targetGroupId) {
+                throw new CustomizedError(
+                    httpStatus.BAD_REQUEST,
+                    "One or more selected assets already belong to a different group — un-group them first"
+                );
+            }
+        }
+
+        // (3) Cross-group name uniqueness within the company
+        await validateGroupNameUniqueness(tx, {
+            platformId,
+            companyId: firstCompany,
+            groupName: data.group_name,
+            currentGroupId: targetGroupId,
+        });
+
+        // (4) Atomic write
+        const promotedGroupImages =
+            data.group_images && data.group_images.length > 0
+                ? await promoteDraftImages(data.group_images, firstCompany)
+                : [];
+
+        await tx
+            .update(assets)
+            .set({
+                group_id: targetGroupId,
+                group_name: data.group_name,
+                group_images: promotedGroupImages,
+                group_on_display_image: data.group_on_display_image ?? null,
+            })
+            .where(inArray(assets.id, data.asset_ids));
+
+        return {
+            group_id: targetGroupId,
+            group_name: data.group_name,
+            group_images: promotedGroupImages,
+            group_on_display_image: data.group_on_display_image ?? null,
+            assets_grouped: data.asset_ids.length,
+        };
+    });
+};
+
 export const AssetServices = {
     createAsset,
     getAssets,
     getAssetById,
     updateAsset,
     addAssetUnits,
+    bulkGroupAssets,
     deleteAsset,
     getAssetAvailabilityStats,
     getAssetScanHistory,

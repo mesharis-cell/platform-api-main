@@ -8,10 +8,9 @@ import ExcelJS from "exceljs";
  * "Photo" column. Missing / failed image fetches are silently skipped — the
  * row still renders with empty image cell.
  *
- * Image source priority per asset:
+ * Image source priority per asset (post-squash):
  *   1. assets.on_display_image
  *   2. first entry of assets.images (JSONB: [{url, note?}])
- *   3. first entry of asset_families.images (fallback when asset has none)
  */
 
 export type AssetCatalogRow = {
@@ -19,10 +18,9 @@ export type AssetCatalogRow = {
     asset_id: string;
     asset_name: string;
     qr_code: string;
-    // Family identity
-    family_id: string | null;
-    family_name: string | null;
-    company_item_code: string | null;
+    // Group identity (post-squash, replaces family fields)
+    group_id: string | null;
+    group_name: string | null;
     description: string | null;
     // Classification
     company_name: string | null;
@@ -30,8 +28,7 @@ export type AssetCatalogRow = {
     category_name: string | null;
     team_name: string | null;
     // Stock posture
-    stock_mode: string | null;
-    tracking_method: string;
+    stock_mode: string;
     total_quantity: number;
     available_quantity: number;
     low_stock_threshold: number | null;
@@ -145,15 +142,13 @@ const HEADERS: { key: keyof AssetCatalogRow | "photo"; label: string; width: num
     { key: "asset_id", label: "Asset ID", width: 38 },
     { key: "asset_name", label: "Asset Name", width: 32 },
     { key: "qr_code", label: "QR Code", width: 22 },
-    { key: "family_name", label: "Family", width: 28 },
-    { key: "company_item_code", label: "Item Code", width: 18 },
+    { key: "group_name", label: "Group", width: 28 },
     { key: "description", label: "Description", width: 40 },
     { key: "company_name", label: "Company", width: 22 },
     { key: "brand_name", label: "Brand", width: 18 },
     { key: "category_name", label: "Category", width: 18 },
     { key: "team_name", label: "Team", width: 16 },
     { key: "stock_mode", label: "Stock Mode", width: 14 },
-    { key: "tracking_method", label: "Tracking", width: 14 },
     { key: "total_quantity", label: "Total Qty", width: 10 },
     { key: "available_quantity", label: "Available Qty", width: 12 },
     { key: "low_stock_threshold", label: "Low Stock Threshold", width: 14 },

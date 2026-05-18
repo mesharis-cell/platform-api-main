@@ -4,6 +4,7 @@
 # Usage:
 #   bash scripts/deploy/trigger-amplify.sh admin main
 #   bash scripts/deploy/trigger-amplify.sh client-redbull main
+#   bash scripts/deploy/trigger-amplify.sh client-bacardi main
 #
 # Requires AWS_PROFILE=kadence + amplify:StartJob perm.
 
@@ -18,13 +19,14 @@ declare -A APPS=(
     [warehouse]="dlqzh1t64i0in"
     [client-redbull]="d12ui6oezoziso"
     [client-pernod]="d20fj4f9z87yys"
+    [client-bacardi]="da30r15wqgu7o"
 )
 
 TARGET="${1:-}"
 BRANCH="${2:-main}"
 
 if [[ -z "$TARGET" || -z "${APPS[$TARGET]:-}" ]]; then
-    echo "Usage: $0 <admin|warehouse|client-redbull|client-pernod> [branch=main]" >&2
+    echo "Usage: $0 <admin|warehouse|client-redbull|client-pernod|client-bacardi> [branch=main]" >&2
     exit 1
 fi
 

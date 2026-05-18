@@ -181,7 +181,7 @@ const inboundScan = async (
 
     // Step 4: Determine quantity to scan
     let scanQuantity = 1;
-    if (asset.tracking_method === "BATCH") {
+    if (asset.stock_mode === "POOLED") {
         if (!quantity || quantity < 1) {
             throw new CustomizedError(httpStatus.BAD_REQUEST, "Quantity required for BATCH assets");
         }
@@ -198,7 +198,7 @@ const inboundScan = async (
     });
 
     const alreadyScanned = existingScans.reduce((sum, scan) => sum + scan.quantity, 0);
-    const isBatch = asset.tracking_method === "BATCH";
+    const isBatch = asset.stock_mode === "POOLED";
 
     // Step 6: Validate not over-scanning.
     //
@@ -281,7 +281,7 @@ const inboundScan = async (
     await insertScanEventMedia(scanEvent.id, normalizedDamageMedia, "DAMAGE");
 
     // Audit: record inbound movement for BATCH items
-    if (asset.tracking_method === "BATCH") {
+    if (asset.stock_mode === "POOLED") {
         await StockMovementService.record(null, {
             platformId,
             assetId: asset.id,
@@ -422,7 +422,7 @@ const getInboundProgress = async (
             asset_id: item.asset_id,
             asset_name: item.asset_name,
             qr_code: (item.asset as any).qr_code,
-            tracking_method: (item.asset as any).tracking_method,
+            stock_mode: (item.asset as any).stock_mode,
             required_quantity: item.quantity,
             scanned_quantity: scannedQuantity,
             is_complete: scannedQuantity >= item.quantity,
@@ -465,7 +465,7 @@ const completeInboundScan = async (
                         columns: {
                             id: true,
                             name: true,
-                            tracking_method: true,
+                            stock_mode: true,
                             refurb_days_estimate: true,
                             available_quantity: true,
                         },
@@ -505,10 +505,10 @@ const completeInboundScan = async (
             .filter((scan) => scan.asset_id === item.asset_id)
             .reduce((sum, scan) => sum + scan.quantity, 0);
 
-        const trackingMethod = (item.asset as any)?.tracking_method || "INDIVIDUAL";
+        const stockMode = (item.asset as any)?.stock_mode || "SERIALIZED";
         const delta = scannedQuantity - item.quantity; // negative = shortfall
 
-        if (trackingMethod === "INDIVIDUAL") {
+        if (stockMode === "SERIALIZED") {
             // Serialized items: strict — must scan every unit
             if (scannedQuantity < item.quantity) {
                 throw new CustomizedError(
@@ -693,7 +693,7 @@ const outboundScan = async (
                 asset: {
                     asset_id: asset.id,
                     asset_name: asset.name,
-                    tracking_method: asset.tracking_method,
+                    stock_mode: asset.stock_mode,
                     scanned_quantity: 0,
                     required_quantity: 0,
                     remaining_quantity: 0,
@@ -716,7 +716,7 @@ const outboundScan = async (
 
     // Step 5: Determine quantity to scan
     let scanQuantity = 1;
-    if (asset.tracking_method === "BATCH") {
+    if (asset.stock_mode === "POOLED") {
         if (!quantity || quantity < 1) {
             throw new CustomizedError(httpStatus.BAD_REQUEST, "Quantity required for BATCH assets");
         }
@@ -769,7 +769,7 @@ const outboundScan = async (
     await insertScanEventAssets(scanEvent.id, [{ asset_id: asset.id, quantity: scanQuantity }]);
 
     // Audit: record outbound movement for BATCH items
-    if (asset.tracking_method === "BATCH") {
+    if (asset.stock_mode === "POOLED") {
         await StockMovementService.record(null, {
             platformId,
             assetId: asset.id,
@@ -809,7 +809,7 @@ const outboundScan = async (
         asset: {
             asset_id: asset.id,
             asset_name: asset.name,
-            tracking_method: asset.tracking_method,
+            stock_mode: asset.stock_mode,
             scanned_quantity: newScannedTotal,
             required_quantity: orderItem.quantity,
             remaining_quantity: orderItem.quantity - newScannedTotal,
@@ -957,7 +957,7 @@ const getOutboundProgress = async (
             asset_id: item.asset_id,
             asset_name: item.asset_name,
             qr_code: (item.asset as any).qr_code,
-            tracking_method: (item.asset as any).tracking_method,
+            stock_mode: (item.asset as any).stock_mode,
             required_quantity: item.quantity,
             scanned_quantity: scannedQuantity,
             is_complete: scannedQuantity >= item.quantity,

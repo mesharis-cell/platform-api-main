@@ -2,7 +2,6 @@ import { Router } from "express";
 import { AnalyticsRoutes } from "../modules/analytics/analytics.routes";
 import { AssetRoutes } from "../modules/asset/asset.routes";
 import { AssetCategoryRoutes } from "../modules/asset-categories/asset-categories.routes";
-import { AssetFamilyRoutes } from "../modules/asset-family/asset-family.routes";
 import { BrandRoutes } from "../modules/brand/brand.routes";
 import { CityRoutes } from "../modules/city/city.routes";
 import { CollectionRoutes } from "../modules/collection/collection.routes";
@@ -33,6 +32,7 @@ import { AttachmentsRoutes } from "../modules/attachments/attachments.routes";
 import { WorkflowRequestRoutes } from "../modules/workflow-request/workflow-request.routes";
 import { AccessPolicyRoutes } from "../modules/access-policy/access-policy.routes";
 import { WorkflowDefinitionRoutes } from "../modules/workflow-definition/workflow-definition.routes";
+import { CommerceRulesRoutes } from "../modules/commerce-rules/commerce-rules.routes";
 import { SelfPickupOperationRoutes } from "../modules/self-pickup/self-pickup.routes";
 import { StockMovementsRoutes } from "../modules/stock-movements/stock-movements.routes";
 
@@ -92,10 +92,6 @@ const routes = [
         route: AssetCategoryRoutes,
     },
     {
-        path: "/asset-family",
-        route: AssetFamilyRoutes,
-    },
-    {
         path: "/scanning",
         route: ScanningRoutes,
     },
@@ -150,6 +146,10 @@ const routes = [
     {
         path: "/workflow-definitions",
         route: WorkflowDefinitionRoutes,
+    },
+    {
+        path: "/commerce-rules",
+        route: CommerceRulesRoutes,
     },
     {
         path: "/order",

@@ -30,7 +30,7 @@ import { createActors, createClient, type Actors } from "../support/http";
 import { db } from "../support/db";
 import {
     assetBookings,
-    assetFamilies,
+    legacyAssetFamilies,
     assets as assetsTable,
     brands,
     cities,
@@ -116,13 +116,13 @@ const loadSeedRefs = async (): Promise<SeedRefs> => {
     // is orderable, breaking step 1. Filter explicitly for a POOLED family
     // and a GREEN, available-quantity-positive, AVAILABLE-status asset.
     const [family] = await db
-        .select({ id: assetFamilies.id })
-        .from(assetFamilies)
+        .select({ id: legacyAssetFamilies.id })
+        .from(legacyAssetFamilies)
         .where(
             and(
-                eq(assetFamilies.company_id, company.id),
-                eq(assetFamilies.stock_mode, "POOLED"),
-                eq(assetFamilies.is_active, true)
+                eq(legacyAssetFamilies.company_id, company.id),
+                eq(legacyAssetFamilies.stock_mode, "POOLED"),
+                eq(legacyAssetFamilies.is_active, true)
             )
         )
         .limit(1);
@@ -133,7 +133,7 @@ const loadSeedRefs = async (): Promise<SeedRefs> => {
         .from(assetsTable)
         .where(
             and(
-                eq(assetsTable.family_id, family.id),
+                eq(assetsTable.group_id, family.id),
                 eq(assetsTable.condition, "GREEN"),
                 eq(assetsTable.status, "AVAILABLE"),
                 gt(assetsTable.available_quantity, 0)

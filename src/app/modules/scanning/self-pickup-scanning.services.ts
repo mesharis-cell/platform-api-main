@@ -146,7 +146,7 @@ const selfPickupOutboundScan = async (
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Asset not in this self-pickup");
 
     let scanQuantity = 1;
-    if (asset.tracking_method === "BATCH") {
+    if (asset.stock_mode === "POOLED") {
         if (!data.quantity || data.quantity < 1) {
             throw new CustomizedError(httpStatus.BAD_REQUEST, "Quantity required for BATCH assets");
         }
@@ -185,7 +185,7 @@ const selfPickupOutboundScan = async (
 
     await insertScanEventAssets(scanEvent.id, [{ asset_id: asset.id, quantity: scanQuantity }]);
 
-    if (asset.tracking_method === "BATCH") {
+    if (asset.stock_mode === "POOLED") {
         await StockMovementService.record(null, {
             platformId,
             assetId: asset.id,
@@ -436,7 +436,7 @@ const selfPickupInboundScan = async (
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Asset not in this self-pickup");
 
     let scanQuantity = 1;
-    if (asset.tracking_method === "BATCH") {
+    if (asset.stock_mode === "POOLED") {
         if (!data.quantity || data.quantity < 1) {
             throw new CustomizedError(httpStatus.BAD_REQUEST, "Quantity required for BATCH assets");
         }
@@ -507,7 +507,7 @@ const selfPickupInboundScan = async (
     await insertScanEventMedia(scanEvent.id, normalizedReturnMedia, "RETURN_WIDE");
     await insertScanEventMedia(scanEvent.id, normalizedDamageMedia, "DAMAGE");
 
-    if (asset.tracking_method === "BATCH") {
+    if (asset.stock_mode === "POOLED") {
         await StockMovementService.record(null, {
             platformId,
             assetId: asset.id,
@@ -609,7 +609,7 @@ const completeSelfPickupReturn = async (
                         columns: {
                             id: true,
                             name: true,
-                            tracking_method: true,
+                            stock_mode: true,
                             available_quantity: true,
                         },
                     },
@@ -646,7 +646,7 @@ const completeSelfPickupReturn = async (
         const scannedQty = inboundScans
             .filter((s) => s.asset_id === item.asset_id)
             .reduce((sum, s) => sum + s.quantity, 0);
-        const trackingMethod = (item.asset as any)?.tracking_method || "INDIVIDUAL";
+        const stockMode = (item.asset as any)?.stock_mode || "SERIALIZED";
         // Expected return = actual handover qty (migration 0048). Fallback to
         // item.quantity for records created pre-0048 or when scanned_quantity
         // wasn't set (legacy all-or-nothing path).
@@ -654,7 +654,7 @@ const completeSelfPickupReturn = async (
         if (expectedQty === 0) continue; // Skipped at handover — no return expected.
         const delta = scannedQty - expectedQty;
 
-        if (trackingMethod === "INDIVIDUAL") {
+        if (stockMode === "SERIALIZED") {
             if (scannedQty < expectedQty) {
                 throw new CustomizedError(
                     httpStatus.BAD_REQUEST,
@@ -805,7 +805,7 @@ const getSelfPickupHandoverProgress = async (selfPickupId: string, platformId: s
             asset_id: item.asset_id,
             asset_name: item.asset_name,
             qr_code: (item.asset as any)?.qr_code,
-            tracking_method: (item.asset as any)?.tracking_method,
+            stock_mode: (item.asset as any)?.stock_mode,
             required_quantity: item.quantity,
             scanned_quantity: scannedQty,
             is_complete: scannedQty >= item.quantity,
@@ -851,7 +851,7 @@ const getSelfPickupReturnProgress = async (selfPickupId: string, platformId: str
             asset_id: item.asset_id,
             asset_name: item.asset_name,
             qr_code: (item.asset as any)?.qr_code,
-            tracking_method: (item.asset as any)?.tracking_method,
+            stock_mode: (item.asset as any)?.stock_mode,
             required_quantity: requiredQty,
             scanned_quantity: scannedQty,
             is_complete: requiredQty === 0 ? true : scannedQty >= requiredQty,

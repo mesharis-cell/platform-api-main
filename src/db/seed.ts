@@ -976,7 +976,7 @@ async function seedAssets() {
                     category,
                     images: generateAssetImages(category, t.name, 3),
                     on_display_image: generateAssetImages(category, `${t.name} On Display`, 1)[0],
-                    tracking_method: t.tracking,
+                    stock_mode: t.tracking === "BATCH" ? "POOLED" : "SERIALIZED",
                     total_quantity: t.qty,
                     available_quantity: t.qty,
                     qr_code: qrCode,
@@ -1055,7 +1055,7 @@ async function seedCollections() {
             items.push({
                 collection: coll.id,
                 asset: asset.id,
-                default_quantity: asset.tracking_method === "BATCH" ? 5 : 1,
+                default_quantity: asset.stock_mode === "POOLED" ? 5 : 1,
                 notes: idx === 0 ? "Featured item" : null,
                 display_order: idx,
             });
