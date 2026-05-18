@@ -729,7 +729,7 @@ export async function seedPrAssets(opts: SeedPrAssetsOptions) {
                     category: canonicalBrand,
                     images,
                     on_display_image: onDisplayImage,
-                    tracking_method: "INDIVIDUAL",
+                    stock_mode: "SERIALIZED",
                     total_quantity: 1,
                     available_quantity: 1,
                     qr_code: qrCode,

@@ -23,7 +23,9 @@ import { eventBus, EVENT_TYPES } from "../../events";
 import { resolveEffectiveFeature } from "../../constants/common";
 import {
     getPlatformFeasibilityConfig,
-    computeLeadFloorDatetimeForEntity,
+    spLeadHoursForWindow,
+    isWithinOperatingHours,
+    advanceToNextBusinessDay,
 } from "../../shared/feasibility/feasibility.core";
 import { SubmitSelfPickupPayload, SelfPickupListParams } from "./self-pickup.interfaces";
 import {
@@ -99,6 +101,7 @@ const submitSelfPickupFromCart = async (
         expected_return_at,
         notes,
         special_instructions,
+        is_permanent_placement,
         job_number,
         po_number,
     } = payload;
@@ -136,6 +139,9 @@ const submitSelfPickupFromCart = async (
     }> = [];
     let totalVolume = 0;
     let totalWeight = 0;
+    // Track the set of warehouses involved in this SP so feasibility can
+    // apply per-warehouse strictest-wins resolution (item 2).
+    const warehouseIds = new Set<string>();
 
     for (const item of items) {
         const asset = await db.query.assets.findFirst({
@@ -149,6 +155,8 @@ const submitSelfPickupFromCart = async (
         if (!asset) {
             throw new CustomizedError(httpStatus.BAD_REQUEST, `Asset not found: ${item.asset_id}`);
         }
+
+        if (asset.warehouse_id) warehouseIds.add(asset.warehouse_id);
 
         // Note: availability gate is asserted INSIDE the tx with FOR UPDATE
         // (see step 4-pre below). The outside-tx read here is metadata only —
@@ -198,20 +206,41 @@ const submitSelfPickupFromCart = async (
     // `minimum_lead_hours` (default 24h for truck/crew prep); self-pickups
     // use a separate `sp_minimum_lead_hours` (default 2h — client brings
     // their own vehicle, we only need pick-pack time). Both are per-
-    // platform with optional per-company overrides.
-    const feasibilityConfig = await getPlatformFeasibilityConfig(platformId, companyId);
-    const floorIso = computeLeadFloorDatetimeForEntity(feasibilityConfig, "SELF_PICKUP");
+    // platform with optional per-company and per-warehouse overrides.
+    //
+    // Item 2: when the requested pickup window starts OUTSIDE the
+    // warehouse's operating_hours, apply the longer
+    // `ooh_pickup_minimum_lead_hours` (default 12h) instead of the standard
+    // `sp_minimum_lead_hours` — ops need more notice to staff an OOH pickup.
+    const feasibilityConfig = await getPlatformFeasibilityConfig(
+        platformId,
+        companyId,
+        Array.from(warehouseIds)
+    );
     const pickupStartMs = new Date(pickup_window.start).getTime();
     if (!Number.isFinite(pickupStartMs)) {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Invalid pickup window start");
     }
-    if (pickupStartMs < new Date(floorIso).getTime()) {
+    const pickupStartDate = new Date(pickupStartMs);
+    const effectiveLeadHours = spLeadHoursForWindow(feasibilityConfig, pickupStartDate);
+    const leadFloorDate = advanceToNextBusinessDay(
+        new Date(Date.now() + effectiveLeadHours * 60 * 60 * 1000),
+        feasibilityConfig
+    );
+    const floorIso = leadFloorDate.toISOString();
+    if (pickupStartMs < leadFloorDate.getTime()) {
+        const isOoh =
+            feasibilityConfig.operating_hours &&
+            !isWithinOperatingHours(pickupStartDate, feasibilityConfig);
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            `Pickup is too soon. Earliest possible pickup is ${floorIso} (based on a ${feasibilityConfig.sp_minimum_lead_hours}h lead time).`,
+            `Pickup is too soon. Earliest possible pickup is ${floorIso} (based on a ${effectiveLeadHours}h lead time${
+                isOoh ? " for an out-of-hours pickup" : ""
+            }).`,
             {
                 lead_floor_datetime: floorIso,
-                sp_minimum_lead_hours: feasibilityConfig.sp_minimum_lead_hours,
+                effective_lead_hours: effectiveLeadHours,
+                is_out_of_hours: Boolean(isOoh),
             }
         );
     }
@@ -317,6 +346,7 @@ const submitSelfPickupFromCart = async (
                 expected_return_at: expected_return_at ? dayjs(expected_return_at).toDate() : null,
                 notes: notes || null,
                 special_instructions: special_instructions || null,
+                is_permanent_placement: Boolean(is_permanent_placement),
                 job_number: job_number || null,
                 po_number: po_number || null,
                 self_pickup_pricing_id: pickupPricing.id,
@@ -719,7 +749,7 @@ const cancelSelfPickup = async (
         .select({
             asset_id: scanEvents.asset_id,
             quantity: scanEvents.quantity,
-            tracking_method: assetsTbl.tracking_method,
+            stock_mode: assetsTbl.stock_mode,
         })
         .from(scanEvents)
         .innerJoin(assetsTbl, eq(assetsTbl.id, scanEvents.asset_id))
@@ -727,7 +757,7 @@ const cancelSelfPickup = async (
             and(
                 eq(scanEvents.self_pickup_id, id),
                 eq(scanEvents.scan_type, "OUTBOUND"),
-                eq(assetsTbl.tracking_method, "BATCH")
+                eq(assetsTbl.stock_mode, "POOLED")
             )
         );
 

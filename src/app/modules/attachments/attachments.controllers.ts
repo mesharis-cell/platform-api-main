@@ -48,8 +48,9 @@ const createForEntity = (entityType: AttachmentEntityType) =>
 
 const deleteAttachment = catchAsync(async (req: Request, res: Response) => {
     const platformId = (req as any).platformId;
+    const user = (req as any).user;
     const id = getRequiredString(req.params.id, "id");
-    const result = await AttachmentsServices.deleteAttachment(id, platformId);
+    const result = await AttachmentsServices.deleteAttachment(id, platformId, user?.id);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

@@ -13,6 +13,7 @@ import {
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
+import { eventBus, EVENT_TYPES } from "../../events";
 import {
     CreateEntityAttachmentsPayload,
     CreateWorkflowAttachmentsPayload,
@@ -268,7 +269,30 @@ const createAttachmentRecords = async (
 
     if (payload.attachments.length === 0) return [];
 
-    return tx.insert(entityAttachments).values(values).returning();
+    const inserted = await tx.insert(entityAttachments).values(values).returning();
+
+    // Item 3: emit ATTACHMENT_ADDED per inserted row so audit/notification
+    // rules can react. Audit-only by default — tenants can wire emails.
+    for (const row of inserted) {
+        const type = typeMap.get(row.attachment_type_id);
+        eventBus.emit({
+            event_type: EVENT_TYPES.ATTACHMENT_ADDED,
+            platform_id: platformId,
+            entity_type: entityType as any,
+            entity_id: entityId,
+            actor_id: user.id,
+            payload: {
+                attachment_id: row.id,
+                attachment_type_id: row.attachment_type_id,
+                attachment_type_code: type?.code ?? null,
+                file_name: row.file_name,
+                visible_to_client: row.visible_to_client,
+                uploaded_by: row.uploaded_by,
+            },
+        });
+    }
+
+    return inserted;
 };
 
 const createEntityAttachments = async (
@@ -279,9 +303,14 @@ const createEntityAttachments = async (
     payload: CreateEntityAttachmentsPayload
 ) => createAttachmentRecords(entityType, entityId, platformId, user, payload);
 
-const deleteAttachment = async (id: string, platformId: string) => {
+const deleteAttachment = async (id: string, platformId: string, actorId?: string) => {
     const [existing] = await db
-        .select({ id: entityAttachments.id })
+        .select({
+            id: entityAttachments.id,
+            entity_type: entityAttachments.entity_type,
+            entity_id: entityAttachments.entity_id,
+            file_name: entityAttachments.file_name,
+        })
         .from(entityAttachments)
         .where(and(eq(entityAttachments.id, id), eq(entityAttachments.platform_id, platformId)))
         .limit(1);
@@ -291,6 +320,20 @@ const deleteAttachment = async (id: string, platformId: string) => {
     }
 
     await db.delete(entityAttachments).where(eq(entityAttachments.id, id));
+
+    // Item 3: emit ATTACHMENT_DELETED for audit.
+    eventBus.emit({
+        event_type: EVENT_TYPES.ATTACHMENT_DELETED,
+        platform_id: platformId,
+        entity_type: existing.entity_type as any,
+        entity_id: existing.entity_id,
+        actor_id: actorId,
+        payload: {
+            attachment_id: existing.id,
+            file_name: existing.file_name,
+        },
+    });
+
     return { id };
 };
 

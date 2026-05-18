@@ -132,7 +132,7 @@ export type AvailabilityConflict = {
 export type AvailabilityResult = {
     asset_id: string;
     asset_name: string;
-    tracking_method: "INDIVIDUAL" | "BATCH";
+    stock_mode: "SERIALIZED" | "POOLED";
     total_quantity: number;
     booked_quantity: number;
     self_booked_quantity: number;
@@ -148,7 +148,7 @@ type MinimalAsset = {
     id: string;
     name: string;
     status: "AVAILABLE" | "BOOKED" | "OUT" | "MAINTENANCE" | "TRANSFORMED";
-    tracking_method: "INDIVIDUAL" | "BATCH";
+    stock_mode: "SERIALIZED" | "POOLED";
     total_quantity: number;
 };
 
@@ -182,7 +182,7 @@ export const computeAvailability = (params: {
     const base: AvailabilityResult = {
         asset_id: asset.id,
         asset_name: asset.name,
-        tracking_method: asset.tracking_method,
+        stock_mode: asset.stock_mode,
         total_quantity: asset.total_quantity,
         booked_quantity: bookedQuantity,
         self_booked_quantity: selfBookedQty,
@@ -209,7 +209,7 @@ export const computeAvailability = (params: {
     }
 
     // Hard-block: MAINTENANCE on serialized only
-    if (asset.status === "MAINTENANCE" && asset.tracking_method === "INDIVIDUAL") {
+    if (asset.status === "MAINTENANCE" && asset.stock_mode === "SERIALIZED") {
         return { ...base, is_available: false, reason_code: "MAINTENANCE" };
     }
 
@@ -301,7 +301,7 @@ export const checkAvailability = async (params: {
             id: assets.id,
             name: assets.name,
             status: assets.status,
-            tracking_method: assets.tracking_method,
+            stock_mode: assets.stock_mode,
             total_quantity: assets.total_quantity,
         })
         .from(assets)
@@ -405,7 +405,7 @@ export const checkAvailability = async (params: {
             result.set(assetId, {
                 asset_id: assetId,
                 asset_name: "",
-                tracking_method: "INDIVIDUAL",
+                stock_mode: "SERIALIZED",
                 total_quantity: 0,
                 booked_quantity: 0,
                 self_booked_quantity: 0,

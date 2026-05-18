@@ -323,7 +323,7 @@ export const platformsRelations = relations(platforms, ({ many }) => ({
     users: many(users),
     access_policies: many(accessPolicies),
     warehouses: many(warehouses),
-    asset_families: many(assetFamilies),
+    legacy_asset_families: many(legacyAssetFamilies),
     workflow_requests: many(workflowRequests),
     workflow_definitions: many(workflowDefinitions),
     workflow_definition_company_overrides: many(workflowDefinitionCompanyOverrides),
@@ -440,7 +440,7 @@ export const companiesRelations = relations(companies, ({ one, many }) => ({
     domains: many(companyDomains),
     brands: many(brands),
     zones: many(zones),
-    asset_families: many(assetFamilies),
+    legacy_asset_families: many(legacyAssetFamilies),
     assets: many(assets),
     collections: many(collections),
     orders: many(orders),
@@ -591,7 +591,7 @@ export const brandsRelations = relations(brands, ({ one, many }) => ({
         fields: [brands.company_id],
         references: [companies.id],
     }),
-    asset_families: many(assetFamilies),
+    legacy_asset_families: many(legacyAssetFamilies),
     assets: many(assets),
     collections: many(collections),
 }));
@@ -609,6 +609,17 @@ export const warehouses = pgTable(
         city: varchar("city", { length: 50 }).notNull(),
         address: text("address").notNull(),
         coordinates: jsonb("coordinates"), // GPS coordinates {lat, lng}
+        // Operating hours by weekday — null = "always open" (no schedule
+        // enforced). Shape: { mon: [openHour, closeHour] | null, ... }.
+        // Hours are interpreted in the platform timezone (Asia/Dubai by
+        // default) via Intl.DateTimeFormat — never use server-local time.
+        operating_hours: jsonb("operating_hours"),
+        // Per-warehouse feasibility overrides. Mirrors
+        // platforms.config.feasibility shape; missing keys fall through to
+        // the platform/company resolver chain.
+        config: jsonb("config")
+            .notNull()
+            .default(sql`'{}'::jsonb`),
         is_active: boolean("is_active").notNull().default(true),
         created_at: timestamp("created_at").notNull().defaultNow(),
         updated_at: timestamp("updated_at")
@@ -707,12 +718,19 @@ export const assetCategoriesRelations = relations(assetCategories, ({ one, many 
         fields: [assetCategories.company_id],
         references: [companies.id],
     }),
-    asset_families: many(assetFamilies),
+    legacy_asset_families: many(legacyAssetFamilies),
 }));
 
-// ---------------------------------- ASSET FAMILY -----------------------------------------
-export const assetFamilies = pgTable(
-    "asset_families",
+// ---------------------------------- LEGACY ASSET FAMILY -----------------------------------
+// READ-ONLY ARCHIVE — preserved after the squash so that historical reports and
+// audit queries can still resolve the original family identity (name, etc.) for
+// rows that pre-date the cutover. NO service code reads from this table at
+// runtime post-cutover; assets are now self-contained (group_id + group_name +
+// stock_mode live directly on assets). Renamed via migration 0061 from
+// asset_families → legacy_asset_families. Drop fully (separate migration) once
+// confident no report path needs the legacy labels.
+export const legacyAssetFamilies = pgTable(
+    "legacy_asset_families",
     {
         id: uuid("id").primaryKey().defaultRandom(),
         platform_id: uuid("platform_id")
@@ -773,28 +791,30 @@ export const assetFamilies = pgTable(
     ]
 );
 
-export const assetFamiliesRelations = relations(assetFamilies, ({ one, many }) => ({
+export const legacyAssetFamiliesRelations = relations(legacyAssetFamilies, ({ one }) => ({
     platform: one(platforms, {
-        fields: [assetFamilies.platform_id],
+        fields: [legacyAssetFamilies.platform_id],
         references: [platforms.id],
     }),
     company: one(companies, {
-        fields: [assetFamilies.company_id],
+        fields: [legacyAssetFamilies.company_id],
         references: [companies.id],
     }),
     brand: one(brands, {
-        fields: [assetFamilies.brand_id],
+        fields: [legacyAssetFamilies.brand_id],
         references: [brands.id],
     }),
     team: one(teams, {
-        fields: [assetFamilies.team_id],
+        fields: [legacyAssetFamilies.team_id],
         references: [teams.id],
     }),
     category: one(assetCategories, {
-        fields: [assetFamilies.category_id],
+        fields: [legacyAssetFamilies.category_id],
         references: [assetCategories.id],
     }),
-    assets: many(assets),
+    // NOTE: no `assets: many(assets)` relation post-squash — assets no longer
+    // reference this table via FK. To look up assets historically grouped here,
+    // join on assets.group_id = legacyAssetFamilies.id (unenforced UUID match).
 }));
 
 // ---------------------------------- ASSET -----------------------------------------------
@@ -815,7 +835,15 @@ export const assets = pgTable(
             .notNull()
             .references(() => zones.id),
         brand_id: uuid("brand_id").references(() => brands.id),
-        family_id: uuid("family_id").references(() => assetFamilies.id, { onDelete: "set null" }),
+        // group_id: opaque correlation key. Assets sharing this UUID are siblings.
+        // No FK — the value historically equals legacyAssetFamilies.id but is not
+        // enforced at the DB level. NULL means the asset is raw (not part of a group).
+        // Backfilled in migration 0061 from the dropped family_id column.
+        group_id: uuid("group_id"),
+        // group_name: denormalized display label for the catalog card representing
+        // the group. Required at service layer whenever group_id is set. Edits
+        // cascade across siblings; drift is treated as invalid application state.
+        group_name: varchar("group_name", { length: 200 }),
         name: varchar("name", { length: 200 }).notNull(),
         description: text("description"),
         category: varchar("category", { length: 100 }).notNull(),
@@ -823,7 +851,22 @@ export const assets = pgTable(
             .notNull()
             .default(sql`'[]'::jsonb`), // AssetImage[]: {url: string, note?: string}
         on_display_image: text("on_display_image"),
-        tracking_method: trackingMethodEnum("tracking_method").notNull(),
+        // Shared group-level presentation media. These are meaningful only when
+        // group_id is set and cascade across siblings, like group_name. They are
+        // intentionally denormalized onto assets so groups remain thin and not a
+        // first-class table.
+        group_images: jsonb("group_images")
+            .notNull()
+            .default(sql`'[]'::jsonb`),
+        group_on_display_image: text("group_on_display_image"),
+        // stock_mode: SERIALIZED (one row per physical unit) or POOLED (aggregate
+        // counters). Replaces the legacy tracking_method enum (INDIVIDUAL/BATCH);
+        // semantically identical, single canonical naming. Required.
+        stock_mode: stockModeEnum("stock_mode").notNull(),
+        // low_stock_threshold: per-asset threshold for low-stock alerts. NULL = no
+        // alert configured. Meaningful primarily for POOLED assets (SERIALIZED rows
+        // have available_quantity ∈ {0,1} which makes a threshold trivial).
+        low_stock_threshold: integer("low_stock_threshold"),
         total_quantity: integer("total_quantity").notNull().default(1),
         available_quantity: integer("available_quantity").notNull().default(1),
         qr_code: varchar("qr_code", { length: 100 }).notNull().unique(),
@@ -858,6 +901,8 @@ export const assets = pgTable(
         index("assets_platform_idx").on(table.platform_id),
         index("assets_company_idx").on(table.company_id),
         index("assets_qr_code_idx").on(table.qr_code),
+        index("assets_group_id_idx").on(table.group_id),
+        index("assets_stock_mode_idx").on(table.stock_mode),
         foreignKey({
             columns: [table.transformed_from],
             foreignColumns: [table.id],
@@ -883,7 +928,9 @@ export const assetsRelations = relations(assets, ({ one, many }) => ({
     company: one(companies, { fields: [assets.company_id], references: [companies.id] }),
     platform: one(platforms, { fields: [assets.platform_id], references: [platforms.id] }),
     brand: one(brands, { fields: [assets.brand_id], references: [brands.id] }),
-    family: one(assetFamilies, { fields: [assets.family_id], references: [assetFamilies.id] }),
+    // NOTE: no `family` relation post-squash. Asset siblings are correlated by
+    // shared group_id (opaque UUID, no FK). For historical legacy-family lookup,
+    // join manually on assets.group_id = legacyAssetFamilies.id (unenforced).
     warehouse: one(warehouses, { fields: [assets.warehouse_id], references: [warehouses.id] }),
     zone: one(zones, { fields: [assets.zone_id], references: [zones.id] }),
     last_scanned_by_user: one(users, { fields: [assets.last_scanned_by], references: [users.id] }),
@@ -926,7 +973,7 @@ export const teamsRelations = relations(teams, ({ one, many }) => ({
     company: one(companies, { fields: [teams.company_id], references: [companies.id] }),
     platform: one(platforms, { fields: [teams.platform_id], references: [platforms.id] }),
     members: many(teamMembers),
-    asset_families: many(assetFamilies),
+    legacy_asset_families: many(legacyAssetFamilies),
     assets: many(assets),
 }));
 
@@ -1019,8 +1066,17 @@ export const collectionItems = pgTable(
         notes: text("notes"),
         display_order: integer("display_order"), // Sort order in collection
         created_at: timestamp("created_at").notNull().defaultNow(),
+        deleted_at: timestamp("deleted_at"),
     },
-    (table) => [unique("collection_items_unique").on(table.collection, table.asset)]
+    (table) => [
+        // Partial uniqueness: only one non-deleted row per (collection, asset)
+        // so an asset can be removed and re-added without colliding with the
+        // soft-deleted historical row.
+        uniqueIndex("collection_items_active_unique")
+            .on(table.collection, table.asset)
+            .where(sql`${table.deleted_at} IS NULL`),
+        index("collection_items_deleted_at_idx").on(table.deleted_at),
+    ]
 );
 
 export const collectionItemsRelations = relations(collectionItems, ({ one }) => ({
@@ -1115,6 +1171,10 @@ export const orders = pgTable(
             .references(() => cities.id),
         venue_location: jsonb("venue_location").notNull(), // {country, city, address, access_notes}
         permit_requirements: jsonb("permit_requirements"),
+        // Item 7: explicit Yes/No collected at checkout — true = items going
+        // out permanently (no return shipment expected), false = normal
+        // rental flow (will come back). Existing rows default to false.
+        is_permanent_placement: boolean("is_permanent_placement").notNull().default(false),
         special_instructions: text("special_instructions"),
 
         // Logistics windows
@@ -1425,7 +1485,44 @@ export const workflowRequestsRelations = relations(workflowRequests, ({ one, man
         references: [users.id],
     }),
     attachments: many(entityAttachments),
+    status_history: many(workflowRequestStatusHistory),
 }));
+
+// Item 4: audit trail of workflow status transitions. Every status change
+// inserts a row (from_status nullable for the initial create) so the inbox
+// can show "who moved this to SUBMITTED and when" without scanning logs.
+export const workflowRequestStatusHistory = pgTable(
+    "workflow_request_status_history",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        workflow_request_id: uuid("workflow_request_id")
+            .notNull()
+            .references(() => workflowRequests.id, { onDelete: "cascade" }),
+        from_status: varchar("from_status", { length: 50 }),
+        to_status: varchar("to_status", { length: 50 }).notNull(),
+        changed_by: uuid("changed_by").references(() => users.id),
+        changed_at: timestamp("changed_at").notNull().defaultNow(),
+        note: text("note"),
+    },
+    (table) => [
+        index("workflow_request_status_history_request_idx").on(table.workflow_request_id),
+        index("workflow_request_status_history_changed_at_idx").on(table.changed_at),
+    ]
+);
+
+export const workflowRequestStatusHistoryRelations = relations(
+    workflowRequestStatusHistory,
+    ({ one }) => ({
+        workflow_request: one(workflowRequests, {
+            fields: [workflowRequestStatusHistory.workflow_request_id],
+            references: [workflowRequests.id],
+        }),
+        changed_by_user: one(users, {
+            fields: [workflowRequestStatusHistory.changed_by],
+            references: [users.id],
+        }),
+    })
+);
 
 export const workflowDefinitions = pgTable(
     "workflow_definitions",
@@ -1461,6 +1558,11 @@ export const workflowDefinitions = pgTable(
         intake_schema: jsonb("intake_schema")
             .notNull()
             .default(sql`'{}'::jsonb`),
+        // Item 4: rule-matrix payload that drives auto-creation of
+        // workflow_requests at platform trigger events (e.g. ORDER_CONFIRMED).
+        // Shape: { trigger_event, conditions: [{source, operator, value}] }.
+        // null = manual creation only.
+        auto_open_conditions: jsonb("auto_open_conditions"),
         is_active: boolean("is_active").notNull().default(true),
         sort_order: integer("sort_order").notNull().default(0),
         created_at: timestamp("created_at").notNull().defaultNow(),
@@ -1977,6 +2079,15 @@ export const selfPickups = pgTable(
             .$onUpdate(() => new Date())
             .notNull(),
         deleted_at: timestamp("deleted_at"),
+        // Per-warehouse feasibility resolution (item 2 of the 9-item bundle).
+        // Nullable v1 until a follow-up migration backfills via the asset set
+        // and tightens to NOT NULL.
+        warehouse_id: uuid("warehouse_id").references(() => warehouses.id, {
+            onDelete: "set null",
+        }),
+        // Item 7: explicit Yes/No collected at checkout — true = items
+        // going out permanently (no return). Existing rows default to false.
+        is_permanent_placement: boolean("is_permanent_placement").notNull().default(false),
     },
     (table) => [
         unique("self_pickups_platform_self_pickup_id_unique").on(
@@ -1987,6 +2098,7 @@ export const selfPickups = pgTable(
         index("self_pickups_status_idx").on(table.self_pickup_status),
         index("self_pickups_financial_status_idx").on(table.financial_status),
         index("self_pickups_created_at_idx").on(table.created_at),
+        index("self_pickups_warehouse_id_idx").on(table.warehouse_id),
     ]
 );
 
@@ -2000,6 +2112,10 @@ export const selfPickupsRelations = relations(selfPickups, ({ one, many }) => ({
         references: [companies.id],
     }),
     brand: one(brands, { fields: [selfPickups.brand_id], references: [brands.id] }),
+    warehouse: one(warehouses, {
+        fields: [selfPickups.warehouse_id],
+        references: [warehouses.id],
+    }),
     created_by_user: one(users, {
         fields: [selfPickups.created_by],
         references: [users.id],
@@ -3002,12 +3118,13 @@ export const stockMovements = pgTable(
         platform_id: uuid("platform_id")
             .notNull()
             .references(() => platforms.id, { onDelete: "cascade" }),
-        // Either asset_id or asset_family_id (or both) — asset_id is set for serialized/batch
-        // movements, asset_family_id for family-level aggregates.
+        // asset_id is the canonical link for all stock movements post-squash.
+        // asset_family_id is retained as a PLAIN uuid (no FK) for historical audit-
+        // ledger lookup against the renamed legacy_asset_families table (rows
+        // written pre-squash carry the old family.id here; rows written post-squash
+        // will leave this NULL). Migration 0061 dropped the FK enforcement.
         asset_id: uuid("asset_id").references(() => assets.id, { onDelete: "set null" }),
-        asset_family_id: uuid("asset_family_id").references(() => assetFamilies.id, {
-            onDelete: "set null",
-        }),
+        asset_family_id: uuid("asset_family_id"),
         delta: integer("delta").notNull(), // positive (stock in) or negative (stock out)
         movement_type: stockMovementTypeEnum("movement_type").notNull(),
         write_off_reason: stockWriteOffReasonEnum("write_off_reason"), // only when movement_type = WRITE_OFF
@@ -3044,9 +3161,12 @@ export const stockMovementsRelations = relations(stockMovements, ({ one }) => ({
         references: [platforms.id],
     }),
     asset: one(assets, { fields: [stockMovements.asset_id], references: [assets.id] }),
-    asset_family: one(assetFamilies, {
+    // Historical lookup only: relates the audit-ledger row to the legacy family
+    // archive (pre-squash rows had a family link; post-squash rows leave this
+    // NULL). Used only by export/report queries that need legacy labels.
+    legacy_asset_family: one(legacyAssetFamilies, {
         fields: [stockMovements.asset_family_id],
-        references: [assetFamilies.id],
+        references: [legacyAssetFamilies.id],
     }),
     scan_event: one(scanEvents, {
         fields: [stockMovements.linked_scan_event_id],
@@ -3055,5 +3175,70 @@ export const stockMovementsRelations = relations(stockMovements, ({ one }) => ({
     created_by_user: one(users, {
         fields: [stockMovements.created_by],
         references: [users.id],
+    }),
+}));
+
+// ============================================================
+// COMMERCE RULES (Item 6 of the 9-item bundle)
+// Generic, admin-configurable cart-time validation rules. v1 surfaces
+// QUANTITY + COMPANION (warn-only). Schema reserves full forward-compat
+// vocabulary so v2 expansion to CONFLICT / CATEGORY / BRAND rule types
+// and BLOCK / SUGGEST severities needs no migration.
+// ============================================================
+
+export const commerceRuleTypeEnum = pgEnum("commerce_rule_type", [
+    "QUANTITY",
+    "COMPANION",
+    "CONFLICT",
+    "CATEGORY",
+    "BRAND",
+]);
+
+export const commerceRuleSeverityEnum = pgEnum("commerce_rule_severity", [
+    "WARN",
+    "BLOCK",
+    "SUGGEST",
+]);
+
+export const commerceRules = pgTable(
+    "commerce_rules",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        // null = platform-wide; set = company-specific. Resolution at
+        // evaluation time is UNION of (platform-wide ∪ caller-company-specific).
+        company_id: uuid("company_id").references(() => companies.id, {
+            onDelete: "cascade",
+        }),
+        name: varchar("name", { length: 200 }).notNull(),
+        description: text("description"),
+        rule_type: commerceRuleTypeEnum("rule_type").notNull(),
+        severity: commerceRuleSeverityEnum("severity").notNull().default("WARN"),
+        target: jsonb("target").notNull(),
+        predicate: jsonb("predicate").notNull(),
+        message: text("message").notNull(),
+        is_active: boolean("is_active").notNull().default(true),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+        updated_at: timestamp("updated_at")
+            .$onUpdate(() => new Date())
+            .notNull(),
+        deleted_at: timestamp("deleted_at"),
+    },
+    (table) => [
+        index("commerce_rules_platform_idx").on(table.platform_id),
+        index("commerce_rules_company_idx").on(table.company_id),
+    ]
+);
+
+export const commerceRulesRelations = relations(commerceRules, ({ one }) => ({
+    platform: one(platforms, {
+        fields: [commerceRules.platform_id],
+        references: [platforms.id],
+    }),
+    company: one(companies, {
+        fields: [commerceRules.company_id],
+        references: [companies.id],
     }),
 }));

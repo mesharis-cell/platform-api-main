@@ -225,7 +225,7 @@ const getSelfBookingById = async (id: string, platformId: string) => {
                             name: true,
                             qr_code: true,
                             category: true,
-                            tracking_method: true,
+                            stock_mode: true,
                         },
                     },
                 },

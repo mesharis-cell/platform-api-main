@@ -216,10 +216,13 @@ router.post(
     AttachmentsControllers.createForEntity("ORDER")
 );
 
+// Item 4: open the workflow-list GET to CLIENT — service layer
+// listForEntity already filters by viewer_roles via the definition, so
+// clients only see workflows where they're explicitly listed as viewers.
 router.get(
     "/:id/workflow-requests",
     platformValidator,
-    auth("ADMIN", "LOGISTICS"),
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
     featureValidator(featureNames.enable_workflows),
     WorkflowRequestControllers.listForEntity("ORDER")
 );

@@ -18,22 +18,17 @@ router.get(
     StockMovementsControllers.getAssetStockHistory
 );
 
-// Family stock history
-router.get(
-    "/asset-family/:family_id/stock-history",
-    platformValidator,
-    auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.STOCK_MOVEMENTS_READ),
-    StockMovementsControllers.getFamilyStockHistory
-);
+// Family stock history endpoint DELETED in the squash (locked decision #10).
+// No group-aggregated equivalent — per-asset history above is the only one.
 
-// Low stock families
+// Low stock list (per-asset post-squash; was family-aggregated pre-squash).
+// URL preserved for frontend compatibility; response shape now per-asset.
 router.get(
     "/low-stock",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
     requirePermission(PERMISSIONS.STOCK_MOVEMENTS_READ),
-    StockMovementsControllers.getLowStockFamilies
+    StockMovementsControllers.getLowStockAssets
 );
 
 // Manual stock adjustment

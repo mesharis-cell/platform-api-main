@@ -1,5 +1,5 @@
 import z from "zod";
-import { assetConditionEnum, assetStatusEnum, trackingMethodEnum } from "../../../db/schema";
+import { assetConditionEnum, assetStatusEnum, stockModeEnum } from "../../../db/schema";
 import { enumMessageGenerator } from "../../utils/helper";
 
 const assetImageSchema = z.object({
@@ -10,13 +10,29 @@ const assetImageSchema = z.object({
 const createAssetSchema = z.object({
     body: z
         .object({
-            company_id: z.string().uuid("Invalid company ID format").optional(),
+            company_id: z
+                .string({ message: "Company ID is required" })
+                .uuid("Invalid company ID format"),
             warehouse_id: z
                 .string({ message: "Warehouse ID is required" })
                 .uuid("Invalid warehouse ID format"),
             zone_id: z.string({ message: "Zone ID is required" }).uuid("Invalid zone ID format"),
             brand_id: z.string().uuid("Invalid brand ID format").optional(),
-            family_id: z.string().uuid("Invalid family ID format").optional().nullable(),
+            // group_id (optional): if supplied, the new asset joins this existing group.
+            // Sibling constraints (same company+brand+stock_mode) validated at service layer.
+            group_id: z.string().uuid("Invalid group ID format").optional().nullable(),
+            // is_part_of_group: opt-out toggle from the wizard. Defaults to true — the
+            // common case is creating a group. False means raw asset (group_id remains
+            // NULL even on serialized creates).
+            is_part_of_group: z.boolean().optional().default(true),
+            // group_name: required if creating a new group (no group_id supplied AND
+            // is_part_of_group true). Service layer enforces.
+            group_name: z
+                .string()
+                .min(1, "Group name cannot be empty")
+                .max(200, "Group name must be under 200 characters")
+                .optional()
+                .nullable(),
             name: z
                 .string({ message: "Name is required" })
                 .min(1, "Name is required")
@@ -25,11 +41,22 @@ const createAssetSchema = z.object({
             category: z.string().min(1, "Category is required").max(100).optional().nullable(),
             images: z.array(assetImageSchema).optional().default([]),
             on_display_image: z.string().url("Invalid on display image URL").optional(),
-            tracking_method: z
-                .enum(trackingMethodEnum.enumValues, {
-                    message: enumMessageGenerator("Tracking method", trackingMethodEnum.enumValues),
-                })
-                .optional(),
+            group_images: z.array(assetImageSchema).optional().default([]),
+            group_on_display_image: z
+                .string()
+                .url("Invalid group on display image URL")
+                .optional()
+                .nullable(),
+            // stock_mode replaces tracking_method. Required.
+            stock_mode: z.enum(stockModeEnum.enumValues, {
+                message: enumMessageGenerator("Stock mode", stockModeEnum.enumValues),
+            }),
+            low_stock_threshold: z
+                .number()
+                .int("Low-stock threshold must be an integer")
+                .min(0, "Low-stock threshold cannot be negative")
+                .optional()
+                .nullable(),
             quantity: z
                 .number({ message: "Quantity must be a number" })
                 .int("Quantity must be an integer")
@@ -51,9 +78,8 @@ const createAssetSchema = z.object({
                 .optional()
                 .nullable(),
             weight_per_unit: z
-                .number({ message: "Weight per unit must be a number" })
-                .positive("Weight per unit must be positive")
-                .optional(),
+                .number({ message: "Weight per unit is required" })
+                .positive("Weight per unit must be positive"),
             dimensions: z
                 .object({
                     length: z.number().positive().optional(),
@@ -63,9 +89,8 @@ const createAssetSchema = z.object({
                 .optional()
                 .default({}),
             volume_per_unit: z
-                .number({ message: "Volume per unit must be a number" })
-                .positive("Volume per unit must be positive")
-                .optional(),
+                .number({ message: "Volume per unit is required" })
+                .positive("Volume per unit must be positive"),
             condition: z
                 .enum(assetConditionEnum.enumValues, {
                     message: enumMessageGenerator("Condition", assetConditionEnum.enumValues),
@@ -101,55 +126,10 @@ const createAssetSchema = z.object({
                 path: ["available_quantity"],
             }
         )
-        .superRefine((data, ctx) => {
-            if (!data.family_id && !data.company_id) {
-                ctx.addIssue({
-                    code: z.ZodIssueCode.custom,
-                    message: "Company ID is required when asset family is not provided",
-                    path: ["company_id"],
-                });
-            }
-
-            if (!data.family_id && !data.category) {
-                ctx.addIssue({
-                    code: z.ZodIssueCode.custom,
-                    message: "Category is required when asset family is not provided",
-                    path: ["category"],
-                });
-            }
-
-            if (!data.family_id && !data.tracking_method) {
-                ctx.addIssue({
-                    code: z.ZodIssueCode.custom,
-                    message: "Tracking method is required when asset family is not provided",
-                    path: ["tracking_method"],
-                });
-            }
-
-            if (!data.family_id && data.weight_per_unit === undefined) {
-                ctx.addIssue({
-                    code: z.ZodIssueCode.custom,
-                    message: "Weight per unit is required when asset family is not provided",
-                    path: ["weight_per_unit"],
-                });
-            }
-
-            if (!data.family_id && data.volume_per_unit === undefined) {
-                ctx.addIssue({
-                    code: z.ZodIssueCode.custom,
-                    message: "Volume per unit is required when asset family is not provided",
-                    path: ["volume_per_unit"],
-                });
-            }
+        .refine((data) => data.stock_mode !== "POOLED" || !!data.packaging, {
+            message: "Packaging description is required for POOLED stock_mode",
+            path: ["packaging"],
         })
-        .refine(
-            (data) => data.tracking_method !== "BATCH" || !!data.packaging || !!data.family_id,
-            {
-                message:
-                    "Packaging description is required for BATCH tracking method unless inherited from asset family",
-                path: ["packaging"],
-            }
-        )
         .transform((data) => ({
             ...data,
             total_quantity: data.total_quantity ?? data.quantity ?? 1,
@@ -162,7 +142,14 @@ const updateAssetSchema = z.object({
         warehouse_id: z.string().uuid("Invalid warehouse ID format").optional(),
         zone_id: z.string().uuid("Invalid zone ID format").optional(),
         brand_id: z.string().uuid("Invalid brand ID format").optional().nullable(),
-        family_id: z.string().uuid("Invalid family ID format").optional().nullable(),
+        // group_id can be set, changed, or cleared (NULL ⟹ group_name auto-cleared by service)
+        group_id: z.string().uuid("Invalid group ID format").optional().nullable(),
+        group_name: z
+            .string()
+            .min(1, "Group name cannot be empty")
+            .max(200, "Group name must be under 200 characters")
+            .optional()
+            .nullable(),
         name: z
             .string()
             .min(1, "Name cannot be empty")
@@ -172,11 +159,24 @@ const updateAssetSchema = z.object({
         category: z.string().optional().nullable(),
         images: z.array(assetImageSchema).optional(),
         on_display_image: z.string().url("Invalid on display image URL").optional().nullable(),
-        tracking_method: z
-            .enum(trackingMethodEnum.enumValues, {
-                message: enumMessageGenerator("Tracking method", trackingMethodEnum.enumValues),
+        group_images: z.array(assetImageSchema).optional(),
+        group_on_display_image: z
+            .string()
+            .url("Invalid group on display image URL")
+            .optional()
+            .nullable(),
+        // stock_mode is immutable after creation; service rejects updates.
+        stock_mode: z
+            .enum(stockModeEnum.enumValues, {
+                message: enumMessageGenerator("Stock mode", stockModeEnum.enumValues),
             })
             .optional(),
+        low_stock_threshold: z
+            .number()
+            .int("Low-stock threshold must be an integer")
+            .min(0, "Low-stock threshold cannot be negative")
+            .optional()
+            .nullable(),
         total_quantity: z
             .number()
             .int("Total quantity must be an integer")
@@ -229,6 +229,28 @@ const addAssetUnitsSchema = z.object({
             .number({ message: "Quantity must be a number" })
             .int("Quantity must be an integer")
             .min(1, "Quantity must be at least 1"),
+    }),
+});
+
+// Bulk-group: gather N selected assets into a single group_id.
+// Service-layer validates same company+brand+stock_mode across selections,
+// rejects cross-group conflicts, and enforces cross-group name uniqueness.
+const bulkGroupAssetsSchema = z.object({
+    body: z.object({
+        asset_ids: z
+            .array(z.string().uuid("Invalid asset ID format"))
+            .min(2, "At least 2 asset IDs are required to form a group"),
+        target_group_id: z.string().uuid("Invalid group ID format").optional(),
+        group_name: z
+            .string({ message: "Group name is required" })
+            .min(1, "Group name cannot be empty")
+            .max(200, "Group name must be under 200 characters"),
+        group_images: z.array(assetImageSchema).optional(),
+        group_on_display_image: z
+            .string()
+            .url("Invalid group on display image URL")
+            .optional()
+            .nullable(),
     }),
 });
 
@@ -343,6 +365,7 @@ export const AssetSchemas = {
     createAssetSchema,
     updateAssetSchema,
     addAssetUnitsSchema,
+    bulkGroupAssetsSchema,
     availabilitySchema,
     addConditionHistorySchema,
     generateQRCodeSchema,

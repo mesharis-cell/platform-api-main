@@ -21,32 +21,17 @@ const getAssetStockHistory = catchAsync(async (req, res) => {
     });
 });
 
-const getFamilyStockHistory = catchAsync(async (req, res) => {
-    const platformId = (req as any).platformId;
-    const familyId = getRequiredString(req.params.family_id, "family_id");
-    const result = await StockMovementsServices.getFamilyStockHistory(
-        familyId,
-        platformId,
-        req.query as any
-    );
+// getFamilyStockHistory controller DELETED in the squash (locked decision #10).
 
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: "Family stock history fetched",
-        data: result,
-    });
-});
-
-const getLowStockFamilies = catchAsync(async (req, res) => {
+const getLowStockAssets = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const companyId = req.query.company_id as string | undefined;
-    const result = await StockMovementsServices.getLowStockFamilies(platformId, companyId);
+    const result = await StockMovementsServices.getLowStockAssets(platformId, companyId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
         success: true,
-        message: "Low stock families fetched",
+        message: "Low stock assets fetched",
         data: result,
     });
 });
@@ -66,7 +51,6 @@ const createManualAdjustment = catchAsync(async (req, res) => {
 
 export const StockMovementsControllers = {
     getAssetStockHistory,
-    getFamilyStockHistory,
-    getLowStockFamilies,
+    getLowStockAssets,
     createManualAdjustment,
 };

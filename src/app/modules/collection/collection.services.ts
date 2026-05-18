@@ -204,6 +204,7 @@ const getCollections = async (query: Record<string, any>, user: AuthUser, platfo
                 // Include asset IDs only — used for per-collection item count on list UI
                 assets: {
                     columns: { id: true },
+                    where: (items, { isNull }) => isNull(items.deleted_at),
                 },
             },
             orderBy: orderDirection,
@@ -273,14 +274,18 @@ const getCollectionById = async (id: string, user: AuthUser, platformId: string)
                 },
             },
             assets: {
+                where: (items, { isNull }) => isNull(items.deleted_at),
                 with: {
                     asset: {
                         columns: {
                             id: true,
-                            family_id: true,
+                            group_id: true,
+                            group_name: true,
+                            stock_mode: true,
                             name: true,
                             category: true,
                             images: true,
+                            on_display_image: true,
                             volume_per_unit: true,
                             weight_per_unit: true,
                             dimensions: true,
@@ -290,15 +295,7 @@ const getCollectionById = async (id: string, user: AuthUser, platformId: string)
                             available_quantity: true,
                             total_quantity: true,
                             handling_tags: true,
-                        },
-                        with: {
-                            family: {
-                                columns: {
-                                    id: true,
-                                    name: true,
-                                    stock_mode: true,
-                                },
-                            },
+                            deleted_at: true,
                         },
                     },
                 },
@@ -374,6 +371,7 @@ const updateCollection = async (id: string, data: any, platformId: string) => {
                 .where(
                     and(
                         eq(collectionItems.collection, id),
+                        isNull(collectionItems.deleted_at),
                         eq(assets.platform_id, platformId),
                         isNull(assets.deleted_at)
                     )
@@ -476,6 +474,7 @@ const addCollectionItem = async (
                 company_id: assets.company_id,
                 brand_id: assets.brand_id,
                 team_id: assets.team_id,
+                stock_mode: assets.stock_mode,
             })
             .from(assets)
             .where(
@@ -511,6 +510,16 @@ const addCollectionItem = async (
             );
         }
 
+        // SERIALIZED assets represent a single physical unit per asset row,
+        // so a default_quantity above 1 is nonsensical. POOLED assets can have
+        // any default_quantity >= 1.
+        if (asset.stock_mode === "SERIALIZED" && data.default_quantity !== 1) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Default quantity must be 1 for serialized assets"
+            );
+        }
+
         // Step 3: Insert collection item
         const [result] = await db
             .insert(collectionItems)
@@ -528,7 +537,7 @@ const addCollectionItem = async (
         const pgError = error.cause || error;
 
         if (pgError.code === "23505") {
-            if (pgError.constraint === "collection_items_unique") {
+            if (pgError.constraint === "collection_items_active_unique") {
                 throw new CustomizedError(
                     httpStatus.CONFLICT,
                     "This asset is already in the collection"
@@ -564,16 +573,36 @@ const updateCollectionItem = async (
             throw new CustomizedError(httpStatus.NOT_FOUND, "Collection not found");
         }
 
-        // Step 2: Verify collection item exists
+        // Step 2: Verify collection item exists (active rows only)
         const [existingItem] = await db
             .select()
             .from(collectionItems)
             .where(
-                and(eq(collectionItems.id, itemId), eq(collectionItems.collection, collectionId))
+                and(
+                    eq(collectionItems.id, itemId),
+                    eq(collectionItems.collection, collectionId),
+                    isNull(collectionItems.deleted_at)
+                )
             );
 
         if (!existingItem) {
             throw new CustomizedError(httpStatus.NOT_FOUND, "Collection item not found");
+        }
+
+        // If default_quantity is being changed, re-validate the stock_mode
+        // rule. SERIALIZED assets must stay at qty 1.
+        if (data.default_quantity !== undefined && data.default_quantity !== 1) {
+            const [asset] = await db
+                .select({ stock_mode: assets.stock_mode })
+                .from(assets)
+                .where(eq(assets.id, existingItem.asset));
+
+            if (asset?.stock_mode === "SERIALIZED") {
+                throw new CustomizedError(
+                    httpStatus.BAD_REQUEST,
+                    "Default quantity must be 1 for serialized assets"
+                );
+            }
         }
 
         // Step 3: Update collection item
@@ -609,18 +638,29 @@ const deleteCollectionItem = async (collectionId: string, itemId: string, platfo
         throw new CustomizedError(httpStatus.NOT_FOUND, "Collection not found");
     }
 
-    // Step 2: Verify collection item exists
+    // Step 2: Verify collection item exists (active rows only)
     const [existingItem] = await db
         .select()
         .from(collectionItems)
-        .where(and(eq(collectionItems.id, itemId), eq(collectionItems.collection, collectionId)));
+        .where(
+            and(
+                eq(collectionItems.id, itemId),
+                eq(collectionItems.collection, collectionId),
+                isNull(collectionItems.deleted_at)
+            )
+        );
 
     if (!existingItem) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Collection item not found");
     }
 
-    // Step 3: Delete collection item
-    await db.delete(collectionItems).where(eq(collectionItems.id, itemId));
+    // Step 3: Soft delete — preserves audit trail and lets the asset be
+    // re-added later without unique-constraint collision (the active-unique
+    // partial index ignores rows where deleted_at is set).
+    await db
+        .update(collectionItems)
+        .set({ deleted_at: new Date() })
+        .where(eq(collectionItems.id, itemId));
 
     return null;
 };
@@ -662,6 +702,7 @@ const checkCollectionAvailability = async (
         where: and(...conditions),
         with: {
             assets: {
+                where: (items, { isNull }) => isNull(items.deleted_at),
                 with: {
                     asset: {
                         columns: {
