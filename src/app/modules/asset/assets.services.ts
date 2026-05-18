@@ -1140,14 +1140,24 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
             (data as any).group_on_display_image = null;
         }
 
-        if (
-            (data.group_images !== undefined || data.group_on_display_image !== undefined) &&
-            !effectiveGroupId
-        ) {
-            throw new CustomizedError(
-                httpStatus.BAD_REQUEST,
-                "Group media can only be edited on grouped assets"
-            );
+        const hasGroupMediaUpdate =
+            data.group_images !== undefined || data.group_on_display_image !== undefined;
+        const hasNonEmptyGroupMediaUpdate =
+            (Array.isArray(data.group_images) && data.group_images.length > 0) ||
+            (data.group_on_display_image !== undefined &&
+                data.group_on_display_image !== null &&
+                data.group_on_display_image !== "");
+
+        if (hasGroupMediaUpdate && !effectiveGroupId && data.group_id !== null) {
+            if (hasNonEmptyGroupMediaUpdate) {
+                throw new CustomizedError(
+                    httpStatus.BAD_REQUEST,
+                    "Group media can only be edited on grouped assets"
+                );
+            }
+
+            delete (data as any).group_images;
+            delete (data as any).group_on_display_image;
         }
 
         // Step 6: Validate quantity constraints if either is being updated
