@@ -143,6 +143,13 @@ const paginateItems = (items: any[], pageNumber: number, limitNumber: number) =>
     return items.slice(start, start + limitNumber);
 };
 
+const catalogTypePriority = (type: string | undefined) => {
+    if (type === "group") return 0;
+    if (type === "asset") return 1;
+    if (type === "collection") return 2;
+    return 3;
+};
+
 const getCatalog = async (
     query: Record<string, unknown>,
     user: any,
@@ -302,7 +309,15 @@ const getCatalog = async (
               ? collectionItems
               : [...assetItems, ...collectionItems];
 
-    items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    items.sort((a, b) => {
+        const createdDelta = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        if (createdDelta !== 0) return createdDelta;
+
+        const typeDelta = catalogTypePriority(a.type) - catalogTypePriority(b.type);
+        if (typeDelta !== 0) return typeDelta;
+
+        return String(a.name || "").localeCompare(String(b.name || ""));
+    });
 
     const pagedItems = paginateItems(items, pageNumber, limitNumber);
 
