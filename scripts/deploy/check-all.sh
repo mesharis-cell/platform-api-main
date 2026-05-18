@@ -37,7 +37,7 @@ aws elasticbeanstalk describe-environments --region ap-south-1 \
 echo ""
 echo "▶ Amplify apps (ap-south-1) — LATEST job per main branch"
 echo "────────────────────────────────────────────────────────"
-for app in "admin:d3uxg263ljjkn" "warehouse:dlqzh1t64i0in" "client-redbull:d12ui6oezoziso" "client-pernod:d20fj4f9z87yys"; do
+for app in "admin:d3uxg263ljjkn" "warehouse:dlqzh1t64i0in" "client-redbull:d12ui6oezoziso" "client-pernod:d20fj4f9z87yys" "client-bacardi:da30r15wqgu7o"; do
     label="${app%%:*}"
     app_id="${app##*:}"
     printf "\n  %s (app %s)\n" "$label" "$app_id"

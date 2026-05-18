@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Report latest Amplify build jobs for one of the 4 Kadence frontends.
+# Report latest Amplify build jobs for one of the Kadence frontends.
 #
 # Usage:
 #   bash scripts/deploy/check-amplify.sh admin
 #   bash scripts/deploy/check-amplify.sh warehouse
 #   bash scripts/deploy/check-amplify.sh client-redbull
 #   bash scripts/deploy/check-amplify.sh client-pernod
-#   bash scripts/deploy/check-amplify.sh                 # all four
+#   bash scripts/deploy/check-amplify.sh client-bacardi
+#   bash scripts/deploy/check-amplify.sh                 # all frontends
 #
 # Requires AWS_PROFILE=kadence + amplify:ListBranches + amplify:ListJobs perms.
 # Apps live in ap-south-1.
@@ -23,6 +24,7 @@ declare -A APPS=(
     [warehouse]="dlqzh1t64i0in"
     [client-redbull]="d12ui6oezoziso"
     [client-pernod]="d20fj4f9z87yys"
+    [client-bacardi]="da30r15wqgu7o"
 )
 
 report_app() {
@@ -54,16 +56,16 @@ report_app() {
 }
 
 case "$TARGET" in
-    admin|warehouse|client-redbull|client-pernod)
+    admin|warehouse|client-redbull|client-pernod|client-bacardi)
         report_app "$TARGET" "${APPS[$TARGET]}"
         ;;
     all|"")
-        for k in admin warehouse client-redbull client-pernod; do
+        for k in admin warehouse client-redbull client-pernod client-bacardi; do
             report_app "$k" "${APPS[$k]}"
         done
         ;;
     *)
-        echo "Usage: $0 [admin|warehouse|client-redbull|client-pernod|all]" >&2
+        echo "Usage: $0 [admin|warehouse|client-redbull|client-pernod|client-bacardi|all]" >&2
         exit 1
         ;;
 esac
