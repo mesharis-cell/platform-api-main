@@ -135,6 +135,16 @@ router.patch(
     AssetControllers.updateAsset
 );
 
+// Update asset condition through the dedicated condition workflow.
+router.patch(
+    "/:id/condition",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.CONDITIONS_UPDATE),
+    payloadValidator(AssetSchemas.updateAssetConditionSchema),
+    AssetControllers.updateAssetCondition
+);
+
 // Add units to a SERIALIZED asset (creates new unit rows with unique QR codes).
 // Promotes a raw asset into a group if the source has group_id IS NULL.
 router.post(

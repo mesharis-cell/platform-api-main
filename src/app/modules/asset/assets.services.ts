@@ -33,6 +33,7 @@ import {
     AddAssetUnitsPayload,
     CreateAssetPayload,
     GenerateQRCodePayload,
+    UpdateAssetConditionPayload,
 } from "./assets.interfaces";
 import { assetQueryValidationConfig, assetSortableFields } from "./assets.utils";
 import * as AvailabilityCore from "../../shared/availability/availability.core";
@@ -1828,6 +1829,106 @@ const addConditionHistory = async (
     return result;
 };
 
+const updateAssetCondition = async (
+    assetId: string,
+    data: UpdateAssetConditionPayload,
+    user: AuthUser,
+    platformId: string
+) => {
+    const asset = await db.query.assets.findFirst({
+        where: and(
+            eq(assets.id, assetId),
+            eq(assets.platform_id, platformId),
+            isNull(assets.deleted_at)
+        ),
+    });
+
+    if (!asset) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found");
+    }
+
+    if (asset.status === "TRANSFORMED") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Condition cannot be updated on transformed assets"
+        );
+    }
+
+    if (asset.condition === data.condition) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Condition is unchanged. Add an observation instead."
+        );
+    }
+
+    const damageEntries = data.photo_entries.map((entry) => ({
+        url: entry.url.trim(),
+        description:
+            entry.description && entry.description.trim().length > 0
+                ? entry.description.trim()
+                : undefined,
+    }));
+    const photoUrls = damageEntries.map((entry) => entry.url);
+    const notes = data.notes.trim();
+
+    const updateData: {
+        condition: "GREEN" | "ORANGE" | "RED";
+        condition_notes: string | null;
+        refurb_days_estimate: number | null;
+        updated_at: Date;
+    } = {
+        condition: data.condition,
+        condition_notes: data.condition === "GREEN" ? null : notes,
+        refurb_days_estimate:
+            data.condition === "GREEN" ? null : (data.refurb_days_estimate ?? null),
+        updated_at: new Date(),
+    };
+
+    const [updated, historyEntry] = await db.transaction(async (tx) => {
+        const [updatedAsset] = await tx
+            .update(assets)
+            .set(updateData)
+            .where(and(eq(assets.id, assetId), eq(assets.platform_id, platformId)))
+            .returning({
+                id: assets.id,
+                name: assets.name,
+                condition: assets.condition,
+                condition_notes: assets.condition_notes,
+                refurb_days_estimate: assets.refurb_days_estimate,
+                status: assets.status,
+                updated_at: assets.updated_at,
+            });
+
+        const [insertedHistory] = await tx
+            .insert(assetConditionHistory)
+            .values({
+                platform_id: platformId,
+                asset_id: assetId,
+                condition: data.condition,
+                notes,
+                photos: photoUrls,
+                damage_report_entries: damageEntries,
+                updated_by: user.id,
+            })
+            .returning({
+                id: assetConditionHistory.id,
+                condition: assetConditionHistory.condition,
+                notes: assetConditionHistory.notes,
+                photos: assetConditionHistory.photos,
+                damage_report_entries: assetConditionHistory.damage_report_entries,
+                updated_by: assetConditionHistory.updated_by,
+                timestamp: assetConditionHistory.timestamp,
+            });
+
+        return [updatedAsset, insertedHistory];
+    });
+
+    return {
+        asset: updated,
+        condition_history: historyEntry,
+    };
+};
+
 // ----------------------------------- GENERATE QR CODE -----------------------------------
 const generateQRCode = async (data: GenerateQRCodePayload) => {
     // Generate QR code as base64 PNG
@@ -2626,6 +2727,7 @@ export const AssetServices = {
     getAssetScanHistory,
     getAvailability,
     addConditionHistory,
+    updateAssetCondition,
     generateQRCode,
     sentAssetToMaintenance,
     completeAssetMaintenance,

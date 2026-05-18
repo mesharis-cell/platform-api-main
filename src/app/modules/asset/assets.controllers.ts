@@ -72,6 +72,21 @@ const updateAsset = catchAsync(async (req, res) => {
     });
 });
 
+const updateAssetCondition = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+    const id = getRequiredString(req.params.id, "id");
+
+    const result = await AssetServices.updateAssetCondition(id, req.body, user, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Asset condition updated successfully",
+        data: result,
+    });
+});
+
 // ----------------------------------- ADD ASSET UNITS -----------------------------------
 const addAssetUnits = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
@@ -286,6 +301,7 @@ export const AssetControllers = {
     getAssets,
     getAssetById,
     updateAsset,
+    updateAssetCondition,
     addAssetUnits,
     bulkGroupAssets,
     deleteAsset,

@@ -340,6 +340,46 @@ const addConditionHistorySchema = z.object({
         }),
 });
 
+const updateAssetConditionSchema = z.object({
+    body: z
+        .object({
+            condition: z.enum(assetConditionEnum.enumValues, {
+                message: enumMessageGenerator("Condition", assetConditionEnum.enumValues),
+            }),
+            notes: z
+                .string({ message: "Condition notes are required" })
+                .trim()
+                .min(1, "Condition notes are required")
+                .max(1000, "Condition notes must be under 1000 characters"),
+            photo_entries: z
+                .array(
+                    z.object({
+                        url: z.string().url("Invalid condition photo URL"),
+                        description: z
+                            .string()
+                            .trim()
+                            .max(1000, "Photo description must be under 1000 characters")
+                            .optional(),
+                    })
+                )
+                .min(1, "At least one condition photo is required"),
+            refurb_days_estimate: z
+                .number()
+                .int("Refurbishment days must be an integer")
+                .min(1, "Refurbishment days must be at least 1")
+                .optional(),
+        })
+        .superRefine((data, ctx) => {
+            if (data.condition !== "GREEN" && !data.refurb_days_estimate) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: "Refurbishment days are required for Orange and Red conditions",
+                    path: ["refurb_days_estimate"],
+                });
+            }
+        }),
+});
+
 // ----------------------------------- GENERATE QR CODE SCHEMA --------------------------------
 const generateQRCodeSchema = z.object({
     body: z.object({
@@ -368,6 +408,7 @@ export const AssetSchemas = {
     bulkGroupAssetsSchema,
     availabilitySchema,
     addConditionHistorySchema,
+    updateAssetConditionSchema,
     generateQRCodeSchema,
     completeMaintenanceSchema,
 };
