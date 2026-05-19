@@ -68,6 +68,40 @@ const autoOpenConditionsSchema = z
     })
     .strict();
 
+const autoOpenSourceByField: Record<string, string> = {
+    permit_owner: "permit_requirements.permit_owner",
+    requires_permit: "permit_requirements.requires_permit",
+    is_permanent_placement: "is_permanent_placement",
+};
+
+const normalizeAutoOpenConditionsInput = (value: unknown): unknown => {
+    if (value === null || value === undefined) return value;
+    const candidate = Array.isArray(value) ? value[0] : value;
+    if (!candidate || typeof candidate !== "object") return candidate;
+
+    const raw = candidate as Record<string, unknown>;
+    const rawConditions = Array.isArray(raw.conditions) ? raw.conditions : [];
+    return {
+        trigger_event: raw.trigger_event ?? raw.trigger,
+        conditions: rawConditions.map((condition) => {
+            if (!condition || typeof condition !== "object") return condition;
+            const item = condition as Record<string, unknown>;
+            const rawSource = String(item.source ?? item.field ?? "");
+            const operator = String(item.operator ?? "equals").toLowerCase();
+            return {
+                source: autoOpenSourceByField[rawSource] ?? rawSource,
+                operator: operator === "equals" ? "equals" : operator,
+                ...(item.value !== undefined ? { value: item.value } : {}),
+            };
+        }),
+    };
+};
+
+const autoOpenConditionsInputSchema = z.preprocess(
+    normalizeAutoOpenConditionsInput,
+    autoOpenConditionsSchema.nullable()
+);
+
 const workflowDefinitionBody = z
     .object({
         code: z
@@ -123,7 +157,7 @@ const workflowDefinitionBody = z
         sla_hours: z.number().int().positive().optional().nullable(),
         blocks_fulfillment_default: z.boolean().optional(),
         intake_schema: intakeSchema,
-        auto_open_conditions: autoOpenConditionsSchema.nullable().optional(),
+        auto_open_conditions: autoOpenConditionsInputSchema.optional(),
         is_active: z.boolean().optional(),
         sort_order: z.number().int().optional(),
     })

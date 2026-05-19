@@ -301,9 +301,10 @@ const updateWorkflowDefinition = async (
         viewer_roles: (payload.viewer_roles ?? existing.viewer_roles) as string[],
         actor_roles: (payload.actor_roles ?? existing.actor_roles) as string[],
         intake_schema: (payload.intake_schema ?? existing.intake_schema) as Record<string, unknown>,
-        auto_open_conditions: (payload.auto_open_conditions ??
-            existing.auto_open_conditions ??
-            null) as Record<string, unknown> | null,
+        auto_open_conditions:
+            payload.auto_open_conditions !== undefined
+                ? payload.auto_open_conditions
+                : ((existing.auto_open_conditions ?? null) as Record<string, unknown> | null),
     });
 
     const [updated] = await db

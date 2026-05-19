@@ -391,38 +391,45 @@ const emitWorkflowEvent = async (
     actor: AuthUser,
     previousStatus?: string
 ) => {
-    await eventBus.emit({
-        platform_id: actor.platform_id,
-        event_type: eventType,
-        entity_type: workflow.entity_type,
-        entity_id: workflow.entity_id,
-        actor_id: actor.id,
-        actor_role: actor.role,
-        payload: {
-            entity_id_readable: String(entity.readable_id || entity.id),
-            company_id: entity.company_id,
-            company_name: companyName,
-            workflow_request_id: workflow.id,
-            workflow_code: workflow.workflow_code,
-            workflow_label: workflow.workflow_label,
-            workflow_family: workflow.workflow_family,
-            workflow_status: workflow.status,
-            lifecycle_state: getWorkflowLifecycleState(workflow.status_model_key, workflow.status),
-            old_status: previousStatus || "",
-            new_status: workflow.status,
-            title: workflow.title,
-            description: workflow.description || "",
-            client_action_required: isWorkflowClientActionRequired(
-                workflow.status_model_key,
-                workflow.status,
-                workflow.actor_roles || []
-            ),
-            client_visible: isWorkflowClientVisible(
-                workflow.viewer_roles || [],
-                workflow.actor_roles || []
-            ),
-        },
-    });
+    await eventBus
+        .emit({
+            platform_id: actor.platform_id,
+            event_type: eventType,
+            entity_type: workflow.entity_type,
+            entity_id: workflow.entity_id,
+            actor_id: actor.id,
+            actor_role: actor.role,
+            payload: {
+                entity_id_readable: String(entity.readable_id || entity.id),
+                company_id: entity.company_id,
+                company_name: companyName,
+                workflow_request_id: workflow.id,
+                workflow_code: workflow.workflow_code,
+                workflow_label: workflow.workflow_label,
+                workflow_family: workflow.workflow_family,
+                workflow_status: workflow.status,
+                lifecycle_state: getWorkflowLifecycleState(
+                    workflow.status_model_key,
+                    workflow.status
+                ),
+                old_status: previousStatus || "",
+                new_status: workflow.status,
+                title: workflow.title,
+                description: workflow.description || "",
+                client_action_required: isWorkflowClientActionRequired(
+                    workflow.status_model_key,
+                    workflow.status,
+                    workflow.actor_roles || []
+                ),
+                client_visible: isWorkflowClientVisible(
+                    workflow.viewer_roles || [],
+                    workflow.actor_roles || []
+                ),
+            },
+        })
+        .catch((err) => {
+            console.error(`[workflow-request] ${eventType} event emission failed`, err);
+        });
 };
 
 const createWorkflowRequest = async (

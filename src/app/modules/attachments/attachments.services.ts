@@ -329,21 +329,25 @@ const createAttachmentRecords = async (
     // rules can react. Audit-only by default — tenants can wire emails.
     for (const row of inserted) {
         const type = typeMap.get(row.attachment_type_id);
-        eventBus.emit({
-            event_type: EVENT_TYPES.ATTACHMENT_ADDED,
-            platform_id: platformId,
-            entity_type: entityType as any,
-            entity_id: entityId,
-            actor_id: user.id,
-            payload: {
-                attachment_id: row.id,
-                attachment_type_id: row.attachment_type_id,
-                attachment_type_code: type?.code ?? null,
-                file_name: row.file_name,
-                visible_to_client: row.visible_to_client,
-                uploaded_by: row.uploaded_by,
-            },
-        });
+        void eventBus
+            .emit({
+                event_type: EVENT_TYPES.ATTACHMENT_ADDED,
+                platform_id: platformId,
+                entity_type: entityType as any,
+                entity_id: entityId,
+                actor_id: user.id,
+                payload: {
+                    attachment_id: row.id,
+                    attachment_type_id: row.attachment_type_id,
+                    attachment_type_code: type?.code ?? null,
+                    file_name: row.file_name,
+                    visible_to_client: row.visible_to_client,
+                    uploaded_by: row.uploaded_by,
+                },
+            })
+            .catch((err) => {
+                console.error("[attachments] ATTACHMENT_ADDED event emission failed", err);
+            });
     }
 
     return inserted;
@@ -376,17 +380,21 @@ const deleteAttachment = async (id: string, platformId: string, actorId?: string
     await db.delete(entityAttachments).where(eq(entityAttachments.id, id));
 
     // Item 3: emit ATTACHMENT_DELETED for audit.
-    eventBus.emit({
-        event_type: EVENT_TYPES.ATTACHMENT_DELETED,
-        platform_id: platformId,
-        entity_type: existing.entity_type as any,
-        entity_id: existing.entity_id,
-        actor_id: actorId,
-        payload: {
-            attachment_id: existing.id,
-            file_name: existing.file_name,
-        },
-    });
+    void eventBus
+        .emit({
+            event_type: EVENT_TYPES.ATTACHMENT_DELETED,
+            platform_id: platformId,
+            entity_type: existing.entity_type as any,
+            entity_id: existing.entity_id,
+            actor_id: actorId,
+            payload: {
+                attachment_id: existing.id,
+                file_name: existing.file_name,
+            },
+        })
+        .catch((err) => {
+            console.error("[attachments] ATTACHMENT_DELETED event emission failed", err);
+        });
 
     return { id };
 };

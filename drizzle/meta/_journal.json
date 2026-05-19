@@ -435,6 +435,13 @@
             "when": 1779001200000,
             "tag": "0062_workflow_tasks_and_cart_rule_audit",
             "breakpoints": true
+        },
+        {
+            "idx": 62,
+            "version": "7",
+            "when": 1779145200000,
+            "tag": "0063_workflow_cart_rule_staging_polish",
+            "breakpoints": true
         }
     ]
 }

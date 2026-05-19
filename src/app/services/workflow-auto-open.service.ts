@@ -54,6 +54,12 @@ type AutoOpenConditions = {
     conditions?: Condition[];
 };
 
+const autoOpenSourceByField: Record<string, string> = {
+    permit_owner: "permit_requirements.permit_owner",
+    requires_permit: "permit_requirements.requires_permit",
+    is_permanent_placement: "is_permanent_placement",
+};
+
 const getDotted = (obj: unknown, path: string): unknown => {
     if (!path) return undefined;
     return path.split(".").reduce<any>((acc, key) => {
@@ -89,11 +95,27 @@ const conditionsMatch = (entity: unknown, conditions?: Condition[]): boolean => 
 
 const parseAutoOpenConditions = (raw: unknown): AutoOpenConditions | null => {
     if (!raw || typeof raw !== "object") return null;
-    const candidate = raw as Partial<AutoOpenConditions>;
-    if (!candidate.trigger_event) return null;
+    const candidate = (Array.isArray(raw) ? raw[0] : raw) as Record<string, unknown>;
+    if (!candidate || typeof candidate !== "object") return null;
+    const triggerEvent = candidate.trigger_event ?? candidate.trigger;
+    if (!triggerEvent) return null;
     return {
-        trigger_event: candidate.trigger_event,
-        conditions: Array.isArray(candidate.conditions) ? candidate.conditions : [],
+        trigger_event: triggerEvent as WorkflowTriggerEvent,
+        conditions: Array.isArray(candidate.conditions)
+            ? candidate.conditions
+                  .map((condition) => {
+                      if (!condition || typeof condition !== "object") return null;
+                      const item = condition as Record<string, unknown>;
+                      const rawSource = String(item.source ?? item.field ?? "");
+                      const operator = String(item.operator ?? "equals").toLowerCase();
+                      return {
+                          source: autoOpenSourceByField[rawSource] ?? rawSource,
+                          operator: operator as Operator,
+                          ...(item.value !== undefined ? { value: item.value } : {}),
+                      };
+                  })
+                  .filter((condition): condition is Condition => !!condition?.source)
+            : [],
     };
 };
 
@@ -236,33 +258,37 @@ export const evaluateAndCreate = async (
                 note: `Auto-opened by trigger ${trigger}`,
             });
 
-            eventBus.emit({
-                event_type: EVENT_TYPES.WORKFLOW_REQUEST_SUBMITTED,
-                platform_id: ctx.platformId,
-                entity_type: entity.type as any,
-                entity_id: entity.id,
-                actor_id: ctx.triggeredByUserId || undefined,
-                actor_role: ctx.triggeredByRole || undefined,
-                payload: {
-                    workflow_request_id: row.id,
-                    workflow_code: def.code,
-                    workflow_label: def.label,
-                    workflow_family: def.workflow_family,
-                    workflow_status: initialStatus,
-                    lifecycle_state: "OPEN",
-                    client_action_required: isWorkflowClientActionRequired(
-                        def.status_model_key,
-                        initialStatus,
-                        def.actor_roles as string[]
-                    ),
-                    client_visible: isWorkflowClientVisible(
-                        def.viewer_roles as string[],
-                        def.actor_roles as string[]
-                    ),
-                    auto_opened: true,
-                    trigger_event: trigger,
-                },
-            });
+            await eventBus
+                .emit({
+                    event_type: EVENT_TYPES.WORKFLOW_REQUEST_SUBMITTED,
+                    platform_id: ctx.platformId,
+                    entity_type: entity.type as any,
+                    entity_id: entity.id,
+                    actor_id: ctx.triggeredByUserId || undefined,
+                    actor_role: ctx.triggeredByRole || undefined,
+                    payload: {
+                        workflow_request_id: row.id,
+                        workflow_code: def.code,
+                        workflow_label: def.label,
+                        workflow_family: def.workflow_family,
+                        workflow_status: initialStatus,
+                        lifecycle_state: "OPEN",
+                        client_action_required: isWorkflowClientActionRequired(
+                            def.status_model_key,
+                            initialStatus,
+                            def.actor_roles as string[]
+                        ),
+                        client_visible: isWorkflowClientVisible(
+                            def.viewer_roles as string[],
+                            def.actor_roles as string[]
+                        ),
+                        auto_opened: true,
+                        trigger_event: trigger,
+                    },
+                })
+                .catch((err) => {
+                    console.error("[workflow-auto-open] event emission failed", err);
+                });
             created++;
         }
     }
