@@ -93,6 +93,84 @@ export const orderSubmittedLogistics: EmailTemplate = {
     },
 };
 
+const renderRepairItems = (items: any[]) => {
+    if (!Array.isArray(items) || items.length === 0) return "";
+    return `
+        <ul style="margin: 8px 0 0; padding-left: 18px; color: #374151;">
+            ${items
+                .map((item) => {
+                    const name = item.asset_name || "Item";
+                    const due = item.due_at ? `, due ${item.due_at}` : "";
+                    return `<li style="margin: 4px 0;">${name}${due}</li>`;
+                })
+                .join("")}
+        </ul>
+    `;
+};
+
+export const repairBeforeEventAdmin: EmailTemplate = {
+    subject: (payload) => `Repair Before Event Required: ${p(payload).entity_id_readable}`,
+    html: (payload) => {
+        const d = p(payload);
+        const repairItems = Array.isArray(d.repair_items) ? d.repair_items : [];
+        return wrap(`
+            <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Repair Before Event Required</h1>
+            <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">This order includes item(s) that need repair before the event. Warehouse tasks have been created and fulfillment will remain blocked until repair is completed or an admin exception is approved.</p>
+            ${infoBox(`
+                ${infoRow("Order ID", d.entity_id_readable)}
+                ${infoRow("Company", d.company_name)}
+                ${infoRow("Event", `${d.event_start_date} - ${d.event_end_date}`)}
+                ${infoRow("Venue", `${d.venue_name}, ${d.venue_city}`)}
+                ${infoRow("Repair tasks", `${repairItems.length}`)}
+                ${renderRepairItems(repairItems)}
+            `)}
+            ${actionButton("Review Order", d.order_url)}
+            ${footer()}
+        `);
+    },
+};
+
+export const repairBeforeEventLogistics: EmailTemplate = {
+    subject: (payload) => `Repair Before Event: ${p(payload).entity_id_readable}`,
+    html: (payload) => {
+        const d = p(payload);
+        const repairItems = Array.isArray(d.repair_items) ? d.repair_items : [];
+        return wrap(`
+            <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Repair Before Event Tasks</h1>
+            <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Repair tasks are ready in the warehouse queue for this order. Complete each task before delivery.</p>
+            ${infoBox(`
+                ${infoRow("Order ID", d.entity_id_readable)}
+                ${infoRow("Company", d.company_name)}
+                ${infoRow("Event", `${d.event_start_date} - ${d.event_end_date}`)}
+                ${infoRow("Venue", `${d.venue_name}, ${d.venue_city}`)}
+                ${infoRow("Repair tasks", `${repairItems.length}`)}
+                ${renderRepairItems(repairItems)}
+            `)}
+            ${actionButton("Open Order", d.order_url)}
+            ${footer()}
+        `);
+    },
+};
+
+export const maintenanceDecisionChangeRequestedAdmin: EmailTemplate = {
+    subject: (payload) => `Maintenance Decision Change Requested: ${p(payload).entity_id_readable}`,
+    html: (payload) => {
+        const d = p(payload);
+        return wrap(`
+            <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Maintenance Decision Change Requested</h1>
+            <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">A client requested a change to an item repair decision. Review the order before sending the quote.</p>
+            ${infoBox(`
+                ${infoRow("Order ID", d.entity_id_readable)}
+                ${infoRow("Company", d.company_name)}
+                ${infoRow("Item", d.asset_name || "Item")}
+                ${infoRow("Requested decision", d.requested_decision_label || d.requested_decision)}
+            `)}
+            ${actionButton("Review Order", d.order_url)}
+            ${footer()}
+        `);
+    },
+};
+
 // ─── quote_sent_client ───────────────────────────────────────────────────────
 export const quoteSentClient: EmailTemplate = {
     subject: (payload) => `Quote Ready: ${p(payload).entity_id_readable}`,

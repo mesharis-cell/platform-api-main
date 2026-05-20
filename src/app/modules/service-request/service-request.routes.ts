@@ -102,6 +102,15 @@ router.post(
 );
 
 router.post(
+    "/:id/fulfillment-override",
+    platformValidator,
+    auth("ADMIN"),
+    requirePermission(PERMISSIONS.SERVICE_REQUESTS_UPDATE),
+    payloadValidator(ServiceRequestSchemas.applyFulfillmentOverrideSchema),
+    ServiceRequestControllers.applyFulfillmentOverride
+);
+
+router.post(
     "/:id/commercial-status",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),

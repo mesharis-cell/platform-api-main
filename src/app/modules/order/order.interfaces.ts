@@ -11,6 +11,13 @@ export type SubmitOrderPayload = z.infer<typeof orderSchemas.submitOrderSchema>[
 export type UpdateMaintenanceDecisionPayload = z.infer<
     typeof orderSchemas.updateMaintenanceDecisionSchema
 >["body"];
+export type RefreshCartItemsPayload = z.infer<typeof orderSchemas.refreshCartItemsSchema>["body"];
+export type CreateMaintenanceDecisionChangeRequestPayload = z.infer<
+    typeof orderSchemas.createMaintenanceDecisionChangeRequestSchema
+>["body"];
+export type ResolveMaintenanceDecisionChangeRequestPayload = z.infer<
+    typeof orderSchemas.resolveMaintenanceDecisionChangeRequestSchema
+>["body"];
 
 export type OrderItemPayload = z.infer<typeof orderItemSchema>;
 

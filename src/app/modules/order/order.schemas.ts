@@ -111,6 +111,49 @@ const updateMaintenanceDecisionSchema = z.object({
         .strict(),
 });
 
+const refreshCartItemsSchema = z.object({
+    body: z
+        .object({
+            items: z
+                .array(
+                    z
+                        .object({
+                            asset_id: z.uuid("Invalid asset ID"),
+                            quantity: z.number().int().positive().optional(),
+                            from_collection_id: z.uuid("Invalid collection ID").optional(),
+                        })
+                        .strict()
+                )
+                .min(1, "At least one item is required"),
+        })
+        .strict(),
+});
+
+const createMaintenanceDecisionChangeRequestSchema = z.object({
+    body: z
+        .object({
+            order_item_id: z.uuid("Invalid order item ID"),
+            requested_decision: z.enum(
+                maintenanceDecisionEnum.enumValues,
+                enumMessageGenerator("Requested decision", maintenanceDecisionEnum.enumValues)
+            ),
+        })
+        .strict(),
+});
+
+const resolveMaintenanceDecisionChangeRequestSchema = z.object({
+    body: z
+        .object({
+            action: z.enum(["APPROVE", "REJECT"]),
+            rejection_reason: z
+                .string()
+                .trim()
+                .max(1000, "Rejection reason must be under 1000 characters")
+                .optional(),
+        })
+        .strict(),
+});
+
 const submitOrderSchema = z.object({
     body: z
         .object({
@@ -504,6 +547,9 @@ export const orderSchemas = {
     addOrderItemSchema,
     updateOrderItemQuantitySchema,
     updateMaintenanceDecisionSchema,
+    refreshCartItemsSchema,
+    createMaintenanceDecisionChangeRequestSchema,
+    resolveMaintenanceDecisionChangeRequestSchema,
     derigCaptureSchema,
     onSiteCaptureSchema,
     adminApproveQuoteSchema,

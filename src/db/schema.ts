@@ -148,6 +148,10 @@ export const maintenanceDecisionEnum = pgEnum("maintenance_decision", [
     "FIX_IN_ORDER",
     "USE_AS_IS",
 ]);
+export const maintenanceDecisionChangeRequestStatusEnum = pgEnum(
+    "maintenance_decision_change_request_status",
+    ["PENDING", "APPROVED", "REJECTED", "CANCELLED"]
+);
 export const serviceCategoryEnum = pgEnum("service_category", [
     "ASSEMBLY",
     "EQUIPMENT",
@@ -1238,6 +1242,7 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
     attachments: many(entityAttachments),
     scan_events: many(scanEvents),
     asset_bookings: many(assetBookings),
+    maintenance_decision_change_requests: many(maintenanceDecisionChangeRequests),
     order_status_history: many(orderStatusHistory),
     financial_status_history: many(financialStatusHistory),
 }));
@@ -1300,7 +1305,78 @@ export const orderItemsRelations = relations(orderItems, ({ one, many }) => ({
         fields: [orderItems.from_collection],
         references: [collections.id],
     }),
+    maintenance_decision_change_requests: many(maintenanceDecisionChangeRequests),
 }));
+
+export const maintenanceDecisionChangeRequests = pgTable(
+    "maintenance_decision_change_requests",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        company_id: uuid("company_id")
+            .notNull()
+            .references(() => companies.id, { onDelete: "cascade" }),
+        order_id: uuid("order_id")
+            .notNull()
+            .references(() => orders.id, { onDelete: "cascade" }),
+        order_item_id: uuid("order_item_id")
+            .notNull()
+            .references(() => orderItems.id, { onDelete: "cascade" }),
+        requested_by: uuid("requested_by")
+            .notNull()
+            .references(() => users.id),
+        requested_decision: maintenanceDecisionEnum("requested_decision").notNull(),
+        current_decision: maintenanceDecisionEnum("current_decision"),
+        status: maintenanceDecisionChangeRequestStatusEnum("status").notNull().default("PENDING"),
+        rejection_reason: text("rejection_reason"),
+        resolved_by: uuid("resolved_by").references(() => users.id),
+        resolved_at: timestamp("resolved_at"),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+        updated_at: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => [
+        index("maintenance_decision_change_requests_platform_idx").on(table.platform_id),
+        index("maintenance_decision_change_requests_order_idx").on(table.order_id),
+        index("maintenance_decision_change_requests_item_idx").on(table.order_item_id),
+        uniqueIndex("maintenance_decision_change_requests_one_pending_per_item_idx")
+            .on(table.order_item_id)
+            .where(sql`${table.status} = 'PENDING'`),
+    ]
+);
+
+export const maintenanceDecisionChangeRequestsRelations = relations(
+    maintenanceDecisionChangeRequests,
+    ({ one }) => ({
+        platform: one(platforms, {
+            fields: [maintenanceDecisionChangeRequests.platform_id],
+            references: [platforms.id],
+        }),
+        company: one(companies, {
+            fields: [maintenanceDecisionChangeRequests.company_id],
+            references: [companies.id],
+        }),
+        order: one(orders, {
+            fields: [maintenanceDecisionChangeRequests.order_id],
+            references: [orders.id],
+        }),
+        order_item: one(orderItems, {
+            fields: [maintenanceDecisionChangeRequests.order_item_id],
+            references: [orderItems.id],
+        }),
+        requested_by_user: one(users, {
+            fields: [maintenanceDecisionChangeRequests.requested_by],
+            references: [users.id],
+            relationName: "maintenance_decision_change_requested_by_user",
+        }),
+        resolved_by_user: one(users, {
+            fields: [maintenanceDecisionChangeRequests.resolved_by],
+            references: [users.id],
+            relationName: "maintenance_decision_change_resolved_by_user",
+        }),
+    })
+);
 
 // ---------------------------------- ORDER LINE ITEMS (NEW) -----------------------------------
 export const lineItems = pgTable(
@@ -2952,6 +3028,11 @@ export const serviceRequests = pgTable(
         concession_reason: text("concession_reason"),
         concession_approved_by: uuid("concession_approved_by").references(() => users.id),
         concession_applied_at: timestamp("concession_applied_at"),
+        fulfillment_override_reason: text("fulfillment_override_reason"),
+        fulfillment_override_approved_by: uuid("fulfillment_override_approved_by").references(
+            () => users.id
+        ),
+        fulfillment_override_applied_at: timestamp("fulfillment_override_applied_at"),
         requested_start_at: timestamp("requested_start_at"),
         requested_due_at: timestamp("requested_due_at"),
         created_by: uuid("created_by")
@@ -2980,6 +3061,9 @@ export const serviceRequests = pgTable(
         index("service_requests_company_idx").on(table.company_id),
         index("service_requests_status_idx").on(table.request_status),
         index("service_requests_commercial_status_idx").on(table.commercial_status),
+        index("service_requests_fulfillment_override_idx")
+            .on(table.fulfillment_override_applied_at)
+            .where(sql`${table.fulfillment_override_applied_at} IS NOT NULL`),
     ]
 );
 
@@ -3066,6 +3150,11 @@ export const serviceRequestsRelations = relations(serviceRequests, ({ one, many 
         fields: [serviceRequests.concession_approved_by],
         references: [users.id],
         relationName: "service_request_concession_approved_by_user",
+    }),
+    fulfillment_override_approved_by_user: one(users, {
+        fields: [serviceRequests.fulfillment_override_approved_by],
+        references: [users.id],
+        relationName: "service_request_fulfillment_override_approved_by_user",
     }),
     line_items: many(lineItems),
     line_item_requests: many(lineItemRequests),

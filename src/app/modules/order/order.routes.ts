@@ -43,6 +43,15 @@ router.post(
     OrderControllers.checkMaintenanceFeasibility
 );
 
+router.post(
+    "/refresh-cart-items",
+    platformValidator,
+    auth("CLIENT"),
+    requirePermission(PERMISSIONS.ORDERS_CREATE),
+    payloadValidator(orderSchemas.refreshCartItemsSchema),
+    OrderControllers.refreshCartItems
+);
+
 // Submit order
 router.post(
     "/submit-from-cart",
@@ -246,6 +255,32 @@ router.patch(
     requirePermission(PERMISSIONS.ORDERS_UPDATE),
     payloadValidator(orderSchemas.updateMaintenanceDecisionSchema),
     OrderControllers.updateMaintenanceDecision
+);
+
+router.post(
+    "/:id/maintenance-decision-change-requests",
+    platformValidator,
+    auth("CLIENT"),
+    requirePermission(PERMISSIONS.ORDERS_UPDATE),
+    payloadValidator(orderSchemas.createMaintenanceDecisionChangeRequestSchema),
+    OrderControllers.createMaintenanceDecisionChangeRequest
+);
+
+router.patch(
+    "/:id/maintenance-decision-change-requests/:requestId/cancel",
+    platformValidator,
+    auth("CLIENT"),
+    requirePermission(PERMISSIONS.ORDERS_UPDATE),
+    OrderControllers.cancelMaintenanceDecisionChangeRequest
+);
+
+router.patch(
+    "/:id/maintenance-decision-change-requests/:requestId/resolve",
+    platformValidator,
+    auth("ADMIN"),
+    requirePermission(PERMISSIONS.ORDERS_UPDATE),
+    payloadValidator(orderSchemas.resolveMaintenanceDecisionChangeRequestSchema),
+    OrderControllers.resolveMaintenanceDecisionChangeRequest
 );
 
 // Save derig capture photos/notes per item (only when order status is DERIG)

@@ -130,6 +130,15 @@ const createAssetSchema = z.object({
             message: "Packaging description is required for POOLED stock_mode",
             path: ["packaging"],
         })
+        .refine(
+            (data) =>
+                data.condition === "GREEN" ||
+                (data.refurb_days_estimate !== undefined && data.refurb_days_estimate > 0),
+            {
+                message: "Refurbishment days are required for Orange and Red conditions",
+                path: ["refurb_days_estimate"],
+            }
+        )
         .transform((data) => ({
             ...data,
             total_quantity: data.total_quantity ?? data.quantity ?? 1,
@@ -137,90 +146,108 @@ const createAssetSchema = z.object({
 });
 
 const updateAssetSchema = z.object({
-    body: z.object({
-        company_id: z.string().uuid("Invalid company ID format").optional(),
-        warehouse_id: z.string().uuid("Invalid warehouse ID format").optional(),
-        zone_id: z.string().uuid("Invalid zone ID format").optional(),
-        brand_id: z.string().uuid("Invalid brand ID format").optional().nullable(),
-        // group_id can be set, changed, or cleared (NULL ⟹ group_name auto-cleared by service)
-        group_id: z.string().uuid("Invalid group ID format").optional().nullable(),
-        group_name: z
-            .string()
-            .min(1, "Group name cannot be empty")
-            .max(200, "Group name must be under 200 characters")
-            .optional()
-            .nullable(),
-        name: z
-            .string()
-            .min(1, "Name cannot be empty")
-            .max(200, "Name must be under 200 characters")
-            .optional(),
-        description: z.string().optional().nullable(),
-        category: z.string().optional().nullable(),
-        images: z.array(assetImageSchema).optional(),
-        on_display_image: z.string().url("Invalid on display image URL").optional().nullable(),
-        group_images: z.array(assetImageSchema).optional(),
-        group_on_display_image: z
-            .string()
-            .url("Invalid group on display image URL")
-            .optional()
-            .nullable(),
-        // stock_mode is immutable after creation; service rejects updates.
-        stock_mode: z
-            .enum(stockModeEnum.enumValues, {
-                message: enumMessageGenerator("Stock mode", stockModeEnum.enumValues),
-            })
-            .optional(),
-        low_stock_threshold: z
-            .number()
-            .int("Low-stock threshold must be an integer")
-            .min(0, "Low-stock threshold cannot be negative")
-            .optional()
-            .nullable(),
-        total_quantity: z
-            .number()
-            .int("Total quantity must be an integer")
-            .min(1, "Total quantity must be at least 1")
-            .optional(),
-        available_quantity: z
-            .number()
-            .int("Available quantity must be an integer")
-            .min(0, "Available quantity cannot be negative")
-            .optional(),
-        packaging: z
-            .string()
-            .max(100, "Packaging must be under 100 characters")
-            .optional()
-            .nullable(),
-        weight_per_unit: z.number().positive("Weight per unit must be positive").optional(),
-        dimensions: z
-            .object({
-                length: z.number().positive().optional(),
-                width: z.number().positive().optional(),
-                height: z.number().positive().optional(),
-            })
-            .optional(),
-        volume_per_unit: z.number().positive("Volume per unit must be positive").optional(),
-        condition: z
-            .enum(assetConditionEnum.enumValues, {
-                message: enumMessageGenerator("Condition", assetConditionEnum.enumValues),
-            })
-            .optional(),
-        condition_notes: z.string().optional().nullable(),
-        refurb_days_estimate: z
-            .number()
-            .int("Refurbishment days must be an integer")
-            .min(0, "Refurbishment days cannot be negative")
-            .optional()
-            .nullable(),
-        team_id: z.string().uuid("Invalid team ID").optional().nullable(),
-        handling_tags: z.array(z.string()).optional(),
-        status: z
-            .enum(Object.values(assetStatusEnum.enumValues), {
-                message: enumMessageGenerator("Status", Object.values(assetStatusEnum.enumValues)),
-            })
-            .optional(),
-    }),
+    body: z
+        .object({
+            company_id: z.string().uuid("Invalid company ID format").optional(),
+            warehouse_id: z.string().uuid("Invalid warehouse ID format").optional(),
+            zone_id: z.string().uuid("Invalid zone ID format").optional(),
+            brand_id: z.string().uuid("Invalid brand ID format").optional().nullable(),
+            // group_id can be set, changed, or cleared (NULL ⟹ group_name auto-cleared by service)
+            group_id: z.string().uuid("Invalid group ID format").optional().nullable(),
+            group_name: z
+                .string()
+                .min(1, "Group name cannot be empty")
+                .max(200, "Group name must be under 200 characters")
+                .optional()
+                .nullable(),
+            name: z
+                .string()
+                .min(1, "Name cannot be empty")
+                .max(200, "Name must be under 200 characters")
+                .optional(),
+            description: z.string().optional().nullable(),
+            category: z.string().optional().nullable(),
+            images: z.array(assetImageSchema).optional(),
+            on_display_image: z.string().url("Invalid on display image URL").optional().nullable(),
+            group_images: z.array(assetImageSchema).optional(),
+            group_on_display_image: z
+                .string()
+                .url("Invalid group on display image URL")
+                .optional()
+                .nullable(),
+            // stock_mode is immutable after creation; service rejects updates.
+            stock_mode: z
+                .enum(stockModeEnum.enumValues, {
+                    message: enumMessageGenerator("Stock mode", stockModeEnum.enumValues),
+                })
+                .optional(),
+            low_stock_threshold: z
+                .number()
+                .int("Low-stock threshold must be an integer")
+                .min(0, "Low-stock threshold cannot be negative")
+                .optional()
+                .nullable(),
+            total_quantity: z
+                .number()
+                .int("Total quantity must be an integer")
+                .min(1, "Total quantity must be at least 1")
+                .optional(),
+            available_quantity: z
+                .number()
+                .int("Available quantity must be an integer")
+                .min(0, "Available quantity cannot be negative")
+                .optional(),
+            packaging: z
+                .string()
+                .max(100, "Packaging must be under 100 characters")
+                .optional()
+                .nullable(),
+            weight_per_unit: z.number().positive("Weight per unit must be positive").optional(),
+            dimensions: z
+                .object({
+                    length: z.number().positive().optional(),
+                    width: z.number().positive().optional(),
+                    height: z.number().positive().optional(),
+                })
+                .optional(),
+            volume_per_unit: z.number().positive("Volume per unit must be positive").optional(),
+            condition: z
+                .enum(assetConditionEnum.enumValues, {
+                    message: enumMessageGenerator("Condition", assetConditionEnum.enumValues),
+                })
+                .optional(),
+            condition_notes: z.string().optional().nullable(),
+            refurb_days_estimate: z
+                .number()
+                .int("Refurbishment days must be an integer")
+                .min(0, "Refurbishment days cannot be negative")
+                .optional()
+                .nullable(),
+            team_id: z.string().uuid("Invalid team ID").optional().nullable(),
+            handling_tags: z.array(z.string()).optional(),
+            status: z
+                .enum(Object.values(assetStatusEnum.enumValues), {
+                    message: enumMessageGenerator(
+                        "Status",
+                        Object.values(assetStatusEnum.enumValues)
+                    ),
+                })
+                .optional(),
+        })
+        .superRefine((data, ctx) => {
+            if (
+                (data.condition === "ORANGE" || data.condition === "RED") &&
+                (data.refurb_days_estimate === undefined ||
+                    data.refurb_days_estimate === null ||
+                    data.refurb_days_estimate <= 0)
+            ) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: "Refurbishment days are required for Orange and Red conditions",
+                    path: ["refurb_days_estimate"],
+                });
+            }
+        }),
 });
 
 const addAssetUnitsSchema = z.object({
@@ -335,6 +362,16 @@ const addConditionHistorySchema = z.object({
                     code: z.ZodIssueCode.custom,
                     message: "At least one damage photo is required when marking items as Red",
                     path: ["damage_report_entries"],
+                });
+            }
+            if (
+                (data.condition === "ORANGE" || data.condition === "RED") &&
+                (data.refurb_days_estimate === undefined || data.refurb_days_estimate <= 0)
+            ) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: "Refurbishment days are required for Orange and Red conditions",
+                    path: ["refurb_days_estimate"],
                 });
             }
         }),

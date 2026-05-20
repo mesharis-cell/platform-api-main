@@ -32,3 +32,7 @@ export type RespondServiceRequestQuotePayload = z.infer<
 export type ApplyServiceRequestConcessionPayload = z.infer<
     typeof ServiceRequestSchemas.applyServiceRequestConcessionSchema
 >["body"];
+
+export type ApplyFulfillmentOverridePayload = z.infer<
+    typeof ServiceRequestSchemas.applyFulfillmentOverrideSchema
+>["body"];

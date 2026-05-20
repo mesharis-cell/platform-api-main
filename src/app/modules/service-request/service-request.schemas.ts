@@ -123,6 +123,18 @@ const applyServiceRequestConcessionSchema = z.object({
         .strict(),
 });
 
+const applyFulfillmentOverrideSchema = z.object({
+    body: z
+        .object({
+            reason: z
+                .string({ message: "Reason is required" })
+                .trim()
+                .min(1, "Reason is required")
+                .max(2000, "Reason must be under 2000 characters"),
+        })
+        .strict(),
+});
+
 export const ServiceRequestSchemas = {
     createServiceRequestSchema,
     updateServiceRequestSchema,
@@ -132,4 +144,5 @@ export const ServiceRequestSchemas = {
     approveServiceRequestQuoteSchema,
     respondServiceRequestQuoteSchema,
     applyServiceRequestConcessionSchema,
+    applyFulfillmentOverrideSchema,
 };

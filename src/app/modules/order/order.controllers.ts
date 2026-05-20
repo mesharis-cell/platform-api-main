@@ -60,6 +60,24 @@ const checkMaintenanceFeasibility = catchAsync(async (req, res) => {
     });
 });
 
+const refreshCartItems = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+
+    if (!user?.company_id) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Company ID is required");
+    }
+
+    const result = await OrderServices.refreshCartItems(platformId, user.company_id, req.body);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Cart item condition data refreshed successfully",
+        data: result,
+    });
+});
+
 // ----------------------------------- SUBMIT ORDER ---------------------------------------
 const submitOrderFromCart = catchAsync(async (req, res) => {
     // Extract user and platform ID from middleware
@@ -465,14 +483,78 @@ const cancelOrder = catchAsync(async (req, res) => {
 // ----------------------------------- UPDATE MAINTENANCE DECISION ------------------------
 const updateMaintenanceDecision = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
+    const user = (req as any).user;
     const id = getRequiredString(req.params.id, "id");
 
-    const result = await OrderServices.updateMaintenanceDecision(id, platformId, req.body);
+    const result = await OrderServices.updateMaintenanceDecision(id, platformId, req.body, user);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
         success: true,
         message: "Maintenance decision updated successfully.",
+        data: result,
+    });
+});
+
+const createMaintenanceDecisionChangeRequest = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+    const id = getRequiredString(req.params.id, "id");
+
+    const result = await OrderServices.createMaintenanceDecisionChangeRequest(
+        id,
+        platformId,
+        user,
+        req.body
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.CREATED,
+        success: true,
+        message: "Maintenance decision change request submitted successfully.",
+        data: result,
+    });
+});
+
+const cancelMaintenanceDecisionChangeRequest = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+    const id = getRequiredString(req.params.id, "id");
+    const requestId = getRequiredString(req.params.requestId, "requestId");
+
+    const result = await OrderServices.cancelMaintenanceDecisionChangeRequest(
+        id,
+        requestId,
+        platformId,
+        user
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Maintenance decision change request cancelled successfully.",
+        data: result,
+    });
+});
+
+const resolveMaintenanceDecisionChangeRequest = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+    const id = getRequiredString(req.params.id, "id");
+    const requestId = getRequiredString(req.params.requestId, "requestId");
+
+    const result = await OrderServices.resolveMaintenanceDecisionChangeRequest(
+        id,
+        requestId,
+        platformId,
+        user,
+        req.body
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Maintenance decision change request resolved successfully.",
         data: result,
     });
 });
@@ -525,6 +607,7 @@ export const OrderControllers = {
     getFeasibilityConfig,
     calculateEstimate,
     checkMaintenanceFeasibility,
+    refreshCartItems,
     submitOrderFromCart,
     getOrders,
     getMyOrders,
@@ -546,6 +629,9 @@ export const OrderControllers = {
     returnToLogistics,
     cancelOrder,
     updateMaintenanceDecision,
+    createMaintenanceDecisionChangeRequest,
+    cancelMaintenanceDecisionChangeRequest,
+    resolveMaintenanceDecisionChangeRequest,
     derigCapture,
     saveOnSiteCapture,
     recalculateBaseOps,

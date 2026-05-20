@@ -59,6 +59,27 @@ export const PLATFORM_DEFAULT_NOTIFICATION_RULES: NotificationRuleDef[] = [
         template_key: "order_pending_approval_admin",
         sort_order: 0,
     },
+    {
+        event_type: "order.repair_before_event_required",
+        recipient_type: "ROLE",
+        recipient_value: "ADMIN",
+        template_key: "repair_before_event_admin",
+        sort_order: 0,
+    },
+    {
+        event_type: "order.repair_before_event_required",
+        recipient_type: "ROLE",
+        recipient_value: "LOGISTICS",
+        template_key: "repair_before_event_logistics",
+        sort_order: 1,
+    },
+    {
+        event_type: "order.maintenance_decision_change_requested",
+        recipient_type: "ROLE",
+        recipient_value: "ADMIN",
+        template_key: "maintenance_decision_change_requested_admin",
+        sort_order: 0,
+    },
 
     // quote.sent / quote.revised / quote.approved / quote.declined
     {

@@ -40,6 +40,14 @@ export const EVENT_GROUPS: EventGroup[] = [
                 key: "order.pending_approval",
                 label: "Logistics submitted — pending admin approval",
             },
+            {
+                key: "order.repair_before_event_required",
+                label: "Repair Before Event Required",
+            },
+            {
+                key: "order.maintenance_decision_change_requested",
+                label: "Maintenance Decision Change Requested",
+            },
         ],
     },
     {
@@ -148,6 +156,16 @@ export const TEMPLATES_BY_EVENT: Record<string, TemplateMeta[]> = {
         {
             key: "order_pending_approval_admin",
             label: "Admin — Logistics submitted pricing (pending approval)",
+        },
+    ],
+    "order.repair_before_event_required": [
+        { key: "repair_before_event_admin", label: "Admin — Repair Before Event" },
+        { key: "repair_before_event_logistics", label: "Logistics — Repair Before Event" },
+    ],
+    "order.maintenance_decision_change_requested": [
+        {
+            key: "maintenance_decision_change_requested_admin",
+            label: "Admin — Maintenance Decision Change Requested",
         },
     ],
     "quote.sent": [

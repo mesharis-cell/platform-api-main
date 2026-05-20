@@ -18,6 +18,7 @@ import paginationMaker from "../../utils/pagination-maker";
 import { buildServiceRequestCode } from "../../utils/service-request-code";
 import {
     ApplyServiceRequestConcessionPayload,
+    ApplyFulfillmentOverridePayload,
     ApproveServiceRequestQuotePayload,
     CancelServiceRequestPayload,
     CreateServiceRequestPayload,
@@ -34,6 +35,21 @@ import {
 import { eventBus } from "../../events/event-bus";
 import { EVENT_TYPES } from "../../events/event-types";
 import { PricingService } from "../../services/pricing.service";
+
+const isRepairBeforeEventServiceRequest = (serviceRequest: {
+    request_type: string;
+    billing_mode: string;
+    link_mode: string;
+    blocks_fulfillment: boolean;
+    related_order_id: string | null;
+    related_order_item_id: string | null;
+}) =>
+    serviceRequest.request_type === "MAINTENANCE" &&
+    serviceRequest.billing_mode === "INTERNAL_ONLY" &&
+    serviceRequest.link_mode === "BUNDLED_WITH_ORDER" &&
+    serviceRequest.blocks_fulfillment &&
+    !!serviceRequest.related_order_id &&
+    !!serviceRequest.related_order_item_id;
 
 const getServiceRequestInternal = async (id: string, platformId: string) => {
     const [serviceRequest] = await db
@@ -78,13 +94,19 @@ const getServiceRequestInternal = async (id: string, platformId: string) => {
     };
 };
 
-const assertServiceRequestAccess = (serviceRequest: { company_id: string }, user: AuthUser) => {
+const assertServiceRequestAccess = (
+    serviceRequest: { company_id: string; billing_mode: string },
+    user: AuthUser
+) => {
     if (user.role !== "CLIENT") return;
     if (!user.company_id || serviceRequest.company_id !== user.company_id) {
         throw new CustomizedError(
             httpStatus.FORBIDDEN,
             "You do not have access to this service request"
         );
+    }
+    if (serviceRequest.billing_mode !== "CLIENT_BILLABLE") {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Service request not found");
     }
 };
 
@@ -221,6 +243,7 @@ const listServiceRequests = async (
         request_type,
         billing_mode,
         related_order_id,
+        repair_before_event,
     } = query;
     const { pageNumber, limitNumber, skip } = paginationMaker({ page, limit });
 
@@ -238,6 +261,12 @@ const listServiceRequests = async (
     if (request_status) conditions.push(eq(serviceRequests.request_status, request_status));
     if (request_type) conditions.push(eq(serviceRequests.request_type, request_type));
     if (billing_mode) conditions.push(eq(serviceRequests.billing_mode, billing_mode));
+    if (repair_before_event === "true" || repair_before_event === true) {
+        conditions.push(eq(serviceRequests.request_type, "MAINTENANCE"));
+        conditions.push(eq(serviceRequests.billing_mode, "INTERNAL_ONLY"));
+        conditions.push(eq(serviceRequests.link_mode, "BUNDLED_WITH_ORDER"));
+        conditions.push(eq(serviceRequests.blocks_fulfillment, true));
+    }
     if (search_term) conditions.push(ilike(serviceRequests.title, `%${search_term.trim()}%`));
     if (related_order_id) conditions.push(eq(serviceRequests.related_order_id, related_order_id));
 
@@ -274,6 +303,7 @@ const listServiceRequests = async (
         },
         data: rows.map((row) => ({
             ...row.service_request,
+            is_repair_before_event: isRepairBeforeEventServiceRequest(row.service_request as any),
             request_pricing: PricingService.projectSummaryForRole(
                 row.request_pricing as any,
                 user.role as any
@@ -314,6 +344,7 @@ const getServiceRequestById = async (id: string, platformId: string, user: AuthU
 
     return {
         ...serviceRequest,
+        is_repair_before_event: isRepairBeforeEventServiceRequest(serviceRequest as any),
         request_pricing: srPricingPayload,
     };
 };
@@ -559,6 +590,23 @@ const updateServiceRequestStatus = async (
     assertServiceRequestStatusTransition(existing.request_status as any, payload.to_status as any);
     assertOperationalCommercialCoupling(existing as any, payload.to_status);
 
+    if (payload.to_status === "COMPLETED" && isRepairBeforeEventServiceRequest(existing as any)) {
+        const completionNotes = (payload.completion_notes || payload.note || "").trim();
+        const photos = Array.isArray(existing.photos) ? existing.photos : [];
+        if (!completionNotes) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Completion notes are required for Repair Before Event tasks"
+            );
+        }
+        if (photos.length === 0) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "At least one work photo is required before completing a Repair Before Event task"
+            );
+        }
+    }
+
     const updatePayload: Record<string, any> = {
         request_status: payload.to_status,
         updated_at: new Date(),
@@ -585,7 +633,11 @@ const updateServiceRequestStatus = async (
         });
 
         // Auto-restore asset condition to GREEN when maintenance SR is completed
-        if (payload.to_status === "COMPLETED" && existing.related_asset_id) {
+        if (
+            payload.to_status === "COMPLETED" &&
+            existing.request_type === "MAINTENANCE" &&
+            existing.related_asset_id
+        ) {
             const conditionPhotos = Array.isArray(existing.photos) ? existing.photos : [];
             const conditionNotes = [
                 `Restored to GREEN — SR ${existing.service_request_id} completed`,
@@ -648,6 +700,12 @@ const cancelServiceRequest = async (
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
             "Completed service requests cannot be cancelled"
+        );
+    }
+    if (isRepairBeforeEventServiceRequest(existing as any)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Repair Before Event tasks cannot be cancelled directly. Use the admin fulfillment exception or approve a client decision change."
         );
     }
 
@@ -919,6 +977,61 @@ const applyServiceRequestConcession = async (
     return refreshed;
 };
 
+const applyFulfillmentOverride = async (
+    id: string,
+    payload: ApplyFulfillmentOverridePayload,
+    platformId: string,
+    user: AuthUser
+) => {
+    if (user.role !== "ADMIN") {
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            "Only admins can approve fulfillment exceptions"
+        );
+    }
+
+    const existing = await getServiceRequestInternal(id, platformId);
+    if (!isRepairBeforeEventServiceRequest(existing as any)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Fulfillment exceptions are only available for Repair Before Event tasks"
+        );
+    }
+    if (existing.request_status === "COMPLETED" || existing.request_status === "CANCELLED") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Completed or cancelled service requests cannot receive a fulfillment exception"
+        );
+    }
+    if (existing.fulfillment_override_applied_at) {
+        return existing;
+    }
+
+    const now = new Date();
+    await db.transaction(async (tx) => {
+        await tx
+            .update(serviceRequests)
+            .set({
+                fulfillment_override_reason: payload.reason,
+                fulfillment_override_approved_by: user.id,
+                fulfillment_override_applied_at: now,
+                updated_at: now,
+            })
+            .where(eq(serviceRequests.id, id));
+
+        await tx.insert(serviceRequestStatusHistory).values({
+            service_request_id: id,
+            platform_id: platformId,
+            from_status: existing.request_status,
+            to_status: existing.request_status,
+            note: `Fulfillment exception approved: ${payload.reason}`,
+            changed_by: user.id,
+        });
+    });
+
+    return getServiceRequestInternal(id, platformId);
+};
+
 export const ServiceRequestServices = {
     listServiceRequests,
     getServiceRequestById,
@@ -930,4 +1043,5 @@ export const ServiceRequestServices = {
     approveServiceRequestQuote,
     respondToServiceRequestQuote,
     applyServiceRequestConcession,
+    applyFulfillmentOverride,
 };

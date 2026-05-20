@@ -53,6 +53,9 @@ import {
     pickupReminderAdmin,
     pickupReminderClient,
     pickupReminderLogistics,
+    repairBeforeEventAdmin,
+    repairBeforeEventLogistics,
+    maintenanceDecisionChangeRequestedAdmin,
     quoteApprovedAdmin,
     quoteApprovedLogistics,
     quoteDeclinedAdmin,
@@ -174,6 +177,9 @@ const registry: Record<string, EmailTemplate> = {
     time_windows_updated_admin: timeWindowsUpdatedAdmin,
     fabrication_completed_logistics: fabricationCompletedLogistics,
     fabrication_completed_admin: fabricationCompletedAdmin,
+    repair_before_event_admin: repairBeforeEventAdmin,
+    repair_before_event_logistics: repairBeforeEventLogistics,
+    maintenance_decision_change_requested_admin: maintenanceDecisionChangeRequestedAdmin,
 
     // Inbound requests
     ir_submitted_client: irSubmittedClient,

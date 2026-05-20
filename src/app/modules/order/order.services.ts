@@ -19,6 +19,7 @@ import httpStatus from "http-status";
 import { db } from "../../../db";
 import {
     assetBookings,
+    assetConditionHistory,
     assets,
     brands,
     cities,
@@ -26,6 +27,7 @@ import {
     companies,
     financialStatusHistory,
     invoices,
+    maintenanceDecisionChangeRequests,
     prices,
     orderTransportTrips,
     orders,
@@ -57,6 +59,9 @@ import {
     CalculateEstimatePayload,
     AdminApproveQuotePayload,
     CheckMaintenanceFeasibilityPayload,
+    CreateMaintenanceDecisionChangeRequestPayload,
+    RefreshCartItemsPayload,
+    ResolveMaintenanceDecisionChangeRequestPayload,
     UpdateMaintenanceDecisionPayload,
 } from "./order.interfaces";
 import {
@@ -126,6 +131,53 @@ const assertClientOwnsOrder = (
     }
 };
 
+const isRepairBeforeEventServiceRequest = (request: {
+    request_type: string;
+    billing_mode: string;
+    link_mode: string;
+    blocks_fulfillment: boolean;
+    related_order_id?: string | null;
+    related_order_item_id?: string | null;
+}) =>
+    request.request_type === "MAINTENANCE" &&
+    request.billing_mode === "INTERNAL_ONLY" &&
+    request.link_mode === "BUNDLED_WITH_ORDER" &&
+    request.blocks_fulfillment &&
+    !!request.related_order_item_id &&
+    (request.related_order_id === undefined || !!request.related_order_id);
+
+const getRepairBadgeStatus = (request: {
+    request_status: string;
+    fulfillment_override_applied_at?: Date | null;
+}) => {
+    if (request.fulfillment_override_applied_at) return null;
+    if (request.request_status === "CANCELLED") return null;
+    if (request.request_status === "COMPLETED") return "COMPLETED";
+    if (request.request_status === "IN_PROGRESS") return "IN_PROGRESS";
+    return "PENDING";
+};
+
+const maintenanceDecisionLabel = (decision: string | null | undefined) => {
+    if (decision === "FIX_IN_ORDER") return "Repair before event";
+    if (decision === "USE_AS_IS") return "Accept current condition";
+    return null;
+};
+
+const parseWindowStart = (windowValue: unknown): Date | null => {
+    if (!windowValue || typeof windowValue !== "object") return null;
+    const start = (windowValue as { start?: unknown }).start;
+    if (typeof start !== "string") return null;
+    const parsed = new Date(start);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const repairStatusLabel = (status: string | null) => {
+    if (status === "COMPLETED") return "Completed";
+    if (status === "IN_PROGRESS") return "In progress";
+    if (status === "PENDING") return "Pending";
+    return null;
+};
+
 const getLinkedServiceRequestSummaries = async (
     orderDbId: string,
     platformId: string,
@@ -141,10 +193,15 @@ const getLinkedServiceRequestSummaries = async (
             blocks_fulfillment: serviceRequests.blocks_fulfillment,
             request_status: serviceRequests.request_status,
             commercial_status: serviceRequests.commercial_status,
+            title: serviceRequests.title,
+            requested_due_at: serviceRequests.requested_due_at,
             related_order_item_id: serviceRequests.related_order_item_id,
             related_asset_id: serviceRequests.related_asset_id,
             client_sell_override_total: serviceRequests.client_sell_override_total,
             concession_applied_at: serviceRequests.concession_applied_at,
+            fulfillment_override_reason: serviceRequests.fulfillment_override_reason,
+            fulfillment_override_approved_by: serviceRequests.fulfillment_override_approved_by,
+            fulfillment_override_applied_at: serviceRequests.fulfillment_override_applied_at,
             request_pricing_id: serviceRequests.request_pricing_id,
             pricing: {
                 breakdown_lines: prices.breakdown_lines,
@@ -165,28 +222,37 @@ const getLinkedServiceRequestSummaries = async (
         )
         .orderBy(desc(serviceRequests.created_at));
 
-    return rows.map((row) => {
-        const projected = PricingService.projectSummaryForRole(row.pricing as any, "CLIENT");
-        const clientTotal =
-            row.client_sell_override_total !== null && row.client_sell_override_total !== undefined
-                ? String(row.client_sell_override_total)
-                : String(projected?.final_total || "0");
-        return {
-            id: row.id,
-            service_request_id: row.service_request_id,
-            request_type: row.request_type,
-            billing_mode: row.billing_mode,
-            link_mode: row.link_mode,
-            blocks_fulfillment: row.blocks_fulfillment,
-            request_status: row.request_status,
-            commercial_status: row.commercial_status,
-            related_order_item_id: row.related_order_item_id,
-            related_asset_id: row.related_asset_id,
-            is_concession_applied: !!row.concession_applied_at,
-            total: role === "LOGISTICS" ? null : clientTotal,
-            request_pricing_id: row.request_pricing_id,
-        };
-    });
+    return rows
+        .filter((row) => role !== "CLIENT" || row.billing_mode === "CLIENT_BILLABLE")
+        .map((row) => {
+            const projected = PricingService.projectSummaryForRole(row.pricing as any, "CLIENT");
+            const clientTotal =
+                row.client_sell_override_total !== null &&
+                row.client_sell_override_total !== undefined
+                    ? String(row.client_sell_override_total)
+                    : String(projected?.final_total || "0");
+            return {
+                id: row.id,
+                service_request_id: row.service_request_id,
+                request_type: row.request_type,
+                billing_mode: row.billing_mode,
+                link_mode: row.link_mode,
+                blocks_fulfillment: row.blocks_fulfillment,
+                request_status: row.request_status,
+                commercial_status: row.commercial_status,
+                title: row.title,
+                requested_due_at: row.requested_due_at,
+                related_order_item_id: row.related_order_item_id,
+                related_asset_id: row.related_asset_id,
+                is_concession_applied: !!row.concession_applied_at,
+                fulfillment_override_reason: row.fulfillment_override_reason,
+                fulfillment_override_approved_by: row.fulfillment_override_approved_by,
+                fulfillment_override_applied_at: row.fulfillment_override_applied_at,
+                is_repair_before_event: isRepairBeforeEventServiceRequest(row),
+                total: role === "LOGISTICS" ? null : clientTotal,
+                request_pricing_id: row.request_pricing_id,
+            };
+        });
 };
 
 const hasUnresolvedBlockingServiceRequests = async (orderDbId: string, platformId: string) => {
@@ -194,6 +260,7 @@ const hasUnresolvedBlockingServiceRequests = async (orderDbId: string, platformI
         .select({
             request_status: serviceRequests.request_status,
             concession_applied_at: serviceRequests.concession_applied_at,
+            fulfillment_override_applied_at: serviceRequests.fulfillment_override_applied_at,
         })
         .from(serviceRequests)
         .where(
@@ -206,6 +273,7 @@ const hasUnresolvedBlockingServiceRequests = async (orderDbId: string, platformI
 
     return blocking.some((request) => {
         if (request.concession_applied_at) return false;
+        if (request.fulfillment_override_applied_at) return false;
         return !["COMPLETED", "CANCELLED"].includes(request.request_status);
     });
 };
@@ -234,6 +302,7 @@ const getUnresolvedMaintenanceReadinessItems = async (orderDbId: string, platfor
             related_order_item_id: serviceRequests.related_order_item_id,
             request_status: serviceRequests.request_status,
             concession_applied_at: serviceRequests.concession_applied_at,
+            fulfillment_override_applied_at: serviceRequests.fulfillment_override_applied_at,
         })
         .from(serviceRequests)
         .where(
@@ -255,6 +324,7 @@ const getUnresolvedMaintenanceReadinessItems = async (orderDbId: string, platfor
 
         return linkedRequests.some((request) => {
             if (request.concession_applied_at) return false;
+            if (request.fulfillment_override_applied_at) return false;
             return !["COMPLETED", "CANCELLED"].includes(request.request_status);
         });
     });
@@ -395,6 +465,91 @@ const checkMaintenanceFeasibility = async (
         lead_floor_date: feasibility.lead_floor_date,
         lead_floor_datetime: feasibility.lead_floor_datetime,
     };
+};
+
+const refreshCartItems = async (
+    platformId: string,
+    companyId: string,
+    payload: RefreshCartItemsPayload
+) => {
+    const assetIds = Array.from(new Set(payload.items.map((item) => item.asset_id)));
+    const rows = await db
+        .select({
+            id: assets.id,
+            name: assets.name,
+            company_id: assets.company_id,
+            status: assets.status,
+            condition: assets.condition,
+            condition_notes: assets.condition_notes,
+            refurb_days_estimate: assets.refurb_days_estimate,
+            handling_tags: assets.handling_tags,
+            images: assets.images,
+            on_display_image: assets.on_display_image,
+            available_quantity: assets.available_quantity,
+            deleted_at: assets.deleted_at,
+        })
+        .from(assets)
+        .where(and(eq(assets.platform_id, platformId), inArray(assets.id, assetIds)));
+
+    const byId = new Map(rows.map((asset) => [asset.id, asset]));
+    const conditionHistoryRows =
+        assetIds.length > 0
+            ? await db
+                  .select({
+                      asset_id: assetConditionHistory.asset_id,
+                      condition: assetConditionHistory.condition,
+                      photos: assetConditionHistory.photos,
+                      timestamp: assetConditionHistory.timestamp,
+                  })
+                  .from(assetConditionHistory)
+                  .where(
+                      and(
+                          eq(assetConditionHistory.platform_id, platformId),
+                          inArray(assetConditionHistory.asset_id, assetIds)
+                      )
+                  )
+                  .orderBy(desc(assetConditionHistory.timestamp))
+            : [];
+    const latestConditionPhotosByAsset = new Map<string, string[]>();
+    for (const row of conditionHistoryRows) {
+        if (latestConditionPhotosByAsset.has(row.asset_id)) continue;
+        const asset = byId.get(row.asset_id);
+        if (!asset || asset.condition !== row.condition) continue;
+        latestConditionPhotosByAsset.set(row.asset_id, Array.isArray(row.photos) ? row.photos : []);
+    }
+
+    return payload.items.map((item) => {
+        const asset = byId.get(item.asset_id);
+        if (!asset || asset.deleted_at || asset.company_id !== companyId) {
+            return {
+                asset_id: item.asset_id,
+                available: false,
+                unavailable_reason: "Item is no longer available",
+            };
+        }
+
+        return {
+            asset_id: item.asset_id,
+            available: asset.status === "AVAILABLE" && Number(asset.available_quantity || 0) > 0,
+            unavailable_reason:
+                asset.status !== "AVAILABLE" || Number(asset.available_quantity || 0) <= 0
+                    ? "Item is no longer available"
+                    : null,
+            asset: {
+                id: asset.id,
+                name: asset.name,
+                status: asset.status,
+                condition: asset.condition,
+                condition_notes: asset.condition_notes,
+                condition_photos: latestConditionPhotosByAsset.get(asset.id) || [],
+                refurb_days_estimate: asset.refurb_days_estimate,
+                handling_tags: asset.handling_tags || [],
+                images: asset.images,
+                on_display_image: asset.on_display_image,
+                available_quantity: asset.available_quantity,
+            },
+        };
+    });
 };
 
 // ----------------------------------- SUBMIT ORDER FROM CART ---------------------------------
@@ -588,6 +743,17 @@ const submitOrderFromCart = async (
 
         const requiresMaintenance =
             asset.condition === "RED" || maintenanceDecision === "FIX_IN_ORDER";
+        if (
+            requiresMaintenance &&
+            (asset.refurb_days_estimate === null ||
+                asset.refurb_days_estimate === undefined ||
+                Number(asset.refurb_days_estimate) <= 0)
+        ) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                `Refurbishment days are required before ${asset.condition} asset can be repaired in an order: ${asset.name}`
+            );
+        }
         const maintenanceRefurbDaysSnapshot = requiresMaintenance
             ? Number(asset.refurb_days_estimate || 0)
             : null;
@@ -645,6 +811,12 @@ const submitOrderFromCart = async (
         maintenanceItems.length > 0
             ? await buildServiceRequestCodes(platformId, maintenanceItems.length)
             : [];
+    const repairDueAt = parseWindowStart(requested_delivery_window);
+    const repairItemsForEvent: Array<{
+        asset_name: string;
+        due_at: string | null;
+        service_request_id: string;
+    }> = [];
 
     // Step 6: Create the order record
     const orderId = await orderIdGenerator(platformId);
@@ -776,14 +948,21 @@ const submitOrderFromCart = async (
                     blocks_fulfillment: true,
                     request_status: "SUBMITTED",
                     commercial_status: "INTERNAL",
-                    title: `Maintenance — ${asset.name}`,
+                    title: `Repair before event — ${asset.name}`,
                     description: asset.condition_notes || null,
                     related_asset_id: asset.id,
                     related_order_id: order.id,
                     related_order_item_id: insertedItem.id,
+                    requested_due_at: repairDueAt,
                     created_by: user.id,
                 })
                 .returning();
+
+            repairItemsForEvent.push({
+                asset_name: asset.name,
+                due_at: repairDueAt ? formatDateForEmail(repairDueAt) : null,
+                service_request_id: sr.service_request_id,
+            });
 
             await tx.insert(serviceRequestItems).values({
                 service_request_id: sr.id,
@@ -799,7 +978,7 @@ const submitOrderFromCart = async (
                 platform_id: platformId,
                 from_status: null,
                 to_status: "SUBMITTED",
-                note: "Auto-created on order submission",
+                note: "Repair Before Event task auto-created on order submission",
                 changed_by: user.id,
             });
         }
@@ -859,6 +1038,30 @@ const submitOrderFromCart = async (
             order_url: "",
         },
     });
+
+    if (repairItemsForEvent.length > 0) {
+        await eventBus.emit({
+            platform_id: platformId,
+            event_type: EVENT_TYPES.ORDER_REPAIR_BEFORE_EVENT_REQUIRED,
+            entity_type: "ORDER",
+            entity_id: orderResult.id,
+            actor_id: user.id,
+            actor_role: user.role,
+            payload: {
+                entity_id_readable: orderResult.order_id,
+                company_id: companyId,
+                company_name: (company as any)?.name || "N/A",
+                contact_name,
+                contact_email,
+                event_start_date: formatDateForEmail(event_start_date),
+                event_end_date: formatDateForEmail(event_end_date),
+                venue_name,
+                venue_city: city.name,
+                order_url: "",
+                repair_items: repairItemsForEvent,
+            },
+        });
+    }
 
     try {
         await WorkflowAutoOpenService.evaluateAndCreate(
@@ -1361,10 +1564,119 @@ const getOrderById = async (
         .leftJoin(collections, eq(orderItems.from_collection, collections.id))
         .where(eq(orderItems.order_id, orderData.order.id));
 
-    const [lineItems, linkedServiceRequests] = await Promise.all([
-        LineItemsServices.getLineItems(platformId, { order_id: orderData.order.id }),
-        getLinkedServiceRequestSummaries(orderData.order.id, platformId, user.role),
-    ]);
+    const [lineItems, linkedServiceRequests, repairServiceRequests, decisionChangeRequests] =
+        await Promise.all([
+            LineItemsServices.getLineItems(platformId, { order_id: orderData.order.id }),
+            getLinkedServiceRequestSummaries(orderData.order.id, platformId, user.role),
+            db
+                .select({
+                    id: serviceRequests.id,
+                    service_request_id: serviceRequests.service_request_id,
+                    title: serviceRequests.title,
+                    request_type: serviceRequests.request_type,
+                    billing_mode: serviceRequests.billing_mode,
+                    link_mode: serviceRequests.link_mode,
+                    blocks_fulfillment: serviceRequests.blocks_fulfillment,
+                    request_status: serviceRequests.request_status,
+                    related_order_id: serviceRequests.related_order_id,
+                    related_order_item_id: serviceRequests.related_order_item_id,
+                    related_asset_id: serviceRequests.related_asset_id,
+                    requested_due_at: serviceRequests.requested_due_at,
+                    fulfillment_override_reason: serviceRequests.fulfillment_override_reason,
+                    fulfillment_override_approved_by:
+                        serviceRequests.fulfillment_override_approved_by,
+                    fulfillment_override_applied_at:
+                        serviceRequests.fulfillment_override_applied_at,
+                })
+                .from(serviceRequests)
+                .where(
+                    and(
+                        eq(serviceRequests.platform_id, platformId),
+                        eq(serviceRequests.related_order_id, orderData.order.id),
+                        eq(serviceRequests.request_type, "MAINTENANCE")
+                    )
+                )
+                .orderBy(desc(serviceRequests.created_at)),
+            db
+                .select()
+                .from(maintenanceDecisionChangeRequests)
+                .where(
+                    and(
+                        eq(maintenanceDecisionChangeRequests.platform_id, platformId),
+                        eq(maintenanceDecisionChangeRequests.order_id, orderData.order.id)
+                    )
+                )
+                .orderBy(desc(maintenanceDecisionChangeRequests.created_at)),
+        ]);
+
+    const repairByItemId = new Map<string, (typeof repairServiceRequests)[number]>();
+    for (const request of repairServiceRequests) {
+        if (!request.related_order_item_id || !isRepairBeforeEventServiceRequest(request)) continue;
+        if (!repairByItemId.has(request.related_order_item_id)) {
+            repairByItemId.set(request.related_order_item_id, request);
+        }
+    }
+
+    const latestDecisionChangeByItemId = new Map<string, (typeof decisionChangeRequests)[number]>();
+    for (const request of decisionChangeRequests) {
+        if (!latestDecisionChangeByItemId.has(request.order_item_id)) {
+            latestDecisionChangeByItemId.set(request.order_item_id, request);
+        }
+    }
+
+    const itemsWithRepairState = itemResults.map((item) => {
+        const repairRequest = repairByItemId.get(item.order_item.id);
+        const badgeStatus = repairRequest ? getRepairBadgeStatus(repairRequest) : null;
+        const decisionChangeRequest = latestDecisionChangeByItemId.get(item.order_item.id) || null;
+        const clientSafeRepairRequest =
+            user.role === "CLIENT" || !repairRequest
+                ? null
+                : {
+                      id: repairRequest.id,
+                      service_request_id: repairRequest.service_request_id,
+                      title: repairRequest.title,
+                      request_status: repairRequest.request_status,
+                      requested_due_at: repairRequest.requested_due_at,
+                      fulfillment_override_reason: repairRequest.fulfillment_override_reason,
+                      fulfillment_override_approved_by:
+                          repairRequest.fulfillment_override_approved_by,
+                      fulfillment_override_applied_at:
+                          repairRequest.fulfillment_override_applied_at,
+                  };
+
+        return {
+            ...item,
+            order_item: {
+                ...item.order_item,
+                maintenance_decision_label: maintenanceDecisionLabel(
+                    item.order_item.maintenance_decision
+                ),
+                accepted_current_condition: item.order_item.maintenance_decision === "USE_AS_IS",
+                repair_status: badgeStatus,
+                repair_status_label: repairStatusLabel(badgeStatus),
+                repair_service_request_id:
+                    user.role === "CLIENT" ? null : (repairRequest?.id ?? null),
+                repair_service_request: clientSafeRepairRequest,
+                maintenance_decision_change_request: decisionChangeRequest
+                    ? {
+                          id: decisionChangeRequest.id,
+                          requested_decision: decisionChangeRequest.requested_decision,
+                          requested_decision_label: maintenanceDecisionLabel(
+                              decisionChangeRequest.requested_decision
+                          ),
+                          current_decision: decisionChangeRequest.current_decision,
+                          current_decision_label: maintenanceDecisionLabel(
+                              decisionChangeRequest.current_decision
+                          ),
+                          status: decisionChangeRequest.status,
+                          rejection_reason: decisionChangeRequest.rejection_reason,
+                          created_at: decisionChangeRequest.created_at,
+                          resolved_at: decisionChangeRequest.resolved_at,
+                      }
+                    : null,
+            },
+        };
+    });
 
     const financialHistory = await db
         .select()
@@ -1428,9 +1740,10 @@ const getOrderById = async (
             },
             brand: orderData.brand,
             user: orderData.user,
-            items: itemResults,
+            items: itemsWithRepairState,
             line_items: lineItems,
             linked_service_requests: linkedServiceRequests,
+            maintenance_decision_change_requests: decisionChangeRequests,
             order_status_history: orderHistory.map((h) => ({
                 ...h,
                 status_label: CLIENT_SAFE_LABELS[h.status] || h.status,
@@ -1469,9 +1782,10 @@ const getOrderById = async (
         company: orderData.company,
         brand: orderData.brand,
         user: orderData.user,
-        items: itemResults,
+        items: itemsWithRepairState,
         line_items: lineItems,
         linked_service_requests: linkedServiceRequests,
+        maintenance_decision_change_requests: decisionChangeRequests,
         financial_status_history: financialHistory,
         order_status_history: orderHistory,
         venue_city: orderData.venue_city?.name || null,
@@ -2677,6 +2991,25 @@ const adminApproveQuote = async (
         );
     }
 
+    const pendingDecisionChanges = await db
+        .select({ id: maintenanceDecisionChangeRequests.id })
+        .from(maintenanceDecisionChangeRequests)
+        .where(
+            and(
+                eq(maintenanceDecisionChangeRequests.platform_id, platformId),
+                eq(maintenanceDecisionChangeRequests.order_id, orderId),
+                eq(maintenanceDecisionChangeRequests.status, "PENDING")
+            )
+        )
+        .limit(1);
+
+    if (pendingDecisionChanges.length > 0) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Resolve pending item repair decision change requests before sending the quote"
+        );
+    }
+
     // Determine if this is a revised quote (order was previously quoted)
     const isRevisedQuote = ["QUOTE_SENT", "QUOTE_REVISED"].includes(order.financial_status);
     const newFinancialStatus = isRevisedQuote ? "QUOTE_REVISED" : "QUOTE_SENT";
@@ -3053,26 +3386,38 @@ const getPendingApprovalOrders = async (query: any, platformId: string) => {
 };
 
 // ------------------------------- UPDATE MAINTENANCE DECISION -------------------------------
-const updateMaintenanceDecision = async (
+const LOCKED_MAINTENANCE_DECISION_FINANCIAL_STATUSES = [
+    "QUOTE_ACCEPTED",
+    "PENDING_INVOICE",
+    "INVOICED",
+    "PAID",
+];
+
+const applyMaintenanceDecisionToOrderItem = async (
     orderId: string,
     platformId: string,
-    payload: UpdateMaintenanceDecisionPayload
+    orderItemId: string,
+    maintenanceDecision: "FIX_IN_ORDER" | "USE_AS_IS",
+    actor: AuthUser,
+    auditNote: string
 ) => {
-    const { order_item_id, maintenance_decision } = payload;
-
-    const order = await db.query.orders.findFirst({
-        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
-        columns: {
-            id: true,
-            order_status: true,
-            financial_status: true,
-        },
-    });
+    const [order] = await db
+        .select({
+            id: orders.id,
+            order_id: orders.order_id,
+            company_id: orders.company_id,
+            created_by: orders.created_by,
+            order_status: orders.order_status,
+            financial_status: orders.financial_status,
+            requested_delivery_window: orders.requested_delivery_window,
+            delivery_window: orders.delivery_window,
+        })
+        .from(orders)
+        .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)))
+        .limit(1);
 
     if (!order) throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
-    if (
-        ["QUOTE_ACCEPTED", "PENDING_INVOICE", "INVOICED", "PAID"].includes(order.financial_status)
-    ) {
+    if (LOCKED_MAINTENANCE_DECISION_FINANCIAL_STATUSES.includes(order.financial_status)) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
             "Maintenance decisions are locked after client quote approval"
@@ -3090,6 +3435,8 @@ const updateMaintenanceDecision = async (
             id: orderItems.id,
             asset_id: orderItems.asset_id,
             asset_name: orderItems.asset_name,
+            quantity: orderItems.quantity,
+            current_decision: orderItems.maintenance_decision,
             condition: assets.condition,
             refurb_days_estimate: assets.refurb_days_estimate,
         })
@@ -3097,7 +3444,7 @@ const updateMaintenanceDecision = async (
         .innerJoin(assets, eq(orderItems.asset_id, assets.id))
         .where(
             and(
-                eq(orderItems.id, order_item_id),
+                eq(orderItems.id, orderItemId),
                 eq(orderItems.order_id, orderId),
                 eq(orderItems.platform_id, platformId)
             )
@@ -3114,7 +3461,7 @@ const updateMaintenanceDecision = async (
             "Maintenance decision can only be set for ORANGE or RED assets"
         );
     }
-    if (orderItemRecord.condition === "RED" && maintenance_decision !== "FIX_IN_ORDER") {
+    if (orderItemRecord.condition === "RED" && maintenanceDecision !== "FIX_IN_ORDER") {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
             "RED assets must use FIX_IN_ORDER maintenance decision"
@@ -3122,32 +3469,416 @@ const updateMaintenanceDecision = async (
     }
 
     const requiresMaintenance =
-        orderItemRecord.condition === "RED" || maintenance_decision === "FIX_IN_ORDER";
+        orderItemRecord.condition === "RED" || maintenanceDecision === "FIX_IN_ORDER";
+    if (
+        requiresMaintenance &&
+        (orderItemRecord.refurb_days_estimate === null ||
+            orderItemRecord.refurb_days_estimate === undefined ||
+            Number(orderItemRecord.refurb_days_estimate) <= 0)
+    ) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Refurbishment days are required before this item can be repaired in the order"
+        );
+    }
     const maintenanceRefurbDaysSnapshot = requiresMaintenance
         ? Number(orderItemRecord.refurb_days_estimate || 0)
         : null;
 
-    const [updatedItem] = await db
-        .update(orderItems)
-        .set({
-            maintenance_decision:
-                orderItemRecord.condition === "RED" ? "FIX_IN_ORDER" : maintenance_decision,
-            requires_maintenance: requiresMaintenance,
-            maintenance_refurb_days_snapshot: maintenanceRefurbDaysSnapshot,
-            maintenance_decision_locked_at: new Date(),
+    const normalizedDecision =
+        orderItemRecord.condition === "RED" ? "FIX_IN_ORDER" : maintenanceDecision;
+    const activeRepairRequests = await db
+        .select({
+            id: serviceRequests.id,
+            request_status: serviceRequests.request_status,
+            commercial_status: serviceRequests.commercial_status,
+            service_request_id: serviceRequests.service_request_id,
         })
-        .where(eq(orderItems.id, order_item_id))
-        .returning({
-            id: orderItems.id,
-            asset_id: orderItems.asset_id,
-            asset_name: orderItems.asset_name,
-            maintenance_decision: orderItems.maintenance_decision,
-            requires_maintenance: orderItems.requires_maintenance,
-            maintenance_refurb_days_snapshot: orderItems.maintenance_refurb_days_snapshot,
-            maintenance_decision_locked_at: orderItems.maintenance_decision_locked_at,
-        });
+        .from(serviceRequests)
+        .where(
+            and(
+                eq(serviceRequests.platform_id, platformId),
+                eq(serviceRequests.related_order_id, orderId),
+                eq(serviceRequests.related_order_item_id, orderItemId),
+                eq(serviceRequests.request_type, "MAINTENANCE"),
+                eq(serviceRequests.billing_mode, "INTERNAL_ONLY"),
+                eq(serviceRequests.link_mode, "BUNDLED_WITH_ORDER"),
+                notInArray(serviceRequests.request_status, ["CANCELLED", "COMPLETED"])
+            )
+        );
+
+    const needsNewRepairRequest = requiresMaintenance && activeRepairRequests.length === 0;
+    const newRepairCode = needsNewRepairRequest
+        ? (await buildServiceRequestCodes(platformId, 1))[0]
+        : null;
+    const dueAt =
+        parseWindowStart(order.delivery_window) ||
+        parseWindowStart(order.requested_delivery_window);
+
+    const [updatedItem] = await db.transaction(async (tx) => {
+        const [item] = await tx
+            .update(orderItems)
+            .set({
+                maintenance_decision: normalizedDecision,
+                requires_maintenance: requiresMaintenance,
+                maintenance_refurb_days_snapshot: maintenanceRefurbDaysSnapshot,
+                maintenance_decision_locked_at: new Date(),
+            })
+            .where(eq(orderItems.id, orderItemId))
+            .returning({
+                id: orderItems.id,
+                asset_id: orderItems.asset_id,
+                asset_name: orderItems.asset_name,
+                maintenance_decision: orderItems.maintenance_decision,
+                requires_maintenance: orderItems.requires_maintenance,
+                maintenance_refurb_days_snapshot: orderItems.maintenance_refurb_days_snapshot,
+                maintenance_decision_locked_at: orderItems.maintenance_decision_locked_at,
+            });
+
+        if (needsNewRepairRequest && newRepairCode) {
+            const [sr] = await tx
+                .insert(serviceRequests)
+                .values({
+                    service_request_id: newRepairCode,
+                    platform_id: platformId,
+                    company_id: order.company_id,
+                    request_type: "MAINTENANCE",
+                    billing_mode: "INTERNAL_ONLY",
+                    link_mode: "BUNDLED_WITH_ORDER",
+                    blocks_fulfillment: true,
+                    request_status: "SUBMITTED",
+                    commercial_status: "INTERNAL",
+                    title: `Repair before event — ${orderItemRecord.asset_name}`,
+                    description: auditNote,
+                    related_asset_id: orderItemRecord.asset_id,
+                    related_order_id: order.id,
+                    related_order_item_id: orderItemId,
+                    requested_due_at: dueAt,
+                    created_by: actor.id,
+                })
+                .returning();
+
+            await tx.insert(serviceRequestItems).values({
+                service_request_id: sr.id,
+                asset_id: orderItemRecord.asset_id,
+                asset_name: orderItemRecord.asset_name,
+                quantity: orderItemRecord.quantity,
+                refurb_days_estimate: maintenanceRefurbDaysSnapshot,
+            });
+
+            await tx.insert(serviceRequestStatusHistory).values({
+                service_request_id: sr.id,
+                platform_id: platformId,
+                from_status: null,
+                to_status: "SUBMITTED",
+                note: auditNote,
+                changed_by: actor.id,
+            });
+        }
+
+        if (!requiresMaintenance && activeRepairRequests.length > 0) {
+            for (const request of activeRepairRequests) {
+                await tx
+                    .update(serviceRequests)
+                    .set({
+                        request_status: "CANCELLED",
+                        commercial_status: "CANCELLED",
+                        cancelled_at: new Date(),
+                        cancelled_by: actor.id,
+                        cancellation_reason: auditNote,
+                        updated_at: new Date(),
+                    })
+                    .where(eq(serviceRequests.id, request.id));
+
+                await tx.insert(serviceRequestStatusHistory).values({
+                    service_request_id: request.id,
+                    platform_id: platformId,
+                    from_status: request.request_status,
+                    to_status: "CANCELLED",
+                    note: auditNote,
+                    changed_by: actor.id,
+                });
+            }
+        }
+
+        return [item];
+    });
 
     return updatedItem;
+};
+
+const updateMaintenanceDecision = async (
+    orderId: string,
+    platformId: string,
+    payload: UpdateMaintenanceDecisionPayload,
+    actor: AuthUser
+) => {
+    return applyMaintenanceDecisionToOrderItem(
+        orderId,
+        platformId,
+        payload.order_item_id,
+        payload.maintenance_decision,
+        actor,
+        "Maintenance decision updated by operations"
+    );
+};
+
+const createMaintenanceDecisionChangeRequest = async (
+    orderId: string,
+    platformId: string,
+    user: AuthUser,
+    payload: CreateMaintenanceDecisionChangeRequestPayload
+) => {
+    const [order] = await db
+        .select({
+            id: orders.id,
+            order_id: orders.order_id,
+            company_id: orders.company_id,
+            created_by: orders.created_by,
+            financial_status: orders.financial_status,
+            order_status: orders.order_status,
+            company_name: companies.name,
+        })
+        .from(orders)
+        .leftJoin(companies, eq(orders.company_id, companies.id))
+        .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)))
+        .limit(1);
+
+    if (!order) throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    assertClientOwnsOrder(user, order);
+    if (user.role !== "CLIENT") {
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            "Only clients can request maintenance decision changes"
+        );
+    }
+    if (LOCKED_MAINTENANCE_DECISION_FINANCIAL_STATUSES.includes(order.financial_status)) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Maintenance decisions are locked after quote approval"
+        );
+    }
+    if (order.order_status === "CANCELLED") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Maintenance decisions cannot be changed for cancelled orders"
+        );
+    }
+
+    const [item] = await db
+        .select({
+            id: orderItems.id,
+            asset_name: orderItems.asset_name,
+            current_decision: orderItems.maintenance_decision,
+            condition: assets.condition,
+            refurb_days_estimate: assets.refurb_days_estimate,
+        })
+        .from(orderItems)
+        .innerJoin(assets, eq(orderItems.asset_id, assets.id))
+        .where(
+            and(
+                eq(orderItems.id, payload.order_item_id),
+                eq(orderItems.order_id, orderId),
+                eq(orderItems.platform_id, platformId)
+            )
+        )
+        .limit(1);
+
+    if (!item) throw new CustomizedError(httpStatus.NOT_FOUND, "Order item not found");
+    if (item.condition !== "ORANGE") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Only ORANGE order items can have a client decision change request"
+        );
+    }
+    if (
+        payload.requested_decision === "FIX_IN_ORDER" &&
+        Number(item.refurb_days_estimate || 0) <= 0
+    ) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Refurbishment days are required before this item can be repaired in the order"
+        );
+    }
+    if (item.current_decision === payload.requested_decision) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Requested decision already matches the current item decision"
+        );
+    }
+
+    const existingPending = await db
+        .select({ id: maintenanceDecisionChangeRequests.id })
+        .from(maintenanceDecisionChangeRequests)
+        .where(
+            and(
+                eq(maintenanceDecisionChangeRequests.platform_id, platformId),
+                eq(maintenanceDecisionChangeRequests.order_item_id, item.id),
+                eq(maintenanceDecisionChangeRequests.status, "PENDING")
+            )
+        )
+        .limit(1);
+    if (existingPending.length > 0) {
+        throw new CustomizedError(
+            httpStatus.CONFLICT,
+            "This item already has a pending maintenance decision change request"
+        );
+    }
+
+    const [created] = await db
+        .insert(maintenanceDecisionChangeRequests)
+        .values({
+            platform_id: platformId,
+            company_id: order.company_id,
+            order_id: order.id,
+            order_item_id: item.id,
+            requested_by: user.id,
+            requested_decision: payload.requested_decision,
+            current_decision: item.current_decision,
+        })
+        .returning();
+
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: EVENT_TYPES.ORDER_MAINTENANCE_DECISION_CHANGE_REQUESTED,
+        entity_type: "ORDER",
+        entity_id: order.id,
+        actor_id: user.id,
+        actor_role: user.role,
+        payload: {
+            entity_id_readable: order.order_id,
+            company_id: order.company_id,
+            company_name: order.company_name || "N/A",
+            asset_name: item.asset_name,
+            requested_decision: payload.requested_decision,
+            requested_decision_label: maintenanceDecisionLabel(payload.requested_decision),
+            order_url: "",
+        },
+    });
+
+    return created;
+};
+
+const cancelMaintenanceDecisionChangeRequest = async (
+    orderId: string,
+    requestId: string,
+    platformId: string,
+    user: AuthUser
+) => {
+    const [request] = await db
+        .select({
+            id: maintenanceDecisionChangeRequests.id,
+            status: maintenanceDecisionChangeRequests.status,
+            order_id: maintenanceDecisionChangeRequests.order_id,
+            company_id: maintenanceDecisionChangeRequests.company_id,
+            requested_by: maintenanceDecisionChangeRequests.requested_by,
+        })
+        .from(maintenanceDecisionChangeRequests)
+        .where(
+            and(
+                eq(maintenanceDecisionChangeRequests.id, requestId),
+                eq(maintenanceDecisionChangeRequests.order_id, orderId),
+                eq(maintenanceDecisionChangeRequests.platform_id, platformId)
+            )
+        )
+        .limit(1);
+
+    if (!request) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Decision change request not found");
+    }
+    if (user.role !== "CLIENT" || user.id !== request.requested_by) {
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            "You can only cancel your own pending decision change requests"
+        );
+    }
+    if (request.status !== "PENDING") {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Only pending requests can be cancelled");
+    }
+
+    const [updated] = await db
+        .update(maintenanceDecisionChangeRequests)
+        .set({
+            status: "CANCELLED",
+            resolved_by: user.id,
+            resolved_at: new Date(),
+            updated_at: new Date(),
+        })
+        .where(eq(maintenanceDecisionChangeRequests.id, requestId))
+        .returning();
+
+    return updated;
+};
+
+const resolveMaintenanceDecisionChangeRequest = async (
+    orderId: string,
+    requestId: string,
+    platformId: string,
+    user: AuthUser,
+    payload: ResolveMaintenanceDecisionChangeRequestPayload
+) => {
+    if (user.role !== "ADMIN") {
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            "Only admins can resolve maintenance decision change requests"
+        );
+    }
+
+    const [request] = await db
+        .select()
+        .from(maintenanceDecisionChangeRequests)
+        .where(
+            and(
+                eq(maintenanceDecisionChangeRequests.id, requestId),
+                eq(maintenanceDecisionChangeRequests.order_id, orderId),
+                eq(maintenanceDecisionChangeRequests.platform_id, platformId)
+            )
+        )
+        .limit(1);
+
+    if (!request) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Decision change request not found");
+    }
+    if (request.status !== "PENDING") {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Only pending requests can be resolved");
+    }
+
+    if (payload.action === "REJECT") {
+        const [updated] = await db
+            .update(maintenanceDecisionChangeRequests)
+            .set({
+                status: "REJECTED",
+                rejection_reason: payload.rejection_reason || null,
+                resolved_by: user.id,
+                resolved_at: new Date(),
+                updated_at: new Date(),
+            })
+            .where(eq(maintenanceDecisionChangeRequests.id, request.id))
+            .returning();
+        return updated;
+    }
+
+    await applyMaintenanceDecisionToOrderItem(
+        orderId,
+        platformId,
+        request.order_item_id,
+        request.requested_decision,
+        user,
+        `Admin approved client repair decision change request ${request.id}`
+    );
+
+    const [updated] = await db
+        .update(maintenanceDecisionChangeRequests)
+        .set({
+            status: "APPROVED",
+            resolved_by: user.id,
+            resolved_at: new Date(),
+            updated_at: new Date(),
+        })
+        .where(eq(maintenanceDecisionChangeRequests.id, request.id))
+        .returning();
+
+    return updated;
 };
 
 // ----------------------------------- DOWNLOAD GOODS FORM ------------------------------------
@@ -3577,6 +4308,7 @@ const recalculateBaseOps = async (user: AuthUser, orderId: string, platformId: s
 
 export const OrderServices = {
     submitOrderFromCart,
+    refreshCartItems,
     getOrders,
     getMyOrders,
     getOrderById,
@@ -3598,6 +4330,9 @@ export const OrderServices = {
     checkMaintenanceFeasibility,
     downloadGoodsForm,
     updateMaintenanceDecision,
+    createMaintenanceDecisionChangeRequest,
+    cancelMaintenanceDecisionChangeRequest,
+    resolveMaintenanceDecisionChangeRequest,
     saveDerigCapture,
     saveOnSiteCapture,
     recalculateBaseOps,

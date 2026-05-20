@@ -15,6 +15,8 @@ export const EVENT_TYPES = {
     ORDER_TIME_WINDOWS_UPDATED: "order.time_windows_updated",
     /** Logistics submitted pricing; order is awaiting platform admin approval */
     ORDER_PENDING_APPROVAL: "order.pending_approval",
+    ORDER_REPAIR_BEFORE_EVENT_REQUIRED: "order.repair_before_event_required",
+    ORDER_MAINTENANCE_DECISION_CHANGE_REQUESTED: "order.maintenance_decision_change_requested",
 
     // Quote lifecycle (order-scoped)
     QUOTE_SENT: "quote.sent",

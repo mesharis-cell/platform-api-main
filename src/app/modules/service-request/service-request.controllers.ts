@@ -182,6 +182,25 @@ const applyServiceRequestConcession = catchAsync(async (req, res) => {
     });
 });
 
+const applyFulfillmentOverride = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+    const id = getRequiredString(req.params.id, "id");
+    const result = await ServiceRequestServices.applyFulfillmentOverride(
+        id,
+        req.body,
+        platformId,
+        user
+    );
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Fulfillment exception approved successfully",
+        data: result,
+    });
+});
+
 export const ServiceRequestControllers = {
     listServiceRequests,
     getServiceRequestById,
@@ -193,4 +212,5 @@ export const ServiceRequestControllers = {
     approveServiceRequestQuote,
     respondToServiceRequestQuote,
     applyServiceRequestConcession,
+    applyFulfillmentOverride,
 };
