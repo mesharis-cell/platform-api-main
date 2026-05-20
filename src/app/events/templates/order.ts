@@ -403,11 +403,56 @@ export const paymentConfirmedLogistics: EmailTemplate = {
     },
 };
 
+// ─── helpers for the order-confirmed templates ─────────────────────────────
+// Local to this file (no churn on base.ts). Date-only formatter for event
+// dates — formatWindow attaches HH:MM which is misleading for the event row
+// since the schema collects event dates as date-only (no time component).
+const TZ = "Asia/Dubai";
+
+function formatEventDate(date: string | undefined): string {
+    if (!date) return "";
+    try {
+        return new Date(date).toLocaleString("en-GB", {
+            timeZone: TZ,
+            weekday: "short",
+            day: "numeric",
+            month: "short",
+        });
+    } catch {
+        return "";
+    }
+}
+
+// Show "start - end" when both present. When end is missing or identical to
+// start (the latter shouldn't happen given the NOT NULL constraint on
+// event_end_date, but defensive), collapse to just the start.
+function eventRange(start: string | undefined, end: string | undefined): string {
+    const s = formatEventDate(start);
+    if (!s) return "";
+    const e = formatEventDate(end);
+    if (!e || e === s) return s;
+    return `${s} - ${e}`;
+}
+
+// "<street>, <city>, <country>" — drops missing parts and dangling commas
+// via filter+join. Returns "" when everything is missing so the row can be
+// gated upstream.
+function composeAddress(
+    venueLocation: { address?: string; country?: string } | null | undefined,
+    venueCity: string | undefined
+): string {
+    return [venueLocation?.address?.trim(), venueCity, venueLocation?.country]
+        .filter(Boolean)
+        .join(", ");
+}
+
 // ─── order_confirmed_client ──────────────────────────────────────────────────
 export const orderConfirmedClient: EmailTemplate = {
     subject: (payload) => `Order Confirmed: ${p(payload).entity_id_readable}`,
     html: (payload) => {
         const d = p(payload);
+        const eventRow = eventRange(d.event_start_date, d.event_end_date);
+        const addressRow = composeAddress(d.venue_location, d.venue_city);
         return wrap(`
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #2563eb;">Order Confirmed & Proceeding to Fulfillment</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Hi ${d.contact_name}, your order has been confirmed and assets are reserved. Fulfillment is beginning.</p>
@@ -415,8 +460,12 @@ export const orderConfirmedClient: EmailTemplate = {
                 `
                 ${infoRow("Order ID", d.entity_id_readable)}
                 ${infoRow("Company", d.company_name)}
-                ${infoRow("Event Date", d.event_start_date)}
-                ${infoRow("Venue", `${d.venue_name}, ${d.venue_city}`)}
+                ${eventRow ? infoRow("Event", eventRow) : ""}
+                ${d.delivery_window ? infoRow("Delivery", formatWindow(d.delivery_window, TZ)) : ""}
+                ${d.pickup_window ? infoRow("Pickup", formatWindow(d.pickup_window, TZ)) : ""}
+                ${d.venue_name ? infoRow("Venue", d.venue_name) : ""}
+                ${addressRow ? infoRow("Address", addressRow) : ""}
+                ${d.venue_location?.access_notes ? infoRow("Access", d.venue_location.access_notes) : ""}
             `,
                 "#eff6ff"
             )}
@@ -431,14 +480,20 @@ export const orderConfirmedAdmin: EmailTemplate = {
     subject: (payload) => `Order In Preparation: ${p(payload).entity_id_readable}`,
     html: (payload) => {
         const d = p(payload);
+        const eventRow = eventRange(d.event_start_date, d.event_end_date);
+        const addressRow = composeAddress(d.venue_location, d.venue_city);
         return wrap(`
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #2563eb;">Order Confirmed — In Preparation</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Order ${d.entity_id_readable} has been confirmed and is now in preparation.</p>
             ${infoBox(`
                 ${infoRow("Order ID", d.entity_id_readable)}
                 ${infoRow("Company", d.company_name)}
-                ${infoRow("Event Date", d.event_start_date)}
-                ${infoRow("Venue", `${d.venue_name}, ${d.venue_city}`)}
+                ${eventRow ? infoRow("Event", eventRow) : ""}
+                ${d.delivery_window ? infoRow("Delivery", formatWindow(d.delivery_window, TZ)) : ""}
+                ${d.pickup_window ? infoRow("Pickup", formatWindow(d.pickup_window, TZ)) : ""}
+                ${d.venue_name ? infoRow("Venue", d.venue_name) : ""}
+                ${addressRow ? infoRow("Address", addressRow) : ""}
+                ${d.venue_location?.access_notes ? infoRow("Access", d.venue_location.access_notes) : ""}
             `)}
             ${actionButton("View Order", d.order_url)}
             ${footer()}
@@ -451,14 +506,20 @@ export const orderConfirmedLogistics: EmailTemplate = {
     subject: (payload) => `Start Preparation: ${p(payload).entity_id_readable}`,
     html: (payload) => {
         const d = p(payload);
+        const eventRow = eventRange(d.event_start_date, d.event_end_date);
+        const addressRow = composeAddress(d.venue_location, d.venue_city);
         return wrap(`
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #2563eb;">Order Confirmed — Begin Preparation</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Order ${d.entity_id_readable} is confirmed. Please begin warehouse preparation.</p>
             ${infoBox(`
                 ${infoRow("Order ID", d.entity_id_readable)}
                 ${infoRow("Company", d.company_name)}
-                ${infoRow("Event Date", d.event_start_date)}
-                ${infoRow("Venue", `${d.venue_name}, ${d.venue_city}`)}
+                ${eventRow ? infoRow("Event", eventRow) : ""}
+                ${d.delivery_window ? infoRow("Delivery", formatWindow(d.delivery_window, TZ)) : ""}
+                ${d.pickup_window ? infoRow("Pickup", formatWindow(d.pickup_window, TZ)) : ""}
+                ${d.venue_name ? infoRow("Venue", d.venue_name) : ""}
+                ${addressRow ? infoRow("Address", addressRow) : ""}
+                ${d.venue_location?.access_notes ? infoRow("Access", d.venue_location.access_notes) : ""}
             `)}
             ${actionButton("View Order", d.order_url)}
             ${footer()}
