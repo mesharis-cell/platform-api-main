@@ -2044,11 +2044,14 @@ const approveQuote = async (
     const { notes, po_number } = payload;
     const normalizedPoNumber = po_number?.trim() || null;
     // Step 1: Fetch order with company and pricing details
+    // venue_city is joined so the ORDER_CONFIRMED emit can include the city
+    // name (the FK alone isn't useful in the email template).
     const order = await db.query.orders.findFirst({
         where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
         with: {
             company: true,
             order_pricing: true,
+            venue_city: { columns: { name: true } },
             items: {
                 with: {
                     asset: {
@@ -2229,8 +2232,10 @@ const approveQuote = async (
             company_name: (order.company as any)?.name || "N/A",
             contact_name: order.contact_name,
             event_start_date: order.event_start_date?.toISOString().split("T")[0] || "",
+            event_end_date: order.event_end_date?.toISOString().split("T")[0] || "",
             venue_name: order.venue_name || "",
-            venue_city: "",
+            venue_city: (order.venue_city as any)?.name || "",
+            venue_location: order.venue_location || null,
             delivery_window: order.delivery_window || "",
             pickup_window: order.pickup_window || "",
             order_url: "",

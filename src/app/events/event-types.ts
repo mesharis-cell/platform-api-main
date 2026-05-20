@@ -191,8 +191,17 @@ export interface PaymentConfirmedPayload extends BaseEventPayload {
 export interface OrderConfirmedPayload extends BaseEventPayload {
     contact_name: string;
     event_start_date: string;
+    event_end_date?: string;
     venue_name: string;
     venue_city: string;
+    venue_location?: {
+        city?: string;
+        address?: string;
+        country?: string;
+        access_notes?: string | null;
+    } | null;
+    delivery_window?: { start: string; end: string } | string;
+    pickup_window?: { start: string; end: string } | string;
     order_url: string;
 }
 
