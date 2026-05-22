@@ -988,12 +988,16 @@ const projectByRole = (pricing: RawPricingRecord | null | undefined, role: Prici
     }
 
     if (role === "LOGISTICS") {
-        // Strip lines flagged logistics_visible=false BEFORE building the
-        // display rows AND BEFORE computing totals. Logistics-hidden lines
-        // must not appear in their view and must not count toward their
-        // buy_total — otherwise the displayed lines would not sum to the
-        // total and logistics would see a phantom delta they can't explain.
-        const visibleLines = lines.filter((line) => line.logistics_visible !== false);
+        // Strip lines flagged logistics_visible=false AND voided lines BEFORE
+        // building the display rows AND BEFORE computing totals. Both must not
+        // appear in the view and must not count toward buy_total — otherwise
+        // the displayed lines would not sum to the total and logistics would
+        // see a phantom delta they can't explain. (calculateBreakdownTotals
+        // already drops voided via shouldCountInTotals; the display list must
+        // match it.)
+        const visibleLines = lines.filter(
+            (line) => line.logistics_visible !== false && !line.is_voided
+        );
         const logisticsTotals = calculateBreakdownTotals(visibleLines, vatPercent);
         const logisticsLines = visibleLines.map((line) => ({
             line_id: line.line_id,
@@ -1028,8 +1032,12 @@ const projectByRole = (pricing: RawPricingRecord | null | undefined, role: Prici
         };
     }
 
+    // Exclude voided lines from the client display. calculateBreakdownTotals
+    // already drops them from the totals (shouldCountInTotals), so without
+    // this filter the client sees a voided line that the total doesn't
+    // account for — the list stops reconciling with the final total.
     const clientLines = lines
-        .filter((line) => !shouldHideLineForClient(line))
+        .filter((line) => !line.is_voided && !shouldHideLineForClient(line))
         .map((line) => ({
             line_id: line.line_id,
             line_kind: line.line_kind,
