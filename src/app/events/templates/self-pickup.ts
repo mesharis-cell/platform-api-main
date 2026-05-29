@@ -8,6 +8,14 @@ const pickupWindowRow = (d: any) => {
     return formatted ? infoRow("Pickup Window", formatted) : "";
 };
 
+// When a company manager approves/declines a colleague's pickup quote, the
+// transition extras carry acted_by_name + on_behalf_of_name (see
+// self-pickup.services buildSpAttribution). Render an attribution row.
+const actedByRow = (d: any) =>
+    d.acted_by_name
+        ? infoRow("Actioned by", `${d.acted_by_name} (on behalf of ${d.on_behalf_of_name})`)
+        : "";
+
 // ─── self_pickup_submitted_client ─────────────────────────────────────────────
 export const selfPickupSubmittedClient: EmailTemplate = {
     subject: (payload) => `Self-Pickup Submitted: ${p(payload).entity_id_readable}`,
@@ -115,6 +123,7 @@ export const selfPickupConfirmedAdmin: EmailTemplate = {
                 ${infoRow("Pickup ID", d.entity_id_readable)}
                 ${infoRow("Company", d.company_name)}
                 ${infoRow("Collector", `${d.collector_name} (${d.collector_phone})`)}
+                ${actedByRow(d)}
                 ${pickupWindowRow(d)}
             `)}
             ${actionButton("View Pickup", d.self_pickup_url)}
@@ -145,6 +154,7 @@ export const selfPickupConfirmedLogistics: EmailTemplate = {
             ${infoBox(`
                 ${infoRow("Pickup ID", d.entity_id_readable)}
                 ${infoRow("Collector", `${d.collector_name} (${d.collector_phone})`)}
+                ${actedByRow(d)}
                 ${pickupWindowRow(d)}
             `)}
             ${actionButton("Open Pickup", d.self_pickup_url)}
@@ -284,6 +294,7 @@ export const selfPickupDeclinedAdmin: EmailTemplate = {
                 ${infoRow("Pickup ID", d.entity_id_readable)}
                 ${infoRow("Company", d.company_name)}
                 ${infoRow("Collector", d.collector_name)}
+                ${actedByRow(d)}
                 ${d.decline_reason ? infoRow("Reason", d.decline_reason) : ""}
             `)}
             ${actionButton("View Pickup", d.self_pickup_url)}

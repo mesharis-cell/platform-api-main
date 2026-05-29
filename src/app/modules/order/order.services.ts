@@ -45,6 +45,7 @@ import {
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
+import { assertCompanyScopeOrManager, resolveCompanyScope } from "../../utils/company-scope";
 import paginationMaker from "../../utils/pagination-maker";
 import { buildServiceRequestCodes } from "../../utils/service-request-code";
 import queryValidator from "../../utils/query-validator";
@@ -129,6 +130,37 @@ const assertClientOwnsOrder = (
     if (!user.company_id || user.company_id !== order.company_id || user.id !== order.created_by) {
         throw new CustomizedError(httpStatus.FORBIDDEN, message);
     }
+};
+
+/**
+ * Authorization scope for quote actions (approve/decline) and the order list.
+ *   - "owner" (default): the legacy client path — only the order's creator may
+ *     act / see. Behavior is byte-for-byte unchanged for regular clients.
+ *   - "company": Company Back Office — any company manager (proven by
+ *     `requirePermission("company:manage_quotes")` in the route chain) may act
+ *     on a colleague's order within the same company. Cross-tenant safety is
+ *     the inline company-match check + assertCompanyScopeOrManager.
+ */
+export type QuoteActionScope = "owner" | "company";
+export type QuoteActionOptions = { scope?: QuoteActionScope };
+
+/**
+ * When a manager acts on a colleague's order, surface "by {manager} on behalf
+ * of {creator}" attribution into the quote event payload (the email templates
+ * render it). Empty object for the owner-acting-on-own-order case → templates
+ * render nothing extra.
+ */
+const buildQuoteAttribution = (
+    user: AuthUser,
+    order: { created_by?: string | null; created_by_user?: { name?: string | null } | null },
+    opts: QuoteActionOptions
+): { acted_by_name?: string; on_behalf_of_name?: string } => {
+    if (opts.scope !== "company") return {};
+    if (!order.created_by || order.created_by === user.id) return {};
+    return {
+        acted_by_name: user.name,
+        on_behalf_of_name: order.created_by_user?.name || "a colleague",
+    };
 };
 
 const isRepairBeforeEventServiceRequest = (request: {
@@ -1298,7 +1330,16 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
 };
 
 // ----------------------------------- GET MY ORDERS ------------------------------------------
-const getMyOrders = async (query: Record<string, any>, user: AuthUser, platformId: string) => {
+// scope="owner" (default): the caller's own orders (legacy client path).
+// scope="company": ALL orders for the caller's company (Company Back Office) —
+// drops the created_by filter, keeps company_id. Pricing stays the literal
+// "CLIENT" projection (sell-side only) for both.
+const getMyOrders = async (
+    query: Record<string, any>,
+    user: AuthUser,
+    platformId: string,
+    scope: QuoteActionScope = "owner"
+) => {
     const {
         search_term,
         page,
@@ -1325,14 +1366,23 @@ const getMyOrders = async (query: Record<string, any>, user: AuthUser, platformI
     });
 
     // Step 3: Build WHERE conditions
-    const conditions: any[] = [eq(orders.platform_id, platformId), eq(orders.created_by, user.id)];
+    const conditions: any[] = [eq(orders.platform_id, platformId)];
 
-    // Step 3a: Filter by user role (CLIENT users see only their company's orders)
-    if (user.role === "CLIENT") {
-        if (user.company_id) {
-            conditions.push(eq(orders.company_id, user.company_id));
-        } else {
-            throw new CustomizedError(httpStatus.UNAUTHORIZED, "Company not found");
+    if (scope === "company") {
+        // Company Back Office: every order for the caller's company, not just
+        // the ones they created. Scope is derived from user.company_id only —
+        // never a request param (the cross-tenant guarantee).
+        conditions.push(eq(orders.company_id, resolveCompanyScope(user)));
+    } else {
+        // Owner path (default): the caller's own orders.
+        conditions.push(eq(orders.created_by, user.id));
+        // Step 3a: CLIENT users are additionally pinned to their company.
+        if (user.role === "CLIENT") {
+            if (user.company_id) {
+                conditions.push(eq(orders.company_id, user.company_id));
+            } else {
+                throw new CustomizedError(httpStatus.UNAUTHORIZED, "Company not found");
+            }
         }
     }
 
@@ -1400,6 +1450,10 @@ const getMyOrders = async (query: Record<string, any>, user: AuthUser, platformI
             venue_city: {
                 name: cities.name,
             },
+            created_by_user: {
+                id: users.id,
+                name: users.name,
+            },
             order_pricing: {
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
@@ -1414,6 +1468,7 @@ const getMyOrders = async (query: Record<string, any>, user: AuthUser, platformI
         .leftJoin(brands, eq(orders.brand_id, brands.id))
         .leftJoin(prices, eq(orders.order_pricing_id, prices.id))
         .leftJoin(cities, eq(orders.venue_city_id, cities.id))
+        .leftJoin(users, eq(orders.created_by, users.id))
         .where(and(...conditions))
         .orderBy(sortSequence === "asc" ? asc(sortField) : desc(sortField))
         .limit(limitNumber)
@@ -1430,6 +1485,10 @@ const getMyOrders = async (query: Record<string, any>, user: AuthUser, platformI
         venue_city: r.venue_city?.name || null,
         company: { ...r.company, platform_margin_percent: undefined },
         brand: r.brand,
+        // Who placed the order — surfaced so the Company Back Office list can
+        // attribute each order to a colleague. Harmless for the owner path
+        // (always the caller themselves).
+        created_by_user: r.created_by_user,
         order_pricing: PricingService.projectSummaryForRole(r.order_pricing, "CLIENT"),
     }));
 
@@ -1448,7 +1507,8 @@ const getOrderById = async (
     orderId: string,
     user: AuthUser,
     platformId: string,
-    query: Record<string, any>
+    query: Record<string, any>,
+    scope: QuoteActionScope = "owner"
 ) => {
     const { quote } = query;
 
@@ -1510,7 +1570,13 @@ const getOrderById = async (
 
     // Check access based on user role
     if (user.role === "CLIENT") {
-        assertClientOwnsOrder(user, orderData.order);
+        // Owner path: only the creator. Company path (Company Back Office):
+        // any company manager may open a colleague's order in the same company.
+        if (scope === "company") {
+            assertCompanyScopeOrManager(user, orderData.order, "order");
+        } else {
+            assertClientOwnsOrder(user, orderData.order);
+        }
     }
 
     if (
@@ -2355,7 +2421,8 @@ const approveQuote = async (
     orderId: string,
     user: AuthUser,
     platformId: string,
-    payload: ApproveQuotePayload
+    payload: ApproveQuotePayload,
+    opts: QuoteActionOptions = {}
 ) => {
     const { notes, po_number } = payload;
     const normalizedPoNumber = po_number?.trim() || null;
@@ -2368,6 +2435,7 @@ const approveQuote = async (
             company: true,
             order_pricing: true,
             venue_city: { columns: { name: true } },
+            created_by_user: { columns: { name: true } },
             items: {
                 with: {
                     asset: {
@@ -2389,7 +2457,18 @@ const approveQuote = async (
             "Order not found or you do not have access to this order"
         );
     }
-    assertClientOwnsOrder(user, order, "Order not found or you do not have access to this order");
+    // Owner path (default): only the creator may approve. Company path: any
+    // company manager (capability already proven by requirePermission) may
+    // approve a colleague's order within the same company.
+    if (opts.scope === "company") {
+        assertCompanyScopeOrManager(user, order, "order");
+    } else {
+        assertClientOwnsOrder(
+            user,
+            order,
+            "Order not found or you do not have access to this order"
+        );
+    }
 
     // Step 2: Verify order is in QUOTED status
     if (order.order_status !== "QUOTED") {
@@ -2526,6 +2605,7 @@ const approveQuote = async (
             contact_name: order.contact_name,
             final_total: String(approvedOrderTotal),
             order_url: "",
+            ...buildQuoteAttribution(user, order, opts),
         },
     });
 
@@ -2600,7 +2680,8 @@ const declineQuote = async (
     orderId: string,
     user: AuthUser,
     platformId: string,
-    payload: DeclineQuotePayload
+    payload: DeclineQuotePayload,
+    opts: QuoteActionOptions = {}
 ) => {
     const { decline_reason } = payload;
 
@@ -2609,6 +2690,7 @@ const declineQuote = async (
         where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
         with: {
             company: true,
+            created_by_user: { columns: { name: true } },
         },
     });
 
@@ -2618,7 +2700,15 @@ const declineQuote = async (
             "Order not found or you do not have access to this order"
         );
     }
-    assertClientOwnsOrder(user, order, "Order not found or you do not have access to this order");
+    if (opts.scope === "company") {
+        assertCompanyScopeOrManager(user, order, "order");
+    } else {
+        assertClientOwnsOrder(
+            user,
+            order,
+            "Order not found or you do not have access to this order"
+        );
+    }
 
     // Step 2: Verify order is in QUOTED status
     if (order.order_status !== "QUOTED") {
@@ -2688,6 +2778,7 @@ const declineQuote = async (
             company_name: order.company?.name || "N/A",
             contact_name: order.contact_name,
             order_url: "",
+            ...buildQuoteAttribution(user, order, opts),
         },
     });
 

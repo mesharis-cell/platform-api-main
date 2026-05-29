@@ -258,6 +258,21 @@ export const PERMISSIONS = {
     STOCK_MOVEMENTS_READ: "stock_movements:read",
     STOCK_MOVEMENTS_ADJUST: "stock_movements:adjust",
     STOCK_MOVEMENTS_VIEW_PAGE: "stock_movements:view_page",
+
+    // ==================== COMPANY BACK OFFICE ====================
+    // Granted to ordinary CLIENT users (NOT a new role) to let a "company
+    // manager" see + act across their whole company. Company scope is always
+    // derived server-side from user.company_id; pricing stays the CLIENT
+    // projection (sell-side only). Grant the granular company:view_* set for
+    // read-only managers; reserve company:* for full managers.
+    COMPANY_VIEW_DASHBOARD: "company:view_dashboard",
+    COMPANY_VIEW_ALL_ORDERS: "company:view_all_orders", // all company orders + self-pickups (drops created_by filter)
+    COMPANY_MANAGE_QUOTES: "company:manage_quotes", // approve/decline quotes on any company order/self-pickup
+    COMPANY_VIEW_ESTIMATES: "company:view_estimates", // company-wide cost-estimates list + per-entity PDF
+    COMPANY_EDIT_ASSETS: "company:edit_assets", // narrow asset edit (name/on_display_image/description/category/brand_id)
+    COMPANY_VIEW_USERS: "company:view_users", // read-only company member list
+    COMPANY_EXPORT: "company:export", // company-scoped CSV exports
+    COMPANY_ALL: "company:*",
 };
 
 export const PERMISSION_TEMPLATES = {

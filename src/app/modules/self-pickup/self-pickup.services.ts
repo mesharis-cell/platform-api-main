@@ -18,6 +18,7 @@ import {
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
+import { assertCompanyScopeOrManager } from "../../utils/company-scope";
 import { PricingService } from "../../services/pricing.service";
 import { WorkflowAutoOpenService } from "../../services/workflow-auto-open.service";
 import { eventBus, EVENT_TYPES } from "../../events";
@@ -581,6 +582,75 @@ const getSelfPickupById = async (selfPickupId: string, platformId: string) => {
     return pickup;
 };
 
+/**
+ * Authorization scope for client-facing self-pickup access (mirrors the order
+ * QuoteActionScope). "owner" = only the creator (legacy client path).
+ * "company" = any company manager (Company Back Office, capability proven by
+ * requirePermission).
+ */
+export type SelfPickupActionScope = "owner" | "company";
+
+const assertSelfPickupOwner = (
+    user: AuthUser,
+    pickup: { company_id: string | null; created_by: string | null | undefined }
+) => {
+    if (user.role !== "CLIENT") return;
+    if (
+        !user.company_id ||
+        user.company_id !== pickup.company_id ||
+        user.id !== pickup.created_by
+    ) {
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            "You do not have access to this self-pickup"
+        );
+    }
+};
+
+/**
+ * The single client self-pickup access gate. Owner path closes a pre-existing
+ * hole: getSelfPickupById/clientApproveQuote/clientDeclineQuote previously took
+ * no user and checked NEITHER company nor creator, so any CLIENT could act on
+ * any company's self-pickup by id. This now enforces it for both paths.
+ */
+const assertSelfPickupAccess = (
+    user: AuthUser,
+    pickup: { company_id: string | null; created_by: string | null | undefined },
+    scope: SelfPickupActionScope
+) => {
+    if (scope === "company") {
+        assertCompanyScopeOrManager(user, pickup, "self-pickup");
+    } else {
+        assertSelfPickupOwner(user, pickup);
+    }
+};
+
+/** "by {manager} on behalf of {creator}" extras for the SP event payload. */
+const buildSpAttribution = (
+    user: AuthUser,
+    pickup: { created_by?: string | null; created_by_user?: { name?: string | null } | null },
+    scope: SelfPickupActionScope
+): Record<string, unknown> => {
+    if (scope !== "company") return {};
+    if (!pickup.created_by || pickup.created_by === user.id) return {};
+    return {
+        acted_by_name: user.name,
+        on_behalf_of_name: pickup.created_by_user?.name || "a colleague",
+    };
+};
+
+/** Fetch a self-pickup for a client, enforcing owner/company scope. */
+const clientGetSelfPickupById = async (
+    id: string,
+    platformId: string,
+    user: AuthUser,
+    scope: SelfPickupActionScope = "owner"
+) => {
+    const pickup = await getSelfPickupById(id, platformId);
+    assertSelfPickupAccess(user, pickup, scope);
+    return pickup;
+};
+
 // ----------------------------------- STATUS TRANSITIONS ----------------------------------
 
 const transitionStatus = async (
@@ -874,9 +944,11 @@ const clientApproveQuote = async (
     id: string,
     platformId: string,
     user: AuthUser,
-    payload: { po_number: string; notes?: string }
+    payload: { po_number: string; notes?: string },
+    scope: SelfPickupActionScope = "owner"
 ) => {
     const pickup = await getSelfPickupById(id, platformId);
+    assertSelfPickupAccess(user, pickup, scope);
     if (pickup.self_pickup_status !== "QUOTED") {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Can only approve a quoted self-pickup");
     }
@@ -893,7 +965,7 @@ const clientApproveQuote = async (
         user,
         "CONFIRMED",
         payload.notes ? `Client approved quote: ${payload.notes}` : "Client approved quote",
-        { po_number: payload.po_number }
+        { po_number: payload.po_number, ...buildSpAttribution(user, pickup, scope) }
     );
 };
 
@@ -901,9 +973,11 @@ const clientDeclineQuote = async (
     id: string,
     platformId: string,
     user: AuthUser,
-    payload: { decline_reason: string }
+    payload: { decline_reason: string },
+    scope: SelfPickupActionScope = "owner"
 ) => {
     const pickup = await getSelfPickupById(id, platformId);
+    assertSelfPickupAccess(user, pickup, scope);
     if (pickup.self_pickup_status !== "QUOTED") {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Can only decline a quoted self-pickup");
     }
@@ -937,7 +1011,7 @@ const clientDeclineQuote = async (
         user,
         "DECLINED",
         `Client declined quote: ${payload.decline_reason}`,
-        { decline_reason: payload.decline_reason }
+        { decline_reason: payload.decline_reason, ...buildSpAttribution(user, pickup, scope) }
     );
 };
 
@@ -1043,15 +1117,21 @@ const listClientSelfPickups = async (
     platformId: string,
     companyId: string,
     userId: string,
-    params: SelfPickupListParams
+    params: SelfPickupListParams,
+    scope: SelfPickupActionScope = "owner"
 ) => {
     const { page = 1, limit = 20, self_pickup_status, search } = params;
 
     const conditions = [
         eq(selfPickups.platform_id, platformId),
         eq(selfPickups.company_id, companyId),
-        eq(selfPickups.created_by, userId),
     ];
+
+    // Owner path: only the caller's own pickups. Company path (Company Back
+    // Office): every pickup for the company — drop the created_by filter.
+    if (scope !== "company") {
+        conditions.push(eq(selfPickups.created_by, userId));
+    }
 
     if (self_pickup_status)
         conditions.push(eq(selfPickups.self_pickup_status, self_pickup_status as any));
@@ -1102,6 +1182,7 @@ export const SelfPickupServices = {
     submitSelfPickupFromCart,
     listSelfPickups,
     getSelfPickupById,
+    clientGetSelfPickupById,
     getStatusHistory,
     submitForApproval,
     approveQuote,

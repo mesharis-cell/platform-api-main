@@ -72,7 +72,9 @@ const clientDetail = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
     const id = getRequiredString(req.params.id, "id");
-    const result = await SelfPickupServices.getSelfPickupById(id, platformId);
+    // Enforce owner scope (same company AND creator). Closes a pre-existing
+    // gap where any CLIENT could read any company's self-pickup by id.
+    const result = await SelfPickupServices.clientGetSelfPickupById(id, platformId, user, "owner");
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

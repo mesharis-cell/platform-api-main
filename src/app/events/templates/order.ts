@@ -3,6 +3,14 @@ import { actionButton, footer, formatAmount, formatWindow, infoBox, infoRow, wra
 
 const p = (payload: Record<string, unknown>) => payload as Record<string, any>;
 
+// When a company manager approves/declines a colleague's quote, the event
+// payload carries acted_by_name + on_behalf_of_name (see order.services
+// buildQuoteAttribution). Render an attribution row; empty string otherwise.
+const actedByRow = (d: Record<string, any>) =>
+    d.acted_by_name
+        ? infoRow("Actioned by", `${d.acted_by_name} (on behalf of ${d.on_behalf_of_name})`)
+        : "";
+
 // ─── order_submitted_client ──────────────────────────────────────────────────
 export const orderSubmittedClient: EmailTemplate = {
     subject: (payload) => `Order Submitted: ${p(payload).entity_id_readable}`,
@@ -309,6 +317,7 @@ export const quoteApprovedAdmin: EmailTemplate = {
                 `
                 ${infoRow("Order ID", d.entity_id_readable)}
                 ${infoRow("Company", d.company_name)}
+                ${actedByRow(d)}
                 <p style="margin: 8px 0; font-size: 18px; font-weight: bold; color: #111827;">Total: ${formatAmount(d.final_total)} AED</p>
             `,
                 "#f0fdf4",
@@ -333,6 +342,7 @@ export const quoteApprovedLogistics: EmailTemplate = {
                 `
                 ${infoRow("Order ID", d.entity_id_readable)}
                 ${infoRow("Company", d.company_name)}
+                ${actedByRow(d)}
                 ${infoRow("Total", `${formatAmount(d.final_total)} AED`)}
             `,
                 "#f0fdf4",
@@ -356,6 +366,7 @@ export const quoteDeclinedAdmin: EmailTemplate = {
                 `
                 ${infoRow("Order ID", d.entity_id_readable)}
                 ${infoRow("Company", d.company_name)}
+                ${actedByRow(d)}
             `,
                 "#fef2f2",
                 "#dc2626"
@@ -379,6 +390,7 @@ export const quoteDeclinedLogistics: EmailTemplate = {
                 `
                 ${infoRow("Order ID", d.entity_id_readable)}
                 ${infoRow("Company", d.company_name)}
+                ${actedByRow(d)}
             `,
                 "#fef2f2",
                 "#dc2626"

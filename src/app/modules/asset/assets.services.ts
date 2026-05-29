@@ -25,6 +25,7 @@ import {
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
+import { assertCompanyScopeOrManager } from "../../utils/company-scope";
 import paginationMaker from "../../utils/pagination-maker";
 import { qrCodeGenerator } from "../../utils/qr-code-generator";
 import queryValidator from "../../utils/query-validator";
@@ -2715,11 +2716,93 @@ const bulkGroupAssets = async (
     });
 };
 
+/**
+ * Company Back Office asset edit — a deliberately NARROW path, distinct from
+ * the broad ADMIN/LOGISTICS updateAsset. A company manager (CLIENT +
+ * company:edit_assets) may change ONLY presentation fields:
+ *   name, on_display_image, description, category, brand_id
+ * Everything else (dimensions/weight/volume → pricing; condition/refurb →
+ * booking windows; quantities/stock_mode/qr/status → inventory & identity) is
+ * structurally unreachable: the update object is allowlisted server-side, so a
+ * hostile payload with extra keys is silently ignored. brand_id is validated to
+ * belong to the caller's company; on_display_image reuses the draft→permanent
+ * S3 promotion; the change is recorded as an asset version snapshot.
+ */
+const COMPANY_EDITABLE_ASSET_FIELDS = [
+    "name",
+    "on_display_image",
+    "description",
+    "category",
+    "brand_id",
+] as const;
+
+const companyEditAsset = async (
+    id: string,
+    data: Record<string, unknown>,
+    user: AuthUser,
+    platformId: string
+) => {
+    const existing = await db.query.assets.findFirst({
+        where: and(eq(assets.id, id), eq(assets.platform_id, platformId)),
+    });
+    if (!existing) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Asset not found");
+    }
+    // Cross-tenant backstop: the asset must belong to the manager's company.
+    assertCompanyScopeOrManager(user, existing, "asset");
+
+    // Allowlist — only the five presentation fields are ever written.
+    const updateData: Record<string, unknown> = {};
+    for (const field of COMPANY_EDITABLE_ASSET_FIELDS) {
+        if (data[field] !== undefined) updateData[field] = data[field];
+    }
+    if (Object.keys(updateData).length === 0) {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "No editable fields provided");
+    }
+
+    // A new brand must belong to the same company (null clears the brand).
+    if (updateData.brand_id) {
+        const [brand] = await db
+            .select({ id: brands.id })
+            .from(brands)
+            .where(
+                and(
+                    eq(brands.id, updateData.brand_id as string),
+                    eq(brands.company_id, existing.company_id as string)
+                )
+            );
+        if (!brand) {
+            throw new CustomizedError(
+                httpStatus.NOT_FOUND,
+                "Brand not found or does not belong to your company"
+            );
+        }
+    }
+
+    // Promote a freshly-uploaded display image from drafts/ to the permanent path.
+    if (updateData.on_display_image && existing.company_id) {
+        const [promoted] = await promoteDraftImages(
+            [{ url: updateData.on_display_image as string }],
+            existing.company_id
+        );
+        updateData.on_display_image = promoted.url;
+    }
+
+    updateData.updated_at = new Date();
+
+    const [updated] = await db.update(assets).set(updateData).where(eq(assets.id, id)).returning();
+
+    await createAssetVersionSnapshot(id, platformId, "Company manager update", user.id);
+
+    return updated;
+};
+
 export const AssetServices = {
     createAsset,
     getAssets,
     getAssetById,
     updateAsset,
+    companyEditAsset,
     addAssetUnits,
     bulkGroupAssets,
     deleteAsset,

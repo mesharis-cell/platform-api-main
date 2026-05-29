@@ -95,6 +95,12 @@ export const featureRegistry = {
         description:
             "Show separate Event Start/End dates on client checkout in addition to the delivery/pickup windows. When OFF (default), only Delivery and Pickup dates are collected (both required) and the event dates are auto-filled from them on submit. Turn ON for clients whose event timing genuinely differs from logistics windows.",
     },
+    enable_company_backoffice: {
+        default: false,
+        label: "Enable Company Back Office",
+        description:
+            "Expose a Company section in the client portal where designated company managers (CLIENT users granted company:* permissions) can view all of their company's orders and self-pickups, approve/decline quotes on behalf of colleagues, view company-wide cost estimates, see the member list, and make narrow asset edits. Never exposes margins/buy-prices and never crosses companies.",
+    },
 } as const;
 
 type FeatureKey = keyof typeof featureRegistry;
