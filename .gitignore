@@ -22,8 +22,9 @@ dist
 
 seed/
 
-# Security scan reports
-reports/
+# Security scan reports — root-level scanner output only.
+# Anchored with a leading slash so it does NOT ignore src/app/modules/reports/.
+/reports/
 
 # Plaintext credential dumps from src/db/scripts/seed-users.ts
 seeded-users-*.txt
