@@ -152,16 +152,52 @@ const getOrderById = catchAsync(async (req, res) => {
 
 // ----------------------------------- UPDATE JOB NUMBER ----------------------------------
 const updateJobNumber = catchAsync(async (req, res) => {
+    const user = (req as any).user;
     const platformId = (req as any).platformId;
     const id = getRequiredString(req.params.id, "id");
     const { job_number } = req.body;
 
-    const result = await OrderServices.updateJobNumber(id, job_number, platformId);
+    const result = await OrderServices.updateJobNumber(id, job_number, platformId, user);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
         success: true,
         message: "Job number updated successfully",
+        data: result,
+    });
+});
+
+// ----------------------------------- EDIT ORDER DETAILS ---------------------------------
+// PATCH /:id — edit an existing order's details (order-editing feature). Reachable from both
+// the /operations (ADMIN) and /client (CLIENT owner/manager) mounts; scope + status band +
+// ownership are enforced in EntityEditService, never in the route.
+const editOrder = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const id = getRequiredString(req.params.id, "id");
+
+    const result = await OrderServices.editOrderDetails(id, req.body, user, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Order updated successfully",
+        data: result,
+    });
+});
+
+// ----------------------------------- GET ORDER CHANGE HISTORY ---------------------------
+const getOrderChangeHistory = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const id = getRequiredString(req.params.id, "id");
+
+    const result = await OrderServices.getOrderChangeHistory(id, user, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Order change history fetched successfully",
         data: result,
     });
 });
@@ -611,6 +647,8 @@ export const OrderControllers = {
     submitOrderFromCart,
     getOrders,
     getMyOrders,
+    editOrder,
+    getOrderChangeHistory,
     exportOrders,
     downloadGoodsForm,
     getOrderById,

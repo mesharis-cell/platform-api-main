@@ -17,6 +17,8 @@ export const EVENT_TYPES = {
     ORDER_PENDING_APPROVAL: "order.pending_approval",
     ORDER_REPAIR_BEFORE_EVENT_REQUIRED: "order.repair_before_event_required",
     ORDER_MAINTENANCE_DECISION_CHANGE_REQUESTED: "order.maintenance_decision_change_requested",
+    /** An existing order's details were edited (order-editing feature). Carries changed_fields[]. */
+    ORDER_UPDATED: "order.updated",
 
     // Quote lifecycle (order-scoped)
     QUOTE_SENT: "quote.sent",
@@ -38,6 +40,8 @@ export const EVENT_TYPES = {
     INBOUND_REQUEST_DECLINED: "inbound_request.declined",
     INBOUND_REQUEST_COMPLETED: "inbound_request.completed",
     INBOUND_REQUEST_INVOICE_GENERATED: "inbound_request.invoice_generated",
+    /** An existing inbound request's details were edited (order-editing P4 retrofit). */
+    INBOUND_REQUEST_UPDATED: "inbound_request.updated",
 
     // Service request lifecycle
     SERVICE_REQUEST_SUBMITTED: "service_request.submitted",
@@ -46,6 +50,8 @@ export const EVENT_TYPES = {
     SERVICE_REQUEST_APPROVED: "service_request.approved",
     SERVICE_REQUEST_COMPLETED: "service_request.completed",
     SERVICE_REQUEST_INVOICE_GENERATED: "service_request.invoice_generated",
+    /** An existing service request's details were edited (order-editing P4 retrofit). */
+    SERVICE_REQUEST_UPDATED: "service_request.updated",
 
     // Line item lifecycle (vacant — no listeners yet)
     LINE_ITEM_ADDED: "line_item.added",
@@ -76,6 +82,8 @@ export const EVENT_TYPES = {
     SELF_PICKUP_CLOSED: "self_pickup.closed",
     SELF_PICKUP_CANCELLED: "self_pickup.cancelled",
     SELF_PICKUP_STATUS_CHANGED: "self_pickup.status_changed",
+    /** An existing self-pickup's details were edited (order-editing P4 retrofit). */
+    SELF_PICKUP_UPDATED: "self_pickup.updated",
 
     // Stock lifecycle
     STOCK_BELOW_THRESHOLD: "stock.below_threshold",
@@ -254,6 +262,26 @@ export interface OrderTimeWindowsUpdatedPayload extends BaseEventPayload {
     delivery_window?: string;
     pickup_window?: string;
     order_url: string;
+}
+
+/**
+ * Shared payload for the `*.updated` event family (order/inbound_request/service_request/
+ * self_pickup) emitted by the entity-edit feature. `changed_fields` drives both the audit
+ * trail and the email body. `status_reverted` / `reprice_triggered` / `reconcile_triggered`
+ * let notification rules condition on the *kind* of edit (e.g. only notify on a re-review).
+ */
+export interface EntityUpdatedPayload extends BaseEventPayload {
+    contact_name?: string;
+    changed_fields: Array<{ field: string; old: unknown; new: unknown }>;
+    status_reverted?: boolean;
+    reprice_triggered?: boolean;
+    reconcile_triggered?: boolean;
+    acted_by_name?: string;
+    on_behalf_of_name?: string;
+    // Per-entity deep-link slots (the handler's injectDeepLink fills the right one by entity_type).
+    order_url?: string;
+    request_url?: string;
+    self_pickup_url?: string;
 }
 
 export interface FabricationCompletedPayload extends BaseEventPayload {

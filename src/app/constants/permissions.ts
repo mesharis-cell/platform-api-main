@@ -93,12 +93,14 @@ export const PERMISSIONS = {
     SERVICE_REQUESTS_CREATE: "service_requests:create",
     SERVICE_REQUESTS_READ: "service_requests:read",
     SERVICE_REQUESTS_UPDATE: "service_requests:update",
+    SERVICE_REQUESTS_EDIT_DETAILS: "service_requests:edit_details", // order-editing P4 retrofit
     SERVICE_REQUESTS_ALL: "service_requests:*",
 
     // ==================== INBOUND REQUESTS ====================
     INBOUND_REQUESTS_CREATE: "inbound_requests:create",
     INBOUND_REQUESTS_READ: "inbound_requests:read",
     INBOUND_REQUESTS_UPDATE: "inbound_requests:update",
+    INBOUND_REQUESTS_EDIT_DETAILS: "inbound_requests:edit_details", // order-editing P4 retrofit
     INBOUND_REQUESTS_ALL: "inbound_requests:*",
 
     // ==================== LINE ITEM REQUESTS ====================
@@ -185,6 +187,9 @@ export const PERMISSIONS = {
     ORDERS_VIEW_STATUS_HISTORY: "orders:view_status_history", // ✅
     ORDERS_EXPORT: "orders:export", // ✅
     ORDERS_CANCEL: "orders:cancel",
+    // Edit an existing order's details pre-CONFIRMED (descriptive/money/inventory). Distinct
+    // from the orphaned ORDERS_UPDATE (the granular gate for the order-editing feature).
+    ORDERS_EDIT_DETAILS: "orders:edit_details",
     ORDERS_ALL: "orders:*",
 
     // ==================== QUOTES ====================
@@ -243,6 +248,7 @@ export const PERMISSIONS = {
     // ==================== SELF PICKUPS ====================
     SELF_PICKUPS_CREATE: "self_pickups:create",
     SELF_PICKUPS_READ: "self_pickups:read",
+    SELF_PICKUPS_EDIT_DETAILS: "self_pickups:edit_details", // order-editing P4 retrofit
     SELF_PICKUPS_APPROVE: "self_pickups:approve",
     SELF_PICKUPS_CANCEL: "self_pickups:cancel",
     SELF_PICKUPS_EXPORT: "self_pickups:export",
@@ -417,6 +423,7 @@ export const PERMISSION_TEMPLATES = {
         PERMISSIONS.ORDERS_CREATE,
         PERMISSIONS.ORDERS_READ,
         PERMISSIONS.ORDERS_UPDATE,
+        PERMISSIONS.ORDERS_EDIT_DETAILS,
         PERMISSIONS.ORDERS_VIEW_STATUS_HISTORY,
         PERMISSIONS.QUOTES_APPROVE,
         PERMISSIONS.QUOTES_DECLINE,
@@ -434,6 +441,7 @@ export const PERMISSION_TEMPLATES = {
         PERMISSIONS.ATTACHMENT_TYPES_READ,
         PERMISSIONS.SELF_PICKUPS_CREATE,
         PERMISSIONS.SELF_PICKUPS_READ,
+        PERMISSIONS.SELF_PICKUPS_EDIT_DETAILS,
         PERMISSIONS.SELF_PICKUPS_CANCEL,
     ],
 };

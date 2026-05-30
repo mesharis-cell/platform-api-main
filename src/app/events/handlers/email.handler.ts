@@ -29,7 +29,10 @@ type NotificationCondition = {
         | "client_action_required"
         | "client_visible"
         | "billing_mode"
-        | "request_type";
+        | "request_type"
+        | "status_reverted"
+        | "reprice_triggered"
+        | "reconcile_triggered";
     operator: "equals" | "in";
     value: string | string[];
 };
@@ -209,6 +212,12 @@ const getConditionValue = (event: SystemEvent, field: NotificationCondition["fie
             return String(payload.billing_mode || "");
         case "request_type":
             return String(payload.request_type || "");
+        case "status_reverted":
+            return String(payload.status_reverted === true);
+        case "reprice_triggered":
+            return String(payload.reprice_triggered === true);
+        case "reconcile_triggered":
+            return String(payload.reconcile_triggered === true);
         default:
             return "";
     }

@@ -48,6 +48,7 @@ export const EVENT_GROUPS: EventGroup[] = [
                 key: "order.maintenance_decision_change_requested",
                 label: "Maintenance Decision Change Requested",
             },
+            { key: "order.updated", label: "Order Edited" },
         ],
     },
     {
@@ -167,6 +168,10 @@ export const TEMPLATES_BY_EVENT: Record<string, TemplateMeta[]> = {
             key: "maintenance_decision_change_requested_admin",
             label: "Admin — Maintenance Decision Change Requested",
         },
+    ],
+    "order.updated": [
+        { key: "order_updated_admin", label: "Admin/Logistics — Order Edited (re-review)" },
+        { key: "order_updated_client", label: "Client — Order Edited" },
     ],
     "quote.sent": [
         { key: "quote_sent_client", label: "Client — Quote Sent" },

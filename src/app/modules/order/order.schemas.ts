@@ -532,8 +532,76 @@ const onSiteCaptureSchema = z.object({
         .strict(),
 });
 
+// Edit an existing order's details (order-editing feature). All fields optional + allowlisted;
+// EntityEditService re-validates scope, status band, and Tier classification. P1 accepts only
+// Tier A (descriptive) fields — event dates / items arrive in P3. `params.id` is validated here
+// because payloadValidator parses and writes back req.params.
+const editOrderSchema = z.object({
+    params: z.object({ id: z.uuid("Invalid order ID") }),
+    body: z
+        .object({
+            contact_name: z.string().min(1, "Contact name is required").max(100).optional(),
+            contact_email: z.string().email("Invalid email format").max(255).optional(),
+            contact_phone: z.string().min(1, "Contact phone is required").max(50).optional(),
+            venue_contact_name: z.string().max(100).nullable().optional(),
+            venue_contact_email: z
+                .string()
+                .email("Invalid email format")
+                .max(255)
+                .nullable()
+                .optional(),
+            venue_contact_phone: z.string().max(50).nullable().optional(),
+            venue_name: z.string().min(1, "Venue name is required").max(200).optional(),
+            venue_city_id: z.uuid("Invalid city ID").optional(),
+            venue_location: z
+                .object({
+                    country: z.string().optional(),
+                    city: z.string().optional(),
+                    address: z.string().optional(),
+                    access_notes: z.string().optional(),
+                })
+                .optional(),
+            special_instructions: z.string().max(2000).nullable().optional(),
+            permit_requirements: z
+                .object({
+                    requires_permit: z.boolean().default(false),
+                    permit_owner: z.enum(["CLIENT", "PLATFORM", "UNKNOWN"]).optional(),
+                    requires_vehicle_docs: z.boolean().optional(),
+                    requires_staff_ids: z.boolean().optional(),
+                    notes: z.string().max(1000).optional(),
+                })
+                .nullable()
+                .optional(),
+            is_permanent_placement: z.boolean().optional(),
+            po_number: z
+                .string()
+                .trim()
+                .max(100, "PO number must be at most 100 characters")
+                .regex(
+                    /^[A-Za-z0-9][A-Za-z0-9\-_/ ]*$/,
+                    "PO number must be alphanumeric and may include spaces, hyphens, underscores, or slashes"
+                )
+                .nullable()
+                .optional(),
+            job_number: z
+                .string()
+                .max(50, "Job number must be at most 50 characters")
+                .regex(
+                    /^[a-zA-Z0-9\-_]+$/,
+                    "Job number must be alphanumeric (letters, numbers, hyphens, underscores only)"
+                )
+                .nullable()
+                .optional(),
+        })
+        .strict()
+        .refine((b) => Object.keys(b).length > 0, {
+            message: "At least one field to edit must be provided",
+        }),
+});
+
 export const orderSchemas = {
     calculateEstimateSchema,
+    editOrderSchema,
     checkMaintenanceFeasibilitySchema,
     submitOrderSchema,
     updateJobNumberSchema,

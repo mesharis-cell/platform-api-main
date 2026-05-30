@@ -25,6 +25,7 @@ import {
     cities,
     collections,
     companies,
+    entityChangeHistory,
     financialStatusHistory,
     invoices,
     maintenanceDecisionChangeRequests,
@@ -80,6 +81,12 @@ import { LineItemsServices } from "../order-line-items/order-line-items.services
 import { eventBus, EVENT_TYPES } from "../../events";
 import { orderIdGenerator } from "./order.utils";
 import { WorkflowAutoOpenService } from "../../services/workflow-auto-open.service";
+import { EntityEditService } from "../../services/entity-edit.service";
+import {
+    buildEntityUpdatedPayload,
+    diffChangedFields,
+    writeChangeHistory,
+} from "../../utils/entity-change-history";
 import { featureNames, uuidRegex } from "../../constants/common";
 import config from "../../config";
 import { formatDateForEmail } from "../../utils/date-time";
@@ -1861,7 +1868,12 @@ const getOrderById = async (
 };
 
 // ----------------------------------- UPDATE JOB NUMBER --------------------------------------
-const updateJobNumber = async (orderId: string, jobNumber: string | null, platformId: string) => {
+const updateJobNumber = async (
+    orderId: string,
+    jobNumber: string | null,
+    platformId: string,
+    user?: AuthUser
+) => {
     // Step 1: Verify order exists
     const [order] = await db
         .select()
@@ -1872,7 +1884,9 @@ const updateJobNumber = async (orderId: string, jobNumber: string | null, platfo
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
     }
 
-    // Step 4: Update job number
+    const previousJobNumber = order.job_number ?? null;
+
+    // Step 2: Update job number
     const [updatedOrder] = await db
         .update(orders)
         .set({
@@ -1882,12 +1896,115 @@ const updateJobNumber = async (orderId: string, jobNumber: string | null, platfo
         .where(eq(orders.id, orderId))
         .returning();
 
+    // Step 3: Audit + emit (closes the previously-silent job_number edit gap). Diff-driven,
+    // and only when we know the actor (controller passes the user). job_number editing remains
+    // any-status (NOT band-gated) — it is an ops field, distinct from the order-edit feature.
+    const changed = diffChangedFields(
+        { job_number: previousJobNumber },
+        { job_number: jobNumber },
+        [{ field: "job_number", tier: "A" }]
+    );
+    if (changed.length > 0 && user) {
+        await writeChangeHistory(db, {
+            platformId,
+            entityType: "ORDER",
+            entityId: orderId,
+            entityIdReadable: updatedOrder.order_id,
+            changed,
+            actorId: user.id,
+            actorRole: user.role,
+        });
+        const [company] = updatedOrder.company_id
+            ? await db
+                  .select({ name: companies.name })
+                  .from(companies)
+                  .where(eq(companies.id, updatedOrder.company_id))
+            : [];
+        await eventBus.emit({
+            platform_id: platformId,
+            event_type: EVENT_TYPES.ORDER_UPDATED,
+            entity_type: "ORDER",
+            entity_id: orderId,
+            actor_id: user.id,
+            actor_role: user.role,
+            payload: buildEntityUpdatedPayload({
+                entityIdReadable: updatedOrder.order_id,
+                companyId: updatedOrder.company_id || "",
+                companyName: company?.name || "N/A",
+                contactName: updatedOrder.contact_name,
+                changed,
+            }),
+        });
+    }
+
     return {
         id: updatedOrder.id,
         order_id: updatedOrder.order_id,
         job_number: updatedOrder.job_number,
         updated_at: updatedOrder.updated_at,
     };
+};
+
+// Edit an existing order's details (order-editing feature). Thin wrapper over the shared
+// EntityEditService spine — scope (owner/company/admin) is derived from the user inside it.
+const editOrderDetails = async (
+    orderId: string,
+    payload: Record<string, unknown>,
+    user: AuthUser,
+    platformId: string
+) => {
+    return EntityEditService.editEntity({
+        entityType: "ORDER",
+        entityId: orderId,
+        platformId,
+        patch: payload,
+        user,
+    });
+};
+
+// Field-level edit history for an order (order-editing feature). Reads the polymorphic
+// entity_change_history ledger. CLIENT callers are restricted to their own company's orders;
+// ADMIN/LOGISTICS are platform-scoped. Tier A/B/C change rows only ever carry allowlisted
+// edit fields (never margin/buy-price), so the diff is safe to surface to clients.
+const getOrderChangeHistory = async (orderId: string, user: AuthUser, platformId: string) => {
+    const [order] = await db
+        .select({ id: orders.id, company_id: orders.company_id })
+        .from(orders)
+        .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)));
+
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    }
+    if (user.role === "CLIENT" && order.company_id !== user.company_id) {
+        throw new CustomizedError(httpStatus.FORBIDDEN, "You do not have access to this order");
+    }
+
+    const rows = await db
+        .select({
+            id: entityChangeHistory.id,
+            field: entityChangeHistory.field,
+            old_value: entityChangeHistory.old_value,
+            new_value: entityChangeHistory.new_value,
+            change_tier: entityChangeHistory.change_tier,
+            changed_by: entityChangeHistory.changed_by,
+            changed_by_role: entityChangeHistory.changed_by_role,
+            changed_by_name: users.name,
+            acted_by_name: entityChangeHistory.acted_by_name,
+            on_behalf_of_name: entityChangeHistory.on_behalf_of_name,
+            created_at: entityChangeHistory.created_at,
+        })
+        .from(entityChangeHistory)
+        .leftJoin(users, eq(entityChangeHistory.changed_by, users.id))
+        .where(
+            and(
+                eq(entityChangeHistory.entity_type, "ORDER"),
+                eq(entityChangeHistory.entity_id, orderId),
+                eq(entityChangeHistory.platform_id, platformId)
+            )
+        )
+        .orderBy(desc(entityChangeHistory.created_at));
+
+    return rows;
 };
 
 // ----------------------------------- GET ORDER SCAN EVENTS ----------------------------------
@@ -4409,6 +4526,8 @@ export const OrderServices = {
     getMyOrders,
     getOrderById,
     updateJobNumber,
+    editOrderDetails,
+    getOrderChangeHistory,
     getOrderScanEvents,
     progressOrderStatus,
     getOrderStatusHistory,

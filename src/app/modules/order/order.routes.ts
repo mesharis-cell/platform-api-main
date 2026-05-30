@@ -126,6 +126,27 @@ router.get(
     OrderControllers.getOrderById
 );
 
+// Edit order details (order-editing feature). Dual-mounted (operations + client) — scope
+// (owner/company/admin), status band, and ownership are enforced in EntityEditService, NOT here.
+router.patch(
+    "/:id",
+    platformValidator,
+    auth("CLIENT", "ADMIN"),
+    requirePermission(PERMISSIONS.ORDERS_EDIT_DETAILS),
+    payloadValidator(orderSchemas.editOrderSchema),
+    OrderControllers.editOrder
+);
+
+// Field-level edit history (order-editing feature). Dual-mounted; serves admin + client +
+// warehouse. CLIENT callers are restricted to their own company's orders in the service.
+router.get(
+    "/:id/change-history",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
+    requirePermission(PERMISSIONS.ORDERS_VIEW_STATUS_HISTORY),
+    OrderControllers.getOrderChangeHistory
+);
+
 // Get order pricing details
 // router.get(
 //     "/:id/pricing-details",

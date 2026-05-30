@@ -987,3 +987,83 @@ export const fabricationCompletedAdmin: EmailTemplate = {
         `);
     },
 };
+
+// ─── order.updated (entity-edit feature) ─────────────────────────────────────
+// Human labels for the changed-field diff rendered in the edit emails. Anything
+// not mapped falls back to a de-underscored version of the raw column name.
+const ORDER_FIELD_LABELS: Record<string, string> = {
+    contact_name: "Contact name",
+    contact_email: "Contact email",
+    contact_phone: "Contact phone",
+    venue_contact_name: "Venue contact name",
+    venue_contact_email: "Venue contact email",
+    venue_contact_phone: "Venue contact phone",
+    venue_name: "Venue name",
+    venue_location: "Venue location",
+    special_instructions: "Special instructions",
+    permit_requirements: "Permit requirements",
+    is_permanent_placement: "Permanent placement",
+    po_number: "PO number",
+    job_number: "Job number",
+    event_start_date: "Event start",
+    event_end_date: "Event end",
+};
+const humanizeOrderField = (f: string) =>
+    ORDER_FIELD_LABELS[f] ?? f.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+const fmtChangeValue = (v: unknown) => {
+    if (v === null || v === undefined || v === "") return "—";
+    if (typeof v === "object") return JSON.stringify(v);
+    return String(v);
+};
+const changedFieldsRows = (d: Record<string, any>) => {
+    const fields: Array<{ field: string; old: unknown; new: unknown }> = Array.isArray(
+        d.changed_fields
+    )
+        ? d.changed_fields
+        : [];
+    if (fields.length === 0) return infoRow("Changes", "—");
+    return fields
+        .map((c) =>
+            infoRow(
+                humanizeOrderField(c.field),
+                `${fmtChangeValue(c.old)} → ${fmtChangeValue(c.new)}`
+            )
+        )
+        .join("");
+};
+
+export const orderUpdatedAdmin: EmailTemplate = {
+    subject: (payload) => `Order Edited: ${p(payload).entity_id_readable}`,
+    html: (payload) => {
+        const d = p(payload);
+        const lead = d.status_reverted
+            ? `<p style="margin: 0 0 16px; font-size: 16px; color: #b45309;">Order ${d.entity_id_readable} was edited after pricing and has been sent back for <strong>re-review</strong>. Please re-check pricing and re-issue the quote.</p>`
+            : `<p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Order ${d.entity_id_readable} was edited.</p>`;
+        return wrap(`
+            <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #2563eb;">Order Edited</h1>
+            ${lead}
+            ${infoBox(`
+                ${infoRow("Order ID", d.entity_id_readable)}
+                ${infoRow("Company", d.company_name)}
+                ${actedByRow(d)}
+            `)}
+            ${infoBox(changedFieldsRows(d), "#f9fafb")}
+            ${actionButton("View Order", d.order_url)}
+            ${footer()}
+        `);
+    },
+};
+
+export const orderUpdatedClient: EmailTemplate = {
+    subject: (payload) => `Your Order Was Updated: ${p(payload).entity_id_readable}`,
+    html: (payload) => {
+        const d = p(payload);
+        return wrap(`
+            <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #2563eb;">Order Updated</h1>
+            <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Hi ${d.contact_name ?? "there"}, the details of your order ${d.entity_id_readable} have been updated.</p>
+            ${infoBox(changedFieldsRows(d), "#eff6ff")}
+            ${actionButton("View Order", d.order_url)}
+            ${footer()}
+        `);
+    },
+};

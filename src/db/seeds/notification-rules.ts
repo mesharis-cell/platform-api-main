@@ -81,6 +81,25 @@ export const PLATFORM_DEFAULT_NOTIFICATION_RULES: NotificationRuleDef[] = [
         sort_order: 0,
     },
 
+    // order.updated — only notify on a re-review (Tier B/C edit bounced the order back).
+    // No client rule: the client hears via the standard quote-ready flow on re-issue.
+    {
+        event_type: "order.updated",
+        recipient_type: "ROLE",
+        recipient_value: "ADMIN",
+        template_key: "order_updated_admin",
+        sort_order: 0,
+        conditions: [{ field: "status_reverted", operator: "equals", value: "true" }],
+    },
+    {
+        event_type: "order.updated",
+        recipient_type: "ROLE",
+        recipient_value: "LOGISTICS",
+        template_key: "order_updated_admin",
+        sort_order: 1,
+        conditions: [{ field: "status_reverted", operator: "equals", value: "true" }],
+    },
+
     // quote.sent / quote.revised / quote.approved / quote.declined
     {
         event_type: "quote.sent",

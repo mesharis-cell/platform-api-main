@@ -1795,6 +1795,56 @@ export const entityAttachmentsRelations = relations(entityAttachments, ({ one })
     }),
 }));
 
+// ---------------------------------- ENTITY CHANGE HISTORY ---------------------------------
+// Polymorphic field-level audit for entity edits across the four-entity pattern (orders,
+// inbound_requests, service_requests, self_pickups). One row per changed allowlisted field,
+// written inside the edit transaction. Mirrors the `systemEvents` polymorphic convention
+// (entity_type + entity_id, NO hard FK to the entity) so it serves all entity types.
+export const entityChangeHistory = pgTable(
+    "entity_change_history",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        platform_id: uuid("platform_id")
+            .notNull()
+            .references(() => platforms.id, { onDelete: "cascade" }),
+        entity_type: entityTypeEnum("entity_type").notNull(),
+        entity_id: uuid("entity_id").notNull(),
+        // Human-readable id (e.g. K-number / SPK-…) snapshotted for display without a join.
+        entity_id_readable: varchar("entity_id_readable", { length: 50 }),
+        field: varchar("field", { length: 100 }).notNull(),
+        // jsonb (not text) so dates, PG-decimal-as-string and JSONB columns round-trip losslessly.
+        old_value: jsonb("old_value"),
+        new_value: jsonb("new_value"),
+        change_tier: varchar("change_tier", { length: 1 }),
+        changed_by: uuid("changed_by").references(() => users.id, { onDelete: "set null" }),
+        changed_by_role: varchar("changed_by_role", { length: 20 }),
+        // Attribution for manager/admin edits on behalf of the entity owner.
+        acted_by_name: varchar("acted_by_name", { length: 255 }),
+        on_behalf_of_name: varchar("on_behalf_of_name", { length: 255 }),
+        created_at: timestamp("created_at").notNull().defaultNow(),
+    },
+    (table) => [
+        index("entity_change_history_entity_idx").on(
+            table.entity_type,
+            table.entity_id,
+            table.created_at
+        ),
+        index("entity_change_history_platform_idx").on(table.platform_id),
+        index("entity_change_history_changed_by_idx").on(table.changed_by),
+    ]
+);
+
+export const entityChangeHistoryRelations = relations(entityChangeHistory, ({ one }) => ({
+    platform: one(platforms, {
+        fields: [entityChangeHistory.platform_id],
+        references: [platforms.id],
+    }),
+    changed_by_user: one(users, {
+        fields: [entityChangeHistory.changed_by],
+        references: [users.id],
+    }),
+}));
+
 export const orderTransportTrips = pgTable(
     "order_transport_trips",
     {

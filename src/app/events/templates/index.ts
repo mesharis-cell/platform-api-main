@@ -66,6 +66,8 @@ import {
     quoteSentClient,
     timeWindowsUpdatedAdmin,
     timeWindowsUpdatedClient,
+    orderUpdatedAdmin,
+    orderUpdatedClient,
 } from "./order";
 
 // Inbound request templates
@@ -180,6 +182,8 @@ const registry: Record<string, EmailTemplate> = {
     repair_before_event_admin: repairBeforeEventAdmin,
     repair_before_event_logistics: repairBeforeEventLogistics,
     maintenance_decision_change_requested_admin: maintenanceDecisionChangeRequestedAdmin,
+    order_updated_admin: orderUpdatedAdmin,
+    order_updated_client: orderUpdatedClient,
 
     // Inbound requests
     ir_submitted_client: irSubmittedClient,

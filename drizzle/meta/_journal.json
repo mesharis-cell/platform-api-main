@@ -449,6 +449,13 @@
             "when": 1779148800000,
             "tag": "0064_repair_before_event_flow",
             "breakpoints": true
+        },
+        {
+            "idx": 64,
+            "version": "7",
+            "when": 1779235200000,
+            "tag": "0065_entity_change_history_and_order_updated",
+            "breakpoints": true
         }
     ]
 }
