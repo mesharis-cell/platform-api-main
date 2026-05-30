@@ -55,8 +55,16 @@ const paramsSchema = z
 /** Generic, tenant-agnostic category filter against assets.category (alias "a"). */
 function categoryFilter(inc: string[], exc: string[]): SQL {
     const col = sql.raw("LOWER(COALESCE(a.category, ''))");
-    if (inc.length) return sql` AND ${col} IN (${sql.join(inc.map((c) => sql`${c.toLowerCase()}`), sql`, `)})`;
-    if (exc.length) return sql` AND ${col} NOT IN (${sql.join(exc.map((c) => sql`${c.toLowerCase()}`), sql`, `)})`;
+    if (inc.length)
+        return sql` AND ${col} IN (${sql.join(
+            inc.map((c) => sql`${c.toLowerCase()}`),
+            sql`, `
+        )})`;
+    if (exc.length)
+        return sql` AND ${col} NOT IN (${sql.join(
+            exc.map((c) => sql`${c.toLowerCase()}`),
+            sql`, `
+        )})`;
     return sql``;
 }
 

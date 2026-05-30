@@ -46,8 +46,16 @@ const paramsSchema = z
 /** Generic, tenant-agnostic category filter against assets.category (alias "a"). */
 function categoryFilter(inc: string[], exc: string[]): SQL {
     const col = sql.raw("LOWER(COALESCE(a.category, ''))");
-    if (inc.length) return sql` AND ${col} IN (${sql.join(inc.map((c) => sql`${c.toLowerCase()}`), sql`, `)})`;
-    if (exc.length) return sql` AND ${col} NOT IN (${sql.join(exc.map((c) => sql`${c.toLowerCase()}`), sql`, `)})`;
+    if (inc.length)
+        return sql` AND ${col} IN (${sql.join(
+            inc.map((c) => sql`${c.toLowerCase()}`),
+            sql`, `
+        )})`;
+    if (exc.length)
+        return sql` AND ${col} NOT IN (${sql.join(
+            exc.map((c) => sql`${c.toLowerCase()}`),
+            sql`, `
+        )})`;
     return sql``;
 }
 
@@ -237,8 +245,18 @@ ORDER BY doc_date ASC`;
             label: `Subtotal — ${ref}`,
             labelCol: LABEL,
             sums: [
-                { col: QTY, from: first, to: last, cached: gr.reduce((n, r) => n + (Number(r.delivered_qty) || 0), 0) },
-                { col: RET, from: first, to: last, cached: gr.reduce((n, r) => n + (Number(r.returned_qty) || 0), 0) },
+                {
+                    col: QTY,
+                    from: first,
+                    to: last,
+                    cached: gr.reduce((n, r) => n + (Number(r.delivered_qty) || 0), 0),
+                },
+                {
+                    col: RET,
+                    from: first,
+                    to: last,
+                    cached: gr.reduce((n, r) => n + (Number(r.returned_qty) || 0), 0),
+                },
             ],
         });
         subRows.push(sub.number);
@@ -249,8 +267,16 @@ ORDER BY doc_date ASC`;
         label: `GRAND TOTAL — ${ctx.companyName}`,
         labelCol: LABEL,
         sums: [
-            { col: QTY, subtotalRows: subRows, cached: rows.reduce((n, r) => n + (Number(r.delivered_qty) || 0), 0) },
-            { col: RET, subtotalRows: subRows, cached: rows.reduce((n, r) => n + (Number(r.returned_qty) || 0), 0) },
+            {
+                col: QTY,
+                subtotalRows: subRows,
+                cached: rows.reduce((n, r) => n + (Number(r.delivered_qty) || 0), 0),
+            },
+            {
+                col: RET,
+                subtotalRows: subRows,
+                cached: rows.reduce((n, r) => n + (Number(r.returned_qty) || 0), 0),
+            },
         ],
     });
 

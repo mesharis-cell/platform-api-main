@@ -94,9 +94,19 @@ function categoryFilter(inc: string[], exc: string[]): SQL {
         WHERE oi."order" = o.id AND ${pred}
     )`;
     if (inc.length)
-        return exists(sql`${col} IN (${sql.join(inc.map((c) => sql`${c.toLowerCase()}`), sql`, `)})`);
+        return exists(
+            sql`${col} IN (${sql.join(
+                inc.map((c) => sql`${c.toLowerCase()}`),
+                sql`, `
+            )})`
+        );
     if (exc.length)
-        return exists(sql`${col} NOT IN (${sql.join(exc.map((c) => sql`${c.toLowerCase()}`), sql`, `)})`);
+        return exists(
+            sql`${col} NOT IN (${sql.join(
+                exc.map((c) => sql`${c.toLowerCase()}`),
+                sql`, `
+            )})`
+        );
     return sql``;
 }
 
@@ -122,7 +132,10 @@ function statusFilter(requested: string[]): SQL {
         // an override of the cost-recognition gate.
         return sql` AND FALSE`;
     }
-    return sql` AND o.order_status IN (${sql.join(narrowed.map((s) => sql`${s}`), sql`, `)})`;
+    return sql` AND o.order_status IN (${sql.join(
+        narrowed.map((s) => sql`${s}`),
+        sql`, `
+    )})`;
 }
 
 async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<ReportResult> {
@@ -236,16 +249,14 @@ ORDER BY o.created_at ASC, o.order_id ASC`;
         // margin policy. base_ops_total / line_items.* are the BUY-side figures
         // (totals.buy_*); .totals carries buy_total, sell_total, margin_amount.
         const admin = PricingService.projectByRole(r as any, "ADMIN");
-        const totals = (admin?.totals ?? null) as
-            | {
-                  buy_base_ops_total?: unknown;
-                  buy_rate_card_total?: unknown;
-                  buy_custom_total?: unknown;
-                  buy_total?: unknown;
-                  sell_total?: unknown;
-                  margin_amount?: unknown;
-              }
-            | null;
+        const totals = (admin?.totals ?? null) as {
+            buy_base_ops_total?: unknown;
+            buy_rate_card_total?: unknown;
+            buy_custom_total?: unknown;
+            buy_total?: unknown;
+            sell_total?: unknown;
+            margin_amount?: unknown;
+        } | null;
 
         const baseOps = roundMoney(parseNum(totals?.buy_base_ops_total));
         const rateCard = roundMoney(parseNum(totals?.buy_rate_card_total));
@@ -348,6 +359,10 @@ export const costReport: ReportDefinition = {
         { key: "status", label: "Status", type: "status", required: false },
     ],
     paramsSchema,
-    rowCap: { max: ROW_CAP, dimension: "rows", narrowHint: "narrow by date range, status, or category" },
+    rowCap: {
+        max: ROW_CAP,
+        dimension: "rows",
+        narrowHint: "narrow by date range, status, or category",
+    },
     run,
 };

@@ -63,8 +63,16 @@ const paramsSchema = z
 /** Generic, tenant-agnostic category filter against assets.category (alias "a"). */
 function categoryFilter(inc: string[], exc: string[]): SQL {
     const col = sql.raw("LOWER(COALESCE(a.category, ''))");
-    if (inc.length) return sql` AND ${col} IN (${sql.join(inc.map((c) => sql`${c.toLowerCase()}`), sql`, `)})`;
-    if (exc.length) return sql` AND ${col} NOT IN (${sql.join(exc.map((c) => sql`${c.toLowerCase()}`), sql`, `)})`;
+    if (inc.length)
+        return sql` AND ${col} IN (${sql.join(
+            inc.map((c) => sql`${c.toLowerCase()}`),
+            sql`, `
+        )})`;
+    if (exc.length)
+        return sql` AND ${col} NOT IN (${sql.join(
+            exc.map((c) => sql`${c.toLowerCase()}`),
+            sql`, `
+        )})`;
     return sql``;
 }
 
@@ -300,7 +308,8 @@ ORDER BY document_date ASC`;
         { header: "OPERATIONAL STATUS", width: 18 },
         { header: "FINANCIAL STATUS", width: 18 },
     ];
-    if (showMargin) columns.push({ header: "BUY TOTAL", width: 14, align: "right", numFmt: MONEY_FMT });
+    if (showMargin)
+        columns.push({ header: "BUY TOTAL", width: 14, align: "right", numFmt: MONEY_FMT });
     columns.push({ header: "SELL SUBTOTAL", width: 14, align: "right", numFmt: MONEY_FMT });
     if (showMargin) {
         columns.push({ header: "MARGIN AMOUNT", width: 14, align: "right", numFmt: MONEY_FMT });
@@ -397,11 +406,28 @@ ORDER BY document_date ASC`;
             grand.getCell(col).numFmt = MONEY_FMT;
         };
 
-        if (showMargin) setSum(BUY_COL, reduceSum((c) => c.buy_total));
-        setSum(SELL_COL, reduceSum((c) => c.sell_subtotal));
-        if (showMargin) setSum(MARGIN_COL, reduceSum((c) => c.margin_amount));
-        setSum(VATAMT_COL, reduceSum((c) => c.vat_amount));
-        setSum(FINAL_COL, reduceSum((c) => c.final_total));
+        if (showMargin)
+            setSum(
+                BUY_COL,
+                reduceSum((c) => c.buy_total)
+            );
+        setSum(
+            SELL_COL,
+            reduceSum((c) => c.sell_subtotal)
+        );
+        if (showMargin)
+            setSum(
+                MARGIN_COL,
+                reduceSum((c) => c.margin_amount)
+            );
+        setSum(
+            VATAMT_COL,
+            reduceSum((c) => c.vat_amount)
+        );
+        setSum(
+            FINAL_COL,
+            reduceSum((c) => c.final_total)
+        );
     }
 
     finalizeWorkbook(h, computed.length);

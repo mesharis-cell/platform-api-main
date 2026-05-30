@@ -42,7 +42,13 @@ const ROW_CAP = 25000;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Every inbound status EXCEPT the two dead branches (DECLINED, CANCELLED). */
-const DEFAULT_STATUSES = ["PRICING_REVIEW", "PENDING_APPROVAL", "QUOTED", "CONFIRMED", "COMPLETED"] as const;
+const DEFAULT_STATUSES = [
+    "PRICING_REVIEW",
+    "PENDING_APPROVAL",
+    "QUOTED",
+    "CONFIRMED",
+    "COMPLETED",
+] as const;
 const ALL_STATUSES = [...DEFAULT_STATUSES, "DECLINED", "CANCELLED"] as const;
 
 const toArr = (v: unknown): string[] =>
@@ -69,8 +75,16 @@ const paramsSchema = z
  */
 function categoryFilter(inc: string[], exc: string[]): SQL {
     const col = sql.raw("LOWER(COALESCE(iri.category, ''))");
-    if (inc.length) return sql` AND ${col} IN (${sql.join(inc.map((c) => sql`${c.toLowerCase()}`), sql`, `)})`;
-    if (exc.length) return sql` AND ${col} NOT IN (${sql.join(exc.map((c) => sql`${c.toLowerCase()}`), sql`, `)})`;
+    if (inc.length)
+        return sql` AND ${col} IN (${sql.join(
+            inc.map((c) => sql`${c.toLowerCase()}`),
+            sql`, `
+        )})`;
+    if (exc.length)
+        return sql` AND ${col} NOT IN (${sql.join(
+            exc.map((c) => sql`${c.toLowerCase()}`),
+            sql`, `
+        )})`;
     return sql``;
 }
 
@@ -89,7 +103,10 @@ async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<
 
     // Status scope: default to the five live statuses (drop DECLINED/CANCELLED).
     const statuses = toArr(params.status).length ? toArr(params.status) : [...DEFAULT_STATUSES];
-    const statusFilter = sql` AND ir.request_status IN (${sql.join(statuses.map((s) => sql`${s}`), sql`, `)})`;
+    const statusFilter = sql` AND ir.request_status IN (${sql.join(
+        statuses.map((s) => sql`${s}`),
+        sql`, `
+    )})`;
 
     // brand_id matches inbound_request_items.brand_id (item-level): a request is
     // included if ANY of its items match. Sibling non-matching items are dropped
@@ -163,7 +180,9 @@ ORDER BY ir.created_at ASC, iri.created_at ASC`;
         { header: "RECEIVED OUTCOME", width: 16 },
         { header: "CREATED ASSET QR", width: 20 },
         { header: "ASSET STATUS", width: 14 },
-        ...(showCost ? [{ header: "BASE OPS TOTAL", width: 15, align: "right" as const, numFmt: MONEY_FMT }] : []),
+        ...(showCost
+            ? [{ header: "BASE OPS TOTAL", width: 15, align: "right" as const, numFmt: MONEY_FMT }]
+            : []),
         { header: "FINAL TOTAL", width: 15, align: "right", numFmt: MONEY_FMT },
         { header: "NOTE", width: 30 },
         { header: "CREATED AT", width: 13 },
@@ -199,10 +218,16 @@ ORDER BY ir.created_at ASC, iri.created_at ASC`;
         // Request-level pricing — projected ONCE, rendered first-row-only.
         const pricing = gr[0]?.breakdown_lines != null ? (gr[0] as any) : null;
         const baseOps = showCost
-            ? roundMoney(parseNum((PricingService.projectByRole(pricing as any, "ADMIN") as any)?.base_ops_total))
+            ? roundMoney(
+                  parseNum(
+                      (PricingService.projectByRole(pricing as any, "ADMIN") as any)?.base_ops_total
+                  )
+              )
             : 0;
         const finalTotal = roundMoney(
-            parseNum((PricingService.projectSummaryForRole(pricing as any, "ADMIN") as any)?.final_total)
+            parseNum(
+                (PricingService.projectSummaryForRole(pricing as any, "ADMIN") as any)?.final_total
+            )
         );
 
         let first = 0;
@@ -242,8 +267,18 @@ ORDER BY ir.created_at ASC, iri.created_at ASC`;
             label: `Subtotal — ${ref}`,
             labelCol: LABEL,
             sums: [
-                { col: REG, from: first, to: last, cached: gr.reduce((n, r) => n + (Number(r.registered_qty) || 0), 0) },
-                { col: REC, from: first, to: last, cached: gr.reduce((n, r) => n + (Number(r.received_qty) || 0), 0) },
+                {
+                    col: REG,
+                    from: first,
+                    to: last,
+                    cached: gr.reduce((n, r) => n + (Number(r.registered_qty) || 0), 0),
+                },
+                {
+                    col: REC,
+                    from: first,
+                    to: last,
+                    cached: gr.reduce((n, r) => n + (Number(r.received_qty) || 0), 0),
+                },
             ],
         });
         // Echo the request-level pricing onto the subtotal row so each request's
@@ -260,8 +295,16 @@ ORDER BY ir.created_at ASC, iri.created_at ASC`;
         label: `GRAND TOTAL — ${ctx.companyName}`,
         labelCol: LABEL,
         sums: [
-            { col: REG, subtotalRows: subRows, cached: rows.reduce((n, r) => n + (Number(r.registered_qty) || 0), 0) },
-            { col: REC, subtotalRows: subRows, cached: rows.reduce((n, r) => n + (Number(r.received_qty) || 0), 0) },
+            {
+                col: REG,
+                subtotalRows: subRows,
+                cached: rows.reduce((n, r) => n + (Number(r.registered_qty) || 0), 0),
+            },
+            {
+                col: REC,
+                subtotalRows: subRows,
+                cached: rows.reduce((n, r) => n + (Number(r.received_qty) || 0), 0),
+            },
         ],
     });
 

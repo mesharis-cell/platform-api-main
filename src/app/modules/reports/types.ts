@@ -17,7 +17,13 @@ export interface ReportRowCap {
     narrowHint: string;
 }
 
-export type ReportFilterType = "company" | "date" | "category-include-exclude" | "group" | "status" | "team";
+export type ReportFilterType =
+    | "company"
+    | "date"
+    | "category-include-exclude"
+    | "group"
+    | "status"
+    | "team";
 
 export interface ReportFilter {
     key: string;

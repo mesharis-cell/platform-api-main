@@ -110,12 +110,18 @@ function categoryExistsFilter(inc: string[], exc: string[]): SQL {
     if (inc.length) {
         return sql` AND EXISTS (SELECT 1 FROM order_items oi JOIN assets a ON oi.asset = a.id
             WHERE oi."order" = o.id
-              AND LOWER(COALESCE(a.category, '')) IN (${sql.join(inc.map((c) => sql`${c.toLowerCase()}`), sql`, `)}))`;
+              AND LOWER(COALESCE(a.category, '')) IN (${sql.join(
+                  inc.map((c) => sql`${c.toLowerCase()}`),
+                  sql`, `
+              )}))`;
     }
     if (exc.length) {
         return sql` AND NOT EXISTS (SELECT 1 FROM order_items oi JOIN assets a ON oi.asset = a.id
             WHERE oi."order" = o.id
-              AND LOWER(COALESCE(a.category, '')) IN (${sql.join(exc.map((c) => sql`${c.toLowerCase()}`), sql`, `)}))`;
+              AND LOWER(COALESCE(a.category, '')) IN (${sql.join(
+                  exc.map((c) => sql`${c.toLowerCase()}`),
+                  sql`, `
+              )}))`;
     }
     return sql``;
 }
@@ -130,7 +136,10 @@ function teamExistsFilter(teamId?: string): SQL {
 
 function statusFilter(status?: string): SQL {
     if (status) return sql` AND o.order_status = ${status}`;
-    return sql` AND o.order_status IN (${sql.join(REVENUE_STATUSES.map((s) => sql`${s}`), sql`, `)})`;
+    return sql` AND o.order_status IN (${sql.join(
+        REVENUE_STATUSES.map((s) => sql`${s}`),
+        sql`, `
+    )})`;
 }
 
 function dateFilter(expr: SQL, gte: Date | null, lt: Date | null): SQL {
@@ -145,7 +154,10 @@ async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<
     // The client mount must never reach it; reject defensively even though the
     // route gating should already prevent it.
     if (ctx.isClientMount)
-        throw new CustomizedError(httpStatus.FORBIDDEN, "Revenue Report is not available on the client portal.");
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            "Revenue Report is not available on the client portal."
+        );
 
     const inc = toArr(params.category_include);
     const exc = toArr(params.category_exclude);

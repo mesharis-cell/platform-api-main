@@ -5,7 +5,7 @@ import { CatalogRoutes } from "../modules/catalog/catalog.routes";
 import { InvoiceRoutes } from "../modules/invoice/invoice.routes";
 import { OrderRoutes } from "../modules/order/order.routes";
 import { InboundRequestRoutes } from "../modules/inbound-request/inbound-request.routes";
-import { ExportRoutes } from "../modules/export/export.routes";
+import { ReportsClientRoutes } from "../modules/reports/reports.routes";
 import { ServiceRequestRoutes } from "../modules/service-request/service-request.routes";
 import { SelfPickupClientRoutes } from "../modules/self-pickup/self-pickup.routes";
 import { TeamClientRoutes } from "../modules/team/team.client-routes";
@@ -39,8 +39,8 @@ const routes = [
         route: InboundRequestRoutes,
     },
     {
-        path: "/export",
-        route: ExportRoutes,
+        path: "/reports",
+        route: ReportsClientRoutes,
     },
     {
         path: "/service-request",

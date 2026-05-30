@@ -50,8 +50,14 @@ const paramsSchema = z
         // INVENTORY reports but a state-of-assets snapshot has no native time
         // axis — they are intentionally NOT applied (the OUT window is the
         // as-of day). Documented on the sheet footnote.
-        date_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-        date_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        date_from: z
+            .string()
+            .regex(/^\d{4}-\d{2}-\d{2}$/)
+            .optional(),
+        date_to: z
+            .string()
+            .regex(/^\d{4}-\d{2}-\d{2}$/)
+            .optional(),
         category_include: z.union([z.string(), z.array(z.string())]).optional(),
         category_exclude: z.union([z.string(), z.array(z.string())]).optional(),
         group_id: z.string().uuid().optional(),
@@ -64,8 +70,16 @@ const paramsSchema = z
 /** Generic, tenant-agnostic category filter against assets.category (alias "a"). */
 function categoryFilter(inc: string[], exc: string[]): SQL {
     const col = sql.raw("LOWER(COALESCE(a.category, ''))");
-    if (inc.length) return sql` AND ${col} IN (${sql.join(inc.map((c) => sql`${c.toLowerCase()}`), sql`, `)})`;
-    if (exc.length) return sql` AND ${col} NOT IN (${sql.join(exc.map((c) => sql`${c.toLowerCase()}`), sql`, `)})`;
+    if (inc.length)
+        return sql` AND ${col} IN (${sql.join(
+            inc.map((c) => sql`${c.toLowerCase()}`),
+            sql`, `
+        )})`;
+    if (exc.length)
+        return sql` AND ${col} NOT IN (${sql.join(
+            exc.map((c) => sql`${c.toLowerCase()}`),
+            sql`, `
+        )})`;
     return sql``;
 }
 
@@ -90,7 +104,9 @@ async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<
     const asOfDay = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" }).format(ctx.now); // YYYY-MM-DD
 
     const groupFilter = params.group_id ? sql` AND a.group_id = ${params.group_id}` : sql``;
-    const statusFilter = params.status ? sql` AND a.status = ${params.status}::asset_status` : sql``;
+    const statusFilter = params.status
+        ? sql` AND a.status = ${params.status}::asset_status`
+        : sql``;
 
     const query = sql`
 WITH active_out AS (

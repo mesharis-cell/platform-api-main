@@ -19,7 +19,7 @@ import { ZoneRoutes } from "../modules/zone/zone.routes";
 import { ScanningRoutes } from "../modules/scanning/scanning.routes";
 import { UploadRoutes } from "../modules/upload/upload.route";
 import { LineItemsRoutes } from "../modules/order-line-items/order-line-items.routes";
-import { ExportRoutes } from "../modules/export/export.routes";
+import { ReportsOperationRoutes } from "../modules/reports/reports.routes";
 import { OrderRoutes } from "../modules/order/order.routes";
 import { ServiceRequestRoutes } from "../modules/service-request/service-request.routes";
 import { SelfBookingsRoutes } from "../modules/self-bookings/self-bookings.routes";
@@ -156,8 +156,8 @@ const routes = [
         route: OrderTransportTripsRoutes,
     },
     {
-        path: "/export",
-        route: ExportRoutes,
+        path: "/reports",
+        route: ReportsOperationRoutes,
     },
     {
         path: "/service-request",

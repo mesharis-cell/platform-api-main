@@ -67,8 +67,16 @@ const paramsSchema = z
 /** Generic, tenant-agnostic category filter against assets.category (alias "a"). */
 function categoryFilter(inc: string[], exc: string[]): SQL {
     const col = sql.raw("LOWER(COALESCE(a.category, ''))");
-    if (inc.length) return sql` AND ${col} IN (${sql.join(inc.map((c) => sql`${c.toLowerCase()}`), sql`, `)})`;
-    if (exc.length) return sql` AND ${col} NOT IN (${sql.join(exc.map((c) => sql`${c.toLowerCase()}`), sql`, `)})`;
+    if (inc.length)
+        return sql` AND ${col} IN (${sql.join(
+            inc.map((c) => sql`${c.toLowerCase()}`),
+            sql`, `
+        )})`;
+    if (exc.length)
+        return sql` AND ${col} NOT IN (${sql.join(
+            exc.map((c) => sql`${c.toLowerCase()}`),
+            sql`, `
+        )})`;
     return sql``;
 }
 
@@ -276,10 +284,12 @@ ORDER BY MIN(sa.group_name) ASC NULLS LAST`;
 
     const firstDataRow = h.headerRow + 1;
     for (const r of rows) {
-        const utilization = r.available_asset_days > 0 ? (100 * r.booked_asset_days) / r.available_asset_days : 0;
+        const utilization =
+            r.available_asset_days > 0 ? (100 * r.booked_asset_days) / r.available_asset_days : 0;
         let coverage: string;
         if (r.booked_asset_days > 0 && r.outbound_scan_qty === 0) coverage = "BOOKED, NO SCAN";
-        else if (r.booked_asset_days === 0 && r.outbound_scan_qty > 0) coverage = "SCAN, NO BOOKING";
+        else if (r.booked_asset_days === 0 && r.outbound_scan_qty > 0)
+            coverage = "SCAN, NO BOOKING";
         else coverage = "OK";
 
         sheet.addRow([

@@ -20,10 +20,26 @@ import httpStatus from "http-status";
 export const STYLE = {
     TITLE_FONT: { bold: true, size: 14 } as Partial<ExcelJS.Font>,
     SUBTITLE_FONT: { italic: true, size: 10, color: { argb: "FF6B6B6B" } } as Partial<ExcelJS.Font>,
-    HEADER_FILL: { type: "pattern", pattern: "solid", fgColor: { argb: "FFE0E0E0" } } as ExcelJS.Fill,
-    SUBTOTAL_FILL: { type: "pattern", pattern: "solid", fgColor: { argb: "FFF2F2F2" } } as ExcelJS.Fill,
-    GRAND_FILL: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFE9A8" } } as ExcelJS.Fill,
-    SECTION_FILL: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFAFAFA" } } as ExcelJS.Fill,
+    HEADER_FILL: {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFE0E0E0" },
+    } as ExcelJS.Fill,
+    SUBTOTAL_FILL: {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFF2F2F2" },
+    } as ExcelJS.Fill,
+    GRAND_FILL: {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFFFE9A8" },
+    } as ExcelJS.Fill,
+    SECTION_FILL: {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFFAFAFA" },
+    } as ExcelJS.Fill,
     DIFF_FILL: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF7E6" } } as ExcelJS.Fill,
     POSITIVE_FONT: { color: { argb: "FF137333" } } as Partial<ExcelJS.Font>,
     NEGATIVE_FONT: { color: { argb: "FFB00020" } } as Partial<ExcelJS.Font>,
@@ -66,10 +82,15 @@ export interface DateBounds {
 export function fmtDateBounds(from?: string | null, to?: string | null): DateBounds {
     const gte = from ? new Date(`${from}T00:00:00${DUBAI_OFFSET}`) : null;
     const lt = to ? new Date(new Date(`${to}T00:00:00${DUBAI_OFFSET}`).getTime() + DAY_MS) : null;
-    if (gte && isNaN(gte.getTime())) throw new CustomizedError(httpStatus.BAD_REQUEST, `Invalid date_from: ${from}`);
-    if (lt && isNaN(lt.getTime())) throw new CustomizedError(httpStatus.BAD_REQUEST, `Invalid date_to: ${to}`);
+    if (gte && isNaN(gte.getTime()))
+        throw new CustomizedError(httpStatus.BAD_REQUEST, `Invalid date_from: ${from}`);
+    if (lt && isNaN(lt.getTime()))
+        throw new CustomizedError(httpStatus.BAD_REQUEST, `Invalid date_to: ${to}`);
     if (gte && lt && gte.getTime() >= lt.getTime())
-        throw new CustomizedError(httpStatus.BAD_REQUEST, "date_from must be on or before date_to.");
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "date_from must be on or before date_to."
+        );
     return { gte, lt };
 }
 
@@ -147,7 +168,9 @@ export interface CompanyContext {
 /** companies.platform_id is the PG column "platform"; companies.id is the FK. */
 export async function resolveCompanyContext(companyId: string): Promise<CompanyContext> {
     const row = (
-        await db.execute(sql`SELECT id, "platform" AS platform_id, name FROM companies WHERE id = ${companyId}`)
+        await db.execute(
+            sql`SELECT id, "platform" AS platform_id, name FROM companies WHERE id = ${companyId}`
+        )
     ).rows[0] as { platform_id: string; name: string } | undefined;
     if (!row) throw new CustomizedError(httpStatus.NOT_FOUND, `Company not found: ${companyId}`);
     return { platformId: row.platform_id, companyName: row.name };
@@ -247,7 +270,11 @@ export function finalizeWorkbook(h: WorkbookHandle, dataRowCount: number): void 
 /** Bold light-gray subtotal row. labelColIdx/sumColIdxs are 1-based. */
 export function addSubtotalRow(
     sheet: ExcelJS.Worksheet,
-    opts: { label: string; labelCol: number; sums: { col: number; from: number; to: number; cached: number }[] }
+    opts: {
+        label: string;
+        labelCol: number;
+        sums: { col: number; from: number; to: number; cached: number }[];
+    }
 ): ExcelJS.Row {
     const row = sheet.addRow([]);
     row.getCell(opts.labelCol).value = opts.label;
@@ -255,7 +282,10 @@ export function addSubtotalRow(
     row.eachCell({ includeEmpty: true }, (c) => (c.fill = STYLE.SUBTOTAL_FILL));
     for (const s of opts.sums) {
         const L = colLetter(s.col - 1);
-        row.getCell(s.col).value = { formula: `SUM(${L}${s.from}:${L}${s.to})`, result: roundMoney(s.cached) };
+        row.getCell(s.col).value = {
+            formula: `SUM(${L}${s.from}:${L}${s.to})`,
+            result: roundMoney(s.cached),
+        };
     }
     return row;
 }
@@ -263,7 +293,11 @@ export function addSubtotalRow(
 /** Amber bold grand-total row summing the per-group subtotal cells. */
 export function addGrandTotalRow(
     sheet: ExcelJS.Worksheet,
-    opts: { label: string; labelCol: number; sums: { col: number; subtotalRows: number[]; cached: number }[] }
+    opts: {
+        label: string;
+        labelCol: number;
+        sums: { col: number; subtotalRows: number[]; cached: number }[];
+    }
 ): ExcelJS.Row {
     const row = sheet.addRow([]);
     row.getCell(opts.labelCol).value = opts.label;
@@ -273,7 +307,10 @@ export function addGrandTotalRow(
     for (const s of opts.sums) {
         const L = colLetter(s.col - 1);
         const refs = s.subtotalRows.map((r) => `${L}${r}`).join(",");
-        row.getCell(s.col).value = { formula: refs ? `SUM(${refs})` : "0", result: roundMoney(s.cached) };
+        row.getCell(s.col).value = {
+            formula: refs ? `SUM(${refs})` : "0",
+            result: roundMoney(s.cached),
+        };
     }
     return row;
 }

@@ -60,8 +60,16 @@ const paramsSchema = z
  *  Mirrors issuance.ts categoryFilter() verbatim — silent no-op when neither set. */
 function categoryFilter(inc: string[], exc: string[]): SQL {
     const col = sql.raw("LOWER(COALESCE(a.category, ''))");
-    if (inc.length) return sql` AND ${col} IN (${sql.join(inc.map((c) => sql`${c.toLowerCase()}`), sql`, `)})`;
-    if (exc.length) return sql` AND ${col} NOT IN (${sql.join(exc.map((c) => sql`${c.toLowerCase()}`), sql`, `)})`;
+    if (inc.length)
+        return sql` AND ${col} IN (${sql.join(
+            inc.map((c) => sql`${c.toLowerCase()}`),
+            sql`, `
+        )})`;
+    if (exc.length)
+        return sql` AND ${col} NOT IN (${sql.join(
+            exc.map((c) => sql`${c.toLowerCase()}`),
+            sql`, `
+        )})`;
     return sql``;
 }
 
@@ -74,7 +82,10 @@ function dateFilter(expr: SQL, gte: Date | null, lt: Date | null): SQL {
 
 function inListFilter(expr: SQL, values: string[]): SQL {
     if (!values.length) return sql``;
-    return sql` AND ${expr} IN (${sql.join(values.map((v) => sql`${v}`), sql`, `)})`;
+    return sql` AND ${expr} IN (${sql.join(
+        values.map((v) => sql`${v}`),
+        sql`, `
+    )})`;
 }
 
 async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<ReportResult> {
@@ -290,6 +301,10 @@ export const assetCatalogueReport: ReportDefinition = {
         },
     ],
     paramsSchema,
-    rowCap: { max: ROW_CAP, dimension: "rows", narrowHint: "narrow by category, group, status, or onboarding date" },
+    rowCap: {
+        max: ROW_CAP,
+        dimension: "rows",
+        narrowHint: "narrow by category, group, status, or onboarding date",
+    },
     run,
 };

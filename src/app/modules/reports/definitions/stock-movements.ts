@@ -113,7 +113,12 @@ async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<
     ];
     if (categoryName) famScope.push(sql` AND LOWER(a.category) = LOWER(${categoryName})`);
     if (groupIds.length)
-        famScope.push(sql` AND a.group_id IN (${sql.join(groupIds.map((g) => sql`${g}`), sql`, `)})`);
+        famScope.push(
+            sql` AND a.group_id IN (${sql.join(
+                groupIds.map((g) => sql`${g}`),
+                sql`, `
+            )})`
+        );
 
     const famQuery = sql`
 SELECT
@@ -146,7 +151,10 @@ ORDER BY MIN(a.group_name) ASC`;
         );
 
     const familyIds = families.map((f) => f.id);
-    const famIdSql = sql.join(familyIds.map((g) => sql`${g}`), sql`, `);
+    const famIdSql = sql.join(
+        familyIds.map((g) => sql`${g}`),
+        sql`, `
+    );
     /** A movement maps to an in-scope family via direct asset_family_id OR via assets.group_id (dual link). */
     const famLink = sql`((sm.asset_family_id IN (${famIdSql})) OR (a.group_id IN (${famIdSql})))`;
 
@@ -182,20 +190,31 @@ ORDER BY sm.created_at ASC`;
             (await db.execute(sql`
 SELECT o.id, o.order_id AS ref, o.venue_name AS venue, u.name AS user_name
 FROM orders o LEFT JOIN users u ON o.created_by = u.id
-WHERE o.id IN (${sql.join([...orderIds].map((i) => sql`${i}`), sql`, `)})`)) as any
+WHERE o.id IN (${sql.join(
+                [...orderIds].map((i) => sql`${i}`),
+                sql`, `
+            )})`)) as any
         ).rows as any[];
-        for (const x of r) orderInfo.set(x.id, { ref: x.ref, venue: x.venue ?? "", user: x.user_name });
+        for (const x of r)
+            orderInfo.set(x.id, { ref: x.ref, venue: x.venue ?? "", user: x.user_name });
     }
 
-    const spInfo = new Map<string, { ref: string; collector: string | null; user: string | null }>();
+    const spInfo = new Map<
+        string,
+        { ref: string; collector: string | null; user: string | null }
+    >();
     if (spIds.size > 0) {
         const r = (
             (await db.execute(sql`
 SELECT sp.id, sp.self_pickup_id AS ref, sp.collector_name AS collector, u.name AS user_name
 FROM self_pickups sp LEFT JOIN users u ON sp.created_by = u.id
-WHERE sp.id IN (${sql.join([...spIds].map((i) => sql`${i}`), sql`, `)})`)) as any
+WHERE sp.id IN (${sql.join(
+                [...spIds].map((i) => sql`${i}`),
+                sql`, `
+            )})`)) as any
         ).rows as any[];
-        for (const x of r) spInfo.set(x.id, { ref: x.ref, collector: x.collector, user: x.user_name });
+        for (const x of r)
+            spInfo.set(x.id, { ref: x.ref, collector: x.collector, user: x.user_name });
     }
 
     // ── Stage 4: collapse movements into legs (one row per entity×leg) ───────
@@ -286,9 +305,16 @@ GROUP BY COALESCE(sm.asset_family_id, a.group_id)`;
         { header: "DATE", width: 13 },
         { header: "REQUESTED BY", width: 20 },
         { header: "PURPOSE & DETAILS", width: 50 },
-        ...families.map((f) => ({ header: f.name.toUpperCase(), width: 14, align: "right" as const, numFmt: INT_FMT })),
+        ...families.map((f) => ({
+            header: f.name.toUpperCase(),
+            width: 14,
+            align: "right" as const,
+            numFmt: INT_FMT,
+        })),
     ];
-    const dateLabel = categoryName ? `${categoryName} — ${fmtRangeLabel(params.date_from, params.date_to)}` : fmtRangeLabel(params.date_from, params.date_to);
+    const dateLabel = categoryName
+        ? `${categoryName} — ${fmtRangeLabel(params.date_from, params.date_to)}`
+        : fmtRangeLabel(params.date_from, params.date_to);
     const h = createReportWorkbook({
         companyName: ctx.companyName,
         label: "Stock Movements Ledger",
@@ -300,7 +326,9 @@ GROUP BY COALESCE(sm.asset_family_id, a.group_id)`;
     const FIRST_FAM_COL = 4; // cols 1-3 are DATE / REQUESTED BY / PURPOSE
 
     // Opening row
-    const openingLabel = params.date_from ? `opening stock (${String(params.date_from).split("-").reverse().join(".")})` : "OPENING STOCK";
+    const openingLabel = params.date_from
+        ? `opening stock (${String(params.date_from).split("-").reverse().join(".")})`
+        : "OPENING STOCK";
     const openingRow = sheet.addRow(["", "", openingLabel, ...families.map((f) => f.opening)]);
     openingRow.font = { bold: true };
     openingRow.eachCell({ includeEmpty: true }, (c) => (c.fill = STYLE.SECTION_FILL));
@@ -322,7 +350,9 @@ GROUP BY COALESCE(sm.asset_family_id, a.group_id)`;
     }
 
     // Closing row — formula =opening + SUM(events) per family column
-    const closingLabel = params.date_to ? `closing stock (${String(params.date_to).split("-").reverse().join(".")})` : "closing stock";
+    const closingLabel = params.date_to
+        ? `closing stock (${String(params.date_to).split("-").reverse().join(".")})`
+        : "closing stock";
     const closingCells: any[] = ["", "", closingLabel];
     for (let i = 0; i < families.length; i += 1) {
         const L = colLetter(FIRST_FAM_COL - 1 + i);
@@ -341,7 +371,12 @@ GROUP BY COALESCE(sm.asset_family_id, a.group_id)`;
     closingRow.eachCell({ includeEmpty: true }, (c) => (c.fill = STYLE.SECTION_FILL));
 
     // Manual stock-count row
-    const countRow = sheet.addRow(["", "", `stock count on the ${fmtDate(ctx.now)}`, ...families.map(() => "")]);
+    const countRow = sheet.addRow([
+        "",
+        "",
+        `stock count on the ${fmtDate(ctx.now)}`,
+        ...families.map(() => ""),
+    ]);
     countRow.font = { italic: true };
 
     // DIFFERENCE row — =IF(count="","",count-closing)

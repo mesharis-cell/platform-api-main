@@ -76,11 +76,17 @@ function categoryFilter(inc: string[], exc: string[]): SQL {
     if (inc.length)
         return sql` AND EXISTS (
             SELECT 1 FROM order_items oi JOIN assets a ON oi.asset = a.id
-            WHERE oi."order" = o.id AND ${col} IN (${sql.join(inc.map((c) => sql`${c.toLowerCase()}`), sql`, `)}))`;
+            WHERE oi."order" = o.id AND ${col} IN (${sql.join(
+                inc.map((c) => sql`${c.toLowerCase()}`),
+                sql`, `
+            )}))`;
     if (exc.length)
         return sql` AND EXISTS (
             SELECT 1 FROM order_items oi JOIN assets a ON oi.asset = a.id
-            WHERE oi."order" = o.id AND ${col} NOT IN (${sql.join(exc.map((c) => sql`${c.toLowerCase()}`), sql`, `)}))`;
+            WHERE oi."order" = o.id AND ${col} NOT IN (${sql.join(
+                exc.map((c) => sql`${c.toLowerCase()}`),
+                sql`, `
+            )}))`;
     return sql``;
 }
 
@@ -119,8 +125,14 @@ const WORK_INCURRED_STATUSES = [
 
 function statusFilter(statuses: string[]): SQL {
     if (statuses.length)
-        return sql` AND o.order_status IN (${sql.join(statuses.map((s) => sql`${s}`), sql`, `)})`;
-    return sql` AND o.order_status IN (${sql.join(WORK_INCURRED_STATUSES.map((s) => sql`${s}`), sql`, `)})`;
+        return sql` AND o.order_status IN (${sql.join(
+            statuses.map((s) => sql`${s}`),
+            sql`, `
+        )})`;
+    return sql` AND o.order_status IN (${sql.join(
+        WORK_INCURRED_STATUSES.map((s) => sql`${s}`),
+        sql`, `
+    )})`;
 }
 
 async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<ReportResult> {

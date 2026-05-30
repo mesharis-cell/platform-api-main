@@ -63,8 +63,16 @@ const paramsSchema = z
 /** Generic, tenant-agnostic category filter against assets.category (alias "a"). */
 function categoryFilter(inc: string[], exc: string[]): SQL {
     const col = sql.raw("LOWER(COALESCE(a.category, ''))");
-    if (inc.length) return sql` AND ${col} IN (${sql.join(inc.map((c) => sql`${c.toLowerCase()}`), sql`, `)})`;
-    if (exc.length) return sql` AND ${col} NOT IN (${sql.join(exc.map((c) => sql`${c.toLowerCase()}`), sql`, `)})`;
+    if (inc.length)
+        return sql` AND ${col} IN (${sql.join(
+            inc.map((c) => sql`${c.toLowerCase()}`),
+            sql`, `
+        )})`;
+    if (exc.length)
+        return sql` AND ${col} NOT IN (${sql.join(
+            exc.map((c) => sql`${c.toLowerCase()}`),
+            sql`, `
+        )})`;
     return sql``;
 }
 
@@ -79,7 +87,10 @@ function dateFilter(expr: SQL, gte: Date | null, lt: Date | null): SQL {
  *  An explicit :status list overrides this with an exact-match IN list. */
 function statusFilter(statuses: string[]): SQL {
     if (statuses.length)
-        return sql` AND o.order_status IN (${sql.join(statuses.map((s) => sql`${s}`), sql`, `)})`;
+        return sql` AND o.order_status IN (${sql.join(
+            statuses.map((s) => sql`${s}`),
+            sql`, `
+        )})`;
     return sql` AND o.order_status <> 'DRAFT'`;
 }
 

@@ -69,13 +69,19 @@ const runReport = (isClientMount: boolean) =>
         // CLIENT callers are forced to their own company; never trust a client-supplied company_id.
         const rawParams: Record<string, any> = { ...req.query };
         if (isClientMount) {
-            if (!user.company_id) throw new CustomizedError(httpStatus.FORBIDDEN, "No company is linked to this account.");
+            if (!user.company_id)
+                throw new CustomizedError(
+                    httpStatus.FORBIDDEN,
+                    "No company is linked to this account."
+                );
             rawParams.company_id = user.company_id;
         }
 
         const parsed = def.paramsSchema.safeParse(rawParams);
         if (!parsed.success) {
-            const msg = parsed.error.issues.map((i) => `${i.path.join(".") || "param"}: ${i.message}`).join("; ");
+            const msg = parsed.error.issues
+                .map((i) => `${i.path.join(".") || "param"}: ${i.message}`)
+                .join("; ");
             throw new CustomizedError(httpStatus.BAD_REQUEST, `Invalid report parameters — ${msg}`);
         }
         const params = parsed.data as Record<string, any>;
