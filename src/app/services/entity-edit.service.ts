@@ -16,7 +16,7 @@
  * P1 scope: ORDER, Tier A only. Tier B/C are rejected with a clear 400 until P2/P3 land.
  * The other three entity configs are filled in P4.
  */
-import { eq, inArray } from "drizzle-orm";
+import { and, count, eq, inArray, notInArray } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../db";
 import {
@@ -26,6 +26,7 @@ import {
     orderItems,
     orders,
     orderStatusHistory,
+    serviceRequests,
     users,
 } from "../../db/schema";
 import CustomizedError from "../error/customized-error";
@@ -282,19 +283,34 @@ export const classifyPatch = (
     return { columnWrites, touchedTiers, changed };
 };
 
-type OrderItemEdit = { order_item_id: string; quantity: number };
+type OrderItemOp = {
+    op?: "UPDATE" | "ADD" | "REMOVE";
+    order_item_id?: string;
+    asset_id?: string;
+    quantity?: number;
+};
 
 /**
- * Apply quantity edits to EXISTING order items (P3b). Validates each id belongs to the order,
- * updates only the rows whose quantity actually changes, and returns a before/after map (keyed by
- * asset name) for the audit trail, or null if nothing changed. ORDER-only.
+ * Apply item edits to an order's physical items (P3b quantity + P3c add/remove). ORDER-only.
+ *   UPDATE  — change an existing item's quantity.
+ *   ADD     — add a new NON-MAINTENANCE asset (GREEN, or ORANGE used as-is). RED / fix-required
+ *             assets are rejected (they need the bundled-SR submit machinery). A duplicate asset
+ *             merges into the existing item's quantity.
+ *   REMOVE  — drop an item; cancels any non-terminal bundled maintenance SR linked to it. Blocks
+ *             removing the last remaining item.
+ * Returns a before/after quantity map (keyed by asset name) for the audit trail, or null if
+ * nothing changed. reconcileBookings + the reprice cascade from the resulting order_items set.
  */
-const applyOrderItemQuantityEdits = async (
+const applyOrderItemEdits = async (
     tx: any,
     orderId: string,
-    itemEdits: OrderItemEdit[]
+    platformId: string,
+    companyId: string | null,
+    ops: OrderItemOp[],
+    userId: string
 ): Promise<{ before: Record<string, number>; after: Record<string, number> } | null> => {
-    if (!itemEdits || itemEdits.length === 0) return null;
+    if (!ops || ops.length === 0) return null;
+
     const current = await tx
         .select({
             id: orderItems.id,
@@ -305,28 +321,174 @@ const applyOrderItemQuantityEdits = async (
         .from(orderItems)
         .where(eq(orderItems.order_id, orderId));
     const byId = new Map<string, any>(current.map((c: any) => [c.id, c] as [string, any]));
+    const byAsset = new Map<string, any>(current.map((c: any) => [c.asset_id, c] as [string, any]));
 
     const before: Record<string, number> = {};
     const after: Record<string, number> = {};
     let changed = false;
-    for (const edit of itemEdits) {
-        const item = byId.get(edit.order_item_id);
-        if (!item) {
+    let netItemDelta = 0; // +1 per add of a new row, -1 per remove
+
+    for (const op of ops) {
+        const kind = op.op ?? "UPDATE";
+
+        if (kind === "UPDATE") {
+            const item = byId.get(op.order_item_id!);
+            if (!item) {
+                throw new CustomizedError(
+                    httpStatus.BAD_REQUEST,
+                    "An item to edit does not belong to this order"
+                );
+            }
+            if (Number(item.quantity) === op.quantity) continue;
+            const label = item.asset_name || item.asset_id;
+            before[label] = Number(item.quantity);
+            after[label] = op.quantity!;
+            await tx
+                .update(orderItems)
+                .set({ quantity: op.quantity })
+                .where(eq(orderItems.id, item.id));
+            changed = true;
+            continue;
+        }
+
+        if (kind === "REMOVE") {
+            const item = byId.get(op.order_item_id!);
+            if (!item) {
+                throw new CustomizedError(
+                    httpStatus.BAD_REQUEST,
+                    "An item to remove does not belong to this order"
+                );
+            }
+            const label = item.asset_name || item.asset_id;
+            before[label] = Number(item.quantity);
+            after[label] = 0;
+            // Cancel any non-terminal bundled maintenance SR linked to this item so it stops
+            // blocking fulfillment (mirrors cancelOrder's SR cleanup).
+            await tx
+                .update(serviceRequests)
+                .set({
+                    request_status: "CANCELLED",
+                    cancelled_at: new Date(),
+                    cancelled_by: userId,
+                    cancellation_reason: "Order item removed during edit",
+                    updated_at: new Date(),
+                })
+                .where(
+                    and(
+                        eq(serviceRequests.related_order_item_id, item.id),
+                        notInArray(serviceRequests.request_status, ["COMPLETED", "CANCELLED"])
+                    )
+                );
+            await tx.delete(orderItems).where(eq(orderItems.id, item.id));
+            byId.delete(item.id);
+            byAsset.delete(item.asset_id);
+            changed = true;
+            netItemDelta -= 1;
+            continue;
+        }
+
+        // kind === "ADD"
+        const assetId = op.asset_id!;
+        const addQty = op.quantity!;
+
+        // Duplicate asset already on the order → merge into the existing item's quantity.
+        const existing = byAsset.get(assetId);
+        if (existing) {
+            const newQty = Number(existing.quantity) + addQty;
+            const label = existing.asset_name || existing.asset_id;
+            before[label] = Number(existing.quantity);
+            after[label] = newQty;
+            await tx
+                .update(orderItems)
+                .set({ quantity: newQty })
+                .where(eq(orderItems.id, existing.id));
+            existing.quantity = newQty;
+            changed = true;
+            continue;
+        }
+
+        const [asset] = await tx
+            .select({
+                id: assets.id,
+                name: assets.name,
+                company_id: assets.company_id,
+                platform_id: assets.platform_id,
+                condition: assets.condition,
+                status: assets.status,
+                deleted_at: assets.deleted_at,
+                volume_per_unit: assets.volume_per_unit,
+                weight_per_unit: assets.weight_per_unit,
+                condition_notes: assets.condition_notes,
+                handling_tags: assets.handling_tags,
+            })
+            .from(assets)
+            .where(eq(assets.id, assetId));
+
+        if (!asset || asset.deleted_at || asset.platform_id !== platformId) {
+            throw new CustomizedError(httpStatus.NOT_FOUND, "Asset to add was not found");
+        }
+        if (companyId && asset.company_id && asset.company_id !== companyId) {
             throw new CustomizedError(
-                httpStatus.BAD_REQUEST,
-                "An item to edit does not belong to this order"
+                httpStatus.FORBIDDEN,
+                "Cannot add an asset that belongs to another company"
             );
         }
-        if (Number(item.quantity) === edit.quantity) continue;
-        const label = item.asset_name || item.asset_id;
-        before[label] = Number(item.quantity);
-        after[label] = edit.quantity;
-        await tx
-            .update(orderItems)
-            .set({ quantity: edit.quantity })
-            .where(eq(orderItems.id, edit.order_item_id));
+        if (asset.status === "TRANSFORMED") {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                `Asset cannot be added (${asset.status}): ${asset.name}`
+            );
+        }
+        // Maintenance-requiring assets need the submit-time bundled-SR machinery — not supported
+        // on edit yet. RED always requires it; ORANGE is added "as-is" (no fix). GREEN is clean.
+        if (asset.condition === "RED") {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                `Assets requiring maintenance cannot be added to an existing order yet: ${asset.name}`
+            );
+        }
+        const maintenanceDecision = asset.condition === "ORANGE" ? "USE_AS_IS" : null;
+
+        const volPerUnit = parseFloat(asset.volume_per_unit || "0");
+        const wtPerUnit = parseFloat(asset.weight_per_unit || "0");
+        await tx.insert(orderItems).values({
+            platform_id: platformId,
+            order_id: orderId,
+            asset_id: asset.id,
+            asset_name: asset.name,
+            quantity: addQty,
+            volume_per_unit: volPerUnit.toFixed(3),
+            weight_per_unit: wtPerUnit.toFixed(2),
+            total_volume: (volPerUnit * addQty).toFixed(3),
+            total_weight: (wtPerUnit * addQty).toFixed(2),
+            condition_notes: asset.condition_notes,
+            handling_tags: asset.handling_tags || [],
+            from_collection: null,
+            maintenance_decision: maintenanceDecision,
+            requires_maintenance: false,
+            maintenance_refurb_days_snapshot: null,
+            maintenance_decision_locked_at: maintenanceDecision ? new Date() : null,
+        });
+        before[asset.name] = 0;
+        after[asset.name] = addQty;
         changed = true;
+        netItemDelta += 1;
     }
+
+    // Never let an edit empty the order.
+    if (netItemDelta < 0) {
+        const [{ value: remaining }] = await tx
+            .select({ value: count() })
+            .from(orderItems)
+            .where(eq(orderItems.order_id, orderId));
+        if (Number(remaining) === 0) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "An order must keep at least one item"
+            );
+        }
+    }
+
     return changed ? { before, after } : null;
 };
 
@@ -454,7 +616,7 @@ export const editEntity = async (params: EditEntityParams): Promise<EditEntityRe
         assertEditable(ctx, user, scope);
 
         const { columnWrites, touchedTiers, changed } = classifyPatch(ctx, patch, scope);
-        const itemEdits = (patch.items as OrderItemEdit[] | undefined) ?? undefined;
+        const itemEdits = (patch.items as OrderItemOp[] | undefined) ?? undefined;
         const hasItemEdits = !!itemEdits && itemEdits.length > 0;
 
         // Tier B (line-item/pricing) edits don't flow through editEntity — line items have their
@@ -484,7 +646,14 @@ export const editEntity = async (params: EditEntityParams): Promise<EditEntityRe
 
         // 2. Item quantity edits (P3b) — update existing order_items.
         const itemDiff = hasItemEdits
-            ? await applyOrderItemQuantityEdits(tx, entityId, itemEdits!)
+            ? await applyOrderItemEdits(
+                  tx,
+                  entityId,
+                  platformId,
+                  ctx.companyId,
+                  itemEdits!,
+                  user.id
+              )
             : null;
         const itemsChanged = !!itemDiff;
 

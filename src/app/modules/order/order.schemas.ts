@@ -604,20 +604,49 @@ const editOrderSchema = z.object({
                 .refine((d) => !isNaN(Date.parse(d)), "Invalid event end date format")
                 .transform((d) => new Date(d))
                 .optional(),
-            // Tier B+C — change the quantity of EXISTING order items (P3b). Each entry updates one
-            // order_item; reconcileBookings adjusts the holds and the volume-based BASE_OPS reprices.
-            // Asset add/remove (swap) is a later increment.
+            // Tier B+C — edit the order's physical items (P3b qty change + P3c add/remove "swap").
+            // Each op cascades into reconcileBookings (holds) + the volume-based BASE_OPS reprice.
+            //   UPDATE (default): order_item_id + quantity — change an existing item's quantity.
+            //   ADD:              asset_id + quantity — add a new asset (non-maintenance only).
+            //   REMOVE:           order_item_id — drop an item (cancels its bundled maintenance SR).
             items: z
                 .array(
                     z
                         .object({
-                            order_item_id: z.uuid("Invalid order item ID"),
+                            op: z.enum(["UPDATE", "ADD", "REMOVE"]).optional(),
+                            order_item_id: z.uuid("Invalid order item ID").optional(),
+                            asset_id: z.uuid("Invalid asset ID").optional(),
                             quantity: z
                                 .number()
                                 .int("Quantity must be an integer")
-                                .positive("Quantity must be a positive integer"),
+                                .positive("Quantity must be a positive integer")
+                                .optional(),
                         })
                         .strict()
+                        .superRefine((it, ctx) => {
+                            const op = it.op ?? "UPDATE";
+                            if (
+                                op === "UPDATE" &&
+                                (!it.order_item_id || it.quantity === undefined)
+                            ) {
+                                ctx.addIssue({
+                                    code: z.ZodIssueCode.custom,
+                                    message: "Updating an item requires order_item_id and quantity",
+                                });
+                            }
+                            if (op === "ADD" && (!it.asset_id || it.quantity === undefined)) {
+                                ctx.addIssue({
+                                    code: z.ZodIssueCode.custom,
+                                    message: "Adding an item requires asset_id and quantity",
+                                });
+                            }
+                            if (op === "REMOVE" && !it.order_item_id) {
+                                ctx.addIssue({
+                                    code: z.ZodIssueCode.custom,
+                                    message: "Removing an item requires order_item_id",
+                                });
+                            }
+                        })
                 )
                 .optional(),
         })
