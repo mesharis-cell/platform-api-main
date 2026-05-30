@@ -7,6 +7,21 @@ import { ExportControllers } from "./export.controllers";
 
 const router = express.Router();
 
+// TEMPORARY (hotfix/disable-reports-export): every report/export endpoint is
+// disabled pending the reports-system rebuild. This closes a client-facing
+// margin/cost leak — GET /export/orders (the client "My Orders" CSV) served the
+// ADMIN pricing projection (margin % + buy-side base-ops) to CLIENT callers
+// because exportOrdersService hardcodes projectByRole(..., "ADMIN"). The
+// catch-all below short-circuits the whole router for every method/path; the
+// route handlers beneath remain only so the diff stays minimal and reviewable.
+// Remove this block (or delete the module) once the new /reports module ships.
+router.use((_req, res) => {
+    res.status(404).json({
+        success: false,
+        message: "Reporting is temporarily unavailable.",
+    });
+});
+
 router.get(
     "/orders",
     platformValidator,
