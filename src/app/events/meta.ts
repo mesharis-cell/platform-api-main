@@ -99,6 +99,10 @@ export const EVENT_GROUPS: EventGroup[] = [
         ],
     },
     {
+        label: "Self-Pickups",
+        events: [{ key: "self_pickup.updated", label: "Self-Pickup Edited" }],
+    },
+    {
         label: "Line Item Requests",
         events: [{ key: "line_item_request.submitted", label: "Line Item Request Submitted" }],
     },
@@ -242,6 +246,12 @@ export const TEMPLATES_BY_EVENT: Record<string, TemplateMeta[]> = {
     ],
     "self_booking.cancelled": [
         { key: "self_booking_cancelled_admin", label: "Admin — Self-Booking Cancelled" },
+    ],
+    "self_pickup.updated": [
+        {
+            key: "self_pickup_updated_admin",
+            label: "Admin/Logistics — Self-Pickup Edited (re-review)",
+        },
     ],
     "line_item_request.submitted": [
         {

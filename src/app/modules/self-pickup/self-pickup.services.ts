@@ -9,6 +9,7 @@ import {
     brands,
     collections,
     companies,
+    entityChangeHistory,
     platforms,
     prices,
     selfPickupItems,
@@ -20,6 +21,7 @@ import CustomizedError from "../../error/customized-error";
 import { AuthUser } from "../../interface/common";
 import { assertCompanyScopeOrManager } from "../../utils/company-scope";
 import { PricingService } from "../../services/pricing.service";
+import { EntityEditService } from "../../services/entity-edit.service";
 import { WorkflowAutoOpenService } from "../../services/workflow-auto-open.service";
 import { eventBus, EVENT_TYPES } from "../../events";
 import { resolveEffectiveFeature } from "../../constants/common";
@@ -1178,8 +1180,68 @@ const updateJobNumber = async (
 
 // ----------------------------------- EXPORTS ---------------------------------------------
 
+// Edit a self-pickup's details (order-editing P4). Thin wrapper over the shared EntityEditService
+// spine — scope (owner/company/admin), status band, reconcile, reprice + audit all handled there.
+const editSelfPickup = async (
+    id: string,
+    payload: Record<string, unknown>,
+    user: AuthUser,
+    platformId: string
+) => {
+    return EntityEditService.editEntity({
+        entityType: "SELF_PICKUP",
+        entityId: id,
+        platformId,
+        patch: payload,
+        user,
+    });
+};
+
+// Field-level edit history for a self-pickup (polymorphic entity_change_history ledger).
+const getSelfPickupChangeHistory = async (id: string, user: AuthUser, platformId: string) => {
+    const [pickup] = await db
+        .select({ id: selfPickups.id, company_id: selfPickups.company_id })
+        .from(selfPickups)
+        .where(and(eq(selfPickups.id, id), eq(selfPickups.platform_id, platformId)));
+    if (!pickup) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Self-pickup not found");
+    }
+    if (user.role === "CLIENT" && pickup.company_id !== user.company_id) {
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            "You do not have access to this self-pickup"
+        );
+    }
+    return db
+        .select({
+            id: entityChangeHistory.id,
+            field: entityChangeHistory.field,
+            old_value: entityChangeHistory.old_value,
+            new_value: entityChangeHistory.new_value,
+            change_tier: entityChangeHistory.change_tier,
+            changed_by: entityChangeHistory.changed_by,
+            changed_by_role: entityChangeHistory.changed_by_role,
+            changed_by_name: users.name,
+            acted_by_name: entityChangeHistory.acted_by_name,
+            on_behalf_of_name: entityChangeHistory.on_behalf_of_name,
+            created_at: entityChangeHistory.created_at,
+        })
+        .from(entityChangeHistory)
+        .leftJoin(users, eq(entityChangeHistory.changed_by, users.id))
+        .where(
+            and(
+                eq(entityChangeHistory.entity_type, "SELF_PICKUP"),
+                eq(entityChangeHistory.entity_id, id),
+                eq(entityChangeHistory.platform_id, platformId)
+            )
+        )
+        .orderBy(desc(entityChangeHistory.created_at));
+};
+
 export const SelfPickupServices = {
     submitSelfPickupFromCart,
+    editSelfPickup,
+    getSelfPickupChangeHistory,
     listSelfPickups,
     getSelfPickupById,
     clientGetSelfPickupById,

@@ -565,6 +565,25 @@ export const PLATFORM_DEFAULT_NOTIFICATION_RULES: NotificationRuleDef[] = [
         sort_order: 0,
     },
 
+    // self_pickup.updated — notify admin/logistics only on a re-review (a Tier C/item edit
+    // bounced a quoted self-pickup back to PRICING_REVIEW). No client rule (OQ10).
+    {
+        event_type: "self_pickup.updated",
+        recipient_type: "ROLE",
+        recipient_value: "ADMIN",
+        template_key: "self_pickup_updated_admin",
+        sort_order: 0,
+        conditions: [{ field: "status_reverted", operator: "equals", value: "true" }],
+    },
+    {
+        event_type: "self_pickup.updated",
+        recipient_type: "ROLE",
+        recipient_value: "LOGISTICS",
+        template_key: "self_pickup_updated_admin",
+        sort_order: 1,
+        conditions: [{ field: "status_reverted", operator: "equals", value: "true" }],
+    },
+
     // auth + line_item_request
     {
         event_type: "auth.password_reset_requested",

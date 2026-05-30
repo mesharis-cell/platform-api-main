@@ -319,9 +319,39 @@ const markAsNoCost = catchAsync(async (req, res) => {
     });
 });
 
+// Edit a self-pickup's details (order-editing P4). Reachable from both the client + ops mounts;
+// scope/band/ownership enforced in EntityEditService.
+const editSelfPickup = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+    const id = getRequiredString(req.params.id, "id");
+    const result = await SelfPickupServices.editSelfPickup(id, req.body, user, platformId);
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Self-pickup updated successfully",
+        data: result,
+    });
+});
+
+const getChangeHistory = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const user = (req as any).user;
+    const id = getRequiredString(req.params.id, "id");
+    const result = await SelfPickupServices.getSelfPickupChangeHistory(id, user, platformId);
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Self-pickup change history fetched successfully",
+        data: result,
+    });
+});
+
 export const SelfPickupControllers = {
     // Client
     submitFromCart,
+    editSelfPickup,
+    getChangeHistory,
     clientList,
     clientDetail,
     clientApproveQuote,

@@ -322,3 +322,60 @@ export const selfPickupCancelledAdmin: EmailTemplate = {
         `);
     },
 };
+
+// ─── self_pickup.updated (entity-edit feature) ───────────────────────────────
+const SP_FIELD_LABELS: Record<string, string> = {
+    collector_name: "Collector name",
+    collector_phone: "Collector phone",
+    collector_email: "Collector email",
+    notes: "Notes",
+    special_instructions: "Special instructions",
+    is_permanent_placement: "Permanent placement",
+    po_number: "PO number",
+    job_number: "Job number",
+    pickup_window: "Pickup window",
+    expected_return_at: "Expected return",
+    item_quantities: "Items",
+};
+const humanizeSpField = (f: string) =>
+    SP_FIELD_LABELS[f] ?? f.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+const fmtSpValue = (v: unknown) => {
+    if (v === null || v === undefined || v === "") return "—";
+    if (typeof v === "object") return JSON.stringify(v);
+    return String(v);
+};
+const spChangedFieldsRows = (d: any) => {
+    const fields: Array<{ field: string; old: unknown; new: unknown }> = Array.isArray(
+        d.changed_fields
+    )
+        ? d.changed_fields
+        : [];
+    if (fields.length === 0) return infoRow("Changes", "—");
+    return fields
+        .map((c) =>
+            infoRow(humanizeSpField(c.field), `${fmtSpValue(c.old)} → ${fmtSpValue(c.new)}`)
+        )
+        .join("");
+};
+
+export const selfPickupUpdatedAdmin: EmailTemplate = {
+    subject: (payload) => `Self-Pickup Edited: ${p(payload).entity_id_readable}`,
+    html: (payload) => {
+        const d = p(payload);
+        const lead = d.status_reverted
+            ? `<p style="margin: 0 0 16px; font-size: 16px; color: #b45309;">Self-pickup ${d.entity_id_readable} was edited after the quote was sent and has been returned for <strong>re-review</strong>.</p>`
+            : `<p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Self-pickup ${d.entity_id_readable} was edited.</p>`;
+        return wrap(`
+            <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #2563eb;">Self-Pickup Edited</h1>
+            ${lead}
+            ${infoBox(`
+                ${infoRow("Pickup ID", d.entity_id_readable)}
+                ${infoRow("Company", d.company_name)}
+                ${actedByRow(d)}
+            `)}
+            ${infoBox(spChangedFieldsRows(d), "#f9fafb")}
+            ${actionButton("View Pickup", d.self_pickup_url)}
+            ${footer()}
+        `);
+    },
+};

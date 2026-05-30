@@ -26,6 +26,9 @@ import {
     orderItems,
     orders,
     orderStatusHistory,
+    selfPickupItems,
+    selfPickups,
+    selfPickupStatusHistory,
     serviceRequests,
     users,
 } from "../../db/schema";
@@ -33,7 +36,11 @@ import CustomizedError from "../error/customized-error";
 import { AuthUser } from "../interface/common";
 import { EntityType } from "../events/event-types";
 import { eventBus } from "../events/event-bus";
-import { computeBookingWindow, reconcileBookings } from "../modules/order/order.utils";
+import {
+    computeBookingWindow,
+    computeSelfPickupBookingWindow,
+    reconcileBookings,
+} from "../modules/order/order.utils";
 import { PricingService } from "./pricing.service";
 import {
     buildEntityUpdatedPayload,
@@ -123,9 +130,43 @@ const ORDER_EDIT_CONFIG: EntityEditConfig = {
     ],
 };
 
-/** ORDER wired in P1; the other three configs are added in P4. */
+// Self-pickup edit config. Tier A descriptive (collector/notes/PO); Tier C = the pickup window
+// inputs (pickup_window + expected_return_at) which drive the SP booking window. SP items carry
+// NO maintenance fields, so add/remove is simpler than orders (no bundled-SR machinery).
+const SELF_PICKUP_EDIT_CONFIG: EntityEditConfig = {
+    entityType: "SELF_PICKUP",
+    table: selfPickups,
+    idColumn: selfPickups.id,
+    statusKey: "self_pickup_status",
+    financialStatusKey: "financial_status",
+    companyKey: "company_id",
+    createdByKey: "created_by",
+    readableIdKey: "self_pickup_id",
+    contactNameKey: "collector_name",
+    editableBand: ["SUBMITTED", "PRICING_REVIEW", "PENDING_APPROVAL", "QUOTED"],
+    quotedStatus: "QUOTED",
+    pendingApprovalStatus: "PENDING_APPROVAL",
+    pricingReviewStatus: "PRICING_REVIEW",
+    bookingParentType: "SELF_PICKUP",
+    fields: [
+        { field: "collector_name", tier: "A" },
+        { field: "collector_phone", tier: "A" },
+        { field: "collector_email", tier: "A" },
+        { field: "notes", tier: "A" },
+        { field: "special_instructions", tier: "A" },
+        { field: "is_permanent_placement", tier: "A" },
+        { field: "po_number", tier: "A" },
+        { field: "job_number", tier: "A", adminOnly: true },
+        // Tier C — the pickup window inputs drive the booking window via reconcileBookings.
+        { field: "pickup_window", tier: "C" },
+        { field: "expected_return_at", tier: "C" },
+    ],
+};
+
+/** ORDER + SELF_PICKUP wired. Inbound/SR intentionally excluded (flag-off in prod). */
 export const ENTITY_EDIT_CONFIGS: Partial<Record<EditableEntityType, EntityEditConfig>> = {
     ORDER: ORDER_EDIT_CONFIG,
+    SELF_PICKUP: SELF_PICKUP_EDIT_CONFIG,
 };
 
 /** Wildcard-aware effective-permission check (mirrors requirePermission's matching). */
@@ -588,6 +629,263 @@ const repriceOrderAfterItemChange = async (
         .where(eq(orders.id, orderId));
 };
 
+/**
+ * Self-pickup item edits (P4) — same UPDATE/ADD/REMOVE op model as orders, but on
+ * self_pickup_items, which carry NO maintenance fields. So ADD accepts any non-TRANSFORMED,
+ * same-company asset (no RED gate, no bundled SR), and REMOVE just deletes the row (no SR cleanup).
+ */
+const applySelfPickupItemEdits = async (
+    tx: any,
+    selfPickupId: string,
+    platformId: string,
+    companyId: string | null,
+    ops: OrderItemOp[]
+): Promise<{ before: Record<string, number>; after: Record<string, number> } | null> => {
+    if (!ops || ops.length === 0) return null;
+
+    const current = await tx
+        .select({
+            id: selfPickupItems.id,
+            asset_id: selfPickupItems.asset_id,
+            asset_name: selfPickupItems.asset_name,
+            quantity: selfPickupItems.quantity,
+        })
+        .from(selfPickupItems)
+        .where(eq(selfPickupItems.self_pickup_id, selfPickupId));
+    const byId = new Map<string, any>(current.map((c: any) => [c.id, c] as [string, any]));
+    const byAsset = new Map<string, any>(current.map((c: any) => [c.asset_id, c] as [string, any]));
+
+    const before: Record<string, number> = {};
+    const after: Record<string, number> = {};
+    let changed = false;
+    let netItemDelta = 0;
+
+    for (const op of ops) {
+        const kind = op.op ?? "UPDATE";
+
+        if (kind === "UPDATE") {
+            const item = byId.get(op.order_item_id!);
+            if (!item) {
+                throw new CustomizedError(
+                    httpStatus.BAD_REQUEST,
+                    "An item to edit does not belong to this self-pickup"
+                );
+            }
+            if (Number(item.quantity) === op.quantity) continue;
+            const label = item.asset_name || item.asset_id;
+            before[label] = Number(item.quantity);
+            after[label] = op.quantity!;
+            await tx
+                .update(selfPickupItems)
+                .set({ quantity: op.quantity })
+                .where(eq(selfPickupItems.id, item.id));
+            changed = true;
+            continue;
+        }
+
+        if (kind === "REMOVE") {
+            const item = byId.get(op.order_item_id!);
+            if (!item) {
+                throw new CustomizedError(
+                    httpStatus.BAD_REQUEST,
+                    "An item to remove does not belong to this self-pickup"
+                );
+            }
+            const label = item.asset_name || item.asset_id;
+            before[label] = Number(item.quantity);
+            after[label] = 0;
+            await tx.delete(selfPickupItems).where(eq(selfPickupItems.id, item.id));
+            byId.delete(item.id);
+            byAsset.delete(item.asset_id);
+            changed = true;
+            netItemDelta -= 1;
+            continue;
+        }
+
+        // kind === "ADD"
+        const assetId = op.asset_id!;
+        const addQty = op.quantity!;
+        const existing = byAsset.get(assetId);
+        if (existing) {
+            const newQty = Number(existing.quantity) + addQty;
+            const label = existing.asset_name || existing.asset_id;
+            before[label] = Number(existing.quantity);
+            after[label] = newQty;
+            await tx
+                .update(selfPickupItems)
+                .set({ quantity: newQty })
+                .where(eq(selfPickupItems.id, existing.id));
+            existing.quantity = newQty;
+            changed = true;
+            continue;
+        }
+
+        const [asset] = await tx
+            .select({
+                id: assets.id,
+                name: assets.name,
+                company_id: assets.company_id,
+                platform_id: assets.platform_id,
+                status: assets.status,
+                deleted_at: assets.deleted_at,
+                volume_per_unit: assets.volume_per_unit,
+                weight_per_unit: assets.weight_per_unit,
+                condition_notes: assets.condition_notes,
+                handling_tags: assets.handling_tags,
+            })
+            .from(assets)
+            .where(eq(assets.id, assetId));
+
+        if (!asset || asset.deleted_at || asset.platform_id !== platformId) {
+            throw new CustomizedError(httpStatus.NOT_FOUND, "Asset to add was not found");
+        }
+        if (companyId && asset.company_id && asset.company_id !== companyId) {
+            throw new CustomizedError(
+                httpStatus.FORBIDDEN,
+                "Cannot add an asset that belongs to another company"
+            );
+        }
+        if (asset.status === "TRANSFORMED") {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                `Asset cannot be added (${asset.status}): ${asset.name}`
+            );
+        }
+
+        const volPerUnit = parseFloat(asset.volume_per_unit || "0");
+        const wtPerUnit = parseFloat(asset.weight_per_unit || "0");
+        await tx.insert(selfPickupItems).values({
+            platform_id: platformId,
+            self_pickup_id: selfPickupId,
+            asset_id: asset.id,
+            asset_name: asset.name,
+            quantity: addQty,
+            volume_per_unit: volPerUnit.toFixed(3),
+            weight_per_unit: wtPerUnit.toFixed(2),
+            total_volume: (volPerUnit * addQty).toFixed(3),
+            total_weight: (wtPerUnit * addQty).toFixed(2),
+            condition_notes: asset.condition_notes,
+            handling_tags: asset.handling_tags || [],
+            from_collection: null,
+        });
+        before[asset.name] = 0;
+        after[asset.name] = addQty;
+        changed = true;
+        netItemDelta += 1;
+    }
+
+    if (netItemDelta < 0) {
+        const [{ value: remaining }] = await tx
+            .select({ value: count() })
+            .from(selfPickupItems)
+            .where(eq(selfPickupItems.self_pickup_id, selfPickupId));
+        if (Number(remaining) === 0) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "A self-pickup must keep at least one item"
+            );
+        }
+    }
+
+    return changed ? { before, after } : null;
+};
+
+/** SP volume/weight recompute + reprice — mirrors repriceOrderAfterItemChange on selfPickups. */
+const repriceSelfPickupAfterItemChange = async (
+    tx: any,
+    selfPickupId: string,
+    platformId: string,
+    userId: string
+): Promise<void> => {
+    const [pickup] = await tx
+        .select({
+            company_id: selfPickups.company_id,
+            calculated_totals: selfPickups.calculated_totals,
+        })
+        .from(selfPickups)
+        .where(eq(selfPickups.id, selfPickupId));
+    if (!pickup) return;
+
+    const [company] = pickup.company_id
+        ? await tx
+              .select({ rate: companies.warehouse_ops_rate })
+              .from(companies)
+              .where(eq(companies.id, pickup.company_id))
+        : [];
+    const rate = Number(company?.rate ?? 0);
+
+    const items = await tx
+        .select({
+            id: selfPickupItems.id,
+            quantity: selfPickupItems.quantity,
+            asset_id: selfPickupItems.asset_id,
+        })
+        .from(selfPickupItems)
+        .where(eq(selfPickupItems.self_pickup_id, selfPickupId));
+    const assetIds = items.map((i: any) => i.asset_id);
+    const assetRows =
+        assetIds.length > 0
+            ? await tx
+                  .select({
+                      id: assets.id,
+                      volume_per_unit: assets.volume_per_unit,
+                      weight_per_unit: assets.weight_per_unit,
+                  })
+                  .from(assets)
+                  .where(inArray(assets.id, assetIds))
+            : [];
+    const assetMap = new Map<string, { v: number; w: number }>(
+        assetRows.map(
+            (a: any) =>
+                [a.id, { v: parseFloat(a.volume_per_unit), w: parseFloat(a.weight_per_unit) }] as [
+                    string,
+                    { v: number; w: number },
+                ]
+        )
+    );
+
+    let totalVolume = 0;
+    let totalWeight = 0;
+    for (const item of items) {
+        const a = assetMap.get(item.asset_id);
+        const v = a?.v || 0;
+        const w = a?.w || 0;
+        totalVolume += v * Number(item.quantity);
+        totalWeight += w * Number(item.quantity);
+        await tx
+            .update(selfPickupItems)
+            .set({
+                volume_per_unit: v.toFixed(3),
+                weight_per_unit: w.toFixed(2),
+                total_volume: (v * Number(item.quantity)).toFixed(3),
+                total_weight: (w * Number(item.quantity)).toFixed(2),
+            })
+            .where(eq(selfPickupItems.id, item.id));
+    }
+
+    await PricingService.recalculate({
+        entity_type: "SELF_PICKUP",
+        entity_id: selfPickupId,
+        platform_id: platformId,
+        calculated_by: userId,
+        base_ops_total_override: rate * totalVolume,
+        tx,
+    });
+
+    const existing = (pickup.calculated_totals || {}) as Record<string, unknown>;
+    await tx
+        .update(selfPickups)
+        .set({
+            calculated_totals: {
+                ...existing,
+                volume: totalVolume.toFixed(3),
+                weight: totalWeight.toFixed(2),
+            },
+            updated_at: new Date(),
+        })
+        .where(eq(selfPickups.id, selfPickupId));
+};
+
 export type EditEntityParams = {
     entityType: EditableEntityType;
     entityId: string;
@@ -628,15 +926,20 @@ export const editEntity = async (params: EditEntityParams): Promise<EditEntityRe
             );
         }
 
-        // Tier C (event dates) + item-quantity edits are ORDER-only until P4 generalizes them.
-        if ((touchedTiers.has("C") || hasItemEdits) && ctx.config.entityType !== "ORDER") {
+        // Tier C (date/window) + item edits are supported for ORDER and SELF_PICKUP only.
+        const isSelfPickup = ctx.config.entityType === "SELF_PICKUP";
+        if (
+            (touchedTiers.has("C") || hasItemEdits) &&
+            ctx.config.entityType !== "ORDER" &&
+            !isSelfPickup
+        ) {
             throw new CustomizedError(
                 httpStatus.NOT_IMPLEMENTED,
-                "Editing event dates or item quantities is not yet available for this entity"
+                "Editing dates/windows or item quantities is not available for this entity"
             );
         }
 
-        // 1. Column writes (Tier A descriptive + Tier C event-date columns).
+        // 1. Column writes (Tier A descriptive + Tier C window/date columns).
         if (Object.keys(columnWrites).length > 0) {
             await tx
                 .update(ctx.config.table)
@@ -644,16 +947,24 @@ export const editEntity = async (params: EditEntityParams): Promise<EditEntityRe
                 .where(eq(ctx.config.idColumn, entityId));
         }
 
-        // 2. Item quantity edits (P3b) — update existing order_items.
+        // 2. Item edits (P3b qty + P3c add/remove) — per-entity items table.
         const itemDiff = hasItemEdits
-            ? await applyOrderItemEdits(
-                  tx,
-                  entityId,
-                  platformId,
-                  ctx.companyId,
-                  itemEdits!,
-                  user.id
-              )
+            ? isSelfPickup
+                ? await applySelfPickupItemEdits(
+                      tx,
+                      entityId,
+                      platformId,
+                      ctx.companyId,
+                      itemEdits!
+                  )
+                : await applyOrderItemEdits(
+                      tx,
+                      entityId,
+                      platformId,
+                      ctx.companyId,
+                      itemEdits!,
+                      user.id
+                  )
             : null;
         const itemsChanged = !!itemDiff;
 
@@ -665,64 +976,114 @@ export const editEntity = async (params: EditEntityParams): Promise<EditEntityRe
         //    a 409 here rolls the whole edit back (no partial state, no status flip on rejection).
         let reconcileTriggered = false;
         if (touchedTiers.has("C") || itemsChanged) {
-            const newStart = (patch.event_start_date as Date) ?? (ctx.row.event_start_date as Date);
-            const newEnd = (patch.event_end_date as Date) ?? (ctx.row.event_end_date as Date);
-            const items = await tx
-                .select({
-                    asset_id: orderItems.asset_id,
-                    quantity: orderItems.quantity,
-                    refurb: orderItems.maintenance_refurb_days_snapshot,
-                })
-                .from(orderItems)
-                .where(eq(orderItems.order_id, entityId));
-            await reconcileBookings({
-                tx,
-                parentType: "ORDER",
-                parentId: entityId,
-                platformId,
-                companyId: ctx.companyId,
-                desired: items.map((it: any) => ({
-                    asset_id: it.asset_id,
-                    quantity: Number(it.quantity),
-                    refurb_days: it.refurb ?? 0,
-                })),
-                deriveWindow: (line) => computeBookingWindow(newStart, newEnd, line.refurb_days),
-            });
+            if (isSelfPickup) {
+                const newPickupWindow =
+                    (patch.pickup_window as { start: string | Date; end: string | Date }) ??
+                    (ctx.row.pickup_window as { start: string | Date; end: string | Date });
+                const newReturn =
+                    "expected_return_at" in patch
+                        ? (patch.expected_return_at as Date | string | null)
+                        : (ctx.row.expected_return_at as Date | string | null);
+                const items = await tx
+                    .select({
+                        asset_id: selfPickupItems.asset_id,
+                        quantity: selfPickupItems.quantity,
+                    })
+                    .from(selfPickupItems)
+                    .where(eq(selfPickupItems.self_pickup_id, entityId));
+                await reconcileBookings({
+                    tx,
+                    parentType: "SELF_PICKUP",
+                    parentId: entityId,
+                    platformId,
+                    companyId: ctx.companyId,
+                    desired: items.map((it: any) => ({
+                        asset_id: it.asset_id,
+                        quantity: Number(it.quantity),
+                    })),
+                    deriveWindow: () => computeSelfPickupBookingWindow(newPickupWindow, newReturn),
+                });
+            } else {
+                const newStart =
+                    (patch.event_start_date as Date) ?? (ctx.row.event_start_date as Date);
+                const newEnd = (patch.event_end_date as Date) ?? (ctx.row.event_end_date as Date);
+                const items = await tx
+                    .select({
+                        asset_id: orderItems.asset_id,
+                        quantity: orderItems.quantity,
+                        refurb: orderItems.maintenance_refurb_days_snapshot,
+                    })
+                    .from(orderItems)
+                    .where(eq(orderItems.order_id, entityId));
+                await reconcileBookings({
+                    tx,
+                    parentType: "ORDER",
+                    parentId: entityId,
+                    platformId,
+                    companyId: ctx.companyId,
+                    desired: items.map((it: any) => ({
+                        asset_id: it.asset_id,
+                        quantity: Number(it.quantity),
+                        refurb_days: it.refurb ?? 0,
+                    })),
+                    deriveWindow: (line) =>
+                        computeBookingWindow(newStart, newEnd, line.refurb_days),
+                });
+            }
             reconcileTriggered = true;
         }
 
-        // 4. Reprice on a quantity change (volume → BASE_OPS). recalculate accepts the tx.
+        // 4. Reprice on an item change (volume → BASE_OPS). recalculate accepts the tx.
         if (itemsChanged) {
-            await repriceOrderAfterItemChange(tx, entityId, platformId, user.id);
+            if (isSelfPickup) {
+                await repriceSelfPickupAfterItemChange(tx, entityId, platformId, user.id);
+            } else {
+                await repriceOrderAfterItemChange(tx, entityId, platformId, user.id);
+            }
         }
 
-        // 5. Edited-quote revert (OQ10): a Tier C / item edit on a QUOTED order invalidates the
-        //    quote — bounce it to PRICING_REVIEW + QUOTE_REVISED so admin/logistics re-review.
-        //    Pre-quote states just keep the reconciled bookings. ORDER-only history (P4 generalizes).
+        // 5. Edited-quote revert (OQ10): a Tier C / item edit on a QUOTED entity invalidates the
+        //    quote — bounce it back for re-review. ORDER → PRICING_REVIEW + QUOTE_REVISED. SELF_PICKUP
+        //    → PRICING_REVIEW only; SP financial_status is left untouched (OQ7: it's effectively
+        //    static PENDING_QUOTE in prod — we don't introduce QUOTE_REVISED there).
         let statusReverted = false;
         if ((touchedTiers.has("C") || itemsChanged) && ctx.status === ctx.config.quotedStatus) {
-            await tx
-                .update(orders)
-                .set({
-                    order_status: "PRICING_REVIEW",
-                    financial_status: "QUOTE_REVISED",
-                    updated_at: new Date(),
-                })
-                .where(eq(orders.id, entityId));
-            await tx.insert(orderStatusHistory).values({
-                platform_id: platformId,
-                order_id: entityId,
-                status: "PRICING_REVIEW",
-                notes: "Order edited after the quote was sent — returned to pricing review for re-approval.",
-                updated_by: user.id,
-            });
-            await tx.insert(financialStatusHistory).values({
-                platform_id: platformId,
-                order_id: entityId,
-                status: "QUOTE_REVISED",
-                notes: "Quote revised after a post-quote edit.",
-                updated_by: user.id,
-            });
+            if (isSelfPickup) {
+                await tx
+                    .update(selfPickups)
+                    .set({ self_pickup_status: "PRICING_REVIEW", updated_at: new Date() })
+                    .where(eq(selfPickups.id, entityId));
+                await tx.insert(selfPickupStatusHistory).values({
+                    platform_id: platformId,
+                    self_pickup_id: entityId,
+                    status: "PRICING_REVIEW",
+                    notes: "Self-pickup edited after the quote was sent — returned for re-review.",
+                    updated_by: user.id,
+                });
+            } else {
+                await tx
+                    .update(orders)
+                    .set({
+                        order_status: "PRICING_REVIEW",
+                        financial_status: "QUOTE_REVISED",
+                        updated_at: new Date(),
+                    })
+                    .where(eq(orders.id, entityId));
+                await tx.insert(orderStatusHistory).values({
+                    platform_id: platformId,
+                    order_id: entityId,
+                    status: "PRICING_REVIEW",
+                    notes: "Order edited after the quote was sent — returned to pricing review for re-approval.",
+                    updated_by: user.id,
+                });
+                await tx.insert(financialStatusHistory).values({
+                    platform_id: platformId,
+                    order_id: entityId,
+                    status: "QUOTE_REVISED",
+                    notes: "Quote revised after a post-quote edit.",
+                    updated_by: user.id,
+                });
+            }
             statusReverted = true;
         }
 
@@ -815,10 +1176,15 @@ export const editEntity = async (params: EditEntityParams): Promise<EditEntityRe
         });
     }
 
+    // SP keeps its financial_status on a revert (OQ7); only ORDER moves to QUOTE_REVISED.
+    const revertedFinancial =
+        statusReverted && ctx.config.entityType !== "SELF_PICKUP"
+            ? "QUOTE_REVISED"
+            : ctx.financialStatus;
     return {
         changed_fields: changed.map((c) => ({ field: c.field, old: c.old, new: c.new })),
         status: statusReverted ? "PRICING_REVIEW" : ctx.status,
-        financial_status: statusReverted ? "QUOTE_REVISED" : ctx.financialStatus,
+        financial_status: revertedFinancial,
         status_reverted: statusReverted,
     };
 };

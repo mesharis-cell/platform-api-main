@@ -175,6 +175,24 @@ export function computeBookingWindow(
     return { blockedFrom, blockedUntil };
 }
 
+/**
+ * Self-pickup booking window — single source of truth, mirrors the inline math in
+ * submitSelfPickupFromCart (self-pickup.services.ts): blocked_from = pickup_window.start,
+ * blocked_until = expected_return_at, or pickup_window.end + 7 days when no return date is set.
+ * No prep/return/refurb buffers (the collector handles transport). Used by SP submit + the SP
+ * edit reconcile path.
+ */
+export function computeSelfPickupBookingWindow(
+    pickupWindow: { start: string | Date; end: string | Date },
+    expectedReturnAt?: Date | string | null
+): { blockedFrom: Date; blockedUntil: Date } {
+    const blockedFrom = dayjs(pickupWindow.start).toDate();
+    const blockedUntil = expectedReturnAt
+        ? dayjs(expectedReturnAt).toDate()
+        : dayjs(pickupWindow.end).add(7, "day").toDate();
+    return { blockedFrom, blockedUntil };
+}
+
 // ----------------------------------- VALIDATE INBOUND SCANNING COMPLETE ----------------------
 /**
  * Validates that all order items have been scanned in (inbound)

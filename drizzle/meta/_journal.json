@@ -456,6 +456,13 @@
             "when": 1779235200000,
             "tag": "0065_entity_change_history_and_order_updated",
             "breakpoints": true
+        },
+        {
+            "idx": 65,
+            "version": "7",
+            "when": 1779321600000,
+            "tag": "0066_self_pickup_updated_rules",
+            "breakpoints": true
         }
     ]
 }

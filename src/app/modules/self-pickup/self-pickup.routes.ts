@@ -47,6 +47,26 @@ export const SelfPickupClientRoutes = (() => {
         SelfPickupControllers.clientDetail
     );
 
+    // Edit self-pickup details (order-editing P4) — scope/band/reconcile in EntityEditService.
+    router.patch(
+        "/:id",
+        platformValidator,
+        auth("CLIENT"),
+        requirePermission(PERMISSIONS.SELF_PICKUPS_EDIT_DETAILS),
+        featureValidator(featureNames.enable_self_pickup),
+        payloadValidator(SelfPickupSchemas.editSelfPickupSchema),
+        SelfPickupControllers.editSelfPickup
+    );
+
+    router.get(
+        "/:id/change-history",
+        platformValidator,
+        auth("CLIENT"),
+        requirePermission(PERMISSIONS.SELF_PICKUPS_READ),
+        featureValidator(featureNames.enable_self_pickup),
+        SelfPickupControllers.getChangeHistory
+    );
+
     router.post(
         "/:id/approve-quote",
         platformValidator,
@@ -120,6 +140,27 @@ export const SelfPickupOperationRoutes = (() => {
         requirePermission(PERMISSIONS.SELF_PICKUPS_READ),
         featureValidator(featureNames.enable_self_pickup),
         SelfPickupControllers.getStatusHistory
+    );
+
+    // Edit self-pickup details (order-editing P4). ADMIN override (passes via self_pickups:*);
+    // scope/band/reconcile enforced in EntityEditService.
+    router.patch(
+        "/:id",
+        platformValidator,
+        auth("ADMIN", "LOGISTICS"),
+        requirePermission(PERMISSIONS.SELF_PICKUPS_EDIT_DETAILS),
+        featureValidator(featureNames.enable_self_pickup),
+        payloadValidator(SelfPickupSchemas.editSelfPickupSchema),
+        SelfPickupControllers.editSelfPickup
+    );
+
+    router.get(
+        "/:id/change-history",
+        platformValidator,
+        auth("ADMIN", "LOGISTICS"),
+        requirePermission(PERMISSIONS.SELF_PICKUPS_READ),
+        featureValidator(featureNames.enable_self_pickup),
+        SelfPickupControllers.getChangeHistory
     );
 
     router.post(

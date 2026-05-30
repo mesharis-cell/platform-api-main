@@ -125,6 +125,7 @@ import {
     selfPickupCancelledAdmin,
     selfPickupClosedAdmin,
     selfPickupConfirmedAdmin,
+    selfPickupUpdatedAdmin,
     selfPickupConfirmedLogistics,
     selfPickupDeclinedAdmin,
     selfPickupDeclinedClient,
@@ -243,6 +244,7 @@ const registry: Record<string, EmailTemplate> = {
     self_pickup_return_due_logistics: selfPickupReturnDueLogistics,
     self_pickup_closed_admin: selfPickupClosedAdmin,
     self_pickup_cancelled_admin: selfPickupCancelledAdmin,
+    self_pickup_updated_admin: selfPickupUpdatedAdmin,
 
     // Stock alerts
     stock_below_threshold_admin: stockBelowThresholdAdmin,
