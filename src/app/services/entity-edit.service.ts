@@ -16,10 +16,11 @@
  * P1 scope: ORDER, Tier A only. Tier B/C are rejected with a clear 400 until P2/P3 land.
  * The other three entity configs are filled in P4.
  */
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../db";
 import {
+    assets,
     companies,
     financialStatusHistory,
     orderItems,
@@ -32,6 +33,7 @@ import { AuthUser } from "../interface/common";
 import { EntityType } from "../events/event-types";
 import { eventBus } from "../events/event-bus";
 import { computeBookingWindow, reconcileBookings } from "../modules/order/order.utils";
+import { PricingService } from "./pricing.service";
 import {
     buildEntityUpdatedPayload,
     diffChangedFields,
@@ -280,6 +282,150 @@ export const classifyPatch = (
     return { columnWrites, touchedTiers, changed };
 };
 
+type OrderItemEdit = { order_item_id: string; quantity: number };
+
+/**
+ * Apply quantity edits to EXISTING order items (P3b). Validates each id belongs to the order,
+ * updates only the rows whose quantity actually changes, and returns a before/after map (keyed by
+ * asset name) for the audit trail, or null if nothing changed. ORDER-only.
+ */
+const applyOrderItemQuantityEdits = async (
+    tx: any,
+    orderId: string,
+    itemEdits: OrderItemEdit[]
+): Promise<{ before: Record<string, number>; after: Record<string, number> } | null> => {
+    if (!itemEdits || itemEdits.length === 0) return null;
+    const current = await tx
+        .select({
+            id: orderItems.id,
+            asset_id: orderItems.asset_id,
+            asset_name: orderItems.asset_name,
+            quantity: orderItems.quantity,
+        })
+        .from(orderItems)
+        .where(eq(orderItems.order_id, orderId));
+    const byId = new Map<string, any>(current.map((c: any) => [c.id, c] as [string, any]));
+
+    const before: Record<string, number> = {};
+    const after: Record<string, number> = {};
+    let changed = false;
+    for (const edit of itemEdits) {
+        const item = byId.get(edit.order_item_id);
+        if (!item) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "An item to edit does not belong to this order"
+            );
+        }
+        if (Number(item.quantity) === edit.quantity) continue;
+        const label = item.asset_name || item.asset_id;
+        before[label] = Number(item.quantity);
+        after[label] = edit.quantity;
+        await tx
+            .update(orderItems)
+            .set({ quantity: edit.quantity })
+            .where(eq(orderItems.id, edit.order_item_id));
+        changed = true;
+    }
+    return changed ? { before, after } : null;
+};
+
+/**
+ * Recompute the order's volume/weight from its (just-updated) items and reprice — re-syncs the
+ * volume-based BASE_OPS system line. Mirrors recalculateBaseOps but runs inside the edit tx.
+ */
+const repriceOrderAfterItemChange = async (
+    tx: any,
+    orderId: string,
+    platformId: string,
+    userId: string
+): Promise<void> => {
+    const [order] = await tx
+        .select({ company_id: orders.company_id, calculated_totals: orders.calculated_totals })
+        .from(orders)
+        .where(eq(orders.id, orderId));
+    if (!order) return;
+
+    const [company] = order.company_id
+        ? await tx
+              .select({ rate: companies.warehouse_ops_rate })
+              .from(companies)
+              .where(eq(companies.id, order.company_id))
+        : [];
+    const rate = Number(company?.rate ?? 0);
+
+    const items = await tx
+        .select({
+            id: orderItems.id,
+            quantity: orderItems.quantity,
+            asset_id: orderItems.asset_id,
+        })
+        .from(orderItems)
+        .where(eq(orderItems.order_id, orderId));
+    const assetIds = items.map((i: any) => i.asset_id);
+    const assetRows =
+        assetIds.length > 0
+            ? await tx
+                  .select({
+                      id: assets.id,
+                      volume_per_unit: assets.volume_per_unit,
+                      weight_per_unit: assets.weight_per_unit,
+                  })
+                  .from(assets)
+                  .where(inArray(assets.id, assetIds))
+            : [];
+    const assetMap = new Map<string, { v: number; w: number }>(
+        assetRows.map(
+            (a: any) =>
+                [a.id, { v: parseFloat(a.volume_per_unit), w: parseFloat(a.weight_per_unit) }] as [
+                    string,
+                    { v: number; w: number },
+                ]
+        )
+    );
+
+    let totalVolume = 0;
+    let totalWeight = 0;
+    for (const item of items) {
+        const a = assetMap.get(item.asset_id);
+        const v = a?.v || 0;
+        const w = a?.w || 0;
+        totalVolume += v * Number(item.quantity);
+        totalWeight += w * Number(item.quantity);
+        await tx
+            .update(orderItems)
+            .set({
+                volume_per_unit: v.toFixed(3),
+                weight_per_unit: w.toFixed(2),
+                total_volume: (v * Number(item.quantity)).toFixed(3),
+                total_weight: (w * Number(item.quantity)).toFixed(2),
+            })
+            .where(eq(orderItems.id, item.id));
+    }
+
+    await PricingService.recalculate({
+        entity_type: "ORDER",
+        entity_id: orderId,
+        platform_id: platformId,
+        calculated_by: userId,
+        base_ops_total_override: rate * totalVolume,
+        tx,
+    });
+
+    const existing = (order.calculated_totals || {}) as Record<string, unknown>;
+    await tx
+        .update(orders)
+        .set({
+            calculated_totals: {
+                ...existing,
+                volume: totalVolume.toFixed(3),
+                weight: totalWeight.toFixed(2),
+            },
+            updated_at: new Date(),
+        })
+        .where(eq(orders.id, orderId));
+};
+
 export type EditEntityParams = {
     entityType: EditableEntityType;
     entityId: string;
@@ -308,10 +454,8 @@ export const editEntity = async (params: EditEntityParams): Promise<EditEntityRe
         assertEditable(ctx, user, scope);
 
         const { columnWrites, touchedTiers, changed } = classifyPatch(ctx, patch, scope);
-
-        if (changed.length === 0) {
-            throw new CustomizedError(httpStatus.BAD_REQUEST, "No editable changes were provided");
-        }
+        const itemEdits = (patch.items as OrderItemEdit[] | undefined) ?? undefined;
+        const hasItemEdits = !!itemEdits && itemEdits.length > 0;
 
         // Tier B (line-item/pricing) edits don't flow through editEntity — line items have their
         // own endpoints + reprice ripple. No config field is Tier B today; guard defensively.
@@ -322,11 +466,11 @@ export const editEntity = async (params: EditEntityParams): Promise<EditEntityRe
             );
         }
 
-        // Tier C (inventory: event dates) is ORDER-only until P4 generalizes reconcile to self-pickups.
-        if (touchedTiers.has("C") && ctx.config.entityType !== "ORDER") {
+        // Tier C (event dates) + item-quantity edits are ORDER-only until P4 generalizes them.
+        if ((touchedTiers.has("C") || hasItemEdits) && ctx.config.entityType !== "ORDER") {
             throw new CustomizedError(
                 httpStatus.NOT_IMPLEMENTED,
-                "Editing event dates is not yet available for this entity"
+                "Editing event dates or item quantities is not yet available for this entity"
             );
         }
 
@@ -338,10 +482,20 @@ export const editEntity = async (params: EditEntityParams): Promise<EditEntityRe
                 .where(eq(ctx.config.idColumn, entityId));
         }
 
-        // 2. Tier C: reconcile bookings to the NEW event window. MUST succeed first — a 409 here
-        //    rolls the whole edit back (no partial state, no status flip on a rejected edit).
+        // 2. Item quantity edits (P3b) — update existing order_items.
+        const itemDiff = hasItemEdits
+            ? await applyOrderItemQuantityEdits(tx, entityId, itemEdits!)
+            : null;
+        const itemsChanged = !!itemDiff;
+
+        if (changed.length === 0 && !itemsChanged) {
+            throw new CustomizedError(httpStatus.BAD_REQUEST, "No editable changes were provided");
+        }
+
+        // 3. Tier C / items: reconcile bookings to the NEW window + quantities. MUST succeed first —
+        //    a 409 here rolls the whole edit back (no partial state, no status flip on rejection).
         let reconcileTriggered = false;
-        if (touchedTiers.has("C")) {
+        if (touchedTiers.has("C") || itemsChanged) {
             const newStart = (patch.event_start_date as Date) ?? (ctx.row.event_start_date as Date);
             const newEnd = (patch.event_end_date as Date) ?? (ctx.row.event_end_date as Date);
             const items = await tx
@@ -368,11 +522,16 @@ export const editEntity = async (params: EditEntityParams): Promise<EditEntityRe
             reconcileTriggered = true;
         }
 
-        // 3. Edited-quote revert (OQ10): a Tier C edit on a QUOTED order invalidates the quote —
-        //    bounce it back to PRICING_REVIEW + QUOTE_REVISED so admin/logistics re-review + re-issue.
-        //    Pre-quote states just keep the reconciled bookings. ORDER-only history tables (P4 generalizes).
+        // 4. Reprice on a quantity change (volume → BASE_OPS). recalculate accepts the tx.
+        if (itemsChanged) {
+            await repriceOrderAfterItemChange(tx, entityId, platformId, user.id);
+        }
+
+        // 5. Edited-quote revert (OQ10): a Tier C / item edit on a QUOTED order invalidates the
+        //    quote — bounce it to PRICING_REVIEW + QUOTE_REVISED so admin/logistics re-review.
+        //    Pre-quote states just keep the reconciled bookings. ORDER-only history (P4 generalizes).
         let statusReverted = false;
-        if (touchedTiers.has("C") && ctx.status === ctx.config.quotedStatus) {
+        if ((touchedTiers.has("C") || itemsChanged) && ctx.status === ctx.config.quotedStatus) {
             await tx
                 .update(orders)
                 .set({
@@ -392,10 +551,20 @@ export const editEntity = async (params: EditEntityParams): Promise<EditEntityRe
                 platform_id: platformId,
                 order_id: entityId,
                 status: "QUOTE_REVISED",
-                notes: "Quote revised after a post-quote event-date edit.",
+                notes: "Quote revised after a post-quote edit.",
                 updated_by: user.id,
             });
             statusReverted = true;
+        }
+
+        // Record item-quantity changes in the audit trail (synthetic field entry).
+        if (itemDiff) {
+            changed.push({
+                field: "item_quantities",
+                old: itemDiff.before,
+                new: itemDiff.after,
+                tier: "C",
+            });
         }
 
         // Attribution for a manager editing a colleague's entity.
@@ -422,12 +591,27 @@ export const editEntity = async (params: EditEntityParams): Promise<EditEntityRe
             onBehalfOfName,
         });
 
-        return { ctx, changed, actedByName, onBehalfOfName, statusReverted, reconcileTriggered };
+        return {
+            ctx,
+            changed,
+            actedByName,
+            onBehalfOfName,
+            statusReverted,
+            reconcileTriggered,
+            repriceTriggered: itemsChanged,
+        };
     });
 
     // After commit: emit the `*.updated` event (audit + rule-driven notifications).
-    const { ctx, changed, actedByName, onBehalfOfName, statusReverted, reconcileTriggered } =
-        result;
+    const {
+        ctx,
+        changed,
+        actedByName,
+        onBehalfOfName,
+        statusReverted,
+        reconcileTriggered,
+        repriceTriggered,
+    } = result;
     const eventType = ENTITY_UPDATED_EVENT_FOR[ctx.config.entityType];
     if (eventType) {
         let companyName = "N/A";
@@ -455,6 +639,7 @@ export const editEntity = async (params: EditEntityParams): Promise<EditEntityRe
                 changed,
                 statusReverted,
                 reconcileTriggered,
+                repriceTriggered,
                 actedByName,
                 onBehalfOfName,
             }),

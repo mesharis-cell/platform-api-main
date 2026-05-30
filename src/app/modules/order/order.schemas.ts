@@ -604,6 +604,22 @@ const editOrderSchema = z.object({
                 .refine((d) => !isNaN(Date.parse(d)), "Invalid event end date format")
                 .transform((d) => new Date(d))
                 .optional(),
+            // Tier B+C — change the quantity of EXISTING order items (P3b). Each entry updates one
+            // order_item; reconcileBookings adjusts the holds and the volume-based BASE_OPS reprices.
+            // Asset add/remove (swap) is a later increment.
+            items: z
+                .array(
+                    z
+                        .object({
+                            order_item_id: z.uuid("Invalid order item ID"),
+                            quantity: z
+                                .number()
+                                .int("Quantity must be an integer")
+                                .positive("Quantity must be a positive integer"),
+                        })
+                        .strict()
+                )
+                .optional(),
         })
         .strict()
         .superRefine((b, ctx) => {
