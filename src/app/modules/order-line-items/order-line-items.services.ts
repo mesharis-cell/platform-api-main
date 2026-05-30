@@ -3,9 +3,11 @@ import httpStatus from "http-status";
 import { db } from "../../../db";
 import {
     companies,
+    financialStatusHistory,
     inboundRequests,
     lineItems,
     orders,
+    orderStatusHistory,
     prices,
     selfPickups,
     serviceRequests,
@@ -30,6 +32,7 @@ import { roundCurrency } from "../../utils/pricing-engine";
 import { eventBus } from "../../events/event-bus";
 import { EVENT_TYPES } from "../../events/event-types";
 import { PricingService } from "../../services/pricing.service";
+import { buildEntityUpdatedPayload } from "../../utils/entity-change-history";
 
 const LINE_ITEM_ID_UNIQUE_CONSTRAINT = "line_items_platform_line_item_id_unique";
 const MAX_LINE_ITEM_ID_INSERT_RETRIES = 3;
@@ -1210,6 +1213,75 @@ const updateOrderPricingAfterLineItemChange = async (
         entity_id: orderId,
         platform_id: platformId,
         calculated_by: userId,
+    });
+
+    // OQ10 reprice ripple: if the client has already seen a quote (order is QUOTED), a pricing
+    // change invalidates it — bounce the order back to PRICING_REVIEW for re-review, flag
+    // financial_status QUOTE_REVISED, and notify admin/logistics (the dormant order.updated
+    // rules wake up on status_reverted=true). Pre-quote states (SUBMITTED/PRICING_REVIEW/
+    // PENDING_APPROVAL) just recalc in place. The estimate PDF regenerates when admin re-approves
+    // via adminApproveQuote — calling generateEstimate from PRICING_REVIEW would 400.
+    const [order] = await db
+        .select({
+            id: orders.id,
+            order_id: orders.order_id,
+            order_status: orders.order_status,
+            company_id: orders.company_id,
+            contact_name: orders.contact_name,
+        })
+        .from(orders)
+        .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)))
+        .limit(1);
+
+    if (!order || order.order_status !== "QUOTED") return;
+
+    await db
+        .update(orders)
+        .set({
+            order_status: "PRICING_REVIEW",
+            financial_status: "QUOTE_REVISED",
+            updated_at: new Date(),
+        })
+        .where(eq(orders.id, orderId));
+
+    await db.insert(orderStatusHistory).values({
+        platform_id: platformId,
+        order_id: orderId,
+        status: "PRICING_REVIEW",
+        notes: "Order edited after the quote was sent — returned to pricing review for re-approval.",
+        updated_by: userId,
+    });
+    await db.insert(financialStatusHistory).values({
+        platform_id: platformId,
+        order_id: orderId,
+        status: "QUOTE_REVISED",
+        notes: "Quote revised after a post-quote line item change.",
+        updated_by: userId,
+    });
+
+    const [company] = order.company_id
+        ? await db
+              .select({ name: companies.name })
+              .from(companies)
+              .where(eq(companies.id, order.company_id))
+        : [];
+
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: EVENT_TYPES.ORDER_UPDATED,
+        entity_type: "ORDER",
+        entity_id: orderId,
+        actor_id: userId,
+        actor_role: null,
+        payload: buildEntityUpdatedPayload({
+            entityIdReadable: order.order_id,
+            companyId: order.company_id || "",
+            companyName: company?.name || "N/A",
+            contactName: order.contact_name,
+            changed: [],
+            statusReverted: true,
+            repriceTriggered: true,
+        }),
     });
 };
 
