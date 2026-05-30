@@ -592,8 +592,40 @@ const editOrderSchema = z.object({
                 )
                 .nullable()
                 .optional(),
+            // Tier C (inventory) — event dates. Editing these re-derives the booking window and
+            // runs reconcileBookings; a date edit on a QUOTED order bounces it to PRICING_REVIEW.
+            event_start_date: z
+                .string()
+                .refine((d) => !isNaN(Date.parse(d)), "Invalid event start date format")
+                .transform((d) => new Date(d))
+                .optional(),
+            event_end_date: z
+                .string()
+                .refine((d) => !isNaN(Date.parse(d)), "Invalid event end date format")
+                .transform((d) => new Date(d))
+                .optional(),
         })
         .strict()
+        .superRefine((b, ctx) => {
+            if (b.event_start_date && b.event_end_date && b.event_end_date < b.event_start_date) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: "Event end date must be on or after the start date",
+                    path: ["event_end_date"],
+                });
+            }
+            if (b.event_start_date) {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                if (b.event_start_date < today) {
+                    ctx.addIssue({
+                        code: z.ZodIssueCode.custom,
+                        message: "Event start date cannot be in the past",
+                        path: ["event_start_date"],
+                    });
+                }
+            }
+        })
         .refine((b) => Object.keys(b).length > 0, {
             message: "At least one field to edit must be provided",
         }),

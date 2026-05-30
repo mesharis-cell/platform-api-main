@@ -279,13 +279,26 @@ export async function releaseBookingsAndRestoreAvailability(
     }
 
     // Sync statuses for affected assets based on whether they still have active bookings.
+    await resyncAssetStatuses(tx, affectedAssetIds, platformId);
+}
+
+/**
+ * Re-derive each asset's status from whether it still has any active booking rows:
+ * BOOKED if it does, AVAILABLE if it doesn't — without clobbering MAINTENANCE/TRANSFORMED.
+ * Extracted from releaseBookingsAndRestoreAvailability so reconcileBookings reuses the exact
+ * same status-resync semantics. (reduceBookingsForScannedOutbound keeps its own narrower
+ * single-asset variant deliberately — it only resyncs on a full skip.)
+ */
+export async function resyncAssetStatuses(
+    tx: any,
+    assetIds: string[],
+    platformId: string
+): Promise<void> {
+    if (assetIds.length === 0) return;
     const remainingBookings = await tx
-        .select({
-            asset_id: assetBookings.asset_id,
-            count: count(),
-        })
+        .select({ asset_id: assetBookings.asset_id, count: count() })
         .from(assetBookings)
-        .where(inArray(assetBookings.asset_id, affectedAssetIds))
+        .where(inArray(assetBookings.asset_id, assetIds))
         .groupBy(assetBookings.asset_id);
 
     const hasRemainingBookings = new Set(
@@ -294,9 +307,8 @@ export async function releaseBookingsAndRestoreAvailability(
             .map((row: any) => row.asset_id)
     );
 
-    for (const assetId of affectedAssetIds) {
+    for (const assetId of assetIds) {
         const nextStatus = hasRemainingBookings.has(assetId) ? "BOOKED" : "AVAILABLE";
-
         await tx
             .update(assets)
             .set({
@@ -309,6 +321,189 @@ export async function releaseBookingsAndRestoreAvailability(
             })
             .where(and(eq(assets.id, assetId), eq(assets.platform_id, platformId)));
     }
+}
+
+export type ReconcileLine = { asset_id: string; quantity: number; refurb_days?: number | null };
+
+export type ReconcileResult = {
+    added: string[];
+    removed: string[];
+    changed: string[];
+    touched: string[];
+};
+
+/**
+ * Transactionally reconcile an entity's asset_bookings to a NEW desired state (the result of an
+ * edit to event dates / quantities / asset composition), re-deriving the booking window per line
+ * via `deriveWindow`. THE inventory-correctness core of order editing.
+ *
+ * Algorithm (all inside the caller's tx — a 409 here rolls the whole edit back):
+ *   1. Load existing bookings FOR UPDATE, grouped by asset (qty + window).
+ *   2. Build the desired-by-asset map (qty>0) with each line's target window.
+ *   3. VALIDATION pass — for every ADD / qty-INCREASE / window-shift, re-check availability per
+ *      asset (distinct window) with excludeEntity=self + lockForUpdate, requesting the NEW TOTAL.
+ *      Aggregate failures into ONE 409. Decreases/removals free capacity and skip the check.
+ *   4. APPLY pass — per touched asset: consolidate-then-reinsert one canonical booking row at the
+ *      desired qty + window (or delete on removal), and adjust available_quantity by the signed
+ *      net (old−new), clamped to [0, total].
+ *   5. resyncAssetStatuses on every touched asset.
+ *
+ * Polymorphic: parentType ORDER → order_id, SELF_PICKUP → self_pickup_id. The window primitive is
+ * injected (orders use computeBookingWindow w/ refurb; self-pickups use their own windowing).
+ */
+export async function reconcileBookings(params: {
+    tx: any;
+    parentType: "ORDER" | "SELF_PICKUP";
+    parentId: string;
+    platformId: string;
+    companyId: string | null;
+    desired: ReconcileLine[];
+    deriveWindow: (line: ReconcileLine) => { blockedFrom: Date; blockedUntil: Date };
+}): Promise<ReconcileResult> {
+    const { tx, parentType, parentId, platformId, companyId, desired, deriveWindow } = params;
+    const parentCondition =
+        parentType === "ORDER"
+            ? eq(assetBookings.order_id, parentId)
+            : eq(assetBookings.self_pickup_id, parentId);
+
+    // 1. Existing bookings (locked), aggregated per asset.
+    const existingRows = await tx
+        .select({
+            asset_id: assetBookings.asset_id,
+            quantity: assetBookings.quantity,
+            blocked_from: assetBookings.blocked_from,
+            blocked_until: assetBookings.blocked_until,
+        })
+        .from(assetBookings)
+        .where(parentCondition)
+        .for("update");
+
+    const existingByAsset = new Map<string, { qty: number; from: Date; until: Date }>();
+    for (const r of existingRows) {
+        const cur = existingByAsset.get(r.asset_id);
+        if (cur) cur.qty += Number(r.quantity);
+        else
+            existingByAsset.set(r.asset_id, {
+                qty: Number(r.quantity),
+                from: r.blocked_from,
+                until: r.blocked_until,
+            });
+    }
+
+    // 2. Desired state (qty>0) with target window.
+    const desiredByAsset = new Map<string, { qty: number; from: Date; until: Date }>();
+    for (const line of desired) {
+        if (!line.quantity || line.quantity <= 0) continue;
+        const w = deriveWindow(line);
+        const cur = desiredByAsset.get(line.asset_id);
+        if (cur) cur.qty += line.quantity;
+        else
+            desiredByAsset.set(line.asset_id, {
+                qty: line.quantity,
+                from: w.blockedFrom,
+                until: w.blockedUntil,
+            });
+    }
+
+    const touched = new Set<string>([...existingByAsset.keys(), ...desiredByAsset.keys()]);
+
+    // 3. Validation pass — only risky ops (add / increase / window-shift).
+    const failures: { name: string; requested: number; available: number }[] = [];
+    for (const assetId of touched) {
+        const want = desiredByAsset.get(assetId);
+        if (!want) continue; // removal frees capacity
+        const have = existingByAsset.get(assetId);
+        const windowChanged = !have || +have.from !== +want.from || +have.until !== +want.until;
+        const qtyIncreased = !have || want.qty > have.qty;
+        if (!windowChanged && !qtyIncreased) continue;
+
+        const { results } = await AvailabilityCore.validateAvailabilityRequests({
+            tx,
+            platformId,
+            companyId,
+            requests: [{ asset_id: assetId, quantity: want.qty }],
+            window: { start: want.from, end: want.until },
+            excludeEntity: { type: parentType, id: parentId },
+            lockForUpdate: true,
+        });
+        const res = results.get(assetId);
+        if (!res || !res.is_available) {
+            failures.push({
+                name: res?.asset_name || assetId,
+                requested: want.qty,
+                available: res?.available_quantity ?? 0,
+            });
+        }
+    }
+    if (failures.length > 0) {
+        const detail = failures
+            .map((f) => `${f.name} (need ${f.requested}, ${f.available} available)`)
+            .join("; ");
+        throw new CustomizedError(
+            httpStatus.CONFLICT,
+            `Not enough availability for the requested dates/quantities: ${detail}`
+        );
+    }
+
+    // 4. Apply pass.
+    const added: string[] = [];
+    const removed: string[] = [];
+    const changed: string[] = [];
+    for (const assetId of touched) {
+        const have = existingByAsset.get(assetId);
+        const want = desiredByAsset.get(assetId);
+        const haveQty = have?.qty ?? 0;
+        const wantQty = want?.qty ?? 0;
+        const noChange =
+            have &&
+            want &&
+            haveQty === wantQty &&
+            +have.from === +want.from &&
+            +have.until === +want.until;
+        if (noChange) continue;
+
+        // Consolidate-then-reinsert: delete this asset's rows, insert one canonical row if kept.
+        await tx
+            .delete(assetBookings)
+            .where(and(parentCondition, eq(assetBookings.asset_id, assetId)));
+        if (want && wantQty > 0) {
+            if (+want.from > +want.until) {
+                throw new CustomizedError(
+                    httpStatus.BAD_REQUEST,
+                    "Invalid booking window (start is after end)"
+                );
+            }
+            await tx.insert(assetBookings).values({
+                order_id: parentType === "ORDER" ? parentId : null,
+                self_pickup_id: parentType === "SELF_PICKUP" ? parentId : null,
+                asset_id: assetId,
+                quantity: wantQty,
+                blocked_from: want.from,
+                blocked_until: want.until,
+            });
+        }
+
+        // Net effect on available_quantity: freed (old) minus newly-held (new), clamped.
+        const net = haveQty - wantQty;
+        if (net !== 0) {
+            await tx
+                .update(assets)
+                .set({
+                    available_quantity: sql`LEAST(${assets.total_quantity}, GREATEST(0, ${assets.available_quantity} + ${net}))`,
+                    updated_at: new Date(),
+                })
+                .where(and(eq(assets.id, assetId), eq(assets.platform_id, platformId)));
+        }
+
+        if (!have) added.push(assetId);
+        else if (!want) removed.push(assetId);
+        else changed.push(assetId);
+    }
+
+    // 5. Resync statuses across every touched asset.
+    await resyncAssetStatuses(tx, [...touched], platformId);
+
+    return { added, removed, changed, touched: [...touched] };
 }
 
 /** @deprecated Use releaseBookingsAndRestoreAvailability with parentType param. Kept for

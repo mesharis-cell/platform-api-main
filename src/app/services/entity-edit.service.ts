@@ -19,11 +19,19 @@
 import { eq } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../db";
-import { companies, orders, users } from "../../db/schema";
+import {
+    companies,
+    financialStatusHistory,
+    orderItems,
+    orders,
+    orderStatusHistory,
+    users,
+} from "../../db/schema";
 import CustomizedError from "../error/customized-error";
 import { AuthUser } from "../interface/common";
 import { EntityType } from "../events/event-types";
 import { eventBus } from "../events/event-bus";
+import { computeBookingWindow, reconcileBookings } from "../modules/order/order.utils";
 import {
     buildEntityUpdatedPayload,
     diffChangedFields,
@@ -237,14 +245,17 @@ export const assertEditable = (ctx: EditContext, user: AuthUser, scope: EditScop
 };
 
 export type ClassifiedPatch = {
-    tierAWrites: Record<string, unknown>;
+    /** Direct column writes for every changed allowlisted field (Tier A descriptive + Tier C date columns). */
+    columnWrites: Record<string, unknown>;
     touchedTiers: Set<FieldTier>;
     changed: ChangedField[];
 };
 
 /**
  * Filter the patch against the allowlist, drop admin-only fields for non-admin scopes, compute
- * the Tier-A write set and the changed-field diff (vs the loaded row).
+ * the column-write set and the changed-field diff (vs the loaded row). Every current config field
+ * is a direct column, so columnWrites carries all changed fields; the Tier tags drive the
+ * downstream side-effects (reprice / reconcile), not whether the column is written.
  */
 export const classifyPatch = (
     ctx: EditContext,
@@ -261,12 +272,12 @@ export const classifyPatch = (
     const changed = diffChangedFields(ctx.row, patch, specsForDiff);
 
     const touchedTiers = new Set<FieldTier>(changed.map((c) => c.tier));
-    const tierAWrites: Record<string, unknown> = {};
+    const columnWrites: Record<string, unknown> = {};
     for (const c of changed) {
-        if (c.tier === "A") tierAWrites[c.field] = patch[c.field];
+        columnWrites[c.field] = patch[c.field];
     }
 
-    return { tierAWrites, touchedTiers, changed };
+    return { columnWrites, touchedTiers, changed };
 };
 
 export type EditEntityParams = {
@@ -296,26 +307,95 @@ export const editEntity = async (params: EditEntityParams): Promise<EditEntityRe
         const ctx = await resolveEditContext(tx, entityType, entityId, platformId, true);
         assertEditable(ctx, user, scope);
 
-        const { tierAWrites, touchedTiers, changed } = classifyPatch(ctx, patch, scope);
+        const { columnWrites, touchedTiers, changed } = classifyPatch(ctx, patch, scope);
 
         if (changed.length === 0) {
             throw new CustomizedError(httpStatus.BAD_REQUEST, "No editable changes were provided");
         }
 
-        // P1 guard: pricing/inventory edits are not yet supported (P2 = Tier B, P3 = Tier C).
-        if (touchedTiers.has("B") || touchedTiers.has("C")) {
+        // Tier B (line-item/pricing) edits don't flow through editEntity — line items have their
+        // own endpoints + reprice ripple. No config field is Tier B today; guard defensively.
+        if (touchedTiers.has("B")) {
             throw new CustomizedError(
                 httpStatus.BAD_REQUEST,
-                "Editing pricing or inventory fields is not yet available"
+                "Pricing edits must go through the line-item endpoints"
             );
         }
 
-        // Tier A write.
-        if (Object.keys(tierAWrites).length > 0) {
+        // Tier C (inventory: event dates) is ORDER-only until P4 generalizes reconcile to self-pickups.
+        if (touchedTiers.has("C") && ctx.config.entityType !== "ORDER") {
+            throw new CustomizedError(
+                httpStatus.NOT_IMPLEMENTED,
+                "Editing event dates is not yet available for this entity"
+            );
+        }
+
+        // 1. Column writes (Tier A descriptive + Tier C event-date columns).
+        if (Object.keys(columnWrites).length > 0) {
             await tx
                 .update(ctx.config.table)
-                .set(tierAWrites)
+                .set(columnWrites)
                 .where(eq(ctx.config.idColumn, entityId));
+        }
+
+        // 2. Tier C: reconcile bookings to the NEW event window. MUST succeed first — a 409 here
+        //    rolls the whole edit back (no partial state, no status flip on a rejected edit).
+        let reconcileTriggered = false;
+        if (touchedTiers.has("C")) {
+            const newStart = (patch.event_start_date as Date) ?? (ctx.row.event_start_date as Date);
+            const newEnd = (patch.event_end_date as Date) ?? (ctx.row.event_end_date as Date);
+            const items = await tx
+                .select({
+                    asset_id: orderItems.asset_id,
+                    quantity: orderItems.quantity,
+                    refurb: orderItems.maintenance_refurb_days_snapshot,
+                })
+                .from(orderItems)
+                .where(eq(orderItems.order_id, entityId));
+            await reconcileBookings({
+                tx,
+                parentType: "ORDER",
+                parentId: entityId,
+                platformId,
+                companyId: ctx.companyId,
+                desired: items.map((it: any) => ({
+                    asset_id: it.asset_id,
+                    quantity: Number(it.quantity),
+                    refurb_days: it.refurb ?? 0,
+                })),
+                deriveWindow: (line) => computeBookingWindow(newStart, newEnd, line.refurb_days),
+            });
+            reconcileTriggered = true;
+        }
+
+        // 3. Edited-quote revert (OQ10): a Tier C edit on a QUOTED order invalidates the quote —
+        //    bounce it back to PRICING_REVIEW + QUOTE_REVISED so admin/logistics re-review + re-issue.
+        //    Pre-quote states just keep the reconciled bookings. ORDER-only history tables (P4 generalizes).
+        let statusReverted = false;
+        if (touchedTiers.has("C") && ctx.status === ctx.config.quotedStatus) {
+            await tx
+                .update(orders)
+                .set({
+                    order_status: "PRICING_REVIEW",
+                    financial_status: "QUOTE_REVISED",
+                    updated_at: new Date(),
+                })
+                .where(eq(orders.id, entityId));
+            await tx.insert(orderStatusHistory).values({
+                platform_id: platformId,
+                order_id: entityId,
+                status: "PRICING_REVIEW",
+                notes: "Order edited after the quote was sent — returned to pricing review for re-approval.",
+                updated_by: user.id,
+            });
+            await tx.insert(financialStatusHistory).values({
+                platform_id: platformId,
+                order_id: entityId,
+                status: "QUOTE_REVISED",
+                notes: "Quote revised after a post-quote event-date edit.",
+                updated_by: user.id,
+            });
+            statusReverted = true;
         }
 
         // Attribution for a manager editing a colleague's entity.
@@ -342,17 +422,12 @@ export const editEntity = async (params: EditEntityParams): Promise<EditEntityRe
             onBehalfOfName,
         });
 
-        return {
-            ctx,
-            changed,
-            actedByName,
-            onBehalfOfName,
-            statusReverted: false, // P2 sets this on the Tier B/C revert
-        };
+        return { ctx, changed, actedByName, onBehalfOfName, statusReverted, reconcileTriggered };
     });
 
     // After commit: emit the `*.updated` event (audit + rule-driven notifications).
-    const { ctx, changed, actedByName, onBehalfOfName, statusReverted } = result;
+    const { ctx, changed, actedByName, onBehalfOfName, statusReverted, reconcileTriggered } =
+        result;
     const eventType = ENTITY_UPDATED_EVENT_FOR[ctx.config.entityType];
     if (eventType) {
         let companyName = "N/A";
@@ -379,6 +454,7 @@ export const editEntity = async (params: EditEntityParams): Promise<EditEntityRe
                     : null,
                 changed,
                 statusReverted,
+                reconcileTriggered,
                 actedByName,
                 onBehalfOfName,
             }),
@@ -387,8 +463,8 @@ export const editEntity = async (params: EditEntityParams): Promise<EditEntityRe
 
     return {
         changed_fields: changed.map((c) => ({ field: c.field, old: c.old, new: c.new })),
-        status: ctx.status,
-        financial_status: ctx.financialStatus,
+        status: statusReverted ? "PRICING_REVIEW" : ctx.status,
+        financial_status: statusReverted ? "QUOTE_REVISED" : ctx.financialStatus,
         status_reverted: statusReverted,
     };
 };
