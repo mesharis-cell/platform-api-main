@@ -1,25 +1,26 @@
 /**
- * Stock Movements Ledger — pivoted "Cans-Mar" reconciliation ledger for one
- * tenant. Rows are physical-quantity-impacting movement legs (chronological);
- * columns are asset families (assets.group_id + group_name). Anchored by
- * OPENING + CLOSING so finance can sum any column and self-validate via
- * Closing = Opening + Σ(events).
+ * Stock Movements Ledger — per-tenant cans/stock reconciliation ledger. Rows are
+ * physical can-flow movement legs in chronological order (issue-outs, returns,
+ * receipts, corrections, ad-hoc removals); columns are asset families
+ * (assets.group_id + group_name). Anchored by OPENING + CLOSING so finance can
+ * sum any column and self-validate via Closing = Opening + Σ(events), with a
+ * manual stock-count + DIFFERENCE row for the physical audit.
  *
- * Ported from the canonical CLI (src/db/scripts/export-stock-movements.ts) with
- * the spec-appendix "Required fixes" applied:
- *   - REWIND FIX (decided = PHYSICAL ON-HAND): the canonical script anchored on
- *     SUM(available_quantity) and rewound by ALL non-CONSUMED deltas
- *     (OUTBOUND/INBOUND/INITIAL/WRITE_OFF) — wrong, because only ADJUSTMENT +
- *     OUTBOUND_AD_HOC move available_quantity (AVAILABLE_QTY_AFFECTING in
- *     stock-movement.service.ts). Here we anchor on SUM(total_quantity) (the
- *     physical on-hand counter) and rewind / stream ONLY the total-qty-affecting
- *     legs — WRITE_OFF (non-CONSUMED) + ADJUSTMENT + OUTBOUND_AD_HOC — which is
- *     exactly the set that mutates total_quantity (TOTAL_QTY_AFFECTING). The
- *     pure-audit legs (OUTBOUND / INBOUND / INITIAL) move neither counter and
- *     are excluded from the event stream so the on-sheet
- *     Closing = Opening + SUM(events) reconciles against the anchor.
- *   - CONSUMED write-offs dropped from events + rewind + opening, consistently.
- *   - All sql.raw string interpolation re-parameterized to bound placeholders.
+ * MODEL (matches the client-agreed "PRE-K-and-K beverages stock ledger"):
+ *   - Anchor = SUM(available_quantity) — cans physically on hand. Closing is the
+ *     anchor rewound by the post-cutoff flow; opening = closing − in-window flow,
+ *     so the on-sheet Closing = Opening + Σ(events) reconciles by construction.
+ *   - FLOW set (streamed AND rewound, identically): OUTBOUND (issue-out, −),
+ *     INBOUND (return / receipt, +), ADJUSTMENT (fresh-stock-in / correction, ±),
+ *     OUTBOUND_AD_HOC (−). OUTBOUND/INBOUND move available_quantity via the
+ *     booking lifecycle (mirrored 1:1 by these audit rows), so the available
+ *     anchor reconciles against exactly this set.
+ *   - EXCLUDED: CONSUMED write-offs (redundant — a consumed can already left via
+ *     its OUTBOUND leg; proven against live data that OUTBOUND = returned +
+ *     consumed per order, so counting both double-counts the outflow). INITIAL
+ *     and LOST/DAMAGED write-offs are out of scope here (no client tenant has
+ *     them yet; add as a display-only leg when one does — known follow-up).
+ *   - All sql.raw string interpolation is bound-parameterized.
  *   - ~50-family column cap enforced (dimension "pivot-columns").
  *
  * No money columns → client-safe; ADMIN_CLIENT.
@@ -74,6 +75,8 @@ function legSuffix(
     if (movementType === "OUTBOUND_AD_HOC")
         return outboundAdHocReason ? `AD-HOC OUT (${outboundAdHocReason})` : "AD-HOC OUT";
     if (movementType === "ADJUSTMENT") return "ADJUSTMENT";
+    if (movementType === "INBOUND") return "RETURN"; // returns + receipts (+)
+    if (movementType === "OUTBOUND") return ""; // issue-out — ref/venue carries the detail
     return movementType;
 }
 
@@ -87,16 +90,16 @@ type EventRow = {
 };
 
 /**
- * Physical-on-hand rewind set — the movement types that actually mutate
- * assets.total_quantity (TOTAL_QTY_AFFECTING in stock-movement.service.ts),
- * minus CONSUMED write-offs which are dropped from the whole ledger.
- * Materialized as a SQL predicate so the event-stream, the post-cutoff rewind,
- * and the opening derivation all use IDENTICALLY the same set — the load-bearing
- * condition for Closing = Opening + Σ(events) to reconcile against the anchor.
+ * Physical can-flow set — the movement legs that represent real warehouse stock
+ * flow: issue-outs (OUTBOUND), returns + fresh-stock receipts (INBOUND),
+ * corrections / stock-in (ADJUSTMENT) and ad-hoc removals (OUTBOUND_AD_HOC).
+ * CONSUMED write-offs are excluded (redundant with the OUTBOUND leg). Materialized
+ * as a SQL predicate so the event-stream, the post-cutoff rewind, and the opening
+ * derivation all use IDENTICALLY the same set — the load-bearing condition for
+ * Closing = Opening + Σ(events) to reconcile against the available_quantity anchor.
  */
-const PHYSICAL_LEG_FILTER: SQL = sql`(
-    sm.movement_type IN ('WRITE_OFF', 'ADJUSTMENT', 'OUTBOUND_AD_HOC')
-    AND NOT (sm.movement_type = 'WRITE_OFF' AND sm.write_off_reason = 'CONSUMED')
+const FLOW_FILTER: SQL = sql`(
+    sm.movement_type IN ('OUTBOUND', 'INBOUND', 'ADJUSTMENT', 'OUTBOUND_AD_HOC')
 )`;
 
 async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<ReportResult> {
@@ -109,13 +112,15 @@ async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<
         .map((c) => c.trim())
         .filter(Boolean);
     const includeCatsLower = includeCats.map((c) => c.toLowerCase());
-    const categoryName: string | undefined = includeCats.length ? includeCats.join(", ") : undefined;
+    const categoryName: string | undefined = includeCats.length
+        ? includeCats.join(", ")
+        : undefined;
     const groupIds = toArr(params.group);
     const { gte, lt } = fmtDateBounds(params.date_from, params.date_to);
 
     // ── Stage 1: resolve pivot families (groups) in scope ────────────────────
     // Scope is include-only (per spec): a SINGLE --category OR an explicit
-    // group_id list. Anchor on SUM(total_quantity) — physical on-hand.
+    // group_id list. Anchor on SUM(available_quantity) — cans physically on hand.
     const famScope: SQL[] = [
         sql` AND a.company_id = ${ctx.companyId}`,
         sql` AND a.deleted_at IS NULL`,
@@ -140,7 +145,7 @@ async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<
 SELECT
     a.group_id AS id,
     MIN(a.group_name) AS name,
-    COALESCE(SUM(a.total_quantity), 0)::int AS anchor_total
+    COALESCE(SUM(a.available_quantity), 0)::int AS anchor_total
 FROM assets a
 WHERE a.platform_id = ${ctx.platformId}${sql.join(famScope, sql``)}
 GROUP BY a.group_id
@@ -174,8 +179,8 @@ ORDER BY MIN(a.group_name) ASC`;
     /** A movement maps to an in-scope family via direct asset_family_id OR via assets.group_id (dual link). */
     const famLink = sql`((sm.asset_family_id IN (${famIdSql})) OR (a.group_id IN (${famIdSql})))`;
 
-    // ── Stage 2: pull in-window physical-affecting movement legs ─────────────
-    const moveFilters: SQL[] = [sql` AND ${famLink}`, sql` AND ${PHYSICAL_LEG_FILTER}`];
+    // ── Stage 2: pull in-window can-flow movement legs ───────────────────────
+    const moveFilters: SQL[] = [sql` AND ${famLink}`, sql` AND ${FLOW_FILTER}`];
     if (gte) moveFilters.push(sql` AND sm.created_at >= ${gte}`);
     if (lt) moveFilters.push(sql` AND sm.created_at < ${lt}`);
 
@@ -267,7 +272,7 @@ WHERE sp.id IN (${sql.join(
                     base = `${sp.ref} — Collector: ${sp.collector ?? ""}`;
                 }
             }
-            const purpose = base ? `${base} — ${leg}` : leg;
+            const purpose = leg ? (base ? `${base} — ${leg}` : leg) : base || "MOVEMENT";
             const withNote = m.note ? `${purpose} — ${m.note}` : purpose;
             const ts = m.created_at ? new Date(m.created_at) : null;
             g = {
@@ -289,8 +294,8 @@ WHERE sp.id IN (${sql.join(
     }
     const events = [...groups.values()].sort((a, b) => a.sortKey - b.sortKey);
 
-    // ── Stage 5: closing rewind — anchor on physical on-hand, rewind ONLY the ─
-    // physical-affecting post-cutoff deltas (same set as the event stream).
+    // ── Stage 5: closing rewind — anchor on available_quantity, rewind ONLY ──
+    // the post-cutoff can-flow deltas (same set as the event stream).
     if (lt) {
         const postQuery = sql`
 SELECT COALESCE(sm.asset_family_id, a.group_id) AS family_id,
@@ -300,7 +305,7 @@ LEFT JOIN assets a ON sm.asset_id = a.id
 WHERE sm.platform_id = ${ctx.platformId}
   AND ${famLink}
   AND sm.created_at >= ${lt}
-  AND ${PHYSICAL_LEG_FILTER}
+  AND ${FLOW_FILTER}
 GROUP BY COALESCE(sm.asset_family_id, a.group_id)`;
         const post = ((await db.execute(postQuery)) as any).rows as any[];
         const postBy = new Map<string, number>();
@@ -415,7 +420,7 @@ export const stockMovementsReport: ReportDefinition = {
     key: "stock-movements",
     label: "Stock Movements Ledger",
     description:
-        "Pivoted reconciliation ledger for one tenant: rows are physical-quantity-impacting movement legs (write-offs, adjustments, ad-hoc removals), columns are asset families. Anchored by OPENING + CLOSING so any column reconciles via Closing = Opening + Σ(events), with a manual stock-count and DIFFERENCE row for physical audits.",
+        "Reconciliation ledger for one tenant: rows are stock-flow movement legs (issue-outs, returns, receipts, corrections, ad-hoc removals), columns are asset families. Anchored by OPENING + CLOSING so any column reconciles via Closing = Opening + Σ(events), with a manual stock-count and DIFFERENCE row for physical audits.",
     section: "INVENTORY",
     audience: "ADMIN_CLIENT",
     permissions: ["stock_movements:read", "assets:read"],

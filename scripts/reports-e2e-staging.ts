@@ -23,8 +23,16 @@ if (!SECRET) {
 const mint = (id: string, role: string, email: string) =>
     jwt.sign({ id, role, email, platform_id: PLAT }, SECRET as string, { expiresIn: "1h" });
 
-const ADMIN = mint("2643720d-761f-4535-93d5-d91e6027ccf2", "ADMIN", "meshari.s-staging@homeofpmg.com");
-const CLIENT = mint("2c88c0b3-db63-4806-90bd-623b66828045", "CLIENT", "client-staging@redbull.test");
+const ADMIN = mint(
+    "2643720d-761f-4535-93d5-d91e6027ccf2",
+    "ADMIN",
+    "meshari.s-staging@homeofpmg.com"
+);
+const CLIENT = mint(
+    "2c88c0b3-db63-4806-90bd-623b66828045",
+    "CLIENT",
+    "client-staging@redbull.test"
+);
 
 let pass = 0;
 let fail = 0;
@@ -57,62 +65,126 @@ async function main() {
     // 1) admin listReports — super-admin sees the full registry
     const adminList = await call(ADMIN, "/operations/v1/reports");
     const adminReports = adminList.json?.data?.reports ?? [];
-    check("admin listReports returns full registry (13)", adminReports.length === 13, `got ${adminReports.length}`);
+    check(
+        "admin listReports returns full registry (13)",
+        adminReports.length === 13,
+        `got ${adminReports.length}`
+    );
 
     // 2) client listReports — ADMIN_CLIENT subset only, no admin-only financial reports
     const clientList = await call(CLIENT, "/client/v1/reports");
     const clientKeys: string[] = (clientList.json?.data?.reports ?? []).map((x: any) => x.key);
-    const leakedAdminOnly = ["cost", "revenue", "accounts-reconciliation", "work-summary"].filter((k) =>
-        clientKeys.includes(k)
+    const leakedAdminOnly = ["cost", "revenue", "accounts-reconciliation", "work-summary"].filter(
+        (k) => clientKeys.includes(k)
     );
-    check("client listReports hides admin-only reports", leakedAdminOnly.length === 0, leakedAdminOnly.length ? `LEAKED ${leakedAdminOnly}` : `keys=${clientKeys.join(",")}`);
-    check("client listReports includes the safe subset", clientKeys.includes("issuance") && clientKeys.includes("current-stock"), `keys=${clientKeys.join(",")}`);
+    check(
+        "client listReports hides admin-only reports",
+        leakedAdminOnly.length === 0,
+        leakedAdminOnly.length ? `LEAKED ${leakedAdminOnly}` : `keys=${clientKeys.join(",")}`
+    );
+    check(
+        "client listReports includes the safe subset",
+        clientKeys.includes("issuance") && clientKeys.includes("current-stock"),
+        `keys=${clientKeys.join(",")}`
+    );
 
     // 3) stock-movements category param contract (the reported bug)
-    const smUi = await call(ADMIN, `/operations/v1/reports/stock-movements/run?company_id=${RB}&category_include=Beverages`);
-    const smNative = await call(ADMIN, `/operations/v1/reports/stock-movements/run?company_id=${RB}&category=Beverages`);
-    check("stock-movements honors UI param (category_include)", smUi.status === 200, `category_include -> ${smUi.status}${smUi.json?.message ? ` "${smUi.json.message}"` : ""}`);
-    check("stock-movements honors native param (category)", smNative.status === 200, `category -> ${smNative.status}${smNative.json?.message ? ` "${smNative.json.message}"` : ""}`);
+    const smUi = await call(
+        ADMIN,
+        `/operations/v1/reports/stock-movements/run?company_id=${RB}&category_include=Beverages`
+    );
+    const smNative = await call(
+        ADMIN,
+        `/operations/v1/reports/stock-movements/run?company_id=${RB}&category=Beverages`
+    );
+    check(
+        "stock-movements honors UI param (category_include)",
+        smUi.status === 200,
+        `category_include -> ${smUi.status}${smUi.json?.message ? ` "${smUi.json.message}"` : ""}`
+    );
+    check(
+        "stock-movements honors native param (category)",
+        smNative.status === 200,
+        `category -> ${smNative.status}${smNative.json?.message ? ` "${smNative.json.message}"` : ""}`
+    );
 
     // 4) group filter contract
-    const smGroup = await call(ADMIN, `/operations/v1/reports/stock-movements/run?company_id=${RB}&group=${BEV_GROUP}`);
-    check("stock-movements group filter (key 'group')", smGroup.status === 200, `group -> ${smGroup.status}${smGroup.json?.message ? ` "${smGroup.json.message}"` : ""}`);
+    const smGroup = await call(
+        ADMIN,
+        `/operations/v1/reports/stock-movements/run?company_id=${RB}&group=${BEV_GROUP}`
+    );
+    check(
+        "stock-movements group filter (key 'group')",
+        smGroup.status === 200,
+        `group -> ${smGroup.status}${smGroup.json?.message ? ` "${smGroup.json.message}"` : ""}`
+    );
 
     // 5) smoke every report (admin) with the params the UI would send
     for (const rep of adminReports) {
         let qs = `company_id=${RB}`;
         if (rep.key === "stock-movements") qs += "&category_include=Beverages"; // what the admin UI actually sends
         const r = await call(ADMIN, `/operations/v1/reports/${rep.key}/run?${qs}`);
-        check(`run ${rep.key} (UI params)`, r.status === 200, `HTTP ${r.status}${r.json?.message ? ` "${r.json.message}"` : ""}`);
+        check(
+            `run ${rep.key} (UI params)`,
+            r.status === 200,
+            `HTTP ${r.status}${r.json?.message ? ` "${r.json.message}"` : ""}`
+        );
     }
 
     // 6) cost/margin leak gating on orders
     const adminOrders = await call(ADMIN, `/operations/v1/reports/orders/run?company_id=${RB}`);
     if (adminOrders.status === 200 && adminOrders.buf) {
         const cols = await colHeaders(adminOrders.buf);
-        check("admin orders shows margin/buy cols (super-admin)", cols.some((c) => /margin|buy|base ops/i.test(c)), `cols: ${cols.join(" | ").slice(0, 180)}`);
+        check(
+            "admin orders shows margin/buy cols (super-admin)",
+            cols.some((c) => /margin|buy|base ops/i.test(c)),
+            `cols: ${cols.join(" | ").slice(0, 180)}`
+        );
     } else check("admin orders runs", false, `HTTP ${adminOrders.status}`);
 
     const clientOrders = await call(CLIENT, `/client/v1/reports/orders/run?company_id=${RB}`);
     if (clientOrders.status === 200 && clientOrders.buf) {
         const cols = await colHeaders(clientOrders.buf);
         const leak = cols.filter((c) => /margin|buy|base ops/i.test(c));
-        check("client orders has NO margin/buy cols (LEAK GATE)", leak.length === 0, leak.length ? `LEAK: ${leak.join(", ")}` : "clean");
-    } else check("client orders runs on client mount", clientOrders.status === 200, `HTTP ${clientOrders.status}${clientOrders.json?.message ? ` "${clientOrders.json.message}"` : ""}`);
+        check(
+            "client orders has NO margin/buy cols (LEAK GATE)",
+            leak.length === 0,
+            leak.length ? `LEAK: ${leak.join(", ")}` : "clean"
+        );
+    } else
+        check(
+            "client orders runs on client mount",
+            clientOrders.status === 200,
+            `HTTP ${clientOrders.status}${clientOrders.json?.message ? ` "${clientOrders.json.message}"` : ""}`
+        );
 
     // 7) category narrowing on item-grain reports — catch SILENT category-ignore
     //    (same bug class as stock-movements, but no cap to surface it → must prove
     //    the filtered result is actually smaller than the unfiltered one).
     for (const key of ["current-stock", "asset-catalogue", "asset-utilization", "issuance"]) {
         const all = await call(ADMIN, `/operations/v1/reports/${key}/run?company_id=${RB}`);
-        const bev = await call(ADMIN, `/operations/v1/reports/${key}/run?company_id=${RB}&category_include=Beverages`);
+        const bev = await call(
+            ADMIN,
+            `/operations/v1/reports/${key}/run?company_id=${RB}&category_include=Beverages`
+        );
         if (all.status === 200 && bev.status === 200 && all.buf && bev.buf) {
-            const wa = new ExcelJS.Workbook(); await wa.xlsx.load(all.buf as any);
-            const wb = new ExcelJS.Workbook(); await wb.xlsx.load(bev.buf as any);
+            const wa = new ExcelJS.Workbook();
+            await wa.xlsx.load(all.buf as any);
+            const wb = new ExcelJS.Workbook();
+            await wb.xlsx.load(bev.buf as any);
             const rAll = wa.worksheets[0].rowCount;
             const rBev = wb.worksheets[0].rowCount;
-            check(`${key} category filter actually narrows`, rBev < rAll && rBev > 3, `all=${rAll} rows, beverages=${rBev} rows`);
-        } else check(`${key} category narrowing testable`, false, `all=${all.status}, bev=${bev.status}`);
+            check(
+                `${key} category filter actually narrows`,
+                rBev < rAll && rBev > 3,
+                `all=${rAll} rows, beverages=${rBev} rows`
+            );
+        } else
+            check(
+                `${key} category narrowing testable`,
+                false,
+                `all=${all.status}, bev=${bev.status}`
+            );
     }
 
     // 8) inbound-log leak gate on the client mount (it carries a BASE OPS cost col on admin)
@@ -120,11 +192,25 @@ async function main() {
     if (clientInbound.status === 200 && clientInbound.buf) {
         const cols = await colHeaders(clientInbound.buf);
         const leak = cols.filter((c) => /margin|buy|base ops/i.test(c));
-        check("client inbound-log has NO cost cols (LEAK GATE)", leak.length === 0, leak.length ? `LEAK: ${leak.join(", ")}` : "clean");
-    } else check("client inbound-log runs", clientInbound.status === 200, `HTTP ${clientInbound.status}`);
+        check(
+            "client inbound-log has NO cost cols (LEAK GATE)",
+            leak.length === 0,
+            leak.length ? `LEAK: ${leak.join(", ")}` : "clean"
+        );
+    } else
+        check(
+            "client inbound-log runs",
+            clientInbound.status === 200,
+            `HTTP ${clientInbound.status}`
+        );
 
     console.log("\n" + lines.join("\n"));
     console.log(`\n${pass} passed, ${fail} failed`);
 }
 
-main().then(() => process.exit(0)).catch((e) => { console.error(e); process.exit(1); });
+main()
+    .then(() => process.exit(0))
+    .catch((e) => {
+        console.error(e);
+        process.exit(1);
+    });

@@ -31,6 +31,20 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const toArr = (v: unknown): string[] =>
     v === undefined || v === null ? [] : Array.isArray(v) ? v.map(String) : [String(v)];
 
+// `is_permanent_placement` is a NOT NULL DEFAULT false column (added in migration
+// 0059), but the ordering UI only began ACTUALLY capturing it on 2026-05-18 (the
+// first non-default value across the platform). Rows created before that carry the
+// silent default — the question was never asked — so rendering "YES"/"NO" for them
+// would mislead the client into thinking we recorded an answer we didn't. Surface
+// "(not collected)" instead. Proper long-term fix: make the column nullable and have
+// the order flow send null when the field isn't answered (then drop this cutoff).
+const PERMANENT_CAPTURED_FROM = Date.parse("2026-05-18T00:00:00Z");
+const permanentLabel = (createdAt: unknown, isPermanent: boolean): string => {
+    const t = createdAt ? new Date(createdAt as any).getTime() : NaN;
+    if (!Number.isFinite(t) || t < PERMANENT_CAPTURED_FROM) return "(not collected)";
+    return isPermanent ? "YES" : "NO";
+};
+
 const paramsSchema = z
     .object({
         company_id: z.string().uuid(),
@@ -111,7 +125,7 @@ SELECT
     COALESCE(ooa.issued_at, o.created_at) AS doc_date,
     'DELIVERY' AS type, o.order_id AS reference,
     o.venue_name AS venue, c.name AS city, u.name AS user_name,
-    o.is_permanent_placement AS is_permanent,
+    o.is_permanent_placement AS is_permanent, o.created_at AS doc_created,
     af.company_item_code AS company_item_code,
     COALESCE(af.name, oi.asset_name) AS description,
     t.name AS team_name, oi.quantity AS delivered_qty,
@@ -144,7 +158,7 @@ SELECT
     'SELF-PICKUP' AS type, sp.self_pickup_id AS reference,
     '' AS venue, '' AS city,
     COALESCE(u.name, sp.collector_name) AS user_name,
-    sp.is_permanent_placement AS is_permanent,
+    sp.is_permanent_placement AS is_permanent, sp.created_at AS doc_created,
     af.company_item_code AS company_item_code,
     COALESCE(af.name, spi.asset_name) AS description,
     t.name AS team_name,
@@ -193,7 +207,7 @@ ORDER BY doc_date ASC`;
         { header: "ITEM DESCRIPTION", width: 44 },
         { header: "TEAM", width: 18 },
         { header: "QUANTITY", width: 11, align: "right", numFmt: INT_FMT },
-        { header: "OUTCOME", width: 12 },
+        { header: "OUTCOME TO DATE", width: 16 },
         { header: "RETURNED QTY", width: 13, align: "right", numFmt: INT_FMT },
         { header: "COMMENTS", width: 28 },
     ];
@@ -228,7 +242,7 @@ ORDER BY doc_date ASC`;
                 r.venue ?? "",
                 r.city ?? "",
                 r.user_name ?? "",
-                r.is_permanent ? "YES" : "NO",
+                permanentLabel(r.doc_created, r.is_permanent),
                 r.company_item_code ?? "",
                 r.description ?? "",
                 r.team_name ?? "",

@@ -107,8 +107,8 @@ buy_base_ops_total`, `pricing.service.ts:964`). `audience: ADMIN_CLIENT` gates
   `Closing = Opening + Σ(events)` disagrees with the rewound anchor whenever a
   `date_to` and an OUTBOUND/INBOUND event coexist. Code > doc, so the locked spec
   must be corrected, not "ported faithfully." **DECISION NEEDED:** rewind the
-  _available_quantity_ ledger using ADJUSTMENT + OUTBOUND_AD_HOC only, **or**
-  rebuild on a _total_quantity_ ledger. Blocks the pivot.
+  _available_quantity_ ledger using ADJUSTMENT + OUTBOUND*AD_HOC only, **or**
+  rebuild on a \_total_quantity* ledger. Blocks the pivot.
 - **`orders` has no `pricing_mode` column.** The cost spec proposed a `PRICING
 MODE` column + NO_COST narrative; `pricing_mode` exists only on `self_pickups`
   (`schema.ts:2200`), `resolveEntityContext` hardcodes `'STANDARD'` for ORDER
