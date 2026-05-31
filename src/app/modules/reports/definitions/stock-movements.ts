@@ -51,7 +51,10 @@ const toArr = (v: unknown): string[] =>
 
 const paramsSchema = z.object({
     company_id: z.string().uuid(),
+    // The admin category control sends category_include (chip multi-select);
+    // `category` is the canonical CLI single-value form. Both feed the include scope.
     category: z.string().optional(),
+    category_include: z.union([z.string(), z.array(z.string())]).optional(),
     group: z.union([z.string().uuid(), z.array(z.string().uuid())]).optional(),
     date_from: z.string().regex(DATE_RE).optional(),
     date_to: z.string().regex(DATE_RE).optional(),
@@ -97,9 +100,16 @@ const PHYSICAL_LEG_FILTER: SQL = sql`(
 )`;
 
 async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<ReportResult> {
-    const categoryName: string | undefined = params.category
-        ? String(params.category).trim() || undefined
-        : undefined;
+    // Include-only category scope. The admin chip control sends category_include
+    // (array); the CLI sends a single `category`. Both contribute to the IN-list.
+    const includeCats = [
+        ...toArr(params.category_include),
+        ...(params.category ? [String(params.category)] : []),
+    ]
+        .map((c) => c.trim())
+        .filter(Boolean);
+    const includeCatsLower = includeCats.map((c) => c.toLowerCase());
+    const categoryName: string | undefined = includeCats.length ? includeCats.join(", ") : undefined;
     const groupIds = toArr(params.group);
     const { gte, lt } = fmtDateBounds(params.date_from, params.date_to);
 
@@ -111,7 +121,13 @@ async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<
         sql` AND a.deleted_at IS NULL`,
         sql` AND a.group_id IS NOT NULL`,
     ];
-    if (categoryName) famScope.push(sql` AND LOWER(a.category) = LOWER(${categoryName})`);
+    if (includeCatsLower.length)
+        famScope.push(
+            sql` AND LOWER(a.category) IN (${sql.join(
+                includeCatsLower.map((c) => sql`${c}`),
+                sql`, `
+            )})`
+        );
     if (groupIds.length)
         famScope.push(
             sql` AND a.group_id IN (${sql.join(
