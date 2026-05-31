@@ -64,6 +64,33 @@ async function main() {
         `\n=== Red Bull 5-May cans reconciliation — ${env.toUpperCase()} — ${apply ? "APPLY" : "DRY-RUN"} ===\n`
     );
 
+    // Resolve the audit actor ONCE (stock_movements.created_by is NOT NULL).
+    // Prefer the system user (by SYSTEM_USER_EMAIL); fall back to any super-admin.
+    // NB: users.platform_id maps to PG column "platform", and super-admins are not
+    // platform-scoped — so we don't filter by platform here.
+    let actorId: string | null = null;
+    if (apply) {
+        const sysEmail = process.env.SYSTEM_USER_EMAIL;
+        const actor =
+            (sysEmail
+                ? rows(
+                      await db.execute(sql`SELECT id FROM users WHERE email = ${sysEmail} LIMIT 1`)
+                  )[0]
+                : undefined) ??
+            rows(
+                await db.execute(
+                    sql`SELECT id FROM users WHERE is_super_admin = true ORDER BY created_at ASC LIMIT 1`
+                )
+            )[0];
+        if (!actor) {
+            console.error(
+                "No system/super-admin user found to attribute the correction. Aborting."
+            );
+            process.exit(1);
+        }
+        actorId = actor.id;
+    }
+
     let toApply = 0;
     let skipped = 0;
     const plan: any[] = [];
@@ -121,13 +148,9 @@ SELECT id FROM stock_movements WHERE asset_id = ${a.id} AND note = ${NOTE} AND m
         toApply++;
 
         if (apply) {
-            const sysUser = rows(
-                await db.execute(sql`
-SELECT id FROM users WHERE platform_id = ${a.platform_id} AND is_super_admin = true ORDER BY created_at ASC LIMIT 1`)
-            )[0];
             await db.execute(sql`
 INSERT INTO stock_movements (id, platform_id, asset_id, asset_family_id, delta, movement_type, note, created_by, created_at)
-VALUES (gen_random_uuid(), ${a.platform_id}, ${a.id}, NULL, ${delta}, 'ADJUSTMENT', ${NOTE}, ${sysUser?.id ?? null}, ${BACKDATE}::timestamp)`);
+VALUES (gen_random_uuid(), ${a.platform_id}, ${a.id}, NULL, ${delta}, 'ADJUSTMENT', ${NOTE}, ${actorId}, ${BACKDATE}::timestamp)`);
             await db.execute(sql`
 UPDATE assets SET total_quantity = GREATEST(0, total_quantity + ${delta}),
                   available_quantity = GREATEST(0, available_quantity + ${delta})
