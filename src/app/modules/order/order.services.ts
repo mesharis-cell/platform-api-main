@@ -711,8 +711,7 @@ const submitOrderFromCart = async (
                     address: venue_address,
                     access_notes: venue_access_notes || null,
                 },
-                permit_requirements:
-                    permit_requirements?.requires_permit === true ? permit_requirements : null,
+                permit_requirements: permit_requirements ?? null,
                 is_permanent_placement: Boolean(is_permanent_placement),
                 special_instructions: special_instructions || null,
                 calculated_totals: {
