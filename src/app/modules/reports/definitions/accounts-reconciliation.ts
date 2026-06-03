@@ -1,28 +1,29 @@
 /**
- * Accounts Reconciliation — per-document financial reconciliation ledger for one
- * tenant: one row per billable commercial document (orders + service-requests)
- * showing quoted buy / sell-subtotal / margin / VAT / final totals (from the
- * entity's prices snapshot, projected via PricingService) alongside its latest
- * invoice + payment status, so finance can tie every dirham back to a document.
- *
- * Ported from exportAccountsReconciliationService + contextToReconciliationRows
- * (src/app/modules/export/export.services.ts). SQL re-parameterized to bound
- * placeholders. SCOPE: all four billable entities — ORDER, SERVICE_REQUEST,
- * SELF_PICKUP, INBOUND_REQUEST — filtered to CLIENT-BILLABLE documents only:
- * excludes service requests with commercial_status = INTERNAL, self-pickups with
- * pricing_mode = NO_COST, and orders/inbound with financial_status = NOT_APPLICABLE.
+ * Accounts Reconciliation / Billable Charges — per-tenant billables ledger across
+ * all four commercial entities (ORDER, SERVICE_REQUEST, SELF_PICKUP,
+ * INBOUND_REQUEST), filtered to CLIENT-BILLABLE documents only:
+ *   - service requests with commercial_status = INTERNAL  → excluded
+ *   - self-pickups with pricing_mode = NO_COST            → excluded
+ *   - orders / inbound with financial_status = NOT_APPLICABLE → excluded
  * Zero-total STANDARD documents are KEPT (a 0 on a billable doc is a signal —
- * un-priced / anomalous — that finance needs to see and chase, not hide).
+ * un-priced / anomalous — finance needs to see and chase, not hide).
  *
- * Money columns (BUY TOTAL / MARGIN AMOUNT / MARGIN %) are gated on
- * ctx.canSeeMargin. SELL SUBTOTAL / VAT / FINAL TOTAL are always allowed.
+ * Two grains, via the optional `detail` filter:
+ *   - summary (default): one row per document with buy / sell / margin / VAT /
+ *     final totals (projected from the prices snapshot).
+ *   - line-item: one row per pricing line (the prices.breakdown_lines), grouped
+ *     under each document with per-document Subtotal / VAT / Total rows — so
+ *     finance sees exactly which charges make up each bill.
+ *
+ * Money is projected in JS via PricingService.projectByRole(row,'ADMIN') — not
+ * summed in SQL. BUY / MARGIN columns are gated on ctx.canSeeMargin (client mount
+ * sees sell-only). SERVICE REQUEST sell/final honours client_sell_override_total
+ * (summary grain only; line-item shows the projected per-line charges).
+ *
+ * Invoice/payment tracking columns were intentionally removed — this is a pure
+ * "what is billable" sheet, not a quoted-vs-invoiced-vs-paid reconciliation.
+ *
  * FINANCIAL · ADMIN-only (never client-mounted) → LEAK_RISK report.
- *
- * SERVICE REQUEST money honours service_requests.client_sell_override_total when
- * non-null (mirrors getServiceRequestClientTotal) — otherwise the report would
- * show the pre-concession projected amount. For an override SR the per-row
- * SELL = BUY + MARGIN identity is intentionally relaxed (sell is a manual figure,
- * not a projection of buy + margin).
  */
 import { sql, SQL } from "drizzle-orm";
 import httpStatus from "http-status";
@@ -59,6 +60,8 @@ const paramsSchema = z
         date_to: z.string().regex(DATE_RE).optional(),
         category_include: z.union([z.string(), z.array(z.string())]).optional(),
         category_exclude: z.union([z.string(), z.array(z.string())]).optional(),
+        // summary (default) → one row per document; line-item → per charge line.
+        detail: z.string().optional(),
     })
     .refine((v) => !(v.category_include && v.category_exclude), {
         message: "category_include and category_exclude are mutually exclusive",
@@ -95,104 +98,48 @@ type RawRow = {
     context_name: string | null;
     operational_status: string | null;
     financial_status: string | null;
-    // prices snapshot (projected in TS — money is NOT summed in SQL)
     breakdown_lines: unknown;
     margin_percent: string | number | null;
     vat_percent: string | number | null;
     margin_is_override: boolean | null;
     margin_override_reason: string | null;
     calculated_at: Date | string | null;
-    // SR-only override (decimal → string from PG); null for orders
     client_sell_override_total: string | null;
-    // latest-invoice columns
-    invoice_number: string | null;
-    invoice_date: Date | string | null;
-    invoice_paid_at: Date | string | null;
-    payment_method: string | null;
-    payment_reference: string | null;
 };
 
+type LineRow = { label: string; category: string; quantity: number; buy: number; sell: number };
+
 async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<ReportResult> {
+    const detailMode = String(params.detail ?? "") === "line-item";
     const inc = toArr(params.category_include);
     const exc = toArr(params.category_exclude);
     const { gte, lt } = fmtDateBounds(params.date_from, params.date_to);
     const cat = categoryFilter(inc, exc);
-
-    // The category filter is document-level EXISTS over the entity's items joined
-    // to assets.category. Only meaningful for ORDER + SR rows that own item rows;
-    // it is a coarse refinement, not a per-line filter (financial report grain is
-    // one row per document).
     const hasCategoryFilter = inc.length > 0 || exc.length > 0;
+
     const orderCategoryExists = hasCategoryFilter
-        ? sql` AND EXISTS (
-              SELECT 1 FROM order_items oi
-              LEFT JOIN assets a ON oi.asset = a.id
-              WHERE oi."order" = o.id ${cat}
-          )`
+        ? sql` AND EXISTS (SELECT 1 FROM order_items oi LEFT JOIN assets a ON oi.asset = a.id WHERE oi."order" = o.id ${cat})`
         : sql``;
     const srCategoryExists = hasCategoryFilter
-        ? sql` AND EXISTS (
-              SELECT 1 FROM service_request_items sri
-              LEFT JOIN assets a ON sri.asset_id = a.id
-              WHERE sri.service_request_id = sr.id ${cat}
-          )`
+        ? sql` AND EXISTS (SELECT 1 FROM service_request_items sri LEFT JOIN assets a ON sri.asset_id = a.id WHERE sri.service_request_id = sr.id ${cat})`
         : sql``;
     const spCategoryExists = hasCategoryFilter
-        ? sql` AND EXISTS (
-              SELECT 1 FROM self_pickup_items spi
-              LEFT JOIN assets a ON spi.asset_id = a.id
-              WHERE spi.self_pickup_id = sp.id ${cat}
-          )`
+        ? sql` AND EXISTS (SELECT 1 FROM self_pickup_items spi LEFT JOIN assets a ON spi.asset_id = a.id WHERE spi.self_pickup_id = sp.id ${cat})`
         : sql``;
     const inboundCategoryExists = hasCategoryFilter
-        ? sql` AND EXISTS (
-              SELECT 1 FROM inbound_request_items iri
-              LEFT JOIN assets a ON iri.asset_id = a.id
-              WHERE iri.inbound_request_id = ir.id ${cat}
-          )`
+        ? sql` AND EXISTS (SELECT 1 FROM inbound_request_items iri LEFT JOIN assets a ON iri.asset_id = a.id WHERE iri.inbound_request_id = ir.id ${cat})`
         : sql``;
 
     const query = sql`
-WITH latest_inv AS (
-    SELECT DISTINCT ON (COALESCE(i.order_id, i.service_request_id, i.self_pickup_id, i.inbound_request_id))
-        i.order_id,
-        i.service_request_id,
-        i.self_pickup_id,
-        i.inbound_request_id,
-        i.invoice_id,
-        i.created_at AS invoice_created_at,
-        i.invoice_paid_at,
-        i.payment_method,
-        i.payment_reference
-    FROM invoices i
-    WHERE i.platform_id = ${ctx.platformId}
-      AND num_nonnulls(i.order_id, i.inbound_request_id, i.service_request_id, i.self_pickup_id) = 1
-    ORDER BY COALESCE(i.order_id, i.service_request_id, i.self_pickup_id, i.inbound_request_id), i.created_at DESC
-)
 SELECT
-    'ORDER' AS document_type,
-    o.order_id AS reference,
-    o.created_at AS document_date,
-    co.name AS company,
-    o.venue_name AS context_name,
-    o.order_status::text AS operational_status,
-    o.financial_status::text AS financial_status,
-    p.breakdown_lines AS breakdown_lines,
-    p.margin_percent AS margin_percent,
-    p.vat_percent AS vat_percent,
-    p.margin_is_override AS margin_is_override,
-    p.margin_override_reason AS margin_override_reason,
-    p.calculated_at AS calculated_at,
-    NULL::text AS client_sell_override_total,
-    inv.invoice_id AS invoice_number,
-    inv.invoice_created_at AS invoice_date,
-    inv.invoice_paid_at AS invoice_paid_at,
-    inv.payment_method AS payment_method,
-    inv.payment_reference AS payment_reference
+    'ORDER' AS document_type, o.order_id AS reference, o.created_at AS document_date,
+    co.name AS company, o.venue_name AS context_name,
+    o.order_status::text AS operational_status, o.financial_status::text AS financial_status,
+    p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
+    p.margin_override_reason, p.calculated_at, NULL::text AS client_sell_override_total
 FROM orders o
 JOIN companies co ON o.company = co.id
 LEFT JOIN prices p ON p.id = o.order_pricing_id
-LEFT JOIN latest_inv inv ON inv.order_id = o.id
 WHERE o.platform_id = ${ctx.platformId}
   AND o.company = ${ctx.companyId}
   AND o.deleted_at IS NULL
@@ -204,29 +151,14 @@ WHERE o.platform_id = ${ctx.platformId}
 UNION ALL
 
 SELECT
-    'SERVICE_REQUEST' AS document_type,
-    sr.service_request_id AS reference,
-    sr.created_at AS document_date,
-    co.name AS company,
-    sr.title AS context_name,
-    sr.request_status::text AS operational_status,
-    sr.commercial_status::text AS financial_status,
-    p.breakdown_lines AS breakdown_lines,
-    p.margin_percent AS margin_percent,
-    p.vat_percent AS vat_percent,
-    p.margin_is_override AS margin_is_override,
-    p.margin_override_reason AS margin_override_reason,
-    p.calculated_at AS calculated_at,
-    sr.client_sell_override_total::text AS client_sell_override_total,
-    inv.invoice_id AS invoice_number,
-    inv.invoice_created_at AS invoice_date,
-    inv.invoice_paid_at AS invoice_paid_at,
-    inv.payment_method AS payment_method,
-    inv.payment_reference AS payment_reference
+    'SERVICE_REQUEST' AS document_type, sr.service_request_id AS reference, sr.created_at AS document_date,
+    co.name AS company, sr.title AS context_name,
+    sr.request_status::text AS operational_status, sr.commercial_status::text AS financial_status,
+    p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
+    p.margin_override_reason, p.calculated_at, sr.client_sell_override_total::text AS client_sell_override_total
 FROM service_requests sr
 JOIN companies co ON sr.company_id = co.id
 LEFT JOIN prices p ON p.id = sr.request_pricing_id
-LEFT JOIN latest_inv inv ON inv.service_request_id = sr.id
 WHERE sr.platform_id = ${ctx.platformId}
   AND sr.company_id = ${ctx.companyId}
   AND sr.request_status NOT IN ('DRAFT', 'CANCELLED')
@@ -237,29 +169,14 @@ WHERE sr.platform_id = ${ctx.platformId}
 UNION ALL
 
 SELECT
-    'SELF_PICKUP' AS document_type,
-    sp.self_pickup_id AS reference,
-    sp.created_at AS document_date,
-    co.name AS company,
-    ('Collector: ' || sp.collector_name) AS context_name,
-    sp.self_pickup_status::text AS operational_status,
-    sp.financial_status::text AS financial_status,
-    p.breakdown_lines AS breakdown_lines,
-    p.margin_percent AS margin_percent,
-    p.vat_percent AS vat_percent,
-    p.margin_is_override AS margin_is_override,
-    p.margin_override_reason AS margin_override_reason,
-    p.calculated_at AS calculated_at,
-    NULL::text AS client_sell_override_total,
-    inv.invoice_id AS invoice_number,
-    inv.invoice_created_at AS invoice_date,
-    inv.invoice_paid_at AS invoice_paid_at,
-    inv.payment_method AS payment_method,
-    inv.payment_reference AS payment_reference
+    'SELF_PICKUP' AS document_type, sp.self_pickup_id AS reference, sp.created_at AS document_date,
+    co.name AS company, ('Collector: ' || sp.collector_name) AS context_name,
+    sp.self_pickup_status::text AS operational_status, sp.financial_status::text AS financial_status,
+    p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
+    p.margin_override_reason, p.calculated_at, NULL::text AS client_sell_override_total
 FROM self_pickups sp
 JOIN companies co ON sp.company_id = co.id
 LEFT JOIN prices p ON p.platform_id = sp.platform_id AND p.entity_type = 'SELF_PICKUP' AND p.entity_id = sp.id
-LEFT JOIN latest_inv inv ON inv.self_pickup_id = sp.id
 WHERE sp.platform_id = ${ctx.platformId}
   AND sp.company_id = ${ctx.companyId}
   AND sp.self_pickup_status NOT IN ('DECLINED', 'CANCELLED')
@@ -270,29 +187,14 @@ WHERE sp.platform_id = ${ctx.platformId}
 UNION ALL
 
 SELECT
-    'INBOUND_REQUEST' AS document_type,
-    ir.inbound_request_id AS reference,
-    ir.created_at AS document_date,
-    co.name AS company,
-    COALESCE(ir.note, '') AS context_name,
-    ir.request_status::text AS operational_status,
-    ir.financial_status::text AS financial_status,
-    p.breakdown_lines AS breakdown_lines,
-    p.margin_percent AS margin_percent,
-    p.vat_percent AS vat_percent,
-    p.margin_is_override AS margin_is_override,
-    p.margin_override_reason AS margin_override_reason,
-    p.calculated_at AS calculated_at,
-    NULL::text AS client_sell_override_total,
-    inv.invoice_id AS invoice_number,
-    inv.invoice_created_at AS invoice_date,
-    inv.invoice_paid_at AS invoice_paid_at,
-    inv.payment_method AS payment_method,
-    inv.payment_reference AS payment_reference
+    'INBOUND_REQUEST' AS document_type, ir.inbound_request_id AS reference, ir.created_at AS document_date,
+    co.name AS company, COALESCE(ir.note, '') AS context_name,
+    ir.request_status::text AS operational_status, ir.financial_status::text AS financial_status,
+    p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
+    p.margin_override_reason, p.calculated_at, NULL::text AS client_sell_override_total
 FROM inbound_requests ir
 JOIN companies co ON ir.company_id = co.id
 LEFT JOIN prices p ON p.id = ir.request_pricing_id
-LEFT JOIN latest_inv inv ON inv.inbound_request_id = ir.id
 WHERE ir.platform_id = ${ctx.platformId}
   AND ir.company_id = ${ctx.companyId}
   AND ir.request_status NOT IN ('DECLINED', 'CANCELLED')
@@ -306,27 +208,22 @@ ORDER BY document_date ASC`;
     if (rows.length > ROW_CAP)
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            `Accounts reconciliation has ${rows.length} rows (cap ${ROW_CAP}). Narrow by date range, financial status, or category.`
+            `Report has ${rows.length} documents (cap ${ROW_CAP}). Narrow by date range or category.`
         );
 
-    // Project each row's pricing snapshot to ADMIN totals (the only role with
-    // buy/margin). Sell columns come from the same projection. For an SR with a
-    // client_sell_override_total, SELL/FINAL are overridden by the manual figure;
-    // buy/margin remain the projected cost side (margin then no longer equals
-    // sell - buy — intentional, surfaced not asserted).
-    type Computed = {
+    type Doc = {
         raw: RawRow;
-        buy_total: number;
-        sell_subtotal: number;
-        margin_amount: number;
-        margin_percent: number;
-        vat_percent: number;
-        vat_amount: number;
-        final_total: number;
-        sell_overridden: boolean;
+        buyTotal: number;
+        sellSubtotal: number;
+        marginAmount: number;
+        marginPercent: number;
+        vatPercent: number;
+        vatAmount: number;
+        finalTotal: number;
+        lines: LineRow[];
     };
 
-    const computed: Computed[] = rows.map((r) => {
+    const docs: Doc[] = rows.map((r) => {
         const pricing = r.breakdown_lines
             ? {
                   breakdown_lines: r.breakdown_lines,
@@ -337,7 +234,6 @@ ORDER BY document_date ASC`;
                   calculated_at: r.calculated_at,
               }
             : null;
-
         const detail = PricingService.projectByRole(pricing as any, "ADMIN") as any;
         const totals = detail?.totals ?? null;
 
@@ -348,45 +244,53 @@ ORDER BY document_date ASC`;
         let finalTotal = roundMoney(parseNum(totals?.sell_total_with_vat));
         const marginPercent = parseNum(r.margin_percent);
 
-        // SERVICE REQUEST sell/final override (mirrors getServiceRequestClientTotal):
-        // client_sell_override_total is the client-facing FINAL figure. Treat it as
-        // the final total and back-derive the ex-VAT subtotal + VAT amount at the
-        // snapshot VAT rate so the row's VAT identity still holds.
+        // SR sell/final override (summary grain only — line-item shows projected lines).
         const overrideRaw =
             r.document_type === "SERVICE_REQUEST" &&
             r.client_sell_override_total !== null &&
             r.client_sell_override_total !== ""
                 ? r.client_sell_override_total
                 : null;
-        const sellOverridden = overrideRaw !== null;
-        if (sellOverridden) {
+        if (overrideRaw !== null && !detailMode) {
             finalTotal = roundMoney(parseNum(overrideRaw));
             sellSubtotal = roundMoney(finalTotal / (1 + vatPercent / 100));
             vatAmount = roundMoney(finalTotal - sellSubtotal);
         }
 
-        // margin_amount tracks the COST side: sell-subtotal minus buy. For an
-        // override SR this no longer equals the policy margin %, which is fine.
-        const marginAmount = roundMoney(sellSubtotal - buyTotal);
+        const lines: LineRow[] = (detail?.lines ?? [])
+            .filter((l: any) => !l.is_voided)
+            .map((l: any) => {
+                const qty = parseNum(l.quantity);
+                const buy = roundMoney(parseNum(l.buy_total ?? parseNum(l.buy_unit_price) * qty));
+                const sell = roundMoney(
+                    parseNum(l.sell_total ?? parseNum(l.sell_unit_price) * qty)
+                );
+                return {
+                    label: String(l.label ?? ""),
+                    category: String(l.category ?? "OTHER"),
+                    quantity: qty,
+                    buy,
+                    sell,
+                };
+            });
 
         return {
             raw: r,
-            buy_total: buyTotal,
-            sell_subtotal: sellSubtotal,
-            margin_amount: marginAmount,
-            margin_percent: marginPercent,
-            vat_percent: vatPercent,
-            vat_amount: vatAmount,
-            final_total: finalTotal,
-            sell_overridden: sellOverridden,
+            buyTotal,
+            sellSubtotal,
+            marginAmount: roundMoney(sellSubtotal - buyTotal),
+            marginPercent,
+            vatPercent,
+            vatAmount,
+            finalTotal,
+            lines,
         };
     });
 
-    // ── Columns. BUY TOTAL / MARGIN AMOUNT / MARGIN % gated on canSeeMargin.
-    //    Build column list + per-row cells in lockstep so indices stay aligned.
     const showMargin = ctx.canSeeMargin && !ctx.isClientMount;
 
-    const columns: ReportColumn[] = [
+    // ── Common leading columns (document context) ────────────────────────────
+    const baseColumns: ReportColumn[] = [
         { header: "DOCUMENT TYPE", width: 16 },
         { header: "KADENCE REFERENCE", width: 20 },
         { header: "DOCUMENT DATE", width: 14 },
@@ -395,6 +299,117 @@ ORDER BY document_date ASC`;
         { header: "OPERATIONAL STATUS", width: 18 },
         { header: "FINANCIAL STATUS", width: 18 },
     ];
+
+    const ctxCells = (r: RawRow): (string | number)[] => [
+        r.document_type,
+        r.reference,
+        fmtDate(r.document_date),
+        r.company ?? "",
+        r.context_name ?? "",
+        r.operational_status ?? "",
+        r.financial_status ?? "",
+    ];
+
+    if (detailMode) {
+        // ── LINE-ITEM grain: charge lines grouped per document ───────────────
+        const columns: ReportColumn[] = [
+            ...baseColumns,
+            { header: "DESCRIPTION", width: 36 },
+            { header: "CATEGORY", width: 16 },
+            { header: "QUANTITY", width: 10, align: "right", numFmt: INT_FMT },
+        ];
+        if (showMargin)
+            columns.push({ header: "BUY", width: 13, align: "right", numFmt: MONEY_FMT });
+        columns.push({ header: "SELL", width: 13, align: "right", numFmt: MONEY_FMT });
+        if (showMargin)
+            columns.push({ header: "MARGIN", width: 13, align: "right", numFmt: MONEY_FMT });
+
+        const h = createReportWorkbook({
+            companyName: ctx.companyName,
+            label: "Billable Charges (line-item)",
+            subtitle: fmtRangeLabel(params.date_from, params.date_to),
+            columns,
+            sheetName: "Charges",
+        });
+        const sheet = h.sheet;
+        const DESC = 8; // first non-context column index (1-based)
+        const SELL = showMargin ? DESC + 4 : DESC + 3; // SELL column index
+        const sumAt = (col: number, val: number, bold = true) => {
+            const c = sheet.lastRow!.getCell(col);
+            c.value = val;
+            c.numFmt = MONEY_FMT;
+            if (bold) c.font = { bold: true };
+        };
+
+        let gBuy = 0;
+        let gSell = 0;
+        let gMargin = 0;
+        let gFinal = 0;
+        for (const d of docs) {
+            const linesToRender = d.lines.length
+                ? d.lines
+                : [{ label: "(no priced charges)", category: "", quantity: 0, buy: 0, sell: 0 }];
+            for (const ln of linesToRender) {
+                const cells: (string | number)[] = [
+                    ...ctxCells(d.raw),
+                    ln.label,
+                    ln.category,
+                    ln.quantity,
+                ];
+                if (showMargin) cells.push(ln.buy);
+                cells.push(ln.sell);
+                if (showMargin) cells.push(roundMoney(ln.sell - ln.buy));
+                sheet.addRow(cells);
+            }
+            // Subtotal / VAT / Total rows for this document.
+            const sub = sheet.addRow([]);
+            sub.getCell(DESC).value = `Subtotal — ${d.raw.reference}`;
+            sub.font = { bold: true };
+            sub.eachCell({ includeEmpty: true }, (c) => (c.fill = STYLE.SECTION_FILL));
+            if (showMargin) sumAt(DESC + 3, d.buyTotal);
+            sumAt(SELL, d.sellSubtotal);
+            if (showMargin) sumAt(DESC + 5, d.marginAmount);
+
+            const vatRow = sheet.addRow([]);
+            vatRow.getCell(DESC).value = `VAT ${d.vatPercent}%`;
+            sumAt(SELL, d.vatAmount, false);
+
+            const totRow = sheet.addRow([]);
+            totRow.getCell(DESC).value = `Total — ${d.raw.reference}`;
+            totRow.font = { bold: true };
+            sumAt(SELL, d.finalTotal);
+
+            sheet.addRow([]); // spacer
+
+            gBuy += d.buyTotal;
+            gSell += d.sellSubtotal;
+            gMargin += d.marginAmount;
+            gFinal += d.finalTotal;
+        }
+
+        if (docs.length > 0) {
+            const grand = sheet.addRow([]);
+            grand.getCell(1).value = `GRAND TOTAL — ${ctx.companyName} (ex-VAT)`;
+            grand.font = { bold: true, size: 12 };
+            grand.height = 20;
+            grand.eachCell({ includeEmpty: true }, (c) => (c.fill = STYLE.GRAND_FILL));
+            if (showMargin) sumAt(DESC + 3, roundMoney(gBuy));
+            sumAt(SELL, roundMoney(gSell));
+            if (showMargin) sumAt(DESC + 5, roundMoney(gMargin));
+
+            const grandV = sheet.addRow([]);
+            grandV.getCell(1).value = `GRAND TOTAL — ${ctx.companyName} (incl VAT)`;
+            grandV.font = { bold: true, size: 12 };
+            grandV.eachCell({ includeEmpty: true }, (c) => (c.fill = STYLE.GRAND_FILL));
+            sumAt(SELL, roundMoney(gFinal));
+        }
+
+        finalizeWorkbook(h, docs.length);
+        return { wb: h.wb, rowCount: docs.length };
+    }
+
+    // ── SUMMARY grain: one row per document ──────────────────────────────────
+    const columns: ReportColumn[] = [...baseColumns];
     if (showMargin)
         columns.push({ header: "BUY TOTAL", width: 14, align: "right", numFmt: MONEY_FMT });
     columns.push({ header: "SELL SUBTOTAL", width: 14, align: "right", numFmt: MONEY_FMT });
@@ -405,12 +420,6 @@ ORDER BY document_date ASC`;
     columns.push({ header: "VAT %", width: 8, align: "right", numFmt: INT_FMT });
     columns.push({ header: "VAT AMOUNT", width: 13, align: "right", numFmt: MONEY_FMT });
     columns.push({ header: "FINAL TOTAL", width: 14, align: "right", numFmt: MONEY_FMT });
-    columns.push({ header: "INVOICE NUMBER", width: 18 });
-    columns.push({ header: "INVOICE DATE", width: 14 });
-    columns.push({ header: "PAYMENT STATUS", width: 15 });
-    columns.push({ header: "PAID DATE", width: 14 });
-    columns.push({ header: "PAYMENT METHOD", width: 16 });
-    columns.push({ header: "PAYMENT REFERENCE", width: 20 });
 
     const h = createReportWorkbook({
         companyName: ctx.companyName,
@@ -420,8 +429,6 @@ ORDER BY document_date ASC`;
         sheetName: "Reconciliation",
     });
     const sheet = h.sheet;
-
-    // Resolve 1-based money column indices for the grand-total SUM() formula.
     const colIdx = (header: string) => columns.findIndex((c) => c.header === header) + 1;
     const BUY_COL = showMargin ? colIdx("BUY TOTAL") : 0;
     const SELL_COL = colIdx("SELL SUBTOTAL");
@@ -429,60 +436,32 @@ ORDER BY document_date ASC`;
     const VATAMT_COL = colIdx("VAT AMOUNT");
     const FINAL_COL = colIdx("FINAL TOTAL");
 
-    const paymentStatus = (r: RawRow): string => {
-        if (r.invoice_paid_at) return "PAID";
-        if (r.invoice_number) return "INVOICED";
-        return "UNINVOICED";
-    };
-
     let firstData = 0;
     let lastData = 0;
-    for (const c of computed) {
-        const r = c.raw;
-        const cells: (string | number)[] = [
-            r.document_type,
-            r.reference,
-            fmtDate(r.document_date),
-            r.company ?? "",
-            r.context_name ?? "",
-            r.operational_status ?? "",
-            r.financial_status ?? "",
-        ];
-        if (showMargin) cells.push(c.buy_total);
-        cells.push(c.sell_subtotal);
+    for (const d of docs) {
+        const cells: (string | number)[] = [...ctxCells(d.raw)];
+        if (showMargin) cells.push(d.buyTotal);
+        cells.push(d.sellSubtotal);
         if (showMargin) {
-            cells.push(c.margin_amount);
-            cells.push(c.margin_percent);
+            cells.push(d.marginAmount);
+            cells.push(d.marginPercent);
         }
-        cells.push(c.vat_percent);
-        cells.push(c.vat_amount);
-        cells.push(c.final_total);
-        cells.push(r.invoice_number ?? "");
-        cells.push(r.invoice_date ? fmtDate(r.invoice_date) : "");
-        cells.push(paymentStatus(r));
-        cells.push(r.invoice_paid_at ? fmtDate(r.invoice_paid_at) : "");
-        cells.push(r.payment_method ?? "");
-        cells.push(r.payment_reference ?? "");
-
+        cells.push(d.vatPercent);
+        cells.push(d.vatAmount);
+        cells.push(d.finalTotal);
         const row = sheet.addRow(cells);
         if (!firstData) firstData = row.number;
         lastData = row.number;
     }
 
-    if (computed.length > 0) {
-        // One row per document — there are no per-group subtotals, so the grand
-        // total is a direct SUM over the data range. Grand totals reduce over the
-        // already-rounded per-row numbers (per the spec's required fix) so the
-        // cached result never drifts from PricingService's billable/voided logic.
-        const reduceSum = (sel: (c: Computed) => number) =>
-            roundMoney(computed.reduce((n, c) => n + sel(c), 0));
-
+    if (docs.length > 0) {
+        const reduceSum = (sel: (d: Doc) => number) =>
+            roundMoney(docs.reduce((n, d) => n + sel(d), 0));
         const grand = sheet.addRow([]);
         grand.getCell(1).value = `GRAND TOTAL — ${ctx.companyName}`;
         grand.font = { bold: true, size: 12 };
         grand.height = 20;
         grand.eachCell({ includeEmpty: true }, (cell) => (cell.fill = STYLE.GRAND_FILL));
-
         const setSum = (col: number, cached: number) => {
             if (!col) return;
             const L = colLetter(col - 1);
@@ -492,40 +471,39 @@ ORDER BY document_date ASC`;
             };
             grand.getCell(col).numFmt = MONEY_FMT;
         };
-
         if (showMargin)
             setSum(
                 BUY_COL,
-                reduceSum((c) => c.buy_total)
+                reduceSum((d) => d.buyTotal)
             );
         setSum(
             SELL_COL,
-            reduceSum((c) => c.sell_subtotal)
+            reduceSum((d) => d.sellSubtotal)
         );
         if (showMargin)
             setSum(
                 MARGIN_COL,
-                reduceSum((c) => c.margin_amount)
+                reduceSum((d) => d.marginAmount)
             );
         setSum(
             VATAMT_COL,
-            reduceSum((c) => c.vat_amount)
+            reduceSum((d) => d.vatAmount)
         );
         setSum(
             FINAL_COL,
-            reduceSum((c) => c.final_total)
+            reduceSum((d) => d.finalTotal)
         );
     }
 
-    finalizeWorkbook(h, computed.length);
-    return { wb: h.wb, rowCount: computed.length };
+    finalizeWorkbook(h, docs.length);
+    return { wb: h.wb, rowCount: docs.length };
 }
 
 export const accountsReconciliationReport: ReportDefinition = {
     key: "accounts-reconciliation",
     label: "Accounts Reconciliation",
     description:
-        "Per-document financial reconciliation ledger (orders + service requests) showing quoted buy / sell / margin / VAT / final totals from the pricing snapshot alongside the latest invoice and payment status, so finance can reconcile what was quoted vs invoiced vs paid. ADMIN-only.",
+        "Per-tenant billables ledger across orders, service requests, self-pickups and inbound requests — client-billable documents only (excludes internal SRs, no-cost self-pickups, not-applicable orders/inbound). Toggle 'Line-item breakdown' to expand each document into its individual charge lines with per-document subtotal/VAT/total. ADMIN-only.",
     section: "FINANCIAL",
     audience: "ADMIN",
     operationsRoles: ["ADMIN"],
@@ -542,12 +520,19 @@ export const accountsReconciliationReport: ReportDefinition = {
             mode: "include-exclude",
             scope: "document",
         },
+        {
+            key: "detail",
+            label: "Detail",
+            type: "status",
+            required: false,
+            options: [{ value: "line-item", label: "Line-item breakdown" }],
+        },
     ],
     paramsSchema,
     rowCap: {
         max: ROW_CAP,
         dimension: "rows",
-        narrowHint: "narrow by date range, financial status, or category",
+        narrowHint: "narrow by date range or category",
     },
     run,
 };
