@@ -7,8 +7,12 @@
  *
  * Ported from exportAccountsReconciliationService + contextToReconciliationRows
  * (src/app/modules/export/export.services.ts). SQL re-parameterized to bound
- * placeholders. LEGACY SCOPE: ORDER + SERVICE_REQUEST only — the existing CSV
- * deliberately drops inbound + self-pickup; we do not widen it here.
+ * placeholders. SCOPE: all four billable entities — ORDER, SERVICE_REQUEST,
+ * SELF_PICKUP, INBOUND_REQUEST — filtered to CLIENT-BILLABLE documents only:
+ * excludes service requests with commercial_status = INTERNAL, self-pickups with
+ * pricing_mode = NO_COST, and orders/inbound with financial_status = NOT_APPLICABLE.
+ * Zero-total STANDARD documents are KEPT (a 0 on a billable doc is a signal —
+ * un-priced / anomalous — that finance needs to see and chase, not hide).
  *
  * Money columns (BUY TOTAL / MARGIN AMOUNT / MARGIN %) are gated on
  * ctx.canSeeMargin. SELL SUBTOTAL / VAT / FINAL TOTAL are always allowed.
@@ -84,7 +88,7 @@ function dateFilter(expr: SQL, gte: Date | null, lt: Date | null): SQL {
 }
 
 type RawRow = {
-    document_type: "ORDER" | "SERVICE_REQUEST";
+    document_type: "ORDER" | "SERVICE_REQUEST" | "SELF_PICKUP" | "INBOUND_REQUEST";
     reference: string;
     document_date: Date | string | null;
     company: string | null;
@@ -133,12 +137,28 @@ async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<
               WHERE sri.service_request_id = sr.id ${cat}
           )`
         : sql``;
+    const spCategoryExists = hasCategoryFilter
+        ? sql` AND EXISTS (
+              SELECT 1 FROM self_pickup_items spi
+              LEFT JOIN assets a ON spi.asset_id = a.id
+              WHERE spi.self_pickup_id = sp.id ${cat}
+          )`
+        : sql``;
+    const inboundCategoryExists = hasCategoryFilter
+        ? sql` AND EXISTS (
+              SELECT 1 FROM inbound_request_items iri
+              LEFT JOIN assets a ON iri.asset_id = a.id
+              WHERE iri.inbound_request_id = ir.id ${cat}
+          )`
+        : sql``;
 
     const query = sql`
 WITH latest_inv AS (
-    SELECT DISTINCT ON (COALESCE(i.order_id, i.service_request_id))
+    SELECT DISTINCT ON (COALESCE(i.order_id, i.service_request_id, i.self_pickup_id, i.inbound_request_id))
         i.order_id,
         i.service_request_id,
+        i.self_pickup_id,
+        i.inbound_request_id,
         i.invoice_id,
         i.created_at AS invoice_created_at,
         i.invoice_paid_at,
@@ -147,8 +167,7 @@ WITH latest_inv AS (
     FROM invoices i
     WHERE i.platform_id = ${ctx.platformId}
       AND num_nonnulls(i.order_id, i.inbound_request_id, i.service_request_id, i.self_pickup_id) = 1
-      AND (i.order_id IS NOT NULL OR i.service_request_id IS NOT NULL)
-    ORDER BY COALESCE(i.order_id, i.service_request_id), i.created_at DESC
+    ORDER BY COALESCE(i.order_id, i.service_request_id, i.self_pickup_id, i.inbound_request_id), i.created_at DESC
 )
 SELECT
     'ORDER' AS document_type,
@@ -178,6 +197,7 @@ WHERE o.platform_id = ${ctx.platformId}
   AND o.company = ${ctx.companyId}
   AND o.deleted_at IS NULL
   AND o.order_status NOT IN ('DRAFT', 'CANCELLED')
+  AND o.financial_status <> 'NOT_APPLICABLE'
   ${orderCategoryExists}
   ${dateFilter(sql.raw("o.created_at"), gte, lt)}
 
@@ -210,8 +230,75 @@ LEFT JOIN latest_inv inv ON inv.service_request_id = sr.id
 WHERE sr.platform_id = ${ctx.platformId}
   AND sr.company_id = ${ctx.companyId}
   AND sr.request_status NOT IN ('DRAFT', 'CANCELLED')
+  AND sr.commercial_status <> 'INTERNAL'
   ${srCategoryExists}
   ${dateFilter(sql.raw("sr.created_at"), gte, lt)}
+
+UNION ALL
+
+SELECT
+    'SELF_PICKUP' AS document_type,
+    sp.self_pickup_id AS reference,
+    sp.created_at AS document_date,
+    co.name AS company,
+    ('Collector: ' || sp.collector_name) AS context_name,
+    sp.self_pickup_status::text AS operational_status,
+    sp.financial_status::text AS financial_status,
+    p.breakdown_lines AS breakdown_lines,
+    p.margin_percent AS margin_percent,
+    p.vat_percent AS vat_percent,
+    p.margin_is_override AS margin_is_override,
+    p.margin_override_reason AS margin_override_reason,
+    p.calculated_at AS calculated_at,
+    NULL::text AS client_sell_override_total,
+    inv.invoice_id AS invoice_number,
+    inv.invoice_created_at AS invoice_date,
+    inv.invoice_paid_at AS invoice_paid_at,
+    inv.payment_method AS payment_method,
+    inv.payment_reference AS payment_reference
+FROM self_pickups sp
+JOIN companies co ON sp.company_id = co.id
+LEFT JOIN prices p ON p.platform_id = sp.platform_id AND p.entity_type = 'SELF_PICKUP' AND p.entity_id = sp.id
+LEFT JOIN latest_inv inv ON inv.self_pickup_id = sp.id
+WHERE sp.platform_id = ${ctx.platformId}
+  AND sp.company_id = ${ctx.companyId}
+  AND sp.self_pickup_status NOT IN ('DECLINED', 'CANCELLED')
+  AND sp.pricing_mode <> 'NO_COST'
+  ${spCategoryExists}
+  ${dateFilter(sql.raw("sp.created_at"), gte, lt)}
+
+UNION ALL
+
+SELECT
+    'INBOUND_REQUEST' AS document_type,
+    ir.inbound_request_id AS reference,
+    ir.created_at AS document_date,
+    co.name AS company,
+    COALESCE(ir.note, '') AS context_name,
+    ir.request_status::text AS operational_status,
+    ir.financial_status::text AS financial_status,
+    p.breakdown_lines AS breakdown_lines,
+    p.margin_percent AS margin_percent,
+    p.vat_percent AS vat_percent,
+    p.margin_is_override AS margin_is_override,
+    p.margin_override_reason AS margin_override_reason,
+    p.calculated_at AS calculated_at,
+    NULL::text AS client_sell_override_total,
+    inv.invoice_id AS invoice_number,
+    inv.invoice_created_at AS invoice_date,
+    inv.invoice_paid_at AS invoice_paid_at,
+    inv.payment_method AS payment_method,
+    inv.payment_reference AS payment_reference
+FROM inbound_requests ir
+JOIN companies co ON ir.company_id = co.id
+LEFT JOIN prices p ON p.id = ir.request_pricing_id
+LEFT JOIN latest_inv inv ON inv.inbound_request_id = ir.id
+WHERE ir.platform_id = ${ctx.platformId}
+  AND ir.company_id = ${ctx.companyId}
+  AND ir.request_status NOT IN ('DECLINED', 'CANCELLED')
+  AND ir.financial_status <> 'NOT_APPLICABLE'
+  ${inboundCategoryExists}
+  ${dateFilter(sql.raw("ir.created_at"), gte, lt)}
 
 ORDER BY document_date ASC`;
 
