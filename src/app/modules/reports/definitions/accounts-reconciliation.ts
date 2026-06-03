@@ -332,13 +332,20 @@ ORDER BY document_date ASC`;
             sheetName: "Charges",
         });
         const sheet = h.sheet;
-        const DESC = 8; // first non-context column index (1-based)
-        const SELL = showMargin ? DESC + 4 : DESC + 3; // SELL column index
-        const sumAt = (col: number, val: number, bold = true) => {
+        const DESC = 8; // first line-detail column (after the 7 document-context columns)
+        const BUY_C = DESC + 3;
+        const SELL_C = showMargin ? DESC + 4 : DESC + 3;
+        const MARGIN_C = DESC + 5;
+        const lastCol = columns.length;
+        const money = (col: number, val: number, bold = true) => {
             const c = sheet.lastRow!.getCell(col);
             c.value = val;
             c.numFmt = MONEY_FMT;
             if (bold) c.font = { bold: true };
+        };
+        const edge = (row: any, side: "top" | "bottom", style: "thin" | "medium") => {
+            for (let c = 1; c <= lastCol; c += 1)
+                row.getCell(c).border = { ...(row.getCell(c).border || {}), [side]: { style } };
         };
 
         let gBuy = 0;
@@ -346,12 +353,25 @@ ORDER BY document_date ASC`;
         let gMargin = 0;
         let gFinal = 0;
         for (const d of docs) {
+            // Entity header — document context, shaded + top border (opens the block).
+            const hdr = sheet.addRow([...ctxCells(d.raw)]);
+            hdr.font = { bold: true };
+            for (let c = 1; c <= lastCol; c += 1) hdr.getCell(c).fill = STYLE.SECTION_FILL;
+            edge(hdr, "top", "medium");
+
+            // Charge lines — context columns blank (the header carries the document).
             const linesToRender = d.lines.length
                 ? d.lines
                 : [{ label: "(no priced charges)", category: "", quantity: 0, buy: 0, sell: 0 }];
             for (const ln of linesToRender) {
                 const cells: (string | number)[] = [
-                    ...ctxCells(d.raw),
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
                     ln.label,
                     ln.category,
                     ln.quantity,
@@ -361,25 +381,27 @@ ORDER BY document_date ASC`;
                 if (showMargin) cells.push(roundMoney(ln.sell - ln.buy));
                 sheet.addRow(cells);
             }
-            // Subtotal / VAT / Total rows for this document.
+
+            // Footer — Subtotal / VAT / Total; Total bottom-bordered closes the block.
             const sub = sheet.addRow([]);
             sub.getCell(DESC).value = `Subtotal — ${d.raw.reference}`;
             sub.font = { bold: true };
-            sub.eachCell({ includeEmpty: true }, (c) => (c.fill = STYLE.SECTION_FILL));
-            if (showMargin) sumAt(DESC + 3, d.buyTotal);
-            sumAt(SELL, d.sellSubtotal);
-            if (showMargin) sumAt(DESC + 5, d.marginAmount);
+            edge(sub, "top", "thin");
+            if (showMargin) money(BUY_C, d.buyTotal);
+            money(SELL_C, d.sellSubtotal);
+            if (showMargin) money(MARGIN_C, d.marginAmount);
 
             const vatRow = sheet.addRow([]);
             vatRow.getCell(DESC).value = `VAT ${d.vatPercent}%`;
-            sumAt(SELL, d.vatAmount, false);
+            money(SELL_C, d.vatAmount, false);
 
             const totRow = sheet.addRow([]);
             totRow.getCell(DESC).value = `Total — ${d.raw.reference}`;
             totRow.font = { bold: true };
-            sumAt(SELL, d.finalTotal);
+            money(SELL_C, d.finalTotal);
+            edge(totRow, "bottom", "medium");
 
-            sheet.addRow([]); // spacer
+            sheet.addRow([]); // spacer between blocks
 
             gBuy += d.buyTotal;
             gSell += d.sellSubtotal;
@@ -393,15 +415,15 @@ ORDER BY document_date ASC`;
             grand.font = { bold: true, size: 12 };
             grand.height = 20;
             grand.eachCell({ includeEmpty: true }, (c) => (c.fill = STYLE.GRAND_FILL));
-            if (showMargin) sumAt(DESC + 3, roundMoney(gBuy));
-            sumAt(SELL, roundMoney(gSell));
-            if (showMargin) sumAt(DESC + 5, roundMoney(gMargin));
+            if (showMargin) money(BUY_C, roundMoney(gBuy));
+            money(SELL_C, roundMoney(gSell));
+            if (showMargin) money(MARGIN_C, roundMoney(gMargin));
 
             const grandV = sheet.addRow([]);
             grandV.getCell(1).value = `GRAND TOTAL — ${ctx.companyName} (incl VAT)`;
             grandV.font = { bold: true, size: 12 };
             grandV.eachCell({ includeEmpty: true }, (c) => (c.fill = STYLE.GRAND_FILL));
-            sumAt(SELL, roundMoney(gFinal));
+            money(SELL_C, roundMoney(gFinal));
         }
 
         finalizeWorkbook(h, docs.length);
@@ -525,6 +547,7 @@ export const accountsReconciliationReport: ReportDefinition = {
             label: "Detail",
             type: "status",
             required: false,
+            allLabel: "Summary (per document)",
             options: [{ value: "line-item", label: "Line-item breakdown" }],
         },
     ],

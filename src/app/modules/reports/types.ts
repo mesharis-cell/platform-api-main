@@ -35,6 +35,8 @@ export interface ReportFilter {
     /** pivots take include-only (exclude-into-a-pivot is unbounded column width). */
     mode?: "include-only" | "include-exclude";
     options?: Array<{ value: string; label: string }>;
+    /** status-filter only: overrides the default "All" option label (e.g. "Summary"). */
+    allLabel?: string;
     default?: unknown;
 }
 
