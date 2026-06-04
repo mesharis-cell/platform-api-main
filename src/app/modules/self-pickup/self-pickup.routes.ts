@@ -143,11 +143,13 @@ export const SelfPickupOperationRoutes = (() => {
     );
 
     // Edit self-pickup details (order-editing P4). ADMIN override (passes via self_pickups:*);
-    // scope/band/reconcile enforced in EntityEditService.
+    // scope/band/reconcile enforced in EntityEditService. ADMIN-only: a LOGISTICS caller
+    // always 403s downstream (resolveEditScope gives them 'owner' scope → assertEditable
+    // throws, since logistics has no company_id).
     router.patch(
         "/:id",
         platformValidator,
-        auth("ADMIN", "LOGISTICS"),
+        auth("ADMIN"),
         requirePermission(PERMISSIONS.SELF_PICKUPS_EDIT_DETAILS),
         featureValidator(featureNames.enable_self_pickup),
         payloadValidator(SelfPickupSchemas.editSelfPickupSchema),

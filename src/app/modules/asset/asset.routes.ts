@@ -4,6 +4,7 @@ import payloadValidator from "../../middleware/payload-validator";
 import platformValidator from "../../middleware/platform-validator";
 import { AssetSchemas } from "./asset.schemas";
 import { AssetControllers } from "./assets.controllers";
+import { AssetStockMovementsExportControllers } from "./asset-stock-movements-export";
 import requirePermission from "../../middleware/permission";
 import { PERMISSIONS } from "../../constants/permissions";
 import featureValidator from "../../middleware/feature-validator";
@@ -88,6 +89,18 @@ router.get(
     auth("ADMIN", "LOGISTICS", "CLIENT"),
     requirePermission(PERMISSIONS.ASSETS_AVAILABILITY_STATS),
     AssetControllers.getAssetAvailabilityStats
+);
+
+// Export the asset's (family's) stock-movement ledger as XLSX. Recovers the
+// per-asset stock-movements export the admin + warehouse asset-detail "Export"
+// button calls (replaces the deleted /export/stock-movements). Operational
+// ledger only — no buy/margin columns.
+router.get(
+    "/:assetId/stock-movements/export",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.STOCK_MOVEMENTS_READ),
+    AssetStockMovementsExportControllers.exportAssetStockMovements
 );
 
 // Get asset scan history

@@ -226,7 +226,12 @@ ORDER BY ir.created_at ASC, iri.created_at ASC`;
             : 0;
         const finalTotal = roundMoney(
             parseNum(
-                (PricingService.projectSummaryForRole(pricing as any, "ADMIN") as any)?.final_total
+                (
+                    PricingService.projectSummaryForRole(
+                        pricing as any,
+                        ctx.isClientMount ? "CLIENT" : "ADMIN"
+                    ) as any
+                )?.final_total
             )
         );
 

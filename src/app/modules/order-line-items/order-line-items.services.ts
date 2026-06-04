@@ -1235,28 +1235,33 @@ const updateOrderPricingAfterLineItemChange = async (
 
     if (!order || order.order_status !== "QUOTED") return;
 
-    await db
-        .update(orders)
-        .set({
-            order_status: "PRICING_REVIEW",
-            financial_status: "QUOTE_REVISED",
-            updated_at: new Date(),
-        })
-        .where(eq(orders.id, orderId));
+    // Wrap the status/financial flip + BOTH history inserts in a single transaction so a
+    // crash mid-sequence can't half-revert the order (status moved but no history row, etc.).
+    // rebuildBreakdown stays OUTSIDE the tx above — it manages its own writes.
+    await db.transaction(async (tx) => {
+        await tx
+            .update(orders)
+            .set({
+                order_status: "PRICING_REVIEW",
+                financial_status: "QUOTE_REVISED",
+                updated_at: new Date(),
+            })
+            .where(eq(orders.id, orderId));
 
-    await db.insert(orderStatusHistory).values({
-        platform_id: platformId,
-        order_id: orderId,
-        status: "PRICING_REVIEW",
-        notes: "Order edited after the quote was sent — returned to pricing review for re-approval.",
-        updated_by: userId,
-    });
-    await db.insert(financialStatusHistory).values({
-        platform_id: platformId,
-        order_id: orderId,
-        status: "QUOTE_REVISED",
-        notes: "Quote revised after a post-quote line item change.",
-        updated_by: userId,
+        await tx.insert(orderStatusHistory).values({
+            platform_id: platformId,
+            order_id: orderId,
+            status: "PRICING_REVIEW",
+            notes: "Order edited after the quote was sent — returned to pricing review for re-approval.",
+            updated_by: userId,
+        });
+        await tx.insert(financialStatusHistory).values({
+            platform_id: platformId,
+            order_id: orderId,
+            status: "QUOTE_REVISED",
+            notes: "Quote revised after a post-quote line item change.",
+            updated_by: userId,
+        });
     });
 
     const [company] = order.company_id
@@ -1266,6 +1271,10 @@ const updateOrderPricingAfterLineItemChange = async (
               .where(eq(companies.id, order.company_id))
         : [];
 
+    // Emit AFTER the transaction commits so a rolled-back revert never fires a re-review
+    // notification. actor_role is left null (the actor's role isn't threaded through the 6
+    // line-item call sites that reach here — see report); `changed: ['pricing']` keeps the
+    // re-review email/audit from rendering a blank change set.
     await eventBus.emit({
         platform_id: platformId,
         event_type: EVENT_TYPES.ORDER_UPDATED,
@@ -1278,7 +1287,7 @@ const updateOrderPricingAfterLineItemChange = async (
             companyId: order.company_id || "",
             companyName: company?.name || "N/A",
             contactName: order.contact_name,
-            changed: [],
+            changed: [{ field: "pricing", old: null, new: null, tier: "B" }],
             statusReverted: true,
             repriceTriggered: true,
         }),

@@ -678,11 +678,16 @@ const transitionStatus = async (
             .set({ self_pickup_status: newStatus as any })
             .where(eq(selfPickups.id, selfPickupId));
 
+        // Snapshot the "by {manager} on behalf of {creator}" attribution onto the history
+        // row when the caller threaded it through extras (only the quote actions do, via
+        // buildSpAttribution). Self/owner actions + non-quote transitions leave both null.
         await tx.insert(selfPickupStatusHistory).values({
             platform_id: platformId,
             self_pickup_id: selfPickupId,
             status: newStatus as any,
             notes: notes || null,
+            acted_by_name: (extras.acted_by_name as string | undefined) ?? null,
+            on_behalf_of_name: (extras.on_behalf_of_name as string | undefined) ?? null,
             updated_by: user.id,
         });
     });
@@ -1096,6 +1101,8 @@ const getStatusHistory = async (selfPickupId: string, platformId: string) => {
             id: selfPickupStatusHistory.id,
             status: selfPickupStatusHistory.status,
             notes: selfPickupStatusHistory.notes,
+            acted_by_name: selfPickupStatusHistory.acted_by_name,
+            on_behalf_of_name: selfPickupStatusHistory.on_behalf_of_name,
             updated_by: selfPickupStatusHistory.updated_by,
             updated_by_name: users.name,
             timestamp: selfPickupStatusHistory.timestamp,

@@ -29,7 +29,9 @@ import {
     selfPickupItems,
     selfPickups,
     selfPickupStatusHistory,
+    serviceRequestItems,
     serviceRequests,
+    serviceRequestStatusHistory,
     users,
 } from "../../db/schema";
 import CustomizedError from "../error/customized-error";
@@ -41,7 +43,13 @@ import {
     computeSelfPickupBookingWindow,
     reconcileBookings,
 } from "../modules/order/order.utils";
+import {
+    addBusinessDays,
+    formatDateInTimezone,
+    getPlatformFeasibilityConfig,
+} from "../shared/feasibility/feasibility.core";
 import { PricingService } from "./pricing.service";
+import { buildServiceRequestCodes } from "../utils/service-request-code";
 import {
     buildEntityUpdatedPayload,
     diffChangedFields,
@@ -256,7 +264,8 @@ export const assertEditable = (ctx: EditContext, user: AuthUser, scope: EditScop
     if (!ctx.config.editableBand.includes(ctx.status)) {
         throw new CustomizedError(
             httpStatus.CONFLICT,
-            `This ${ctx.entityType.toLowerCase().replace("_", " ")} can no longer be edited (status: ${ctx.status})`
+            `This ${ctx.entityType.toLowerCase().replace("_", " ")} can no longer be edited (status: ${ctx.status})`,
+            { code: "EDIT_NOT_EDITABLE" }
         );
     }
 
@@ -265,7 +274,8 @@ export const assertEditable = (ctx: EditContext, user: AuthUser, scope: EditScop
         if (user.role !== "ADMIN") {
             throw new CustomizedError(
                 httpStatus.FORBIDDEN,
-                "Admin scope requires an admin account"
+                "Admin scope requires an admin account",
+                { code: "EDIT_NOT_EDITABLE" }
             );
         }
         return; // platform match already verified in resolveEditContext
@@ -273,18 +283,24 @@ export const assertEditable = (ctx: EditContext, user: AuthUser, scope: EditScop
 
     // CLIENT paths (owner | company). Always same-company.
     if (!user.company_id || ctx.companyId !== user.company_id) {
-        throw new CustomizedError(httpStatus.FORBIDDEN, "You do not have access to this record");
+        throw new CustomizedError(httpStatus.FORBIDDEN, "You do not have access to this record", {
+            code: "EDIT_NOT_EDITABLE",
+        });
     }
     if (scope === "owner") {
         if (ctx.createdBy !== user.id) {
-            throw new CustomizedError(httpStatus.FORBIDDEN, "You can only edit your own orders");
+            throw new CustomizedError(httpStatus.FORBIDDEN, "You can only edit your own orders", {
+                code: "EDIT_NOT_EDITABLE",
+            });
         }
         return;
     }
     // scope === "company": back-office manager editing a colleague's entity.
     const isManager = COMPANY_EDIT_PERMISSIONS.some((p) => userHasPermission(user, p));
     if (!isManager) {
-        throw new CustomizedError(httpStatus.FORBIDDEN, "You do not have access to this record");
+        throw new CustomizedError(httpStatus.FORBIDDEN, "You do not have access to this record", {
+            code: "EDIT_NOT_EDITABLE",
+        });
     }
 };
 
@@ -329,6 +345,18 @@ type OrderItemOp = {
     order_item_id?: string;
     asset_id?: string;
     quantity?: number;
+    /** ADD-only: client maintenance choice for an ORANGE asset. ORDER only (SP ignores it). */
+    maintenance_decision?: "FIX_IN_ORDER" | "USE_AS_IS";
+};
+
+/** Extract a Date from a `{ start: string }` window JSONB. Mirrors order.services parseWindowStart
+ *  (which is module-private there) — used to set the bundled SR's requested_due_at on an ADD. */
+const editParseWindowStart = (windowValue: unknown): Date | null => {
+    if (!windowValue || typeof windowValue !== "object") return null;
+    const start = (windowValue as { start?: unknown }).start;
+    if (typeof start !== "string") return null;
+    const parsed = new Date(start);
+    return isNaN(parsed.getTime()) ? null : parsed;
 };
 
 /**
@@ -363,6 +391,29 @@ const applyOrderItemEdits = async (
         .where(eq(orderItems.order_id, orderId));
     const byId = new Map<string, any>(current.map((c: any) => [c.id, c] as [string, any]));
     const byAsset = new Map<string, any>(current.map((c: any) => [c.asset_id, c] as [string, any]));
+
+    // Order header fields needed only when an ADD op spins a bundled maintenance SR
+    // (FIX_IN_ORDER): the SR's notNull company_id + its requested_due_at window. Loaded once,
+    // up front, so the per-op loop can reference it without re-querying.
+    const needsOrderHeader = ops.some(
+        (o) => (o.op ?? "UPDATE") === "ADD" && o.maintenance_decision === "FIX_IN_ORDER"
+    );
+    let orderForSr: {
+        company_id: string;
+        delivery_window: unknown;
+        requested_delivery_window: unknown;
+    } = { company_id: companyId ?? "", delivery_window: null, requested_delivery_window: null };
+    if (needsOrderHeader) {
+        const [row] = await tx
+            .select({
+                company_id: orders.company_id,
+                delivery_window: orders.delivery_window,
+                requested_delivery_window: orders.requested_delivery_window,
+            })
+            .from(orders)
+            .where(eq(orders.id, orderId));
+        if (row) orderForSr = row;
+    }
 
     const before: Record<string, number> = {};
     const after: Record<string, number> = {};
@@ -461,6 +512,7 @@ const applyOrderItemEdits = async (
                 weight_per_unit: assets.weight_per_unit,
                 condition_notes: assets.condition_notes,
                 handling_tags: assets.handling_tags,
+                refurb_days_estimate: assets.refurb_days_estimate,
             })
             .from(assets)
             .where(eq(assets.id, assetId));
@@ -471,45 +523,127 @@ const applyOrderItemEdits = async (
         if (companyId && asset.company_id && asset.company_id !== companyId) {
             throw new CustomizedError(
                 httpStatus.FORBIDDEN,
-                "Cannot add an asset that belongs to another company"
+                "Cannot add an asset that belongs to another company",
+                { code: "CROSS_COMPANY" }
             );
         }
         if (asset.status === "TRANSFORMED") {
             throw new CustomizedError(
                 httpStatus.BAD_REQUEST,
-                `Asset cannot be added (${asset.status}): ${asset.name}`
+                `Asset cannot be added (${asset.status}): ${asset.name}`,
+                { code: "TRANSFORMED_ASSET" }
             );
         }
-        // Maintenance-requiring assets need the submit-time bundled-SR machinery — not supported
-        // on edit yet. RED always requires it; ORANGE is added "as-is" (no fix). GREEN is clean.
+        // RED still requires the full submit-time gate (a RED asset can NEVER be added as-is) —
+        // keep rejecting it. ORANGE now honors the client's maintenance_decision (mirrors the
+        // submit/checkout path): FIX_IN_ORDER reserves refurb time + spins a bundled SR, USE_AS_IS
+        // (or absent, for back-compat) adds as-is. GREEN is clean.
         if (asset.condition === "RED") {
             throw new CustomizedError(
                 httpStatus.BAD_REQUEST,
-                `Assets requiring maintenance cannot be added to an existing order yet: ${asset.name}`
+                `Assets requiring maintenance cannot be added to an existing order yet: ${asset.name}`,
+                { code: "MAINTENANCE_ASSET" }
             );
         }
-        const maintenanceDecision = asset.condition === "ORANGE" ? "USE_AS_IS" : null;
+
+        // Resolve the maintenance decision (ORANGE only). Defaults to USE_AS_IS for back-compat
+        // when the client didn't send one.
+        const maintenanceDecision: "FIX_IN_ORDER" | "USE_AS_IS" | null =
+            asset.condition === "ORANGE" ? (op.maintenance_decision ?? "USE_AS_IS") : null;
+        const requiresMaintenance = maintenanceDecision === "FIX_IN_ORDER";
+
+        if (requiresMaintenance && Number(asset.refurb_days_estimate || 0) <= 0) {
+            // Same guard as submitOrderFromCart: can't repair-before-event without a refurb
+            // estimate to compute the prep window.
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                `Refurbishment days are required before ORANGE asset can be repaired in an order: ${asset.name}`,
+                { code: "MAINTENANCE_ASSET" }
+            );
+        }
+
+        // Refurb snapshot: capture asset.refurb_days_estimate generally (NOT null), so
+        // reconcileBookings derives the correct (longer) prep window. Even a GREEN/USE_AS_IS
+        // asset can carry a non-zero refurb estimate — the old hardcoded null under-reserved
+        // inventory. computeBookingWindow treats <=0 / null as zero buffer, so this is safe.
+        const refurbSnapshot =
+            asset.refurb_days_estimate !== null && asset.refurb_days_estimate !== undefined
+                ? Number(asset.refurb_days_estimate)
+                : null;
 
         const volPerUnit = parseFloat(asset.volume_per_unit || "0");
         const wtPerUnit = parseFloat(asset.weight_per_unit || "0");
-        await tx.insert(orderItems).values({
-            platform_id: platformId,
-            order_id: orderId,
-            asset_id: asset.id,
-            asset_name: asset.name,
-            quantity: addQty,
-            volume_per_unit: volPerUnit.toFixed(3),
-            weight_per_unit: wtPerUnit.toFixed(2),
-            total_volume: (volPerUnit * addQty).toFixed(3),
-            total_weight: (wtPerUnit * addQty).toFixed(2),
-            condition_notes: asset.condition_notes,
-            handling_tags: asset.handling_tags || [],
-            from_collection: null,
-            maintenance_decision: maintenanceDecision,
-            requires_maintenance: false,
-            maintenance_refurb_days_snapshot: null,
-            maintenance_decision_locked_at: maintenanceDecision ? new Date() : null,
-        });
+        const [insertedItem] = await tx
+            .insert(orderItems)
+            .values({
+                platform_id: platformId,
+                order_id: orderId,
+                asset_id: asset.id,
+                asset_name: asset.name,
+                quantity: addQty,
+                volume_per_unit: volPerUnit.toFixed(3),
+                weight_per_unit: wtPerUnit.toFixed(2),
+                total_volume: (volPerUnit * addQty).toFixed(3),
+                total_weight: (wtPerUnit * addQty).toFixed(2),
+                condition_notes: asset.condition_notes,
+                handling_tags: asset.handling_tags || [],
+                from_collection: null,
+                maintenance_decision: maintenanceDecision,
+                requires_maintenance: requiresMaintenance,
+                maintenance_refurb_days_snapshot: refurbSnapshot,
+                maintenance_decision_locked_at: maintenanceDecision ? new Date() : null,
+            })
+            .returning({ id: orderItems.id });
+
+        // FIX_IN_ORDER: create the bundled maintenance SR the same way submitOrderFromCart's
+        // Step 6.d does (inline, in-tx) — buildServiceRequestCodes + serviceRequests +
+        // serviceRequestItems + serviceRequestStatusHistory. No reusable SR-creation helper
+        // exists for the in-tx path (applyMaintenanceDecisionToOrderItem opens its OWN
+        // transaction and re-reads the item), so this mirrors the submit pattern directly.
+        if (requiresMaintenance) {
+            const [srCode] = await buildServiceRequestCodes(platformId, 1);
+            const [sr] = await tx
+                .insert(serviceRequests)
+                .values({
+                    service_request_id: srCode,
+                    platform_id: platformId,
+                    company_id: orderForSr.company_id,
+                    request_type: "MAINTENANCE",
+                    billing_mode: "INTERNAL_ONLY",
+                    link_mode: "BUNDLED_WITH_ORDER",
+                    blocks_fulfillment: true,
+                    request_status: "SUBMITTED",
+                    commercial_status: "INTERNAL",
+                    title: `Repair before event — ${asset.name}`,
+                    description: asset.condition_notes || null,
+                    related_asset_id: asset.id,
+                    related_order_id: orderId,
+                    related_order_item_id: insertedItem.id,
+                    requested_due_at:
+                        editParseWindowStart(orderForSr.delivery_window) ||
+                        editParseWindowStart(orderForSr.requested_delivery_window),
+                    created_by: userId,
+                })
+                .returning();
+
+            await tx.insert(serviceRequestItems).values({
+                service_request_id: sr.id,
+                asset_id: asset.id,
+                asset_name: asset.name,
+                quantity: addQty,
+                refurb_days_estimate: refurbSnapshot,
+            });
+
+            await tx.insert(serviceRequestStatusHistory).values({
+                service_request_id: sr.id,
+                platform_id: platformId,
+                from_status: null,
+                to_status: "SUBMITTED",
+                note: "Repair Before Event task auto-created when item was added during order edit",
+                changed_by: userId,
+            });
+        }
+
         before[asset.name] = 0;
         after[asset.name] = addQty;
         changed = true;
@@ -525,7 +659,8 @@ const applyOrderItemEdits = async (
         if (Number(remaining) === 0) {
             throw new CustomizedError(
                 httpStatus.BAD_REQUEST,
-                "An order must keep at least one item"
+                "An order must keep at least one item",
+                { code: "LAST_ITEM" }
             );
         }
     }
@@ -742,13 +877,15 @@ const applySelfPickupItemEdits = async (
         if (companyId && asset.company_id && asset.company_id !== companyId) {
             throw new CustomizedError(
                 httpStatus.FORBIDDEN,
-                "Cannot add an asset that belongs to another company"
+                "Cannot add an asset that belongs to another company",
+                { code: "CROSS_COMPANY" }
             );
         }
         if (asset.status === "TRANSFORMED") {
             throw new CustomizedError(
                 httpStatus.BAD_REQUEST,
-                `Asset cannot be added (${asset.status}): ${asset.name}`
+                `Asset cannot be added (${asset.status}): ${asset.name}`,
+                { code: "TRANSFORMED_ASSET" }
             );
         }
 
@@ -782,7 +919,8 @@ const applySelfPickupItemEdits = async (
         if (Number(remaining) === 0) {
             throw new CustomizedError(
                 httpStatus.BAD_REQUEST,
-                "A self-pickup must keep at least one item"
+                "A self-pickup must keep at least one item",
+                { code: "LAST_ITEM" }
             );
         }
     }
@@ -1010,11 +1148,61 @@ export const editEntity = async (params: EditEntityParams): Promise<EditEntityRe
                 const items = await tx
                     .select({
                         asset_id: orderItems.asset_id,
+                        asset_name: orderItems.asset_name,
                         quantity: orderItems.quantity,
                         refurb: orderItems.maintenance_refurb_days_snapshot,
+                        maintenance_decision: orderItems.maintenance_decision,
                     })
                     .from(orderItems)
                     .where(eq(orderItems.order_id, entityId));
+
+                // Maintenance feasibility re-check. Submit/checkout enforces that an
+                // event date can't precede the earliest date a FIX_IN_ORDER / RED asset
+                // can finish refurb; a Tier-C date pull-forward (or an item change) was
+                // previously only availability-checked, so it could silently accept an
+                // event that starts before an in-flight refurb completes. Re-run the same
+                // earliest-feasible-date math here, INSIDE the tx, so an infeasible edit
+                // rolls back. We honor each line's maintenance_refurb_days_snapshot (the
+                // refurb commitment frozen at submit — same value the booking window uses
+                // via computeBookingWindow) rather than re-reading live asset condition,
+                // keeping the window + feasibility decisions consistent.
+                const oldStart = ctx.row.event_start_date as Date | null;
+                const movedEarlier =
+                    !!oldStart && new Date(newStart).getTime() < new Date(oldStart).getTime();
+                if (movedEarlier || itemsChanged) {
+                    const refurbItems = items.filter(
+                        (it: any) =>
+                            it.refurb != null &&
+                            Number(it.refurb) > 0 &&
+                            it.maintenance_decision === "FIX_IN_ORDER"
+                    );
+                    if (refurbItems.length > 0) {
+                        const cfg = await getPlatformFeasibilityConfig(platformId, ctx.companyId);
+                        const leadWindowStart = new Date(
+                            Date.now() + cfg.minimum_lead_hours * 60 * 60 * 1000
+                        );
+                        const newStartTime = new Date(newStart).getTime();
+                        for (const it of refurbItems) {
+                            const refurbDays = Number(it.refurb);
+                            const readyDate = addBusinessDays(leadWindowStart, refurbDays, cfg);
+                            if (newStartTime < readyDate.getTime()) {
+                                const earliest = formatDateInTimezone(readyDate, cfg.timezone);
+                                throw new CustomizedError(
+                                    httpStatus.CONFLICT,
+                                    `${it.asset_name}: cannot be repaired in time for the new event date (earliest feasible ${earliest})`,
+                                    {
+                                        code: "INFEASIBLE_REFURB",
+                                        asset_id: it.asset_id,
+                                        asset_name: it.asset_name,
+                                        refurb_days_estimate: refurbDays,
+                                        earliest_feasible_date: earliest,
+                                        earliest_feasible_datetime: readyDate.toISOString(),
+                                    }
+                                );
+                            }
+                        }
+                    }
+                }
                 await reconcileBookings({
                     tx,
                     parentType: "ORDER",
@@ -1123,6 +1311,7 @@ export const editEntity = async (params: EditEntityParams): Promise<EditEntityRe
 
         return {
             ctx,
+            columnWrites,
             changed,
             actedByName,
             onBehalfOfName,
@@ -1135,6 +1324,7 @@ export const editEntity = async (params: EditEntityParams): Promise<EditEntityRe
     // After commit: emit the `*.updated` event (audit + rule-driven notifications).
     const {
         ctx,
+        columnWrites,
         changed,
         actedByName,
         onBehalfOfName,
@@ -1163,8 +1353,12 @@ export const editEntity = async (params: EditEntityParams): Promise<EditEntityRe
                 entityIdReadable: ctx.entityIdReadable,
                 companyId: ctx.companyId || "",
                 companyName,
+                // Prefer the freshly-written contact name over the pre-edit snapshot in
+                // ctx.row — an edit that changed the contact name would otherwise notify
+                // with the stale value. columnWrites holds the new column values.
                 contactName: ctx.config.contactNameKey
-                    ? (ctx.row[ctx.config.contactNameKey] as string | null)
+                    ? ((columnWrites[ctx.config.contactNameKey] as string | null | undefined) ??
+                      (ctx.row[ctx.config.contactNameKey] as string | null))
                     : null,
                 changed,
                 statusReverted,

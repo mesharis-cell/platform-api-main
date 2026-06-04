@@ -4,6 +4,13 @@
  * asserts the runtime contracts that tsc can't: filter param wiring (UI param
  * name == what run() reads), audience filtering, cost/margin leak gating, rowCap.
  *
+ * MANUAL / CI-STEP GATE — NOT part of predeploy. It needs a live API + DB
+ * (staging-backed :6001), so it can't run inside the static predeploy pipeline
+ * (format/lint/typecheck). Run it by hand before shipping a reports change, or
+ * wire it as a dedicated CI job that boots the staging-backed API first. The
+ * cost/margin LEAK GATE assertions are the load-bearing checks: a client-mounted
+ * pricing report must never surface margin/buy/base-ops columns.
+ *
  *   APP_ENV=staging bun --preload ./src/bootstrap/env-preload.ts ./scripts/reports-e2e-staging.ts
  */
 import jwt from "jsonwebtoken";
@@ -52,12 +59,32 @@ async function call(token: string, path: string) {
     return { status: res.status, buf, ct };
 }
 
+// Header tokens that reliably appear in a report's header row across the
+// pricing reports we leak-gate (orders / order-history / inbound-log). Used to
+// DETECT the header row by content rather than assuming it's always row 3 — a
+// hardcoded row index would false-green the gate the moment a report adds a
+// title/subtitle line and shifts the headers down.
+const HEADER_TOKENS = /^(order id|order date|reference|date|company|status|item|asset|brand)$/i;
+
 async function colHeaders(buf: Buffer): Promise<string[]> {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf as any);
     const ws = wb.worksheets[0];
+    // Scan the first ~5 rows for the row that looks like the header (contains a
+    // known header token). Fall back to row 3 only if none matches.
+    let headerRowIdx = 3;
+    for (let r = 1; r <= 5; r++) {
+        const vals: string[] = [];
+        ws.getRow(r).eachCell({ includeEmpty: false }, (c) => vals.push(String(c.value ?? "")));
+        if (vals.some((v) => HEADER_TOKENS.test(v.trim()))) {
+            headerRowIdx = r;
+            break;
+        }
+    }
     const cols: string[] = [];
-    ws.getRow(3).eachCell({ includeEmpty: false }, (c) => cols.push(String(c.value ?? "")));
+    ws.getRow(headerRowIdx).eachCell({ includeEmpty: false }, (c) =>
+        cols.push(String(c.value ?? ""))
+    );
     return cols;
 }
 
@@ -156,6 +183,26 @@ async function main() {
             "client orders runs on client mount",
             clientOrders.status === 200,
             `HTTP ${clientOrders.status}${clientOrders.json?.message ? ` "${clientOrders.json.message}"` : ""}`
+        );
+
+    // 6b) cost/margin leak gating on order-history (3rd client-mounted pricing report)
+    const clientOrderHistory = await call(
+        CLIENT,
+        `/client/v1/reports/order-history/run?company_id=${RB}`
+    );
+    if (clientOrderHistory.status === 200 && clientOrderHistory.buf) {
+        const cols = await colHeaders(clientOrderHistory.buf);
+        const leak = cols.filter((c) => /margin|buy|base ops/i.test(c));
+        check(
+            "client order-history has NO margin/buy cols (LEAK GATE)",
+            leak.length === 0,
+            leak.length ? `LEAK: ${leak.join(", ")}` : "clean"
+        );
+    } else
+        check(
+            "client order-history runs on client mount",
+            clientOrderHistory.status === 200,
+            `HTTP ${clientOrderHistory.status}${clientOrderHistory.json?.message ? ` "${clientOrderHistory.json.message}"` : ""}`
         );
 
     // 7) category narrowing on item-grain reports — catch SILENT category-ignore

@@ -199,12 +199,20 @@ const downloadCostEstimatePdf = catchAsync(async (req, res) => {
         );
     }
     const entityType = entityTypeRaw as "ORDER" | "SELF_PICKUP";
-    const { entityId, referenceId } = await CompanyOfficeServices.resolveEstimateTarget(
-        user,
-        platformId,
-        entityType,
-        id
-    );
+    const { entityId, referenceId, financialStatus } =
+        await CompanyOfficeServices.resolveEstimateTarget(user, platformId, entityType, id);
+
+    // A QUOTED→QUOTE_REVISED revert leaves the OLD estimate PDF on S3 with stale prices/items
+    // until admin re-approves. Block the company-manager download in the interim so they never
+    // pull a superseded quote. Self-pickups never hit QUOTE_REVISED (OQ7), so this is ORDER-only
+    // in practice. The gate self-clears once re-approval moves financial_status off QUOTE_REVISED.
+    if (financialStatus === "QUOTE_REVISED") {
+        throw new CustomizedError(
+            httpStatus.CONFLICT,
+            "This quote is being revised — a new estimate will be available once it is re-approved.",
+            { code: "QUOTE_REVISED" }
+        );
+    }
 
     // Idempotent fetch: serve the existing PDF; if absent, regenerate only when
     // the entity is still in a status DocumentService will generate for —

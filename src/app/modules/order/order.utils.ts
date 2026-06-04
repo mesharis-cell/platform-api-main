@@ -459,7 +459,8 @@ export async function reconcileBookings(params: {
             .join("; ");
         throw new CustomizedError(
             httpStatus.CONFLICT,
-            `Not enough availability for the requested dates/quantities: ${detail}`
+            `Not enough availability for the requested dates/quantities: ${detail}`,
+            { code: "INSUFFICIENT_AVAILABILITY", unavailable: failures }
         );
     }
 

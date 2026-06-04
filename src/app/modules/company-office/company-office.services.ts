@@ -43,12 +43,14 @@ const ESTIMATE_SP_STATUSES = [
     "CLOSED",
 ] as const;
 
+// CLIENT-only cost-estimates list. Every row is projected through
+// PricingService.projectSummaryForRole(..., "CLIENT"), whose CLIENT branch reads
+// ONLY breakdown_lines + vat_percent (+ calculated_at). The margin columns are
+// deliberately NOT selected here so margin can never be accidentally spread to a
+// client response (defense-in-depth).
 const PRICING_COLUMNS = {
     breakdown_lines: prices.breakdown_lines,
-    margin_percent: prices.margin_percent,
     vat_percent: prices.vat_percent,
-    margin_is_override: prices.margin_is_override,
-    margin_override_reason: prices.margin_override_reason,
     calculated_at: prices.calculated_at,
 };
 
@@ -235,18 +237,27 @@ const resolveEstimateTarget = async (
     platformId: string,
     entityType: "ORDER" | "SELF_PICKUP",
     id: string
-): Promise<{ entityId: string; referenceId: string }> => {
+): Promise<{ entityId: string; referenceId: string; financialStatus: string | null }> => {
     const companyId = resolveCompanyScope(user);
     if (entityType === "ORDER") {
         const [row] = await db
-            .select({ id: orders.id, reference_id: orders.order_id, company_id: orders.company_id })
+            .select({
+                id: orders.id,
+                reference_id: orders.order_id,
+                company_id: orders.company_id,
+                financial_status: orders.financial_status,
+            })
             .from(orders)
             .where(and(eq(orders.id, id), eq(orders.platform_id, platformId)))
             .limit(1);
         if (!row || row.company_id !== companyId) {
             throw new CustomizedError(httpStatus.NOT_FOUND, "Cost estimate not found");
         }
-        return { entityId: row.id, referenceId: row.reference_id };
+        return {
+            entityId: row.id,
+            referenceId: row.reference_id,
+            financialStatus: row.financial_status,
+        };
     }
     const [row] = await db
         .select({
@@ -260,7 +271,9 @@ const resolveEstimateTarget = async (
     if (!row || row.company_id !== companyId) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Cost estimate not found");
     }
-    return { entityId: row.id, referenceId: row.reference_id };
+    // SP has no QUOTE_REVISED financial_status (OQ7) — null here, so the controller's gate is
+    // structurally a no-op for self-pickups.
+    return { entityId: row.id, referenceId: row.reference_id, financialStatus: null };
 };
 
 export const CompanyOfficeServices = {

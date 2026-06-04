@@ -50,14 +50,14 @@ const paramsSchema = z
         company_id: z.string().uuid(),
         date_from: z.string().regex(DATE_RE).optional(),
         date_to: z.string().regex(DATE_RE).optional(),
-        include_category: z.union([z.string(), z.array(z.string())]).optional(),
-        exclude_category: z.union([z.string(), z.array(z.string())]).optional(),
+        category_include: z.union([z.string(), z.array(z.string())]).optional(),
+        category_exclude: z.union([z.string(), z.array(z.string())]).optional(),
         status: z.union([z.string(), z.array(z.string())]).optional(),
         group_id: z.string().uuid().optional(),
         team_id: z.string().uuid().optional(),
     })
-    .refine((v) => !(v.include_category && v.exclude_category), {
-        message: "include_category and exclude_category are mutually exclusive",
+    .refine((v) => !(v.category_include && v.category_exclude), {
+        message: "category_include and category_exclude are mutually exclusive",
     });
 
 /** Generic, tenant-agnostic category filter against assets.category (alias "a"). */
@@ -95,8 +95,8 @@ function statusFilter(statuses: string[]): SQL {
 }
 
 async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<ReportResult> {
-    const inc = toArr(params.include_category);
-    const exc = toArr(params.exclude_category);
+    const inc = toArr(params.category_include);
+    const exc = toArr(params.category_exclude);
     const statuses = toArr(params.status);
     const { gte, lt } = fmtDateBounds(params.date_from, params.date_to);
     const cat = categoryFilter(inc, exc);

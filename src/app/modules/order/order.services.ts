@@ -2382,6 +2382,8 @@ const getOrderStatusHistory = async (orderId: string, user: AuthUser, platformId
             id: orderStatusHistory.id,
             status: orderStatusHistory.status,
             notes: orderStatusHistory.notes,
+            acted_by_name: orderStatusHistory.acted_by_name,
+            on_behalf_of_name: orderStatusHistory.on_behalf_of_name,
             timestamp: orderStatusHistory.timestamp,
             updated_by_user: {
                 id: users.id,
@@ -2687,16 +2689,22 @@ const approveQuote = async (
         orderUpdateData.po_number = normalizedPoNumber;
     }
 
+    const approveAttribution = buildQuoteAttribution(user, order, opts);
+
     await db.transaction(async (tx) => {
         // Update order status based on reskins
         await tx.update(orders).set(orderUpdateData).where(eq(orders.id, orderId));
 
-        // Log status change
+        // Log status change. When a manager acts on a colleague's order, snapshot the
+        // "by {manager} on behalf of {creator}" attribution onto the history row so the
+        // detail page can render it. Self/owner action → both null.
         await tx.insert(orderStatusHistory).values({
             platform_id: platformId,
             order_id: orderId,
             status: nextStatus,
             notes: notes || "Client approved quote",
+            acted_by_name: approveAttribution.acted_by_name ?? null,
+            on_behalf_of_name: approveAttribution.on_behalf_of_name ?? null,
             updated_by: user.id,
         });
     });
@@ -2720,7 +2728,7 @@ const approveQuote = async (
             contact_name: order.contact_name,
             final_total: String(approvedOrderTotal),
             order_url: "",
-            ...buildQuoteAttribution(user, order, opts),
+            ...approveAttribution,
         },
     });
 
@@ -2833,6 +2841,8 @@ const declineQuote = async (
         );
     }
 
+    const declineAttribution = buildQuoteAttribution(user, order, opts);
+
     await db.transaction(async (tx) => {
         // Release any asset bookings tied to the order. Today this is a
         // no-op (orders don't create bookings until QUOTED→CONFIRMED), but
@@ -2860,12 +2870,15 @@ const declineQuote = async (
             })
             .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)));
 
-        // Step 5: Log status change in order_status_history
+        // Step 5: Log status change in order_status_history. Snapshot the on-behalf-of
+        // attribution onto the history row (null for a self/owner decline).
         await tx.insert(orderStatusHistory).values({
             platform_id: platformId,
             order_id: orderId,
             status: "DECLINED",
             notes: `Client declined quote: ${decline_reason}`,
+            acted_by_name: declineAttribution.acted_by_name ?? null,
+            on_behalf_of_name: declineAttribution.on_behalf_of_name ?? null,
             updated_by: user.id,
         });
 
@@ -2893,7 +2906,7 @@ const declineQuote = async (
             company_name: order.company?.name || "N/A",
             contact_name: order.contact_name,
             order_url: "",
-            ...buildQuoteAttribution(user, order, opts),
+            ...declineAttribution,
         },
     });
 

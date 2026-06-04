@@ -138,6 +138,10 @@ export const editSelfPickupSchema = z.object({
                             order_item_id: z.uuid("Invalid item ID").optional(),
                             asset_id: z.uuid("Invalid asset ID").optional(),
                             quantity: z.number().int().positive().optional(),
+                            // Shape-parity with the order edit schema. SP items carry NO
+                            // maintenance fields (no condition gate, no bundled SR), so this is
+                            // accepted but ignored by the SP ADD branch.
+                            maintenance_decision: z.enum(["FIX_IN_ORDER", "USE_AS_IS"]).optional(),
                         })
                         .strict()
                         .superRefine((it, ctx) => {

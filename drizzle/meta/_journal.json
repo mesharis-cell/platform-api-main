@@ -463,6 +463,13 @@
             "when": 1779321600000,
             "tag": "0066_self_pickup_updated_rules",
             "breakpoints": true
+        },
+        {
+            "idx": 66,
+            "version": "7",
+            "when": 1779408000000,
+            "tag": "0067_quote_attribution_on_status_history",
+            "breakpoints": true
         }
     ]
 }

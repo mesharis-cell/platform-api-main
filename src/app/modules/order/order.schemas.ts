@@ -621,6 +621,10 @@ const editOrderSchema = z.object({
                                 .int("Quantity must be an integer")
                                 .positive("Quantity must be a positive integer")
                                 .optional(),
+                            // ADD-only: the client's maintenance choice for an ORANGE asset.
+                            // FIX_IN_ORDER → snapshot refurb + create bundled maintenance SR;
+                            // USE_AS_IS (or absent) → add as-is. Ignored for GREEN/RED.
+                            maintenance_decision: z.enum(["FIX_IN_ORDER", "USE_AS_IS"]).optional(),
                         })
                         .strict()
                         .superRefine((it, ctx) => {

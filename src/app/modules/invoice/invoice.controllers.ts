@@ -101,6 +101,18 @@ const downloadCostEstimatePDF = catchAsync(async (req, res) => {
     }
     assertClientOrderOwnership(user, order);
 
+    // A QUOTED→QUOTE_REVISED revert leaves the OLD estimate PDF on S3 with stale prices/items
+    // until admin re-approves (approveQuote regenerates it). Block the download in the interim
+    // so clients/managers never pull a superseded quote. The gate self-clears once re-approval
+    // moves financial_status off QUOTE_REVISED.
+    if (order.financial_status === "QUOTE_REVISED") {
+        throw new CustomizedError(
+            httpStatus.CONFLICT,
+            "This quote is being revised — a new estimate will be available once it is re-approved.",
+            { code: "QUOTE_REVISED" }
+        );
+    }
+
     const company = order.company as typeof companies.$inferSelect | null;
     const companySlug = (company?.name || "unknown-company").replace(/\s/g, "-").toLowerCase();
     const s3Key = `cost-estimates/${companySlug}/${order.order_id}.pdf`;

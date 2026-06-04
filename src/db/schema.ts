@@ -2022,6 +2022,9 @@ export const orderStatusHistory = pgTable(
             .references(() => orders.id, { onDelete: "cascade" }),
         status: orderStatusEnum("status").notNull(),
         notes: text("notes"),
+        // Quote on-behalf-of attribution (migration 0067). NULL = self/owner action.
+        acted_by_name: varchar("acted_by_name", { length: 255 }),
+        on_behalf_of_name: varchar("on_behalf_of_name", { length: 255 }),
         updated_by: uuid("updated_by")
             .notNull()
             .references(() => users.id),
@@ -2349,6 +2352,9 @@ export const selfPickupStatusHistory = pgTable(
             .references(() => selfPickups.id, { onDelete: "cascade" }),
         status: selfPickupStatusEnum("status").notNull(),
         notes: text("notes"),
+        // Quote on-behalf-of attribution (migration 0067). NULL = self/owner action.
+        acted_by_name: varchar("acted_by_name", { length: 255 }),
+        on_behalf_of_name: varchar("on_behalf_of_name", { length: 255 }),
         updated_by: uuid("updated_by")
             .notNull()
             .references(() => users.id),
