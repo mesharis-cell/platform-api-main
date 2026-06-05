@@ -23,6 +23,32 @@ router.get(
     OrderControllers.getFeasibilityConfig
 );
 
+// OPS feasibility config (ADMIN/LOGISTICS). Same response shape as /feasibility-config,
+// but the company override is scoped via `?company_id=` OR `?order_id=` query param
+// (ops users carry no user.company_id). Powers the admin order-edit feasibility UI,
+// which reuses the same client interpret logic. Operational data only.
+router.get(
+    "/ops-feasibility-config",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.ORDERS_READ),
+    OrderControllers.getOpsFeasibilityConfig
+);
+
+// OPS maintenance-feasibility check (ADMIN/LOGISTICS). Mirror of the CLIENT
+// /check-maintenance-feasibility endpoint — same item + event-date contract and the
+// SAME underlying feasibility math — but the company is resolved from the body
+// (`company_id` OR `order_id`). Response shape matches the client endpoint exactly so
+// the admin order-edit reuses the same interpret logic. Operational data only.
+router.post(
+    "/ops-check-maintenance-feasibility",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.ORDERS_READ),
+    payloadValidator(orderSchemas.opsCheckMaintenanceFeasibilitySchema),
+    OrderControllers.opsCheckMaintenanceFeasibility
+);
+
 // Calculate order estimate (NEW)
 router.post(
     "/estimate",

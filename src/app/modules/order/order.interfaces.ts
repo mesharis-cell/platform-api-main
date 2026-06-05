@@ -5,6 +5,9 @@ export type CalculateEstimatePayload = z.infer<typeof orderSchemas.calculateEsti
 export type CheckMaintenanceFeasibilityPayload = z.infer<
     typeof orderSchemas.checkMaintenanceFeasibilitySchema
 >["body"];
+export type OpsCheckMaintenanceFeasibilityPayload = z.infer<
+    typeof orderSchemas.opsCheckMaintenanceFeasibilitySchema
+>["body"];
 
 // Submit order payload interface
 export type SubmitOrderPayload = z.infer<typeof orderSchemas.submitOrderSchema>["body"];

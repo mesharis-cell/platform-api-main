@@ -61,6 +61,7 @@ import {
     CalculateEstimatePayload,
     AdminApproveQuotePayload,
     CheckMaintenanceFeasibilityPayload,
+    OpsCheckMaintenanceFeasibilityPayload,
     CreateMaintenanceDecisionChangeRequestPayload,
     RefreshCartItemsPayload,
     ResolveMaintenanceDecisionChangeRequestPayload,
@@ -490,6 +491,62 @@ const checkMaintenanceFeasibility = async (
     lead_floor_date: string;
     lead_floor_datetime: string;
 }> => {
+    const feasibility = await validateMaintenanceFeasibilityForAssets(
+        platformId,
+        companyId,
+        payload.items,
+        payload.event_start_date
+    );
+
+    return {
+        feasible: feasibility.feasible,
+        issues: feasibility.issues,
+        config: feasibility.config,
+        lead_floor_date: feasibility.lead_floor_date,
+        lead_floor_datetime: feasibility.lead_floor_datetime,
+    };
+};
+
+// Shared company resolver for the OPS feasibility endpoints. Ops users (ADMIN/LOGISTICS)
+// carry no user.company_id, so the scoping company is passed explicitly as `company_id`
+// OR derived from `order_id` (looked up within the platform). Returns null when neither
+// is supplied — callers then fall back to platform-default config. Throws 404 if an
+// `order_id` doesn't resolve in this platform.
+const resolveFeasibilityCompanyScope = async (
+    platformId: string,
+    scope: { company_id?: string; order_id?: string }
+): Promise<string | null> => {
+    if (scope.order_id) {
+        const [order] = await db
+            .select({ id: orders.id, company_id: orders.company_id })
+            .from(orders)
+            .where(and(eq(orders.id, scope.order_id), eq(orders.platform_id, platformId)));
+
+        if (!order) {
+            throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+        }
+        return order.company_id;
+    }
+
+    return scope.company_id ?? null;
+};
+
+// OPS-callable feasibility check (ADMIN/LOGISTICS). Resolves the scoping company from
+// the payload — either `company_id` directly, or `order_id` (looked up within the
+// caller's platform) — since ops users carry no `user.company_id`. The actual
+// feasibility math is the SAME `validateMaintenanceFeasibilityForAssets` the CLIENT
+// path calls; this method only adds company resolution. Returns the identical shape
+// as `checkMaintenanceFeasibility` so the admin order-edit reuses the client interpret
+// logic verbatim. Operational data only — no buy price / margin is touched here.
+const opsCheckMaintenanceFeasibility = async (
+    platformId: string,
+    payload: OpsCheckMaintenanceFeasibilityPayload
+): ReturnType<typeof checkMaintenanceFeasibility> => {
+    const companyId = await resolveFeasibilityCompanyScope(platformId, {
+        company_id: payload.company_id,
+        order_id: payload.order_id,
+    });
+
     const feasibility = await validateMaintenanceFeasibilityForAssets(
         platformId,
         companyId,
@@ -1536,6 +1593,7 @@ const getOrderById = async (
                 id: companies.id,
                 name: companies.name,
                 platform_margin_percent: companies.platform_margin_percent,
+                features: companies.features,
             },
             brand: {
                 id: brands.id,
@@ -1622,6 +1680,7 @@ const getOrderById = async (
                 condition: assets.condition,
                 condition_notes: assets.condition_notes,
                 refurbishment_days_estimate: assets.refurb_days_estimate,
+                available_quantity: assets.available_quantity,
                 images: assets.images,
                 on_display_image: assets.on_display_image,
             },
@@ -4554,6 +4613,8 @@ export const OrderServices = {
     cancelOrder,
     calculateEstimate,
     checkMaintenanceFeasibility,
+    resolveFeasibilityCompanyScope,
+    opsCheckMaintenanceFeasibility,
     downloadGoodsForm,
     updateMaintenanceDecision,
     createMaintenanceDecisionChangeRequest,

@@ -69,6 +69,73 @@ const checkMaintenanceFeasibilitySchema = z.object({
         })),
 });
 
+// OPS-callable feasibility check (ADMIN/LOGISTICS). Identical item + event-date
+// contract as the CLIENT `checkMaintenanceFeasibilitySchema` (same math downstream),
+// but the company can no longer be read from `user.company_id` (ADMIN/LOGISTICS have
+// none). The caller scopes the check by passing EXACTLY ONE of `company_id` or
+// `order_id`; the controller resolves `order_id` → its company within the platform.
+const opsCheckMaintenanceFeasibilitySchema = z.object({
+    body: z
+        .object({
+            company_id: z.uuid("Invalid company ID").optional(),
+            order_id: z.uuid("Invalid order ID").optional(),
+            items: z
+                .array(
+                    z.object({
+                        asset_id: z.uuid("Invalid asset ID"),
+                        maintenance_decision: z
+                            .enum(
+                                maintenanceDecisionEnum.enumValues,
+                                enumMessageGenerator(
+                                    "Maintenance decision",
+                                    maintenanceDecisionEnum.enumValues
+                                )
+                            )
+                            .optional(),
+                    })
+                )
+                .min(1, "At least one item is required"),
+            event_start_date: z
+                .string()
+                .refine((date) => !isNaN(Date.parse(date)), "Invalid event start date format")
+                .transform((date) => new Date(date))
+                .optional(),
+            event_start_datetime: z
+                .string()
+                .refine((date) => !isNaN(Date.parse(date)), "Invalid event start datetime format")
+                .transform((date) => new Date(date))
+                .optional(),
+        })
+        .strict()
+        .superRefine((data, ctx) => {
+            if (!data.event_start_date && !data.event_start_datetime) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: "Either event_start_date or event_start_datetime is required",
+                    path: ["event_start_datetime"],
+                });
+            }
+            if (!data.company_id && !data.order_id) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: "Either company_id or order_id is required",
+                    path: ["company_id"],
+                });
+            }
+            if (data.company_id && data.order_id) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: "Provide only one of company_id or order_id, not both",
+                    path: ["order_id"],
+                });
+            }
+        })
+        .transform((data) => ({
+            ...data,
+            event_start_date: (data.event_start_datetime ?? data.event_start_date)!,
+        })),
+});
+
 export const orderItemSchema = z
     .object({
         asset_id: z.uuid("Invalid asset ID"),
@@ -684,6 +751,7 @@ export const orderSchemas = {
     calculateEstimateSchema,
     editOrderSchema,
     checkMaintenanceFeasibilitySchema,
+    opsCheckMaintenanceFeasibilitySchema,
     submitOrderSchema,
     updateJobNumberSchema,
     progressStatusSchema,

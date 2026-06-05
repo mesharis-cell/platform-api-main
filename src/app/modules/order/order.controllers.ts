@@ -20,6 +20,46 @@ const getFeasibilityConfig = catchAsync(async (req, res) => {
     });
 });
 
+// ------------------------------ OPS FEASIBILITY CONFIG ----------------------------------
+// ADMIN/LOGISTICS variant of getFeasibilityConfig. Ops users carry no user.company_id,
+// so the company override is resolved from an optional `company_id` OR `order_id` query
+// param (order_id is looked up within the platform). With neither, the platform-default
+// config is returned. Same response shape as the CLIENT config endpoint.
+const getOpsFeasibilityConfig = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const companyId = await OrderServices.resolveFeasibilityCompanyScope(platformId, {
+        company_id: typeof req.query.company_id === "string" ? req.query.company_id : undefined,
+        order_id: typeof req.query.order_id === "string" ? req.query.order_id : undefined,
+    });
+
+    const config = await getPlatformFeasibilityConfig(platformId, companyId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Feasibility config fetched successfully",
+        data: config,
+    });
+});
+
+// -------------------- OPS CHECK MAINTENANCE FEASIBILITY ---------------------------------
+// ADMIN/LOGISTICS variant of checkMaintenanceFeasibility. Company is resolved from the
+// body (`company_id` or `order_id`) instead of user.company_id. Response shape matches
+// the CLIENT endpoint exactly so the admin order-edit reuses the same interpret logic.
+const opsCheckMaintenanceFeasibility = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+    const result = await OrderServices.opsCheckMaintenanceFeasibility(platformId, req.body);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: result.feasible
+            ? "Maintenance feasibility validated successfully."
+            : "Maintenance feasibility failed for one or more assets.",
+        data: result,
+    });
+});
+
 // ----------------------------------- CALCULATE ESTIMATE ---------------------------------
 const calculateEstimate = catchAsync(async (req, res) => {
     const user = (req as any).user;
@@ -641,6 +681,8 @@ const recalculateBaseOps = catchAsync(async (req, res) => {
 
 export const OrderControllers = {
     getFeasibilityConfig,
+    getOpsFeasibilityConfig,
+    opsCheckMaintenanceFeasibility,
     calculateEstimate,
     checkMaintenanceFeasibility,
     refreshCartItems,
