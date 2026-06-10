@@ -9,14 +9,14 @@ const router = Router();
 router.post(
     "/image",
     platformValidator,
-    auth("ADMIN", "LOGISTICS"),
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
     fileUploader.singleUpload.single("file"),
     UploadController.uploadImageController
 );
 router.post(
     "/images",
     platformValidator,
-    auth("ADMIN", "LOGISTICS"),
+    auth("ADMIN", "LOGISTICS", "CLIENT"),
     fileUploader.multipleUpload,
     UploadController.uploadMultipleImagesController
 );
