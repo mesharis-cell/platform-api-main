@@ -737,12 +737,24 @@ const submitOrderFromCart = async (
 
     // Step 3: Check assets availability
     const requiredAssets = items.map((i) => ({ id: i.asset_id, quantity: i.quantity }));
+    const standardBookingWindow = computeBookingWindow(eventStartDate, eventEndDate, 0);
     const foundAssets: any[] = await checkAssetsForOrder(
         platformId,
         companyId,
         requiredAssets,
         eventStartDate,
-        eventEndDate
+        eventEndDate,
+        {
+            availabilityWindowsByAssetId: new Map(
+                requiredAssets.map((asset) => [
+                    asset.id,
+                    {
+                        start: standardBookingWindow.blockedFrom,
+                        end: standardBookingWindow.blockedUntil,
+                    },
+                ])
+            ),
+        }
     );
 
     const maintenanceFeasibility = await validateMaintenanceFeasibilityForAssets(
@@ -987,34 +999,43 @@ const submitOrderFromCart = async (
         // pre-CONFIRMED order without bookings (created before this PR landed)
         // still gets bookings on quote approval. After Phase 5 backfill, that
         // safety net rarely fires.
+        const bookingWindowsByAssetId = new Map(
+            orderItemsData.map((item) => {
+                const { blockedFrom, blockedUntil } = computeBookingWindow(
+                    eventStartDate,
+                    eventEndDate,
+                    item.maintenance_refurb_days_snapshot ?? 0
+                );
+                return [item.asset_id, { start: blockedFrom, end: blockedUntil }] as const;
+            })
+        );
+
         const lockedAssetsAtSubmit = await checkAssetsForOrder(
             platformId,
             companyId,
             requiredAssets,
             eventStartDate,
             eventEndDate,
-            { tx, excludeOrderId: order.id }
+            { tx, excludeOrderId: order.id, availabilityWindowsByAssetId: bookingWindowsByAssetId }
         );
 
         for (const lockedAsset of lockedAssetsAtSubmit) {
             const requiredAsset = requiredAssets.find((a) => a.id === lockedAsset.id);
             if (!requiredAsset) continue;
-            // Refurb estimate snapshot is on order_items; pull the matching one
-            // so the booking window matches what approveQuote would have used.
-            const orderItem = orderItemsData.find((oi) => oi.asset_id === lockedAsset.id);
-            const refurbDays = orderItem?.maintenance_refurb_days_snapshot ?? 0;
-            const { blockedFrom, blockedUntil } = computeBookingWindow(
-                eventStartDate,
-                eventEndDate,
-                refurbDays
-            );
+            const bookingWindow = bookingWindowsByAssetId.get(lockedAsset.id);
+            if (!bookingWindow) {
+                throw new CustomizedError(
+                    httpStatus.INTERNAL_SERVER_ERROR,
+                    "Booking window missing"
+                );
+            }
 
             await tx.insert(assetBookings).values({
                 asset_id: lockedAsset.id,
                 order_id: order.id,
                 quantity: requiredAsset.quantity,
-                blocked_from: blockedFrom,
-                blocked_until: blockedUntil,
+                blocked_from: bookingWindow.start,
+                blocked_until: bookingWindow.end,
             });
 
             await tx
@@ -2669,6 +2690,16 @@ const approveQuote = async (
         id: item.asset_id,
         quantity: item.quantity,
     }));
+    const bookingWindowsByAssetId = new Map(
+        order.items.map((item) => {
+            const { blockedFrom, blockedUntil } = computeBookingWindow(
+                order.event_start_date,
+                order.event_end_date,
+                item.maintenance_refurb_days_snapshot ?? 0
+            );
+            return [item.asset_id, { start: blockedFrom, end: blockedUntil }] as const;
+        })
+    );
 
     // Step 5: Availability check + booking insert + asset snapshot update are
     // wrapped in a single transaction with FOR UPDATE locks on the asset
@@ -2691,7 +2722,7 @@ const approveQuote = async (
             requiredAssets,
             order.event_start_date,
             order.event_end_date,
-            { tx, excludeOrderId: orderId }
+            { tx, excludeOrderId: orderId, availabilityWindowsByAssetId: bookingWindowsByAssetId }
         );
 
         // Idempotent insert. If bookings already exist for this order
@@ -2712,18 +2743,20 @@ const approveQuote = async (
 
         if (existingBookings.length === 0) {
             const assetBookingItems = foundAssets.map((item) => {
-                const { blockedFrom, blockedUntil } = computeBookingWindow(
-                    order.event_start_date,
-                    order.event_end_date,
-                    item.refurb_days_estimate
-                );
+                const bookingWindow = bookingWindowsByAssetId.get(item.id);
+                if (!bookingWindow) {
+                    throw new CustomizedError(
+                        httpStatus.INTERNAL_SERVER_ERROR,
+                        "Booking window missing"
+                    );
+                }
                 const requiredAsset = requiredAssets.find((a) => a.id === item.id);
                 return {
                     asset_id: item.id,
                     order_id: orderId,
                     quantity: requiredAsset?.quantity || 0,
-                    blocked_from: blockedFrom,
-                    blocked_until: blockedUntil,
+                    blocked_from: bookingWindow.start,
+                    blocked_until: bookingWindow.end,
                 };
             });
 

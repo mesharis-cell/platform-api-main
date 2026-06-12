@@ -135,15 +135,15 @@ export function validateRoleBasedTransition(
 
 /**
  * Calculate blocked period for an order including all buffers
- * Feedback #5: Adds 5-day prep + 3-day return buffers
+ * Feedback #5: Adds 1-day prep + 1-day return buffers
  * Feedback #2: Adds refurb days if item needs refurbishment
  */
 
 // Preparation buffer days (time needed before event to prepare assets)
-export const PREP_BUFFER_DAYS = 5;
+export const PREP_BUFFER_DAYS = 1;
 
 // Return buffer days (time needed after event for return and processing)
-export const RETURN_BUFFER_DAYS = 3;
+export const RETURN_BUFFER_DAYS = 1;
 
 /**
  * Compute the booking window (`blocked_from` / `blocked_until`) for a given
@@ -654,6 +654,13 @@ export type AvailableItem = {
     refurb_days_estimate: number | null;
 };
 
+type OrderAvailabilityWindow = { start: Date; end: Date };
+type CheckAssetsForOrderOptions = {
+    tx?: TxOrDb;
+    excludeOrderId?: string;
+    availabilityWindowsByAssetId?: Map<string, OrderAvailabilityWindow>;
+};
+
 // ----------------------------------- CHECK ASSETS FOR ORDER -----------------------------------
 // Delegates the availability math to availability.core.ts — one source of
 // truth across order submit, self-pickup submit, client checkout validation,
@@ -676,7 +683,7 @@ export const checkAssetsForOrder = async (
     requiredAssets: { id: string; quantity: number }[],
     eventStartDate: Date,
     eventEndDate: Date,
-    opts?: { tx?: TxOrDb; excludeOrderId?: string }
+    opts?: CheckAssetsForOrderOptions
 ): Promise<Array<typeof assets.$inferSelect>> => {
     const database = opts?.tx ?? db;
     const assetIds = requiredAssets.map((asset) => asset.id);
@@ -712,17 +719,39 @@ export const checkAssetsForOrder = async (
     // also takes FOR UPDATE — required for race-safe concurrent submits.
     // Without this, the asset row lock above is necessary but not sufficient:
     // tx1 + tx2 could both pass with stale snapshots of competing bookings.
-    const availabilityMap = await AvailabilityCore.checkAvailability({
-        tx: database,
-        platformId,
-        companyId,
-        requests: requiredAssets.map((r) => ({ asset_id: r.id, quantity: r.quantity })),
-        window: { start: eventStartDate, end: eventEndDate },
-        excludeEntity: opts?.excludeOrderId
-            ? { type: "ORDER", id: opts.excludeOrderId }
-            : undefined,
-        lockForUpdate: !!opts?.tx,
-    });
+    const defaultAvailabilityWindow = { start: eventStartDate, end: eventEndDate };
+    const requestsByWindow = new Map<
+        string,
+        { window: OrderAvailabilityWindow; requests: AvailabilityCore.AvailabilityRequest[] }
+    >();
+
+    for (const requiredAsset of requiredAssets) {
+        const window =
+            opts?.availabilityWindowsByAssetId?.get(requiredAsset.id) ?? defaultAvailabilityWindow;
+        const key = `${window.start.toISOString()}__${window.end.toISOString()}`;
+        const group = requestsByWindow.get(key) ?? { window, requests: [] };
+        group.requests.push({ asset_id: requiredAsset.id, quantity: requiredAsset.quantity });
+        requestsByWindow.set(key, group);
+    }
+
+    const availabilityMap = new Map<string, AvailabilityCore.AvailabilityResult>();
+    for (const group of requestsByWindow.values()) {
+        const groupAvailability = await AvailabilityCore.checkAvailability({
+            tx: database,
+            platformId,
+            companyId,
+            requests: group.requests,
+            window: group.window,
+            excludeEntity: opts?.excludeOrderId
+                ? { type: "ORDER", id: opts.excludeOrderId }
+                : undefined,
+            lockForUpdate: !!opts?.tx,
+        });
+
+        for (const [assetId, result] of groupAvailability.entries()) {
+            availabilityMap.set(assetId, result);
+        }
+    }
 
     const failures: AvailabilityCore.AvailabilityResult[] = [];
     for (const res of availabilityMap.values()) {
