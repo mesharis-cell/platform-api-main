@@ -26,6 +26,7 @@
  * FINANCIAL · ADMIN-only (never client-mounted) → LEAK_RISK report.
  */
 import { sql, SQL } from "drizzle-orm";
+import type ExcelJS from "exceljs";
 import httpStatus from "http-status";
 import { z } from "zod";
 import { db } from "../../../../db";
@@ -55,7 +56,10 @@ const toArr = (v: unknown): string[] =>
 
 const paramsSchema = z
     .object({
-        company_id: z.string().uuid(),
+        // Optional → when omitted, the report runs across ALL companies on the
+        // platform (the controller sets ctx.allCompanies). Every OTHER report keeps
+        // company_id required, so only this report can enter all-companies mode.
+        company_id: z.string().uuid().optional(),
         date_from: z.string().regex(DATE_RE).optional(),
         date_to: z.string().regex(DATE_RE).optional(),
         category_include: z.union([z.string(), z.array(z.string())]).optional(),
@@ -117,6 +121,14 @@ async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<
     const cat = categoryFilter(inc, exc);
     const hasCategoryFilter = inc.length > 0 || exc.length > 0;
 
+    // All-companies mode: drop the per-company filter and lean on platform_id scoping
+    // (still present in every branch). Single-company mode: bind to ctx.companyId.
+    const allCompanies = !!ctx.allCompanies;
+    const orderCompanyScope = allCompanies ? sql`` : sql` AND o.company = ${ctx.companyId}`;
+    const srCompanyScope = allCompanies ? sql`` : sql` AND sr.company_id = ${ctx.companyId}`;
+    const spCompanyScope = allCompanies ? sql`` : sql` AND sp.company_id = ${ctx.companyId}`;
+    const inboundCompanyScope = allCompanies ? sql`` : sql` AND ir.company_id = ${ctx.companyId}`;
+
     const orderCategoryExists = hasCategoryFilter
         ? sql` AND EXISTS (SELECT 1 FROM order_items oi LEFT JOIN assets a ON oi.asset = a.id WHERE oi."order" = o.id ${cat})`
         : sql``;
@@ -141,7 +153,7 @@ FROM orders o
 JOIN companies co ON o.company = co.id
 LEFT JOIN prices p ON p.id = o.order_pricing_id
 WHERE o.platform_id = ${ctx.platformId}
-  AND o.company = ${ctx.companyId}
+  ${orderCompanyScope}
   AND o.deleted_at IS NULL
   AND o.order_status NOT IN ('DRAFT', 'CANCELLED')
   AND o.financial_status <> 'NOT_APPLICABLE'
@@ -160,7 +172,7 @@ FROM service_requests sr
 JOIN companies co ON sr.company_id = co.id
 LEFT JOIN prices p ON p.id = sr.request_pricing_id
 WHERE sr.platform_id = ${ctx.platformId}
-  AND sr.company_id = ${ctx.companyId}
+  ${srCompanyScope}
   AND sr.request_status NOT IN ('DRAFT', 'CANCELLED')
   AND sr.commercial_status <> 'INTERNAL'
   ${srCategoryExists}
@@ -178,7 +190,7 @@ FROM self_pickups sp
 JOIN companies co ON sp.company_id = co.id
 LEFT JOIN prices p ON p.platform_id = sp.platform_id AND p.entity_type = 'SELF_PICKUP' AND p.entity_id = sp.id
 WHERE sp.platform_id = ${ctx.platformId}
-  AND sp.company_id = ${ctx.companyId}
+  ${spCompanyScope}
   AND sp.self_pickup_status NOT IN ('DECLINED', 'CANCELLED')
   AND sp.pricing_mode <> 'NO_COST'
   ${spCategoryExists}
@@ -196,19 +208,21 @@ FROM inbound_requests ir
 JOIN companies co ON ir.company_id = co.id
 LEFT JOIN prices p ON p.id = ir.request_pricing_id
 WHERE ir.platform_id = ${ctx.platformId}
-  AND ir.company_id = ${ctx.companyId}
+  ${inboundCompanyScope}
   AND ir.request_status NOT IN ('DECLINED', 'CANCELLED')
   AND ir.financial_status <> 'NOT_APPLICABLE'
   ${inboundCategoryExists}
   ${dateFilter(sql.raw("ir.created_at"), gte, lt)}
 
-ORDER BY document_date ASC`;
+ORDER BY company ASC, document_date ASC`;
 
     const rows = ((await db.execute(query)) as any).rows as RawRow[];
     if (rows.length > ROW_CAP)
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            `Report has ${rows.length} documents (cap ${ROW_CAP}). Narrow by date range or category.`
+            `Report has ${rows.length} documents (cap ${ROW_CAP}). Narrow by a date range${
+                allCompanies ? " (strongly recommended for all-companies runs)" : ""
+            } or category.`
         );
 
     type Doc = {
@@ -289,6 +303,18 @@ ORDER BY document_date ASC`;
 
     const showMargin = ctx.canSeeMargin && !ctx.isClientMount;
 
+    // Group docs by company for all-companies mode (rows arrive ordered by company).
+    const groupByCompany = (list: Doc[]): { company: string; docs: Doc[] }[] => {
+        const groups: { company: string; docs: Doc[] }[] = [];
+        for (const d of list) {
+            const name = d.raw.company ?? "—";
+            const last = groups[groups.length - 1];
+            if (last && last.company === name) last.docs.push(d);
+            else groups.push({ company: name, docs: [d] });
+        }
+        return groups;
+    };
+
     // ── Common leading columns (document context) ────────────────────────────
     const baseColumns: ReportColumn[] = [
         { header: "DOCUMENT TYPE", width: 16 },
@@ -348,11 +374,7 @@ ORDER BY document_date ASC`;
                 row.getCell(c).border = { ...(row.getCell(c).border || {}), [side]: { style } };
         };
 
-        let gBuy = 0;
-        let gSell = 0;
-        let gMargin = 0;
-        let gFinal = 0;
-        for (const d of docs) {
+        const renderDocBlock = (d: Doc) => {
             // Entity header — document context, shaded + top border (opens the block).
             const hdr = sheet.addRow([...ctxCells(d.raw)]);
             hdr.font = { bold: true };
@@ -402,28 +424,48 @@ ORDER BY document_date ASC`;
             edge(totRow, "bottom", "medium");
 
             sheet.addRow([]); // spacer between blocks
+        };
 
-            gBuy += d.buyTotal;
-            gSell += d.sellSubtotal;
-            gMargin += d.marginAmount;
-            gFinal += d.finalTotal;
-        }
+        // Roll-up: an (ex-VAT) row (buy/sell/margin) + an (incl VAT) row (final).
+        const writeRollup = (label: string, list: Doc[], fill: ExcelJS.Fill, big = false) => {
+            const sumB = roundMoney(list.reduce((n, d) => n + d.buyTotal, 0));
+            const sumS = roundMoney(list.reduce((n, d) => n + d.sellSubtotal, 0));
+            const sumM = roundMoney(list.reduce((n, d) => n + d.marginAmount, 0));
+            const sumF = roundMoney(list.reduce((n, d) => n + d.finalTotal, 0));
+            const r1 = sheet.addRow([]);
+            r1.getCell(1).value = `${label} (ex-VAT)`;
+            r1.font = big ? { bold: true, size: 12 } : { bold: true };
+            if (big) r1.height = 20;
+            for (let c = 1; c <= lastCol; c += 1) r1.getCell(c).fill = fill;
+            if (showMargin) money(BUY_C, sumB);
+            money(SELL_C, sumS);
+            if (showMargin) money(MARGIN_C, sumM);
+            const r2 = sheet.addRow([]);
+            r2.getCell(1).value = `${label} (incl VAT)`;
+            r2.font = big ? { bold: true, size: 12 } : { bold: true };
+            for (let c = 1; c <= lastCol; c += 1) r2.getCell(c).fill = fill;
+            money(SELL_C, sumF);
+        };
 
-        if (docs.length > 0) {
-            const grand = sheet.addRow([]);
-            grand.getCell(1).value = `GRAND TOTAL — ${ctx.companyName} (ex-VAT)`;
-            grand.font = { bold: true, size: 12 };
-            grand.height = 20;
-            grand.eachCell({ includeEmpty: true }, (c) => (c.fill = STYLE.GRAND_FILL));
-            if (showMargin) money(BUY_C, roundMoney(gBuy));
-            money(SELL_C, roundMoney(gSell));
-            if (showMargin) money(MARGIN_C, roundMoney(gMargin));
-
-            const grandV = sheet.addRow([]);
-            grandV.getCell(1).value = `GRAND TOTAL — ${ctx.companyName} (incl VAT)`;
-            grandV.font = { bold: true, size: 12 };
-            grandV.eachCell({ includeEmpty: true }, (c) => (c.fill = STYLE.GRAND_FILL));
-            money(SELL_C, roundMoney(gFinal));
+        if (allCompanies) {
+            for (const g of groupByCompany(docs)) {
+                // Company banner — opens the company section.
+                const banner = sheet.addRow([]);
+                banner.getCell(1).value = g.company;
+                banner.font = { bold: true, size: 12 };
+                banner.height = 18;
+                for (let c = 1; c <= lastCol; c += 1) banner.getCell(c).fill = STYLE.HEADER_FILL;
+                edge(banner, "top", "medium");
+                for (const d of g.docs) renderDocBlock(d);
+                writeRollup(`SUBTOTAL — ${g.company}`, g.docs, STYLE.SUBTOTAL_FILL);
+                sheet.addRow([]); // spacer between companies
+            }
+            if (docs.length > 0)
+                writeRollup(`GRAND TOTAL — ${ctx.companyName}`, docs, STYLE.GRAND_FILL, true);
+        } else {
+            for (const d of docs) renderDocBlock(d);
+            if (docs.length > 0)
+                writeRollup(`GRAND TOTAL — ${ctx.companyName}`, docs, STYLE.GRAND_FILL, true);
         }
 
         finalizeWorkbook(h, docs.length);
@@ -458,9 +500,7 @@ ORDER BY document_date ASC`;
     const VATAMT_COL = colIdx("VAT AMOUNT");
     const FINAL_COL = colIdx("FINAL TOTAL");
 
-    let firstData = 0;
-    let lastData = 0;
-    for (const d of docs) {
+    const summaryCells = (d: Doc): (string | number)[] => {
         const cells: (string | number)[] = [...ctxCells(d.raw)];
         if (showMargin) cells.push(d.buyTotal);
         cells.push(d.sellSubtotal);
@@ -471,50 +511,102 @@ ORDER BY document_date ASC`;
         cells.push(d.vatPercent);
         cells.push(d.vatAmount);
         cells.push(d.finalTotal);
-        const row = sheet.addRow(cells);
-        if (!firstData) firstData = row.number;
-        lastData = row.number;
-    }
+        return cells;
+    };
+    const reduceSum = (list: Doc[], sel: (d: Doc) => number) =>
+        roundMoney(list.reduce((n, d) => n + sel(d), 0));
 
-    if (docs.length > 0) {
-        const reduceSum = (sel: (d: Doc) => number) =>
-            roundMoney(docs.reduce((n, d) => n + sel(d), 0));
-        const grand = sheet.addRow([]);
-        grand.getCell(1).value = `GRAND TOTAL — ${ctx.companyName}`;
-        grand.font = { bold: true, size: 12 };
-        grand.height = 20;
-        grand.eachCell({ includeEmpty: true }, (cell) => (cell.fill = STYLE.GRAND_FILL));
-        const setSum = (col: number, cached: number) => {
+    // Cached totals row (no SUM formula) — used where per-company subtotals are
+    // interleaved, which would corrupt a SUM range.
+    const writeTotals = (label: string, list: Doc[], fill: ExcelJS.Fill, big = false) => {
+        const row = sheet.addRow([]);
+        row.getCell(1).value = label;
+        row.font = big ? { bold: true, size: 12 } : { bold: true };
+        if (big) row.height = 20;
+        row.eachCell({ includeEmpty: true }, (cell) => (cell.fill = fill));
+        const put = (col: number, val: number) => {
             if (!col) return;
-            const L = colLetter(col - 1);
-            grand.getCell(col).value = {
-                formula: firstData ? `SUM(${L}${firstData}:${L}${lastData})` : "0",
-                result: cached,
-            };
-            grand.getCell(col).numFmt = MONEY_FMT;
+            row.getCell(col).value = val;
+            row.getCell(col).numFmt = MONEY_FMT;
         };
         if (showMargin)
-            setSum(
+            put(
                 BUY_COL,
-                reduceSum((d) => d.buyTotal)
+                reduceSum(list, (d) => d.buyTotal)
             );
-        setSum(
+        put(
             SELL_COL,
-            reduceSum((d) => d.sellSubtotal)
+            reduceSum(list, (d) => d.sellSubtotal)
         );
         if (showMargin)
-            setSum(
+            put(
                 MARGIN_COL,
-                reduceSum((d) => d.marginAmount)
+                reduceSum(list, (d) => d.marginAmount)
             );
-        setSum(
+        put(
             VATAMT_COL,
-            reduceSum((d) => d.vatAmount)
+            reduceSum(list, (d) => d.vatAmount)
         );
-        setSum(
+        put(
             FINAL_COL,
-            reduceSum((d) => d.finalTotal)
+            reduceSum(list, (d) => d.finalTotal)
         );
+    };
+
+    if (allCompanies) {
+        for (const g of groupByCompany(docs)) {
+            for (const d of g.docs) sheet.addRow(summaryCells(d));
+            writeTotals(`Subtotal — ${g.company}`, g.docs, STYLE.SUBTOTAL_FILL);
+            sheet.addRow([]); // spacer between companies
+        }
+        if (docs.length > 0)
+            writeTotals(`GRAND TOTAL — ${ctx.companyName}`, docs, STYLE.GRAND_FILL, true);
+    } else {
+        let firstData = 0;
+        let lastData = 0;
+        for (const d of docs) {
+            const row = sheet.addRow(summaryCells(d));
+            if (!firstData) firstData = row.number;
+            lastData = row.number;
+        }
+        if (docs.length > 0) {
+            const grand = sheet.addRow([]);
+            grand.getCell(1).value = `GRAND TOTAL — ${ctx.companyName}`;
+            grand.font = { bold: true, size: 12 };
+            grand.height = 20;
+            grand.eachCell({ includeEmpty: true }, (cell) => (cell.fill = STYLE.GRAND_FILL));
+            const setSum = (col: number, cached: number) => {
+                if (!col) return;
+                const L = colLetter(col - 1);
+                grand.getCell(col).value = {
+                    formula: firstData ? `SUM(${L}${firstData}:${L}${lastData})` : "0",
+                    result: cached,
+                };
+                grand.getCell(col).numFmt = MONEY_FMT;
+            };
+            if (showMargin)
+                setSum(
+                    BUY_COL,
+                    reduceSum(docs, (d) => d.buyTotal)
+                );
+            setSum(
+                SELL_COL,
+                reduceSum(docs, (d) => d.sellSubtotal)
+            );
+            if (showMargin)
+                setSum(
+                    MARGIN_COL,
+                    reduceSum(docs, (d) => d.marginAmount)
+                );
+            setSum(
+                VATAMT_COL,
+                reduceSum(docs, (d) => d.vatAmount)
+            );
+            setSum(
+                FINAL_COL,
+                reduceSum(docs, (d) => d.finalTotal)
+            );
+        }
     }
 
     finalizeWorkbook(h, docs.length);
@@ -525,13 +617,14 @@ export const accountsReconciliationReport: ReportDefinition = {
     key: "accounts-reconciliation",
     label: "Accounts Reconciliation",
     description:
-        "Per-tenant billables ledger across orders, service requests, self-pickups and inbound requests — client-billable documents only (excludes internal SRs, no-cost self-pickups, not-applicable orders/inbound). Toggle 'Line-item breakdown' to expand each document into its individual charge lines with per-document subtotal/VAT/total. ADMIN-only.",
+        "Billables ledger across orders, service requests, self-pickups and inbound requests — client-billable documents only (excludes internal SRs, no-cost self-pickups, not-applicable orders/inbound). Leave Company blank to run across ALL companies on the platform (grouped, with per-company subtotals + an overall total) — use a date range for all-companies runs. Toggle 'Line-item breakdown' to expand each document into its individual charge lines with per-document subtotal/VAT/total. ADMIN-only.",
     section: "FINANCIAL",
     audience: "ADMIN",
     operationsRoles: ["ADMIN"],
     permissions: ["orders:export"],
     filters: [
-        { key: "company_id", label: "Company", type: "company", required: true },
+        // Optional — leave blank to run across ALL companies on the platform.
+        { key: "company_id", label: "Company", type: "company", required: false },
         { key: "date_from", label: "From", type: "date", required: false },
         { key: "date_to", label: "To", type: "date", required: false },
         {
@@ -555,7 +648,7 @@ export const accountsReconciliationReport: ReportDefinition = {
     rowCap: {
         max: ROW_CAP,
         dimension: "rows",
-        narrowHint: "narrow by date range or category",
+        narrowHint: "narrow by date range (especially for all-companies runs) or category",
     },
     run,
 };

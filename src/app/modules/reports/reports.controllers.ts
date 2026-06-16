@@ -142,25 +142,42 @@ const runReport = (isClientMount: boolean) =>
         }
         const params = parsed.data as Record<string, any>;
 
-        const companyId = String(params.company_id);
-        const company = await resolveCompanyContext(companyId);
-        // Tenant isolation — the company must live under the caller's platform.
-        if (company.platformId !== platformId)
-            throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found.");
+        // A report whose company_id filter is OPTIONAL may run platform-wide (all
+        // companies). company_id is REQUIRED in every other report's schema, so only
+        // an all-companies-capable report can reach the null branch here. CLIENT
+        // callers always have company_id force-set above, so they can never trigger it.
+        const rawCompanyId = params.company_id ? String(params.company_id) : null;
+        let companyId = "";
+        let companyName = "All companies";
+        let allCompanies = true;
+        if (rawCompanyId) {
+            const company = await resolveCompanyContext(rawCompanyId);
+            // Tenant isolation — the company must live under the caller's platform.
+            if (company.platformId !== platformId)
+                throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found.");
+            companyId = rawCompanyId;
+            companyName = company.companyName;
+            allCompanies = false;
+        }
+        // In all-companies mode the per-query platform_id filter is the tenant
+        // boundary — there is no single company to isolate against.
 
-        // requiredFeature gate — block the run when the report's feature is off
-        // for this company (canonical company-override → platform → default chain).
-        const featureCtx = await loadFeatureContext(platformId, companyId);
+        // requiredFeature gate — company-scoped when a company is selected, else
+        // platform-level (canonical company-override → platform → default chain).
+        const featureCtx = await loadFeatureContext(platformId, rawCompanyId);
         if (!isFeatureOn(def, featureCtx))
             throw new CustomizedError(
                 httpStatus.FORBIDDEN,
-                "This report is not available for the selected company."
+                allCompanies
+                    ? "This report is not available on this platform."
+                    : "This report is not available for the selected company."
             );
 
         const ctx: ReportRunContext = {
             platformId,
             companyId,
-            companyName: company.companyName,
+            companyName,
+            allCompanies,
             role: user.role as ReportRunContext["role"],
             canSeeMargin: hasAnyPermission(user, [PERMISSIONS.ANALYTICS_TRACK_MARGIN]),
             isClientMount,

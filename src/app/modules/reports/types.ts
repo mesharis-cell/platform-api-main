@@ -44,6 +44,13 @@ export interface ReportRunContext {
     platformId: string;
     companyId: string;
     companyName: string;
+    /**
+     * true when the report runs across ALL companies on the platform (no single
+     * company selected). Only reports whose company_id filter is OPTIONAL can enter
+     * this mode; companyId is "" and companyName is a label ("All companies") here,
+     * and platform_id scoping in the report query is the tenant boundary.
+     */
+    allCompanies?: boolean;
     role: ReportRole;
     /**
      * Caller may see cost/margin columns (holds ANALYTICS_TRACK_MARGIN). ADMIN-only
