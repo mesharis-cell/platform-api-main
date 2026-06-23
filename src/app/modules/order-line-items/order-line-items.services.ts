@@ -1216,11 +1216,15 @@ const updateOrderPricingAfterLineItemChange = async (
     });
 
     // OQ10 reprice ripple: if the client has already seen a quote (order is QUOTED), a pricing
-    // change invalidates it — bounce the order back to PRICING_REVIEW for re-review, flag
-    // financial_status QUOTE_REVISED, and notify admin/logistics (the dormant order.updated
-    // rules wake up on status_reverted=true). Pre-quote states (SUBMITTED/PRICING_REVIEW/
-    // PENDING_APPROVAL) just recalc in place. The estimate PDF regenerates when admin re-approves
-    // via adminApproveQuote — calling generateEstimate from PRICING_REVIEW would 400.
+    // change invalidates it — bounce the order to PENDING_APPROVAL so the admin can re-review and
+    // re-issue directly (adminApproveQuote requires PENDING_APPROVAL), flag financial_status
+    // QUOTE_REVISED (blocks the now-stale estimate download until re-approval), and notify
+    // admin/logistics (the dormant order.updated rules wake up on status_reverted=true). We do NOT
+    // route back through PRICING_REVIEW: an admin-driven line-item change is a commercial edit, and a
+    // logistics round-trip is pointless when the change may be admin-only (logistics_visible=false)
+    // — admin can still hand it back via "Return to Logistics" when warehouse input is genuinely
+    // needed. Pre-quote states (SUBMITTED/PRICING_REVIEW/PENDING_APPROVAL) just recalc in place. The
+    // estimate PDF regenerates when admin re-approves — calling generateEstimate mid-revision 400s.
     const [order] = await db
         .select({
             id: orders.id,
@@ -1242,7 +1246,7 @@ const updateOrderPricingAfterLineItemChange = async (
         await tx
             .update(orders)
             .set({
-                order_status: "PRICING_REVIEW",
+                order_status: "PENDING_APPROVAL",
                 financial_status: "QUOTE_REVISED",
                 updated_at: new Date(),
             })
@@ -1251,8 +1255,8 @@ const updateOrderPricingAfterLineItemChange = async (
         await tx.insert(orderStatusHistory).values({
             platform_id: platformId,
             order_id: orderId,
-            status: "PRICING_REVIEW",
-            notes: "Order edited after the quote was sent — returned to pricing review for re-approval.",
+            status: "PENDING_APPROVAL",
+            notes: "Order edited after the quote was sent — returned to admin approval for re-review and re-issue.",
             updated_by: userId,
         });
         await tx.insert(financialStatusHistory).values({
@@ -1273,8 +1277,10 @@ const updateOrderPricingAfterLineItemChange = async (
 
     // Emit AFTER the transaction commits so a rolled-back revert never fires a re-review
     // notification. actor_role is left null (the actor's role isn't threaded through the 6
-    // line-item call sites that reach here — see report); `changed: ['pricing']` keeps the
-    // re-review email/audit from rendering a blank change set.
+    // line-item call sites that reach here). changed:[] is intentional — a reprice ripple has no
+    // field-level diff. The order.updated template renders the re-review lead off status_reverted
+    // and skips its (now-guarded) changed-fields box when the list is empty, so we never emit the
+    // bogus "Pricing: — → —" row that a synthetic {old:null,new:null} entry produced before.
     await eventBus.emit({
         platform_id: platformId,
         event_type: EVENT_TYPES.ORDER_UPDATED,
@@ -1287,7 +1293,7 @@ const updateOrderPricingAfterLineItemChange = async (
             companyId: order.company_id || "",
             companyName: company?.name || "N/A",
             contactName: order.contact_name,
-            changed: [{ field: "pricing", old: null, new: null, tier: "B" }],
+            changed: [],
             statusReverted: true,
             repriceTriggered: true,
         }),

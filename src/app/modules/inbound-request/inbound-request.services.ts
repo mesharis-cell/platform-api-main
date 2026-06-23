@@ -678,11 +678,12 @@ const approveInboundRequestByAdmin = async (
         );
     }
 
-    // Determine if this is a revised quote (order was previously quoted)
-    const isRevisedQuote = ["QUOTE_SENT", "QUOTE_REVISED"].includes(
-        inboundRequest.financial_status
-    );
-    const newFinancialStatus = isRevisedQuote ? "QUOTE_REVISED" : "QUOTE_SENT";
+    // A re-approved inbound quote is a freshly sent quote awaiting client action: store QUOTE_SENT,
+    // never QUOTE_REVISED. Inbound line-item edits never revert status (updateInboundRequestPricing-
+    // AfterLineItemChange only rebuilds pricing), so this re-approval was the SOLE writer of
+    // QUOTE_REVISED — and a stored QUOTE_REVISED would permanently trip the company-office estimate
+    // download 409 gate. Mirrors the order fix in adminApproveQuote.
+    const newFinancialStatus = "QUOTE_SENT";
 
     let finalTotal = String(
         PricingService.projectSummaryForRole(requestPricing as any, "CLIENT")?.final_total || "0"

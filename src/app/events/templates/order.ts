@@ -271,13 +271,17 @@ export const quoteRevisedClient: EmailTemplate = {
     subject: (payload) => `Revised Quote: ${p(payload).entity_id_readable}`,
     html: (payload) => {
         const d = p(payload);
+        // Deliberately generic — no figures. A revised quote is a fresh quote to review in full
+        // on the portal; surfacing a "previous → new" delta in the email invited disputes over
+        // email (and previously printed a misleading identical "Previous == New" when the revision
+        // was line-item-driven rather than a margin change). The client opens the order to see the
+        // actual revised breakdown and download the new cost estimate.
         return wrap(`
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Your Quote Has Been Revised</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Hi ${d.contact_name}, the quote for order ${d.entity_id_readable} has been updated.</p>
             ${infoBox(`
-                ${infoRow("Previous Total", `${formatAmount(d.previous_total)} AED`)}
-                ${infoRow("New Total", `${formatAmount(d.new_total)} AED`)}
-                ${d.revision_reason ? infoRow("Reason", d.revision_reason) : ""}
+                ${infoRow("Order ID", d.entity_id_readable)}
+                ${d.company_name ? infoRow("Company", d.company_name) : ""}
             `)}
             <p style="margin: 16px 0; color: #dc2626; font-weight: 600;">Action Required: Please review and approve or decline the revised quote.</p>
             ${actionButton("View Revised Quote", d.order_url)}
@@ -293,11 +297,10 @@ export const quoteRevisedAdmin: EmailTemplate = {
         const d = p(payload);
         return wrap(`
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Quote Revised — Client Notified</h1>
-            <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">The quote for order ${d.entity_id_readable} has been revised and the client has been notified.</p>
+            <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">The quote for order ${d.entity_id_readable} has been revised and re-sent to the client for approval.</p>
             ${infoBox(`
-                ${infoRow("Previous Total", `${formatAmount(d.previous_total)} AED`)}
-                ${infoRow("New Total", `${formatAmount(d.new_total)} AED`)}
-                ${d.revision_reason ? infoRow("Reason", d.revision_reason) : ""}
+                ${infoRow("Order ID", d.entity_id_readable)}
+                ${infoRow("Company", d.company_name)}
             `)}
             ${actionButton("View Order", d.order_url)}
             ${footer()}
@@ -1047,7 +1050,11 @@ export const orderUpdatedAdmin: EmailTemplate = {
                 ${infoRow("Company", d.company_name)}
                 ${actedByRow(d)}
             `)}
-            ${infoBox(changedFieldsRows(d), "#f9fafb")}
+            ${
+                Array.isArray(d.changed_fields) && d.changed_fields.length > 0
+                    ? infoBox(changedFieldsRows(d), "#f9fafb")
+                    : ""
+            }
             ${actionButton("View Order", d.order_url)}
             ${footer()}
         `);

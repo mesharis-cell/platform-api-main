@@ -3326,16 +3326,19 @@ const adminApproveQuote = async (
         );
     }
 
-    // Determine if this is a revised quote (order was previously quoted)
+    // Determine if this is a revised quote (order was previously quoted). This flag drives the
+    // notification (QUOTE_REVISED event) + history note ONLY — NOT the stored financial_status.
+    // The stored financial_status is ALWAYS QUOTE_SENT on (re-)approval: a re-issued quote is a
+    // freshly sent quote awaiting client acceptance. Leaving it at QUOTE_REVISED previously kept
+    // the client "Quote Being Revised" banner up, hid the estimate download, and tripped the
+    // QUOTE_REVISED 409 gate (invoice.controllers.ts) — which is meant to block downloads ONLY
+    // during the active revision window (post-edit, pre-reapproval), exactly as that gate's own
+    // comment states ("self-clears once re-approval moves financial_status off QUOTE_REVISED").
     const isRevisedQuote = ["QUOTE_SENT", "QUOTE_REVISED"].includes(order.financial_status);
-    const newFinancialStatus = isRevisedQuote ? "QUOTE_REVISED" : "QUOTE_SENT";
+    const newFinancialStatus = "QUOTE_SENT";
 
     const projectedAdminPricing = PricingService.projectByRole(orderPricing as any, "ADMIN") as any;
     let finalTotal = String(projectedAdminPricing?.final_total || "0");
-    // Snapshot the pre-transaction sell total so revised-quote emails can
-    // surface it as "Previous Total". finalTotal is reassigned below if a
-    // same-request margin override is applied; preTxnFinalTotal stays intact.
-    const preTxnFinalTotal = finalTotal;
 
     // Step 3: Update order pricing and status
     await db.transaction(async (tx) => {
@@ -3432,8 +3435,6 @@ const adminApproveQuote = async (
             contact_name: order.contact_name,
             contact_email: order.contact_email,
             final_total: finalTotal,
-            previous_total: preTxnFinalTotal,
-            new_total: finalTotal,
             line_items: clientLineItems,
             // pricing.* MUST be sourced from the CLIENT projection — never
             // admin. Admin's base_ops_total is buy-side and margin_amount is
