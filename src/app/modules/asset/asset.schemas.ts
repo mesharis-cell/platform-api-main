@@ -2,9 +2,17 @@ import z from "zod";
 import { assetConditionEnum, assetStatusEnum, stockModeEnum } from "../../../db/schema";
 import { enumMessageGenerator } from "../../utils/helper";
 
-const assetImageSchema = z.object({
+// `source` distinguishes client/catalogue-curated photos from operational scan
+// imagery. The inbound scan write (scanning.services.ts) tags its entries
+// `SCAN` and preserves everything else; CBO/admin catalogue uploads are tagged
+// `CLIENT`. Zod strips unknown keys by default, so this MUST be declared for the
+// tag to survive validation + persist into the jsonb column (no DB migration —
+// jsonb is schema-free). Also the deterministic seed for the planned
+// catalogue/scan split migration (catalogue_images ← source='CLIENT').
+export const assetImageSchema = z.object({
     url: z.string().url("Invalid image URL"),
     note: z.string().max(500, "Image note must be under 500 characters").optional(),
+    source: z.enum(["CLIENT", "SCAN"]).optional(),
 });
 
 const createAssetSchema = z.object({

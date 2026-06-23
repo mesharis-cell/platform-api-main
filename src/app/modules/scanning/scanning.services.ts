@@ -338,14 +338,28 @@ const inboundScan = async (
     // NOTE: available_quantity is booking-driven and is not mutated by scans.
     const newStatus: "AVAILABLE" | "BOOKED" | "OUT" | "MAINTENANCE" = "AVAILABLE";
 
+    // Merge-not-replace: never delete client-curated photos and never push scan
+    // imagery in front of them. Keep every entry NOT tagged source:'SCAN' (CLIENT
+    // uploads + legacy untagged) at the FRONT, then append the new return-scan
+    // media tagged source:'SCAN'. Each scan replaces only the previous SCAN-tagged
+    // entries (the prior scan batch), so the scan gallery does not accumulate.
+    // The one-time backfill tags legacy rows, after which retention converges to
+    // CLIENT-only. Adding the `source` key needs no migration (jsonb is schema-free).
+    const existingImages = Array.isArray(asset.images)
+        ? (asset.images as Array<{ url?: string; note?: string; source?: string }>)
+        : [];
+    const clientKept = existingImages.filter((entry) => entry?.source !== "SCAN");
+    const newScanImages = normalizedReturnMedia.map((entry) => ({
+        url: entry.url,
+        note: entry.note,
+        source: "SCAN" as const,
+    }));
+
     await db
         .update(assets)
         .set({
             status: newStatus,
-            images: normalizedReturnMedia.map((entry) => ({
-                url: entry.url,
-                note: entry.note,
-            })),
+            images: [...clientKept, ...newScanImages],
         })
         .where(eq(assets.id, asset.id));
 

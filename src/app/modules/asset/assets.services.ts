@@ -40,10 +40,16 @@ import { assetQueryValidationConfig, assetSortableFields } from "./assets.utils"
 import * as AvailabilityCore from "../../shared/availability/availability.core";
 
 // Moves any draft S3 images to permanent {companyId}/assets/ path
+// Image jsonb entries carry an optional `source` tag (CLIENT | SCAN). The type
+// is widened here so the tag survives promotion (the runtime `...img` spread
+// already preserves it; the previous narrow type silently dropped it at compile
+// time). See assetImageSchema in asset.schemas.ts.
+type AssetImageEntry = { url: string; note?: string; source?: "CLIENT" | "SCAN" };
+
 const promoteDraftImages = async (
-    images: { url: string; note?: string }[],
+    images: AssetImageEntry[],
     companyId: string
-): Promise<{ url: string; note?: string }[]> => {
+): Promise<AssetImageEntry[]> => {
     return Promise.all(
         images.map(async (img) => {
             if (!img.url.includes("/drafts/")) return img;
@@ -55,6 +61,15 @@ const promoteDraftImages = async (
         })
     );
 };
+
+// Stamp catalogue/client-curated images with source:'CLIENT' so the inbound scan
+// merge never treats them as replaceable scan media, and so the planned
+// catalogue/scan split migration can partition deterministically on `source`.
+const tagImagesClient = (images: unknown): AssetImageEntry[] =>
+    (Array.isArray(images) ? (images as AssetImageEntry[]) : []).map((img) => ({
+        ...img,
+        source: "CLIENT" as const,
+    }));
 
 // ═══════════════════════════════════════════════════════════════════════════
 // GROUP HELPERS (post-squash)
@@ -270,13 +285,16 @@ const resolveCreateAssetData = async (data: CreateAssetPayload) => {
         team_id: data.team_id ?? null,
         group_id: groupId,
         group_name: groupName,
-        group_images: groupId ? groupImages : [],
+        // Catalogue uploads are tagged source:'CLIENT' so the inbound scan merge
+        // never treats them as replaceable scan media (and the catalogue/scan
+        // split migration can partition deterministically on `source`).
+        group_images: groupId ? tagImagesClient(groupImages) : [],
         group_on_display_image: groupId ? groupOnDisplayImage : null,
         sibling_index_start: siblingIndexStart, // consumed by createAsset; not stored on row
         // name stays as base (data.name); createAsset suffixes per-unit
         category,
         description: data.description ?? undefined,
-        images: data.images ?? [],
+        images: tagImagesClient(data.images),
         on_display_image: data.on_display_image ?? null,
         stock_mode: data.stock_mode,
         total_quantity: totalQuantity,
@@ -1200,15 +1218,13 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
         // and broke once the S3 lifecycle rule swept them.
         const targetCompanyId = data.company_id || existingAsset.company_id;
         if (Array.isArray(dbData.images) && dbData.images.length > 0) {
-            dbData.images = await promoteDraftImages(
-                dbData.images as { url: string; note?: string }[],
-                targetCompanyId
+            dbData.images = tagImagesClient(
+                await promoteDraftImages(dbData.images as AssetImageEntry[], targetCompanyId)
             );
         }
         if (Array.isArray(dbData.group_images) && dbData.group_images.length > 0) {
-            dbData.group_images = await promoteDraftImages(
-                dbData.group_images as { url: string; note?: string }[],
-                targetCompanyId
+            dbData.group_images = tagImagesClient(
+                await promoteDraftImages(dbData.group_images as AssetImageEntry[], targetCompanyId)
             );
         }
         if (Array.isArray(dbData.condition_photos) && dbData.condition_photos.length > 0) {
@@ -2734,6 +2750,12 @@ const COMPANY_EDITABLE_ASSET_FIELDS = [
     "description",
     "category",
     "brand_id",
+    // Lone-asset gallery (tagged source:'CLIENT', scan-safe via the merge).
+    "images",
+    // Grouped gallery + rename — cascade to all siblings sharing group_id.
+    "group_name",
+    "group_images",
+    "group_on_display_image",
 ] as const;
 
 const companyEditAsset = async (
@@ -2751,25 +2773,24 @@ const companyEditAsset = async (
     // Cross-tenant backstop: the asset must belong to the manager's company.
     assertCompanyScopeOrManager(user, existing, "asset");
 
-    // Allowlist — only the five presentation fields are ever written.
-    const updateData: Record<string, unknown> = {};
+    // Allowlist — only these fields are ever written.
+    const incoming: Record<string, unknown> = {};
     for (const field of COMPANY_EDITABLE_ASSET_FIELDS) {
-        if (data[field] !== undefined) updateData[field] = data[field];
+        if (data[field] !== undefined) incoming[field] = data[field];
     }
-    if (Object.keys(updateData).length === 0) {
+    if (Object.keys(incoming).length === 0) {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "No editable fields provided");
     }
 
+    const companyId = existing.company_id as string;
+
     // A new brand must belong to the same company (null clears the brand).
-    if (updateData.brand_id) {
+    if (incoming.brand_id) {
         const [brand] = await db
             .select({ id: brands.id })
             .from(brands)
             .where(
-                and(
-                    eq(brands.id, updateData.brand_id as string),
-                    eq(brands.company_id, existing.company_id as string)
-                )
+                and(eq(brands.id, incoming.brand_id as string), eq(brands.company_id, companyId))
             );
         if (!brand) {
             throw new CustomizedError(
@@ -2779,21 +2800,118 @@ const companyEditAsset = async (
         }
     }
 
-    // Promote a freshly-uploaded display image from drafts/ to the permanent path.
-    if (updateData.on_display_image && existing.company_id) {
-        const [promoted] = await promoteDraftImages(
-            [{ url: updateData.on_display_image as string }],
-            existing.company_id
+    // Promote freshly-uploaded media (drafts/ → permanent) and tag galleries CLIENT
+    // so the inbound scan merge never deletes them.
+    if (Array.isArray(incoming.images) && companyId) {
+        incoming.images = tagImagesClient(
+            await promoteDraftImages(incoming.images as AssetImageEntry[], companyId)
         );
-        updateData.on_display_image = promoted.url;
+    }
+    if (Array.isArray(incoming.group_images) && companyId) {
+        incoming.group_images = tagImagesClient(
+            await promoteDraftImages(incoming.group_images as AssetImageEntry[], companyId)
+        );
+    }
+    if (incoming.on_display_image && companyId) {
+        const [promoted] = await promoteDraftImages(
+            [{ url: incoming.on_display_image as string }],
+            companyId
+        );
+        incoming.on_display_image = promoted.url;
+    }
+    if (incoming.group_on_display_image && companyId) {
+        const [promoted] = await promoteDraftImages(
+            [{ url: incoming.group_on_display_image as string }],
+            companyId
+        );
+        incoming.group_on_display_image = promoted.url;
     }
 
-    updateData.updated_at = new Date();
+    // Group fields are denormalized across every sibling — they cascade, and are
+    // meaningless on a lone (group_id NULL) asset, so only honor them for a group.
+    const isGroup = Boolean(existing.group_id);
+    const newGroupName = typeof incoming.group_name === "string" ? incoming.group_name : null;
+    const renamingGroup = isGroup && newGroupName !== null;
 
-    const [updated] = await db.update(assets).set(updateData).where(eq(assets.id, id)).returning();
+    const groupCascade: Record<string, unknown> = {};
+    if (isGroup) {
+        if (incoming.group_name !== undefined) groupCascade.group_name = incoming.group_name;
+        if (incoming.group_images !== undefined) groupCascade.group_images = incoming.group_images;
+        if (incoming.group_on_display_image !== undefined) {
+            groupCascade.group_on_display_image = incoming.group_on_display_image;
+        }
+    }
+    // Strip group-only fields from the per-row payload (they flow via the cascade,
+    // which also covers the edited row).
+    delete incoming.group_name;
+    delete incoming.group_images;
+    delete incoming.group_on_display_image;
+    // On a group rename, each sibling's `name` is re-derived (preserving its #N),
+    // so a flat per-row name from the edit form is ignored.
+    if (renamingGroup) delete incoming.name;
+
+    // Reject a cross-group name collision within the company before mutating.
+    if (renamingGroup) {
+        await validateGroupNameUniqueness(db, {
+            platformId,
+            companyId,
+            groupName: newGroupName,
+            currentGroupId: existing.group_id,
+        });
+    }
+
+    const hasPerRow = Object.keys(incoming).length > 0;
+    const now = new Date();
+
+    await db.transaction(async (tx) => {
+        if (hasPerRow) {
+            await tx
+                .update(assets)
+                .set({ ...incoming, updated_at: now })
+                .where(eq(assets.id, id));
+        }
+
+        if (isGroup && Object.keys(groupCascade).length > 0) {
+            await tx
+                .update(assets)
+                .set({ ...groupCascade, updated_at: now })
+                .where(
+                    and(
+                        eq(assets.platform_id, platformId),
+                        eq(assets.group_id, existing.group_id as string),
+                        isNull(assets.deleted_at)
+                    )
+                );
+        }
+
+        // Re-prefix each sibling's persisted `#N` name from the new group label,
+        // preserving the numeric suffix (so "#2" stays "#2"). Snapshot freeze is
+        // intact — no order_items/sp_items asset_name is touched.
+        if (renamingGroup) {
+            const siblings = await tx
+                .select({ id: assets.id, name: assets.name })
+                .from(assets)
+                .where(
+                    and(
+                        eq(assets.platform_id, platformId),
+                        eq(assets.group_id, existing.group_id as string),
+                        isNull(assets.deleted_at)
+                    )
+                );
+            for (const sib of siblings) {
+                const { suffixNumber } = parseAssetNameSeries(sib.name);
+                const reName =
+                    suffixNumber != null ? `${newGroupName} #${suffixNumber}` : newGroupName;
+                if (reName !== sib.name) {
+                    await tx.update(assets).set({ name: reName }).where(eq(assets.id, sib.id));
+                }
+            }
+        }
+    });
 
     await createAssetVersionSnapshot(id, platformId, "Company manager update", user.id);
 
+    const updated = await db.query.assets.findFirst({ where: eq(assets.id, id) });
     return updated;
 };
 

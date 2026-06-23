@@ -14,8 +14,15 @@ const CONDITION_RANK: Record<string, number> = { GREEN: 0, ORANGE: 1, RED: 2 };
 const imageUrlFromAsset = (asset: AssetRow): string | null => {
     if (asset.on_display_image) return asset.on_display_image;
     const images = Array.isArray(asset.images) ? asset.images : [];
-    const first = images[0] as { url?: string } | undefined;
-    return typeof first?.url === "string" ? first.url : null;
+    // Empty-cover fallback prefers a client-curated photo over scan imagery, so a
+    // lone asset whose hero is unset shows a catalogue photo (not a return-scan
+    // photo) as its thumbnail. Falls back to images[0] for legacy untagged rows.
+    const client = images.find(
+        (img: { url?: string; source?: string }) =>
+            img?.source !== "SCAN" && typeof img?.url === "string"
+    );
+    const pick = (client ?? images[0]) as { url?: string } | undefined;
+    return typeof pick?.url === "string" ? pick.url : null;
 };
 
 const imageUrlsFromGroupMedia = (images: unknown): string[] => {
