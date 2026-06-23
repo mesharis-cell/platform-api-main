@@ -2865,27 +2865,33 @@ const companyEditAsset = async (
         incoming.group_on_display_image = promoted.url;
     }
 
-    // Group fields are denormalized across every sibling — they cascade, and are
-    // meaningless on a lone (group_id NULL) asset, so only honor them for a group.
+    // For a GROUP, the curated gallery is written into EACH sibling's OWN `images`
+    // (tagged source:'CLIENT', merged with that sibling's OWN scan photos) and its
+    // OWN `on_display_image` — so every child asset physically carries the photos.
+    // The same values are mirrored to the group-level columns the catalog reads.
+    // For a LONE asset (group_id NULL) the group_* fields are meaningless.
     const isGroup = Boolean(existing.group_id);
     const newGroupName = typeof incoming.group_name === "string" ? incoming.group_name : null;
     const renamingGroup = isGroup && newGroupName !== null;
 
-    const groupCascade: Record<string, unknown> = {};
-    if (isGroup) {
-        if (incoming.group_name !== undefined) groupCascade.group_name = incoming.group_name;
-        if (incoming.group_images !== undefined) groupCascade.group_images = incoming.group_images;
-        if (incoming.group_on_display_image !== undefined) {
-            groupCascade.group_on_display_image = incoming.group_on_display_image;
-        }
-    }
-    // Strip group-only fields from the per-row payload (they flow via the cascade,
-    // which also covers the edited row).
+    // Curated CLIENT gallery + cover for a group (already promoted + CLIENT-tagged
+    // above). `undefined` means the field was not part of this edit.
+    const groupClientImages =
+        isGroup && incoming.group_images !== undefined
+            ? (incoming.group_images as AssetImageEntry[])
+            : undefined;
+    const groupCover =
+        isGroup && incoming.group_on_display_image !== undefined
+            ? (incoming.group_on_display_image as string | null)
+            : undefined;
+
+    // Group-only + lone-only image fields are applied per sibling below, not via
+    // the flat per-row payload.
     delete incoming.group_name;
     delete incoming.group_images;
     delete incoming.group_on_display_image;
-    // On a group rename, each sibling's `name` is re-derived (preserving its #N),
-    // so a flat per-row name from the edit form is ignored.
+    if (isGroup) delete incoming.images;
+    // On a group rename each sibling's `name` is re-derived (preserving its #N).
     if (renamingGroup) delete incoming.name;
 
     // Reject a cross-group name collision within the company before mutating.
@@ -2898,52 +2904,73 @@ const companyEditAsset = async (
         });
     }
 
-    const hasPerRow = Object.keys(incoming).length > 0;
     const now = new Date();
 
     await db.transaction(async (tx) => {
-        if (hasPerRow) {
+        if (!isGroup) {
             await tx
                 .update(assets)
                 .set({ ...incoming, updated_at: now })
                 .where(eq(assets.id, id));
+            return;
         }
 
-        if (isGroup && Object.keys(groupCascade).length > 0) {
-            await tx
-                .update(assets)
-                .set({ ...groupCascade, updated_at: now })
-                .where(
-                    and(
-                        eq(assets.platform_id, platformId),
-                        eq(assets.group_id, existing.group_id as string),
-                        isNull(assets.deleted_at)
-                    )
-                );
-        }
+        // Load siblings with their own images so each one's scan photos survive.
+        const siblings = await tx
+            .select({ id: assets.id, name: assets.name, images: assets.images })
+            .from(assets)
+            .where(
+                and(
+                    eq(assets.platform_id, platformId),
+                    eq(assets.group_id, existing.group_id as string),
+                    isNull(assets.deleted_at)
+                )
+            );
 
-        // Re-prefix each sibling's persisted `#N` name from the new group label,
-        // preserving the numeric suffix (so "#2" stays "#2"). Snapshot freeze is
-        // intact — no order_items/sp_items asset_name is touched.
-        if (renamingGroup) {
-            const siblings = await tx
-                .select({ id: assets.id, name: assets.name })
-                .from(assets)
-                .where(
-                    and(
-                        eq(assets.platform_id, platformId),
-                        eq(assets.group_id, existing.group_id as string),
-                        isNull(assets.deleted_at)
-                    )
+        const clientUrls = groupClientImages
+            ? new Set(groupClientImages.map((entry) => entry.url))
+            : null;
+
+        for (const sib of siblings) {
+            const set: Record<string, unknown> = { updated_at: now };
+
+            // Curated gallery → this sibling's OWN images (CLIENT), keeping its own
+            // scan photos; mirror to group_images for the catalog group gallery.
+            if (groupClientImages && clientUrls) {
+                const sibScan = (
+                    Array.isArray(sib.images) ? (sib.images as AssetImageEntry[]) : []
+                ).filter(
+                    (entry) => entry?.source === "SCAN" && !clientUrls.has(entry.url as string)
                 );
-            for (const sib of siblings) {
-                const { suffixNumber } = parseAssetNameSeries(sib.name);
-                const reName =
-                    suffixNumber != null ? `${newGroupName} #${suffixNumber}` : newGroupName;
-                if (reName !== sib.name) {
-                    await tx.update(assets).set({ name: reName }).where(eq(assets.id, sib.id));
-                }
+                set.images = [...groupClientImages, ...sibScan];
+                set.group_images = groupClientImages;
             }
+
+            // Cover → this sibling's OWN on_display_image + the group cover column.
+            if (groupCover !== undefined) {
+                set.on_display_image = groupCover;
+                set.group_on_display_image = groupCover;
+            }
+
+            // Group label + #N re-derivation (snapshot freeze intact — no
+            // order_items/sp_items asset_name is touched).
+            if (renamingGroup) {
+                set.group_name = newGroupName;
+                const { suffixNumber } = parseAssetNameSeries(sib.name);
+                set.name = suffixNumber != null ? `${newGroupName} #${suffixNumber}` : newGroupName;
+            }
+
+            // Per-row presentation fields apply to the edited sibling only.
+            if (sib.id === id) {
+                if (incoming.description !== undefined) set.description = incoming.description;
+                if (incoming.category !== undefined) set.category = incoming.category;
+                if (incoming.brand_id !== undefined) set.brand_id = incoming.brand_id;
+            }
+
+            // Skip a no-op write on a non-edited sibling.
+            if (sib.id !== id && Object.keys(set).length === 1) continue;
+
+            await tx.update(assets).set(set).where(eq(assets.id, sib.id));
         }
     });
 
