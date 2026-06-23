@@ -62,14 +62,39 @@ const promoteDraftImages = async (
     );
 };
 
-// Stamp catalogue/client-curated images with source:'CLIENT' so the inbound scan
-// merge never treats them as replaceable scan media, and so the planned
-// catalogue/scan split migration can partition deterministically on `source`.
+// Default untagged image entries to source:'CLIENT' (catalogue) while PRESERVING
+// any explicit existing tag. So a fresh catalogue upload becomes CLIENT, but a
+// pre-existing SCAN entry round-tripping through an admin edit stays SCAN (never
+// re-tagged) — without this the scan merge would treat it as a client photo.
+// CLIENT-tagged entries are never treated as replaceable scan media, and the tag
+// is the deterministic seed for the catalogue/scan split migration.
 const tagImagesClient = (images: unknown): AssetImageEntry[] =>
-    (Array.isArray(images) ? (images as AssetImageEntry[]) : []).map((img) => ({
-        ...img,
-        source: "CLIENT" as const,
-    }));
+    (Array.isArray(images) ? (images as AssetImageEntry[]) : []).map((img) =>
+        img?.source === "SCAN" || img?.source === "CLIENT"
+            ? img
+            : { ...img, source: "CLIENT" as const }
+    );
+
+// Reconcile an incoming images array against the row's stored images, recovering
+// each entry's `source` by URL when the caller didn't send one. This makes the
+// tag robust against frontend edit surfaces that rebuild image objects as
+// {url, note} and drop `source` (admin/warehouse edit dialogs, inline reorder):
+// an existing SCAN photo round-tripping through such a save keeps SCAN; a brand
+// new upload (its draft URL already promoted to a fresh permanent URL, so it
+// won't match any stored entry) defaults to CLIENT.
+const reconcileImageSources = (incoming: unknown, stored: unknown): AssetImageEntry[] => {
+    const prior = new Map<string, "CLIENT" | "SCAN">();
+    (Array.isArray(stored) ? (stored as AssetImageEntry[]) : []).forEach((entry) => {
+        if (entry?.url && (entry.source === "CLIENT" || entry.source === "SCAN")) {
+            prior.set(entry.url, entry.source);
+        }
+    });
+    return (Array.isArray(incoming) ? (incoming as AssetImageEntry[]) : []).map((img) => {
+        if (img?.source === "SCAN" || img?.source === "CLIENT") return img;
+        const known = img?.url ? prior.get(img.url) : undefined;
+        return { ...img, source: known ?? ("CLIENT" as const) };
+    });
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // GROUP HELPERS (post-squash)
@@ -1218,8 +1243,11 @@ const updateAsset = async (id: string, data: any, user: AuthUser, platformId: st
         // and broke once the S3 lifecycle rule swept them.
         const targetCompanyId = data.company_id || existingAsset.company_id;
         if (Array.isArray(dbData.images) && dbData.images.length > 0) {
-            dbData.images = tagImagesClient(
-                await promoteDraftImages(dbData.images as AssetImageEntry[], targetCompanyId)
+            // Reconcile against the stored row so an existing SCAN photo keeps its
+            // tag even when the edit UI dropped `source`; new uploads → CLIENT.
+            dbData.images = reconcileImageSources(
+                await promoteDraftImages(dbData.images as AssetImageEntry[], targetCompanyId),
+                existingAsset.images
             );
         }
         if (Array.isArray(dbData.group_images) && dbData.group_images.length > 0) {
@@ -2802,10 +2830,20 @@ const companyEditAsset = async (
 
     // Promote freshly-uploaded media (drafts/ → permanent) and tag galleries CLIENT
     // so the inbound scan merge never deletes them.
+    //
+    // The lone-asset `images` column is shared with scan media. CBO curates only
+    // the CLIENT gallery, so this is a merge from the client side mirroring the
+    // scan-side merge: replace the CLIENT entries with what the client sent, but
+    // PRESERVE every existing SCAN entry (client photos first, scan after).
     if (Array.isArray(incoming.images) && companyId) {
-        incoming.images = tagImagesClient(
+        const promotedClient = tagImagesClient(
             await promoteDraftImages(incoming.images as AssetImageEntry[], companyId)
         );
+        const clientUrls = new Set(promotedClient.map((entry) => entry.url));
+        const existingScan = (
+            Array.isArray(existing.images) ? (existing.images as AssetImageEntry[]) : []
+        ).filter((entry) => entry?.source === "SCAN" && !clientUrls.has(entry.url as string));
+        incoming.images = [...promotedClient, ...existingScan];
     }
     if (Array.isArray(incoming.group_images) && companyId) {
         incoming.group_images = tagImagesClient(
