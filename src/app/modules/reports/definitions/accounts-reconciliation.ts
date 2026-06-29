@@ -33,6 +33,7 @@ import { db } from "../../../../db";
 import CustomizedError from "../../../error/customized-error";
 import { PricingService } from "../../../services/pricing.service";
 import { ReportDefinition, ReportResult, ReportRunContext } from "../types";
+import { statusExcludeFragment } from "../shared/inclusion";
 import {
     colLetter,
     createReportWorkbook,
@@ -155,7 +156,7 @@ LEFT JOIN prices p ON p.id = o.order_pricing_id
 WHERE o.platform_id = ${ctx.platformId}
   ${orderCompanyScope}
   AND o.deleted_at IS NULL
-  AND o.order_status NOT IN ('DRAFT', 'CANCELLED')
+  ${statusExcludeFragment(sql.raw("o.order_status"), "ORDER")}
   AND o.financial_status <> 'NOT_APPLICABLE'
   ${orderCategoryExists}
   ${dateFilter(sql.raw("o.created_at"), gte, lt)}

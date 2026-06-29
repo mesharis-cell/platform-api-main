@@ -66,6 +66,102 @@ export const OUTCOME_FONT: Record<string, string> = {
 export const MONEY_FMT = "#,##0.00";
 export const INT_FMT = "#,##0";
 
+// ─── STATUS cell colouring — tiered across the 4 entity status enums ─────────
+// One palette mapping EVERY status value (order / self-pickup / service-request
+// operational + commercial / inbound) into five lifecycle tiers, so a status
+// column reads the same in any report. Tiers:
+//   Tentative — pre-commitment, may still fall through (amber)
+//   Committed — agreed, not yet moving (blue)
+//   In-flight — physically in motion / on-site (cyan)
+//   Completed — closed out / done (green)
+//   Dead      — never-happened / killed (grey)
+// Unknown values fall back to a neutral (no fill, default font).
+
+type StatusTier = "TENTATIVE" | "COMMITTED" | "IN_FLIGHT" | "COMPLETED" | "DEAD";
+
+const STATUS_TIER_FILL: Record<StatusTier, string> = {
+    TENTATIVE: "FFFFF8E1",
+    COMMITTED: "FFE3F2FD",
+    IN_FLIGHT: "FFE0F7FA",
+    COMPLETED: "FFE8F5E9",
+    DEAD: "FFF5F5F5",
+};
+const STATUS_TIER_FONT: Record<StatusTier, string> = {
+    TENTATIVE: "FFB7791F",
+    COMMITTED: "FF0D47A1",
+    IN_FLIGHT: "FF006064",
+    COMPLETED: "FF1B5E20",
+    DEAD: "FF9E9E9E",
+};
+
+/** status value → lifecycle tier. Covers all four entity enums. */
+const STATUS_TIER: Record<string, StatusTier> = {
+    // Tentative — order: SUBMITTED/PRICING_REVIEW/PENDING_APPROVAL/QUOTED;
+    // SP equivalents; SR submitted/in-review; commercial pending/quoted.
+    SUBMITTED: "TENTATIVE",
+    PRICING_REVIEW: "TENTATIVE",
+    PENDING_APPROVAL: "TENTATIVE",
+    QUOTED: "TENTATIVE",
+    IN_REVIEW: "TENTATIVE",
+    PENDING_QUOTE: "TENTATIVE",
+    QUOTE_SENT: "TENTATIVE",
+    QUOTE_REVISED: "TENTATIVE",
+
+    // Committed — agreed, not yet physically moving.
+    CONFIRMED: "COMMITTED",
+    IN_PREPARATION: "COMMITTED",
+    APPROVED: "COMMITTED",
+    QUOTE_ACCEPTED: "COMMITTED",
+    QUOTE_APPROVED: "COMMITTED",
+    PENDING_INVOICE: "COMMITTED",
+
+    // In-flight — physically in motion / on-site / out with the client.
+    READY_FOR_DELIVERY: "IN_FLIGHT",
+    IN_TRANSIT: "IN_FLIGHT",
+    DELIVERED: "IN_FLIGHT",
+    IN_USE: "IN_FLIGHT",
+    DERIG: "IN_FLIGHT",
+    AWAITING_RETURN: "IN_FLIGHT",
+    RETURN_IN_TRANSIT: "IN_FLIGHT",
+    READY_FOR_PICKUP: "IN_FLIGHT",
+    PICKED_UP: "IN_FLIGHT",
+    IN_PROGRESS: "IN_FLIGHT",
+    INVOICED: "IN_FLIGHT",
+
+    // Completed — closed out / done / paid.
+    CLOSED: "COMPLETED",
+    COMPLETED: "COMPLETED",
+    PAID: "COMPLETED",
+
+    // Dead — never-happened / killed / not-applicable.
+    DRAFT: "DEAD",
+    DECLINED: "DEAD",
+    CANCELLED: "DEAD",
+    INTERNAL: "DEAD",
+    NOT_APPLICABLE: "DEAD",
+};
+
+/** Resolve a status string to its { fill, font } cell style. Unknown values get
+ *  a neutral style (no fill, default font). Follows the STYLE.*_FILL pattern. */
+export function statusCellStyle(status: string): {
+    fill?: ExcelJS.Fill;
+    font?: Partial<ExcelJS.Font>;
+} {
+    const tier = STATUS_TIER[String(status ?? "").toUpperCase()];
+    if (!tier) return {};
+    return {
+        fill: { type: "pattern", pattern: "solid", fgColor: { argb: STATUS_TIER_FILL[tier] } },
+        font: { bold: true, color: { argb: STATUS_TIER_FONT[tier] } },
+    };
+}
+
+/** Apply the tiered status style to a cell in place (mirrors colourOutcome). */
+export function colourStatus(cell: ExcelJS.Cell, status: string): void {
+    const { fill, font } = statusCellStyle(status);
+    if (fill) cell.fill = fill;
+    if (font) cell.font = font;
+}
+
 // ─── Timezone / date bounds — ONE answer for all 12 reports ──────────────────
 // Platform feasibility TZ is Asia/Dubai (UTC+4, no DST). date_to expands to
 // start-of-next-day so a same-day row at any hour is included (use lt, not lte).
@@ -156,6 +252,32 @@ export function colLetter(zeroIdx: number): string {
         n = Math.floor(n / 26) - 1;
     }
     return s;
+}
+
+// ─── Excel formula string builders ───────────────────────────────────────────
+// Pure string builders so a compounded cell can hold a LIVE formula (set as
+// `cell.value = { formula: sumRange(...), result: cached }`). They do NOT write
+// to ExcelJS — the caller owns the cell. `col` is the 1-based column letter
+// (e.g. "C") to match how callers already have colLetter() output in hand.
+
+/** "SUM(C5:C10)" — contiguous range down one column. */
+export function sumRange(col: string, firstRow: number, lastRow: number): string {
+    return `SUM(${col}${firstRow}:${col}${lastRow})`;
+}
+
+/** "SUM(C5,C8,C11)" — explicit (non-contiguous) cells in one column. */
+export function sumCells(col: string, rowNums: number[]): string {
+    return `SUM(${rowNums.map((r) => `${col}${r}`).join(",")})`;
+}
+
+/** "C5*0.15" — a cell times a flat rate (e.g. a VAT/markup line). */
+export function cellTimesRate(col: string, row: number, rate: number): string {
+    return `${col}${row}*${rate}`;
+}
+
+/** "C5+D5" — two cells added (e.g. subtotal + VAT → total). */
+export function addCells(colA: string, rowA: number, colB: string, rowB: number): string {
+    return `${colA}${rowA}+${colB}${rowB}`;
 }
 
 // ─── Company context — the "platform AS platform_id" alias trap, solved once ─
