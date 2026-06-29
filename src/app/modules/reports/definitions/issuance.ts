@@ -4,6 +4,14 @@
  * PERMANENT flag, COMMENTS (collector). Ported from the canonical CLI script
  * (src/db/scripts/export-issuance.ts); SQL re-parameterized to bound placeholders.
  *
+ * SHIPPED-ONLY (physical-movement truth): a document appears iff it has >=1
+ * OUTBOUND scan_event. Scoping is by outbound-scan EXISTENCE (INNER JOIN on the
+ * outbound CTE), not by document status — issuance lives in the physical layer
+ * and its true signal is the outbound scan, not the workflow status. The date
+ * axis is the outbound scan time (MAX(scanned_at)) — there is no created_at
+ * fallback, so unshipped docs never surface. Every shown row therefore shipped,
+ * which is why the OUTCOME derivation needs no NOT_ISSUED state.
+ *
  * No money columns → client-safe; ADMIN_CLIENT.
  */
 import { sql, SQL } from "drizzle-orm";
@@ -122,7 +130,7 @@ sp_consumed AS (
     GROUP BY sm.asset_id, sm.linked_entity_id
 )
 SELECT
-    COALESCE(ooa.issued_at, o.created_at) AS doc_date,
+    ooa.issued_at AS doc_date,
     'DELIVERY' AS type, o.order_id AS reference,
     o.venue_name AS venue, c.name AS city, u.name AS user_name,
     o.is_permanent_placement AS is_permanent, o.created_at AS doc_created,
@@ -145,16 +153,15 @@ LEFT JOIN legacy_asset_families af ON a.group_id = af.id
 LEFT JOIN teams t ON a.team_id = t.id
 LEFT JOIN order_returns ret ON ret.asset_id = oi.asset AND ret.order_id = o.id
 LEFT JOIN order_consumed con ON con.asset_id = oi.asset AND con.order_id = o.id
-LEFT JOIN order_outbound_at ooa ON ooa.order_id = o.id
+JOIN order_outbound_at ooa ON ooa.order_id = o.id
 WHERE o.platform_id = ${ctx.platformId} AND o.company = ${ctx.companyId}
-  AND o.order_status IN ('READY_FOR_DELIVERY','IN_TRANSIT','DELIVERED','IN_USE','DERIG','AWAITING_RETURN','RETURN_IN_TRANSIT','CLOSED')
   ${cat}
-  ${dateFilter(sql.raw("COALESCE(ooa.issued_at, o.created_at)"), gte, lt)}
+  ${dateFilter(sql.raw("ooa.issued_at"), gte, lt)}
 
 UNION ALL
 
 SELECT
-    COALESCE(spo.issued_at, sp.created_at) AS doc_date,
+    spo.issued_at AS doc_date,
     'SELF-PICKUP' AS type, sp.self_pickup_id AS reference,
     '' AS venue, '' AS city,
     COALESCE(u.name, sp.collector_name) AS user_name,
@@ -162,10 +169,9 @@ SELECT
     af.company_item_code AS company_item_code,
     COALESCE(af.name, spi.asset_name) AS description,
     t.name AS team_name,
-    CASE WHEN spi.skipped THEN 0 WHEN spi.scanned_quantity IS NULL THEN spi.quantity ELSE spi.scanned_quantity END AS delivered_qty,
+    CASE WHEN spi.scanned_quantity IS NULL THEN spi.quantity ELSE spi.scanned_quantity END AS delivered_qty,
     COALESCE(spret.returned_qty, 0) AS returned_qty,
     CASE
-        WHEN spi.skipped THEN 'OUT'
         WHEN (CASE WHEN spi.scanned_quantity IS NULL THEN spi.quantity ELSE spi.scanned_quantity END) = 0 THEN 'OUT'
         WHEN COALESCE(spret.returned_qty,0) >= (CASE WHEN spi.scanned_quantity IS NULL THEN spi.quantity ELSE spi.scanned_quantity END) THEN 'RETURNED'
         WHEN COALESCE(spret.returned_qty,0) > 0 THEN 'PARTIAL'
@@ -180,11 +186,11 @@ LEFT JOIN legacy_asset_families af ON a.group_id = af.id
 LEFT JOIN teams t ON a.team_id = t.id
 LEFT JOIN sp_returns spret ON spret.asset_id = spi.asset_id AND spret.self_pickup_id = sp.id
 LEFT JOIN sp_consumed spcon ON spcon.asset_id = spi.asset_id AND spcon.sp_id = sp.id
-LEFT JOIN sp_outbound_at spo ON spo.self_pickup_id = sp.id
+JOIN sp_outbound_at spo ON spo.self_pickup_id = sp.id
 WHERE sp.platform_id = ${ctx.platformId} AND sp.company_id = ${ctx.companyId}
-  AND sp.self_pickup_status IN ('PICKED_UP','AWAITING_RETURN','CLOSED') AND NOT spi.skipped
+  AND NOT spi.skipped
   ${cat}
-  ${dateFilter(sql.raw("COALESCE(spo.issued_at, sp.created_at)"), gte, lt)}
+  ${dateFilter(sql.raw("spo.issued_at"), gte, lt)}
 
 ORDER BY doc_date ASC`;
 
@@ -214,7 +220,7 @@ ORDER BY doc_date ASC`;
     const h = createReportWorkbook({
         companyName: ctx.companyName,
         label: "Issuance Log",
-        subtitle: fmtRangeLabel(params.date_from, params.date_to),
+        subtitle: `Issued in period ${fmtRangeLabel(params.date_from, params.date_to)}`,
         columns,
         sheetName: "Issuance",
     });
