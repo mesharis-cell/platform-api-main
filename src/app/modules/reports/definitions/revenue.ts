@@ -1,28 +1,23 @@
 /**
- * Revenue Report — per-document financial revenue ledger. ORDER-ONLY (legacy
- * scope: the report it replaces, exportRevenueReportService, covered orders
- * only; the four-entity ledger is a deliberate FUTURE upgrade, not this build).
- * One row per revenue-bearing order (committed, not tentative/dead) showing its
- * sell-side pricing snapshot (subtotal, VAT, final) plus — gated on margin
- * visibility — buy total + margin. Grand-total row at the bottom.
+ * Revenue Report — per-document SELL-SIDE revenue ledger across ALL FOUR billing
+ * entities (ORDER, SERVICE_REQUEST, SELF_PICKUP, INBOUND_REQUEST). Phase 2 broadens
+ * the legacy ORDER-only scope to the shared four-entity anchor, mirroring the
+ * inclusion semantics of accounts-reconciliation.ts.
  *
- * Money columns are NOT queryable scalars: prices.breakdown_lines + margin/vat
- * are projected in JS via PricingService.projectSummaryForRole(row,'ADMIN').
+ * One row per live, client-billable document showing its sell-side pricing
+ * snapshot (subtotal, VAT%, VAT amount, final) plus — gated on margin visibility —
+ * buy total + margin. Grand-total row at the bottom.
+ *
+ * Inclusion is the shared BILLING SSOT: statusExcludeFragment (drops the dead /
+ * never-happened states) + billableFilterFragment (drops internal SRs, no-cost
+ * self-pickups, not-applicable orders/inbound), per entity arm. The optional
+ * entity_types filter narrows WHICH arms participate (absent ⇒ all four).
+ *
+ * Money columns are NOT queryable scalars: prices.breakdown_lines + margin/vat are
+ * projected in JS via PricingService.projectByRole(row,'ADMIN'). SERVICE REQUEST
+ * sell/final honours client_sell_override_total exactly like accounts-reconciliation.
  *
  * FINANCIAL · ADMIN-only — never mounted client-side (carries BUY/MARGIN).
- * DOC DATE = COALESCE(MAX outbound scan, orders.created_at).
- *
- * Numbers-skeptic required fixes APPLIED:
- *  - date_to is a half-open upper bound (fmtDateBounds → Dubai end-of-day < lt),
- *    so a same-day order at any hour is included — no silent under-count.
- *  - every money column is coerced via parseNum() BEFORE summation; the null
- *    projection (no prices row) is guarded → 0.
- *  - MARGIN AMOUNT = SUBTOTAL (sell ex-VAT) − BUY TOTAL. VAT is pass-through and
- *    is NOT part of margin (FINAL TOTAL − BUY would wrongly fold VAT into it).
- *  - status param validated against orderStatusEnum, applied to the ORDER leg
- *    only (single-entity report → no enum-mismatch ambiguity).
- *  - cost/margin columns NEVER emitted unless ctx.canSeeMargin; the client mount
- *    is rejected outright (this report is admin-only by section).
  */
 import { sql, SQL } from "drizzle-orm";
 import httpStatus from "http-status";
@@ -31,9 +26,11 @@ import { db } from "../../../../db";
 import CustomizedError from "../../../error/customized-error";
 import { PricingService } from "../../../services/pricing.service";
 import { ReportDefinition, ReportResult, ReportRunContext } from "../types";
+import { BillingEntity, billableFilterFragment, statusExcludeFragment } from "../shared/inclusion";
 import {
-    addGrandTotalRow,
+    addCells,
     colLetter,
+    colourStatus,
     createReportWorkbook,
     finalizeWorkbook,
     fmtDate,
@@ -43,49 +40,33 @@ import {
     parseNum,
     ReportColumn,
     roundMoney,
+    STYLE,
+    sumRange,
 } from "../../../utils/report-workbook";
 
 const ROW_CAP = 5000;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Revenue-bearing = committed (CONFIRMED..CLOSED). Tentative + dead statuses
- *  carry a pricing snapshot since the submit-time-booking flip but are NOT
- *  revenue yet — same gate as exportRevenueReportService (export.services.ts:670). */
-const REVENUE_STATUSES = [
-    "CONFIRMED",
-    "IN_PREPARATION",
-    "READY_FOR_DELIVERY",
-    "IN_TRANSIT",
-    "DELIVERED",
-    "IN_USE",
-    "DERIG",
-    "AWAITING_RETURN",
-    "RETURN_IN_TRANSIT",
-    "CLOSED",
-] as const;
-
-const ORDER_STATUSES = [
-    "DRAFT",
-    "SUBMITTED",
-    "PRICING_REVIEW",
-    "PENDING_APPROVAL",
-    "QUOTED",
-    "DECLINED",
-    "CONFIRMED",
-    "IN_PREPARATION",
-    "READY_FOR_DELIVERY",
-    "IN_TRANSIT",
-    "DELIVERED",
-    "IN_USE",
-    "DERIG",
-    "AWAITING_RETURN",
-    "RETURN_IN_TRANSIT",
-    "CLOSED",
-    "CANCELLED",
-] as const;
+const ALL_ENTITIES: BillingEntity[] = [
+    "ORDER",
+    "SERVICE_REQUEST",
+    "SELF_PICKUP",
+    "INBOUND_REQUEST",
+];
 
 const toArr = (v: unknown): string[] =>
     v === undefined || v === null ? [] : Array.isArray(v) ? v.map(String) : [String(v)];
+
+/** Resolve the optional entity_types param → the set of arms to UNION. Absent /
+ *  empty ⇒ all four; otherwise the intersection with the four valid entities (in
+ *  canonical order). Mirrors how category multi-values are accepted (string|string[]). */
+function resolveEntities(raw: unknown): BillingEntity[] {
+    const requested = toArr(raw)
+        .map((s) => s.toUpperCase())
+        .filter((s): s is BillingEntity => (ALL_ENTITIES as string[]).includes(s));
+    if (!requested.length) return ALL_ENTITIES;
+    return ALL_ENTITIES.filter((e) => requested.includes(e));
+}
 
 const paramsSchema = z
     .object({
@@ -94,52 +75,28 @@ const paramsSchema = z
         date_to: z.string().regex(DATE_RE).optional(),
         category_include: z.union([z.string(), z.array(z.string())]).optional(),
         category_exclude: z.union([z.string(), z.array(z.string())]).optional(),
-        status: z.enum(ORDER_STATUSES).optional(),
+        // Optional multi-select over the four billing entities. Absent/empty ⇒ all four.
+        entity_types: z.union([z.string(), z.array(z.string())]).optional(),
         team: z.string().uuid().optional(),
     })
     .refine((v) => !(v.category_include && v.category_exclude), {
         message: "category_include and category_exclude are mutually exclusive",
     });
 
-/**
- * Item-scoped (coarse) category filter on the ORDER: EXISTS an order_item whose
- * asset.category matches. Document-grained — an order with ANY matching item is
- * kept whole. Tenant-agnostic (compares LOWER(category)).
- */
-function categoryExistsFilter(inc: string[], exc: string[]): SQL {
-    if (inc.length) {
-        return sql` AND EXISTS (SELECT 1 FROM order_items oi JOIN assets a ON oi.asset = a.id
-            WHERE oi."order" = o.id
-              AND LOWER(COALESCE(a.category, '')) IN (${sql.join(
-                  inc.map((c) => sql`${c.toLowerCase()}`),
-                  sql`, `
-              )}))`;
-    }
-    if (exc.length) {
-        return sql` AND NOT EXISTS (SELECT 1 FROM order_items oi JOIN assets a ON oi.asset = a.id
-            WHERE oi."order" = o.id
-              AND LOWER(COALESCE(a.category, '')) IN (${sql.join(
-                  exc.map((c) => sql`${c.toLowerCase()}`),
-                  sql`, `
-              )}))`;
-    }
+/** Generic, tenant-agnostic category filter against assets.category (alias "a"). */
+function categoryFilter(inc: string[], exc: string[]): SQL {
+    const col = sql.raw("LOWER(COALESCE(a.category, ''))");
+    if (inc.length)
+        return sql` AND ${col} IN (${sql.join(
+            inc.map((c) => sql`${c.toLowerCase()}`),
+            sql`, `
+        )})`;
+    if (exc.length)
+        return sql` AND ${col} NOT IN (${sql.join(
+            exc.map((c) => sql`${c.toLowerCase()}`),
+            sql`, `
+        )})`;
     return sql``;
-}
-
-/** Item-scoped (coarse) team filter on the ORDER: EXISTS an order_item whose
- *  asset belongs to the team. */
-function teamExistsFilter(teamId?: string): SQL {
-    if (!teamId) return sql``;
-    return sql` AND EXISTS (SELECT 1 FROM order_items oi JOIN assets a ON oi.asset = a.id
-        WHERE oi."order" = o.id AND a.team_id = ${teamId})`;
-}
-
-function statusFilter(status?: string): SQL {
-    if (status) return sql` AND o.order_status = ${status}`;
-    return sql` AND o.order_status IN (${sql.join(
-        REVENUE_STATUSES.map((s) => sql`${s}`),
-        sql`, `
-    )})`;
 }
 
 function dateFilter(expr: SQL, gte: Date | null, lt: Date | null): SQL {
@@ -148,6 +105,24 @@ function dateFilter(expr: SQL, gte: Date | null, lt: Date | null): SQL {
     if (lt) parts.push(sql` AND ${expr} < ${lt}`);
     return parts.length ? sql.join(parts, sql``) : sql``;
 }
+
+type RawRow = {
+    entity_type: BillingEntity;
+    reference: string;
+    doc_date: Date | string | null;
+    status: string | null;
+    financial_status: string | null;
+    company: string | null;
+    brand: string | null;
+    created_by: string | null;
+    breakdown_lines: unknown;
+    margin_percent: string | number | null;
+    vat_percent: string | number | null;
+    margin_is_override: boolean | null;
+    margin_override_reason: string | null;
+    calculated_at: Date | string | null;
+    client_sell_override_total: string | null;
+};
 
 async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<ReportResult> {
     // FINANCIAL / admin-only: this report carries (or may carry) BUY + MARGIN.
@@ -162,56 +137,138 @@ async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<
     const inc = toArr(params.category_include);
     const exc = toArr(params.category_exclude);
     const { gte, lt } = fmtDateBounds(params.date_from, params.date_to);
-    const docDate = sql.raw("COALESCE(ooa.issued_at, o.created_at)");
+    const cat = categoryFilter(inc, exc);
+    const hasCategoryFilter = inc.length > 0 || exc.length > 0;
+    const entities = resolveEntities(params.entity_types);
 
-    const query = sql`
-WITH order_outbound_at AS (
-    SELECT se."order"::uuid AS order_id, MAX(se.scanned_at) AS issued_at
-    FROM scan_events se
-    WHERE se.scan_type = 'OUTBOUND' AND se."order" IS NOT NULL
-    GROUP BY se."order"
-)
+    // Per-entity category EXISTS subqueries (document-grained — keep the doc if it
+    // has >=1 matching item), mirroring accounts-reconciliation.
+    const orderCategoryExists = hasCategoryFilter
+        ? sql` AND EXISTS (SELECT 1 FROM order_items oi LEFT JOIN assets a ON oi.asset = a.id WHERE oi."order" = o.id ${cat})`
+        : sql``;
+    const srCategoryExists = hasCategoryFilter
+        ? sql` AND EXISTS (SELECT 1 FROM service_request_items sri LEFT JOIN assets a ON sri.asset_id = a.id WHERE sri.service_request_id = sr.id ${cat})`
+        : sql``;
+    const spCategoryExists = hasCategoryFilter
+        ? sql` AND EXISTS (SELECT 1 FROM self_pickup_items spi LEFT JOIN assets a ON spi.asset_id = a.id WHERE spi.self_pickup_id = sp.id ${cat})`
+        : sql``;
+    const inboundCategoryExists = hasCategoryFilter
+        ? sql` AND EXISTS (SELECT 1 FROM inbound_request_items iri LEFT JOIN assets a ON iri.asset_id = a.id WHERE iri.inbound_request_id = ir.id ${cat})`
+        : sql``;
+
+    // TEAM filter is order-item specific (assets.team_id via order_items). It is
+    // applied to the ORDER arm ONLY — a no-op on SR/SP/INBOUND — preserving the
+    // legacy single-entity behaviour without overreaching the team concept onto
+    // entities that have no equivalent item→team relationship.
+    const orderTeamExists = params.team
+        ? sql` AND EXISTS (SELECT 1 FROM order_items oi JOIN assets a ON oi.asset = a.id WHERE oi."order" = o.id AND a.team_id = ${params.team})`
+        : sql``;
+
+    // ── Per-entity UNION arms (mirror accounts-reconciliation join shapes) ────
+    const arms: Record<BillingEntity, SQL> = {
+        ORDER: sql`
 SELECT
-    COALESCE(ooa.issued_at, o.created_at) AS doc_date,
-    'ORDER' AS entity_type,
-    o.order_id AS reference,
-    o.order_status::text AS status,
-    o.financial_status::text AS financial_status,
-    c.name AS company,
-    b.name AS brand,
-    u.name AS created_by,
-    p.breakdown_lines AS breakdown_lines,
-    p.margin_percent AS margin_percent,
-    p.vat_percent AS vat_percent,
-    p.margin_is_override AS margin_is_override,
-    p.margin_override_reason AS margin_override_reason,
-    p.calculated_at AS calculated_at
+    o.created_at AS doc_date, 'ORDER' AS entity_type, o.order_id AS reference,
+    o.order_status::text AS status, o.financial_status::text AS financial_status,
+    c.name AS company, b.name AS brand, u.name AS created_by,
+    p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
+    p.margin_override_reason, p.calculated_at, NULL::text AS client_sell_override_total
 FROM orders o
 LEFT JOIN companies c ON o.company = c.id
 LEFT JOIN brands b ON o.brand = b.id
 LEFT JOIN users u ON o.created_by = u.id
-LEFT JOIN prices p ON o.order_pricing_id = p.id
-LEFT JOIN order_outbound_at ooa ON ooa.order_id = o.id
+LEFT JOIN prices p ON p.id = o.order_pricing_id
 WHERE o.platform_id = ${ctx.platformId}
   AND o.company = ${ctx.companyId}
   AND o.deleted_at IS NULL
-  ${statusFilter(params.status)}
-  ${categoryExistsFilter(inc, exc)}
-  ${teamExistsFilter(params.team)}
-  ${dateFilter(docDate, gte, lt)}
+  ${statusExcludeFragment(sql.raw("o.order_status"), "ORDER")}
+  ${billableFilterFragment("o", "ORDER")}
+  ${orderCategoryExists}
+  ${orderTeamExists}
+  ${dateFilter(sql.raw("o.created_at"), gte, lt)}`,
+
+        // SR + INBOUND have no brand_id column → BRAND is NULL on those arms
+        // (only ORDER + SELF_PICKUP carry a brand).
+        SERVICE_REQUEST: sql`
+SELECT
+    sr.created_at AS doc_date, 'SERVICE_REQUEST' AS entity_type, sr.service_request_id AS reference,
+    sr.request_status::text AS status, sr.commercial_status::text AS financial_status,
+    c.name AS company, NULL::text AS brand, u.name AS created_by,
+    p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
+    p.margin_override_reason, p.calculated_at, sr.client_sell_override_total::text AS client_sell_override_total
+FROM service_requests sr
+LEFT JOIN companies c ON sr.company_id = c.id
+LEFT JOIN users u ON sr.created_by = u.id
+LEFT JOIN prices p ON p.id = sr.request_pricing_id
+WHERE sr.platform_id = ${ctx.platformId}
+  AND sr.company_id = ${ctx.companyId}
+  ${statusExcludeFragment(sql.raw("sr.request_status"), "SERVICE_REQUEST")}
+  ${billableFilterFragment("sr", "SERVICE_REQUEST")}
+  ${srCategoryExists}
+  ${dateFilter(sql.raw("sr.created_at"), gte, lt)}`,
+
+        SELF_PICKUP: sql`
+SELECT
+    sp.created_at AS doc_date, 'SELF_PICKUP' AS entity_type, sp.self_pickup_id AS reference,
+    sp.self_pickup_status::text AS status, sp.financial_status::text AS financial_status,
+    c.name AS company, b.name AS brand, u.name AS created_by,
+    p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
+    p.margin_override_reason, p.calculated_at, NULL::text AS client_sell_override_total
+FROM self_pickups sp
+LEFT JOIN companies c ON sp.company_id = c.id
+LEFT JOIN brands b ON sp.brand_id = b.id
+LEFT JOIN users u ON sp.created_by = u.id
+LEFT JOIN prices p ON p.platform_id = sp.platform_id AND p.entity_type = 'SELF_PICKUP' AND p.entity_id = sp.id
+WHERE sp.platform_id = ${ctx.platformId}
+  AND sp.company_id = ${ctx.companyId}
+  ${statusExcludeFragment(sql.raw("sp.self_pickup_status"), "SELF_PICKUP")}
+  ${billableFilterFragment("sp", "SELF_PICKUP")}
+  ${spCategoryExists}
+  ${dateFilter(sql.raw("sp.created_at"), gte, lt)}`,
+
+        INBOUND_REQUEST: sql`
+SELECT
+    ir.created_at AS doc_date, 'INBOUND_REQUEST' AS entity_type, ir.inbound_request_id AS reference,
+    ir.request_status::text AS status, ir.financial_status::text AS financial_status,
+    c.name AS company, NULL::text AS brand, u.name AS created_by,
+    p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
+    p.margin_override_reason, p.calculated_at, NULL::text AS client_sell_override_total
+FROM inbound_requests ir
+LEFT JOIN companies c ON ir.company_id = c.id
+LEFT JOIN users u ON ir.created_by = u.id
+LEFT JOIN prices p ON p.id = ir.request_pricing_id
+WHERE ir.platform_id = ${ctx.platformId}
+  AND ir.company_id = ${ctx.companyId}
+  ${statusExcludeFragment(sql.raw("ir.request_status"), "INBOUND_REQUEST")}
+  ${billableFilterFragment("ir", "INBOUND_REQUEST")}
+  ${inboundCategoryExists}
+  ${dateFilter(sql.raw("ir.created_at"), gte, lt)}`,
+    };
+
+    const selected = entities.map((e) => arms[e]);
+    // DATE AXIS → created_at across every arm (Phase 2 deliberate switch from the
+    // legacy COALESCE(outbound_scan, created_at) issued-date axis: a created_at
+    // axis is uniform across all four entities and matches accounts-reconciliation;
+    // self-pickups / SRs / inbound have no outbound-scan proxy).
+    const query = sql`${sql.join(
+        selected,
+        sql`
+UNION ALL
+`
+    )}
 ORDER BY doc_date ASC`;
 
-    const rows = ((await db.execute(query)) as any).rows as any[];
+    const rows = ((await db.execute(query)) as any).rows as RawRow[];
     if (rows.length > ROW_CAP)
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            `Revenue ledger has ${rows.length} rows (cap ${ROW_CAP}). Narrow by date range, status, team, or category.`
+            `Revenue ledger has ${rows.length} rows (cap ${ROW_CAP}). Narrow by date range, entities, team, or category.`
         );
 
     // Sell columns are always allowed; cost/margin only with margin visibility.
     const columns: ReportColumn[] = [
         { header: "DOC DATE", width: 13 },
-        { header: "ENTITY TYPE", width: 13 },
+        { header: "ENTITY TYPE", width: 16 },
         { header: "REFERENCE", width: 20 },
         { header: "STATUS", width: 18 },
         { header: "FINANCIAL STATUS", width: 18 },
@@ -240,13 +297,18 @@ ORDER BY doc_date ASC`;
     });
     const sheet = h.sheet;
 
-    // 1-based column indexes for the summable money columns.
+    // 1-based column indexes.
+    const STATUS_COL = 4;
     const SUBTOTAL = 9;
+    const VAT_PCT = 10;
     const VAT_AMOUNT = 11;
     const FINAL_TOTAL = 12;
     const BUY_TOTAL = 13;
     const MARGIN_AMOUNT = 14;
     const LABEL = 8; // "CREATED BY" column carries the grand-total label.
+    const SUBTOTAL_L = colLetter(SUBTOTAL - 1);
+    const VAT_AMOUNT_L = colLetter(VAT_AMOUNT - 1);
+    const VAT_PCT_L = colLetter(VAT_PCT - 1);
 
     const firstDataRow = h.headerRow + 1;
     let subtotalSum = 0;
@@ -256,17 +318,43 @@ ORDER BY doc_date ASC`;
     let marginSum = 0;
 
     for (const r of rows) {
-        // projectSummaryForRole returns null when there is no prices row; guard
-        // every field. Money fields come back as .toFixed(2) strings → parseNum.
-        const summary = PricingService.projectSummaryForRole(r as any, "ADMIN");
-        const subtotal = roundMoney(parseNum(summary?.subtotal));
-        const vatPercent = parseNum(summary?.vat_percent);
-        const vatAmount = roundMoney(parseNum(summary?.vat_amount));
-        const finalTotal = roundMoney(parseNum(summary?.final_total));
-        const buyTotal = roundMoney(parseNum(summary?.buy_total));
+        const pricing = r.breakdown_lines
+            ? {
+                  breakdown_lines: r.breakdown_lines,
+                  margin_percent: r.margin_percent,
+                  vat_percent: r.vat_percent,
+                  margin_is_override: r.margin_is_override,
+                  margin_override_reason: r.margin_override_reason,
+                  calculated_at: r.calculated_at,
+              }
+            : null;
+        const detail = PricingService.projectByRole(pricing as any, "ADMIN") as any;
+        const totals = detail?.totals ?? null;
+
+        let subtotal = roundMoney(parseNum(totals?.sell_total));
+        const vatPercent = parseNum(totals?.sell_vat_percent ?? r.vat_percent);
+        let vatAmount = roundMoney(parseNum(totals?.sell_vat_amount));
+        let finalTotal = roundMoney(parseNum(totals?.sell_total_with_vat));
+        const buyTotal = roundMoney(parseNum(totals?.buy_total));
+
+        // SR sell/final override — honour client_sell_override_total exactly as
+        // accounts-reconciliation does: the final IS the override; subtotal + VAT
+        // are derived back-out from the frozen VAT%.
+        const overrideRaw =
+            r.entity_type === "SERVICE_REQUEST" &&
+            r.client_sell_override_total !== null &&
+            r.client_sell_override_total !== ""
+                ? r.client_sell_override_total
+                : null;
+        if (overrideRaw !== null) {
+            finalTotal = roundMoney(parseNum(overrideRaw));
+            subtotal = roundMoney(finalTotal / (1 + vatPercent / 100));
+            vatAmount = roundMoney(finalTotal - subtotal);
+        }
+
         // Margin is sell-ex-VAT minus buy (VAT is pass-through, never margin).
         const marginAmount = roundMoney(subtotal - buyTotal);
-        const marginPercent = parseNum(summary?.margin_percent);
+        const marginPercent = parseNum(detail?.margin_policy?.percent ?? r.margin_percent);
 
         const cells: any[] = [
             fmtDate(r.doc_date),
@@ -279,13 +367,33 @@ ORDER BY doc_date ASC`;
             r.created_by ?? "",
             subtotal,
             vatPercent,
+            // VAT AMOUNT + FINAL TOTAL are written as LIVE formulas below (once the
+            // row number is known); seed with the cached numbers as a placeholder.
             vatAmount,
             finalTotal,
         ];
         if (ctx.canSeeMargin) {
             cells.push(buyTotal, marginAmount, marginPercent);
         }
-        sheet.addRow(cells);
+        const row = sheet.addRow(cells);
+
+        // Compounded cells are LIVE Excel formulas (cached result rounds to the JS
+        // value). VAT AMOUNT = SUBTOTAL * VAT% / 100; FINAL TOTAL = SUBTOTAL + VAT.
+        // For SR-override rows these still reconcile because SUBTOTAL was derived
+        // back-out from the override at the frozen VAT%.
+        const vatCell = row.getCell(VAT_AMOUNT);
+        vatCell.value = {
+            formula: `${SUBTOTAL_L}${row.number}*${VAT_PCT_L}${row.number}/100`,
+            result: vatAmount,
+        };
+        vatCell.numFmt = MONEY_FMT;
+        const finalCell = row.getCell(FINAL_TOTAL);
+        finalCell.value = {
+            formula: addCells(SUBTOTAL_L, row.number, VAT_AMOUNT_L, row.number),
+            result: finalTotal,
+        };
+        finalCell.numFmt = MONEY_FMT;
+        colourStatus(row.getCell(STATUS_COL), r.status ?? "");
 
         subtotalSum += subtotal;
         vatSum += vatAmount;
@@ -296,33 +404,27 @@ ORDER BY doc_date ASC`;
 
     if (rows.length > 0) {
         const lastDataRow = firstDataRow + rows.length - 1;
-        const sums: { col: number; from: number; to: number; cached: number }[] = [
-            { col: SUBTOTAL, from: firstDataRow, to: lastDataRow, cached: subtotalSum },
-            { col: VAT_AMOUNT, from: firstDataRow, to: lastDataRow, cached: vatSum },
-            { col: FINAL_TOTAL, from: firstDataRow, to: lastDataRow, cached: finalSum },
-        ];
-        if (ctx.canSeeMargin) {
-            sums.push(
-                { col: BUY_TOTAL, from: firstDataRow, to: lastDataRow, cached: buySum },
-                { col: MARGIN_AMOUNT, from: firstDataRow, to: lastDataRow, cached: marginSum }
-            );
-        }
-        // Flat ledger (one row per order, no per-group subtotal rows), so the
-        // amber grand-total row sums the full data range directly. addGrandTotalRow
-        // emits "0" for empty subtotalRows; overwrite each money cell with a
-        // SUM(range) formula (cached result already rounded) so Excel recomputes.
-        addGrandTotalRow(sheet, {
-            label: `GRAND TOTAL — ${ctx.companyName}`,
-            labelCol: LABEL,
-            sums: sums.map((s) => ({ col: s.col, subtotalRows: [], cached: s.cached })),
-        });
-        const grandRow = sheet.lastRow!;
-        for (const s of sums) {
-            const L = colLetter(s.col - 1);
-            grandRow.getCell(s.col).value = {
-                formula: `SUM(${L}${s.from}:${L}${s.to})`,
-                result: roundMoney(s.cached),
+        // Flat ledger (one row per document, no per-group subtotals) → the amber
+        // grand-total row sums the full data range directly with live SUM formulas.
+        const grand = sheet.addRow([]);
+        grand.getCell(LABEL).value = `GRAND TOTAL — ${ctx.companyName}`;
+        grand.font = { bold: true, size: 12 };
+        grand.height = 20;
+        grand.eachCell({ includeEmpty: true }, (cell) => (cell.fill = STYLE.GRAND_FILL));
+        const setSum = (col: number, cached: number) => {
+            const L = colLetter(col - 1);
+            grand.getCell(col).value = {
+                formula: sumRange(L, firstDataRow, lastDataRow),
+                result: roundMoney(cached),
             };
+            grand.getCell(col).numFmt = MONEY_FMT;
+        };
+        setSum(SUBTOTAL, subtotalSum);
+        setSum(VAT_AMOUNT, vatSum);
+        setSum(FINAL_TOTAL, finalSum);
+        if (ctx.canSeeMargin) {
+            setSum(BUY_TOTAL, buySum);
+            setSum(MARGIN_AMOUNT, marginSum);
         }
     }
 
@@ -334,7 +436,7 @@ export const revenueReport: ReportDefinition = {
     key: "revenue",
     label: "Revenue Report",
     description:
-        "Per-document financial revenue ledger (orders only): one row per committed order with its sell-side pricing snapshot — subtotal, VAT, final total — plus buy total and margin when margin visibility is held. Scoped to one company over an optional date range, for ADMIN reconciliation of booked revenue. Revenue date is COALESCE(outbound scan, created_at), a proxy: there is no recognition timestamp in schema.",
+        "Per-document sell-side revenue ledger across orders, service requests, self-pickups and inbound requests — live client-billable documents only (excludes internal SRs, no-cost self-pickups, not-applicable orders/inbound, and dead/cancelled docs). One row per document with its sell-side pricing snapshot — subtotal, VAT, final total — plus buy total and margin when margin visibility is held. Scoped to one company over an optional date range; use Entities to narrow to specific document types. Revenue date is created_at. ADMIN-only.",
     section: "FINANCIAL",
     audience: "ADMIN",
     operationsRoles: ["ADMIN"],
@@ -352,11 +454,12 @@ export const revenueReport: ReportDefinition = {
             scope: "item",
         },
         {
-            key: "status",
-            label: "Status",
-            type: "status",
+            key: "entity_types",
+            label: "Entities",
+            type: "entity-toggle",
             required: false,
-            options: REVENUE_STATUSES.map((s) => ({ value: s, label: s })),
+            options: ALL_ENTITIES.map((e) => ({ value: e, label: e })),
+            default: ALL_ENTITIES,
         },
         { key: "team", label: "Team", type: "team", required: false, scope: "item" },
     ],
@@ -364,7 +467,7 @@ export const revenueReport: ReportDefinition = {
     rowCap: {
         max: ROW_CAP,
         dimension: "rows",
-        narrowHint: "narrow by date range, status, team, or category",
+        narrowHint: "narrow by date range, entities, team, or category",
     },
     run,
 };
