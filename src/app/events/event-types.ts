@@ -88,6 +88,11 @@ export const EVENT_TYPES = {
     // Stock lifecycle
     STOCK_BELOW_THRESHOLD: "stock.below_threshold",
 
+    // Booking-engine integrity (daily cron). Emitted when asset_bookings rows
+    // reference a closed/cancelled/deleted parent — the safety net that replaced
+    // the parent-status joins the occupancy reports used to carry.
+    ORPHAN_BOOKINGS_DETECTED: "booking.orphans_detected",
+
     // Attachments — audit-only by default; tenants can wire notification rules.
     ATTACHMENT_ADDED: "attachment.added",
     ATTACHMENT_DELETED: "attachment.deleted",
@@ -431,6 +436,24 @@ export interface SelfBookingCancelledPayload {
 export interface AuthPasswordResetRequestedPayload {
     email: string;
     otp: string;
+}
+
+// ============================================================
+// Booking-Engine Integrity Event Payloads
+// ============================================================
+
+export interface OrphanBookingsDetectedPayload {
+    /** Total number of orphaned asset_bookings rows found. */
+    orphan_count: number;
+    /** A capped sample of the offending rows for triage (not the full set). */
+    sample: Array<{
+        booking_id: string;
+        parent_type: "ORDER" | "SELF_PICKUP";
+        parent_id: string | null;
+        parent_readable: string | null;
+        parent_status: string | null;
+        parent_deleted: boolean;
+    }>;
 }
 
 // ============================================================

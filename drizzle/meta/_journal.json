@@ -477,6 +477,13 @@
             "when": 1781583193000,
             "tag": "0068_backfill_on_display_image",
             "breakpoints": true
+        },
+        {
+            "idx": 68,
+            "version": "7",
+            "when": 1781583194000,
+            "tag": "0069_seed_orphan_bookings_notification_rule",
+            "breakpoints": true
         }
     ]
 }

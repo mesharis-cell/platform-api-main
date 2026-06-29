@@ -18,8 +18,10 @@
  *    until are timestamp(mode:date)).
  *  - DISTINCT ENTITIES is a true group-level COUNT(DISTINCT entity) (carries the
  *    order/SP id through the booking CTE), NOT a SUM of per-asset counts.
- *  - ACTIVE_PARENT_STATUSES_FOR_BOOKINGS is bound from availability.core (the
- *    single source of truth) rather than re-typed inline.
+ *  - Bookings are trusted by EXISTENCE, not a parent-status whitelist: a row
+ *    exists IFF the hold is active (release hard-deletes it in the same txn as
+ *    the terminal status flip). The status join was redundant and could mask an
+ *    orphaned booking; the daily `checkOrphanBookings` cron surfaces violations.
  *  - platform_id is resolved server-side (ctx.platformId), never an unbound param.
  *  - DEFAULT WINDOW = trailing 365 days when no dates given (all-time makes
  *    utilization% meaningless / dominated by ancient bookings).
@@ -32,7 +34,6 @@ import { z } from "zod";
 import { db } from "../../../../db";
 import CustomizedError from "../../../error/customized-error";
 import { ReportDefinition, ReportResult, ReportRunContext } from "../types";
-import { ACTIVE_PARENT_STATUSES_FOR_BOOKINGS } from "../../../shared/availability/availability.core";
 import {
     addGrandTotalRow,
     addSubtotalRow,
@@ -79,16 +80,6 @@ function categoryFilter(inc: string[], exc: string[]): SQL {
         )})`;
     return sql``;
 }
-
-/** Bound the active-parent status lists from availability.core (NOT inline literals). */
-const ORDER_STATUSES = sql.join(
-    ACTIVE_PARENT_STATUSES_FOR_BOOKINGS.ORDER.map((s) => sql`${s}`),
-    sql`, `
-);
-const SP_STATUSES = sql.join(
-    ACTIVE_PARENT_STATUSES_FOR_BOOKINGS.SELF_PICKUP.map((s) => sql`${s}`),
-    sql`, `
-);
 
 interface UtilRow {
     group_id: string | null;
@@ -146,7 +137,11 @@ scoped_assets AS (
 ),
 active_bookings AS (
     -- one row per booking leg overlapping the window, with clipped days and the
-    -- owning entity id (for a true group-level DISTINCT count). Pre-filter casts
+    -- owning entity id (for a true group-level DISTINCT count). Booking rows are
+    -- trusted by EXISTENCE — a row exists IFF the hold is active (release
+    -- hard-deletes it), so no parent-status join is needed. The XOR CHECK on
+    -- asset_bookings guarantees exactly one of order_id/self_pickup_id is
+    -- non-null, so COALESCE yields the single owning entity. Pre-filter casts
     -- ::date so it matches the clip math.
     SELECT
         ab.asset_id,
@@ -159,14 +154,8 @@ active_bookings AS (
         ) AS clipped_days
     FROM asset_bookings ab
     CROSS JOIN params p
-    LEFT JOIN orders o ON ab.order_id = o.id
-    LEFT JOIN self_pickups sp ON ab.self_pickup_id = sp.id
     WHERE ab.blocked_from::date <= p.d_to
       AND ab.blocked_until::date >= p.d_from
-      AND (
-        (ab.order_id IS NOT NULL AND o.order_status IN (${ORDER_STATUSES}))
-        OR (ab.self_pickup_id IS NOT NULL AND sp.self_pickup_status IN (${SP_STATUSES}))
-      )
 ),
 booked_by_asset AS (
     -- aggregate bookings to asset grain; exclude zero-overlap legs from the

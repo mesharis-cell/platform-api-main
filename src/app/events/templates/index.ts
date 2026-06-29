@@ -140,7 +140,11 @@ import {
 } from "./self-pickup";
 
 // Stock templates
-import { stockBelowThresholdAdmin, stockBelowThresholdLogistics } from "./stock";
+import {
+    orphanBookingsDetectedAdmin,
+    stockBelowThresholdAdmin,
+    stockBelowThresholdLogistics,
+} from "./stock";
 
 const registry: Record<string, EmailTemplate> = {
     // Orders
@@ -249,6 +253,9 @@ const registry: Record<string, EmailTemplate> = {
     // Stock alerts
     stock_below_threshold_admin: stockBelowThresholdAdmin,
     stock_below_threshold_logistics: stockBelowThresholdLogistics,
+
+    // Booking-engine integrity
+    orphan_bookings_detected_admin: orphanBookingsDetectedAdmin,
 };
 
 export function renderTemplate(

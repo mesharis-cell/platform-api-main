@@ -40,6 +40,7 @@ async function main() {
                 await CronServices.transitionSelfPickupReturns();
                 await CronServices.deleteExpiredOTPs();
                 await CronServices.expireStuckQuotes();
+                await CronServices.checkOrphanBookings();
             } catch (error) {
                 console.error("❌ Cron job failed:", error);
             }

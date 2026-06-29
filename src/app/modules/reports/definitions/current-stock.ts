@@ -19,6 +19,13 @@
  *    DISTINCT measurements; AVAILABLE + OUT is NOT a clean (TOTAL − refurb).
  *  - Orders book at SUBMIT, so OUT here runs higher than the legacy assets-out
  *    report (which only counted READY_FOR_DELIVERY..RETURN_IN_TRANSIT).
+ *
+ * Booking-lifecycle trust: OUT / BOOKED count `asset_bookings` rows by EXISTENCE,
+ * not by re-checking the parent order/SP status. A booking row exists IFF the hold
+ * is active — release HARD-DELETES the row in the same txn as the terminal status
+ * flip. The old status-whitelist join was redundant belt-and-suspenders that could
+ * silently MASK an orphaned booking (parent cancelled but row not released); the
+ * daily `checkOrphanBookings` cron now SURFACES any such violation instead.
  */
 import { sql, SQL } from "drizzle-orm";
 import httpStatus from "http-status";
@@ -26,7 +33,6 @@ import { z } from "zod";
 import { db } from "../../../../db";
 import CustomizedError from "../../../error/customized-error";
 import { ReportDefinition, ReportResult, ReportRunContext } from "../types";
-import { ACTIVE_PARENT_STATUSES_FOR_BOOKINGS } from "../../../shared/availability/availability.core";
 import {
     addGrandTotalRow,
     addSubtotalRow,
@@ -83,16 +89,6 @@ function categoryFilter(inc: string[], exc: string[]): SQL {
     return sql``;
 }
 
-/** Bound the active-parent status lists from the shared SSOT (gotcha #44). */
-const ORDER_STATUSES = sql.join(
-    ACTIVE_PARENT_STATUSES_FOR_BOOKINGS.ORDER.map((s) => sql`${s}`),
-    sql`, `
-);
-const SP_STATUSES = sql.join(
-    ACTIVE_PARENT_STATUSES_FOR_BOOKINGS.SELF_PICKUP.map((s) => sql`${s}`),
-    sql`, `
-);
-
 async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<ReportResult> {
     const inc = toArr(params.category_include);
     const exc = toArr(params.category_exclude);
@@ -110,37 +106,26 @@ async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<
 
     const query = sql`
 WITH active_out AS (
-    -- OUT QTY: active bookings overlapping the as-of day. Polymorphic XOR on
+    -- OUT QTY: active bookings overlapping the as-of day. Booking rows are
+    -- counted by EXISTENCE — a row exists IFF the hold is active (release
+    -- hard-deletes it), so no parent-status join is needed. Polymorphic XOR on
     -- asset_bookings (CHECK enforces exactly one parent FK) → no double-count.
     -- Pre-aggregated to asset grain so the 1:1 LEFT JOIN can't fan out the
     -- per-asset row.
     SELECT ab.asset_id, COALESCE(SUM(ab.quantity), 0)::int AS out_qty
     FROM asset_bookings ab
-    LEFT JOIN orders o ON ab.order_id = o.id
-    LEFT JOIN self_pickups sp ON ab.self_pickup_id = sp.id
     WHERE ab.blocked_from::date <= ${asOfDay}::date
       AND ab.blocked_until::date >= ${asOfDay}::date
-      AND (
-        (ab.order_id IS NOT NULL AND o.order_status IN (${ORDER_STATUSES}))
-        OR
-        (ab.self_pickup_id IS NOT NULL AND sp.self_pickup_status IN (${SP_STATUSES}))
-      )
     GROUP BY ab.asset_id
 ),
 all_windows_out AS (
     -- Independent drift-check aggregate (reconciliation identity #4): SUM of
-    -- ALL active bookings across ALL windows (status-only, both polymorphic
-    -- arms). Compare to (TOTAL − stored AVAILABLE) to surface booking-engine
-    -- drift. NOT assumed equal — divergence is a signal, not an error.
+    -- ALL booking rows across ALL windows (both polymorphic arms). Rows only
+    -- exist while active, so "all rows" == "all active" — no status predicate.
+    -- Compare to (TOTAL − stored AVAILABLE) to surface booking-engine drift.
+    -- NOT assumed equal — divergence is a signal, not an error.
     SELECT ab.asset_id, COALESCE(SUM(ab.quantity), 0)::int AS all_out_qty
     FROM asset_bookings ab
-    LEFT JOIN orders o ON ab.order_id = o.id
-    LEFT JOIN self_pickups sp ON ab.self_pickup_id = sp.id
-    WHERE (
-        (ab.order_id IS NOT NULL AND o.order_status IN (${ORDER_STATUSES}))
-        OR
-        (ab.self_pickup_id IS NOT NULL AND sp.self_pickup_status IN (${SP_STATUSES}))
-      )
     GROUP BY ab.asset_id
 )
 SELECT

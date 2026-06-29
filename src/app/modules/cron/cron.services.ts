@@ -11,6 +11,7 @@ import {
 } from "../../../db/schema";
 import { getSystemUser } from "../../utils/helper-query";
 import { eventBus, EVENT_TYPES } from "../../events";
+import { ACTIVE_PARENT_STATUSES_FOR_BOOKINGS } from "../../shared/availability/availability.core";
 
 /**
  * Unified cron job to handle both event start and event end transitions
@@ -660,10 +661,138 @@ const expireStuckQuotes = async () => {
     }
 };
 
+/**
+ * Booking-engine integrity check (daily). The two occupancy reports
+ * (current-stock, asset-utilization) trust `asset_bookings` by EXISTENCE — a
+ * row exists IFF the hold is active, because release HARD-DELETES the row in the
+ * same txn as the terminal status flip. They dropped the parent-status joins
+ * that used to (silently) filter out orphans. This cron is the safety net that
+ * replaced those joins: it finds booking rows whose parent is NOT in an active
+ * booking state OR is soft-deleted, and emits ORPHAN_BOOKINGS_DETECTED so the
+ * violation SURFACES (ADMIN email) instead of hiding in a join predicate.
+ *
+ * Cheap: a single aggregate + bounded sample query per platform. Validates
+ * against ACTIVE_PARENT_STATUSES_FOR_BOOKINGS (the occupancy SSOT in
+ * availability.core) — NOT the billing-inclusion module.
+ */
+const ORPHAN_SAMPLE_LIMIT = 20;
+
+const checkOrphanBookings = async () => {
+    try {
+        const orderActive = ACTIVE_PARENT_STATUSES_FOR_BOOKINGS.ORDER;
+        const spActive = ACTIVE_PARENT_STATUSES_FOR_BOOKINGS.SELF_PICKUP;
+
+        const orderStatusList = sql.join(
+            orderActive.map((s) => sql`${s}`),
+            sql`, `
+        );
+        const spStatusList = sql.join(
+            spActive.map((s) => sql`${s}`),
+            sql`, `
+        );
+
+        // One pass: count orphans + carry a bounded sample, grouped by platform.
+        // Orphan = booking whose parent is soft-deleted OR not in an active
+        // booking status (per occupancy SSOT). XOR CHECK on asset_bookings
+        // guarantees exactly one parent FK is set, so the two arms can't overlap.
+        const query = sql`
+WITH orphans AS (
+    SELECT
+        ab.platform_id,
+        ab.id AS booking_id,
+        CASE WHEN ab.order_id IS NOT NULL THEN 'ORDER' ELSE 'SELF_PICKUP' END AS parent_type,
+        COALESCE(ab.order_id, ab.self_pickup_id) AS parent_id,
+        COALESCE(o.order_id, sp.self_pickup_id) AS parent_readable,
+        COALESCE(o.order_status::text, sp.self_pickup_status::text) AS parent_status,
+        (o.deleted_at IS NOT NULL OR sp.deleted_at IS NOT NULL) AS parent_deleted
+    FROM asset_bookings ab
+    LEFT JOIN orders o ON ab.order_id = o.id
+    LEFT JOIN self_pickups sp ON ab.self_pickup_id = sp.id
+    WHERE
+        (
+            ab.order_id IS NOT NULL
+            AND (o.deleted_at IS NOT NULL OR o.order_status NOT IN (${orderStatusList}))
+        )
+        OR
+        (
+            ab.self_pickup_id IS NOT NULL
+            AND (sp.deleted_at IS NOT NULL OR sp.self_pickup_status NOT IN (${spStatusList}))
+        )
+)
+SELECT
+    platform_id,
+    COUNT(*)::int AS orphan_count,
+    (
+        SELECT COALESCE(
+            jsonb_agg(s ORDER BY s->>'booking_id'),
+            '[]'::jsonb
+        )
+        FROM (
+            SELECT jsonb_build_object(
+                'booking_id', o2.booking_id,
+                'parent_type', o2.parent_type,
+                'parent_id', o2.parent_id,
+                'parent_readable', o2.parent_readable,
+                'parent_status', o2.parent_status,
+                'parent_deleted', o2.parent_deleted
+            ) AS s
+            FROM orphans o2
+            WHERE o2.platform_id = orphans.platform_id
+            LIMIT ${ORPHAN_SAMPLE_LIMIT}
+        ) sub
+    ) AS sample
+FROM orphans
+GROUP BY platform_id`;
+
+        const rows = ((await db.execute(query)) as any).rows as Array<{
+            platform_id: string;
+            orphan_count: number;
+            sample: any[];
+        }>;
+
+        const totalOrphans = rows.reduce((n, r) => n + Number(r.orphan_count || 0), 0);
+
+        if (totalOrphans === 0) {
+            console.log("✅ Orphan-booking check: no orphaned bookings");
+            return;
+        }
+
+        for (const row of rows) {
+            const count = Number(row.orphan_count || 0);
+            if (count === 0) continue;
+
+            await eventBus.emit({
+                platform_id: row.platform_id,
+                event_type: EVENT_TYPES.ORPHAN_BOOKINGS_DETECTED,
+                entity_type: "ASSET",
+                // No single entity — this is a platform-wide integrity alert.
+                // Use platform_id (a valid uuid) so the NOT NULL entity_id is
+                // satisfied; the email handler falls back to platform rules for
+                // ASSET-typed events (mirrors STOCK_BELOW_THRESHOLD).
+                entity_id: row.platform_id,
+                actor_id: null,
+                actor_role: "SYSTEM",
+                payload: {
+                    orphan_count: count,
+                    sample: Array.isArray(row.sample) ? row.sample : [],
+                },
+            });
+        }
+
+        console.warn(
+            `⚠️ Orphan-booking check: ${totalOrphans} orphaned booking(s) across ${rows.length} platform(s) — ORPHAN_BOOKINGS_DETECTED emitted`
+        );
+    } catch (error: any) {
+        console.error("❌ Orphan-booking check cron error:", error);
+        throw error;
+    }
+};
+
 export const CronServices = {
     transitionOrdersBasedOnEventDates,
     sendPickupReminders,
     deleteExpiredOTPs,
     transitionSelfPickupReturns,
     expireStuckQuotes,
+    checkOrphanBookings,
 };
