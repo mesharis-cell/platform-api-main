@@ -13,7 +13,6 @@ import { ordersReport } from "./definitions/orders";
 import { orderHistoryReport } from "./definitions/order-history";
 import { inboundLogReport } from "./definitions/inbound-log";
 import { overdueReturnsReport } from "./definitions/overdue-returns";
-import { workSummaryReport } from "./definitions/work-summary";
 import { accountsReconciliationReport } from "./definitions/accounts-reconciliation";
 import { revenueReport } from "./definitions/revenue";
 import { costReport } from "./definitions/cost";
@@ -30,7 +29,6 @@ export const reportRegistry: ReportDefinition[] = [
     orderHistoryReport,
     inboundLogReport,
     overdueReturnsReport,
-    workSummaryReport,
     // FINANCIAL (admin-only)
     accountsReconciliationReport,
     revenueReport,

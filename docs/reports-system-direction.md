@@ -262,7 +262,7 @@ export const reportRegistry: ReportDefinition[] = [
     ordersReport,
     orderHistoryReport,
     inboundLogReport,
-    workSummaryReport,
+    // workSummaryReport — REMOVED (reports alignment Phase 1, 2026-06)
     accountsReconciliationReport,
     revenueReport,
     costReport,
@@ -354,13 +354,13 @@ the old CSV endpoint that goes away.
 
 ### Section: OPERATIONS
 
-| Report        | key             | Audience     | Replaces                    | Core source                        |
-| ------------- | --------------- | ------------ | --------------------------- | ---------------------------------- |
-| Issuance Log  | `issuance`      | ADMIN_CLIENT | `client-issuance-log` (CSV) | port of `export-issuance.ts`       |
-| Orders Export | `orders`        | ADMIN_CLIENT | `orders` (CSV)              | `orders` + items                   |
-| Order History | `order-history` | ADMIN_CLIENT | `order-history` (CSV)       | status history                     |
-| Inbound Log   | `inbound-log`   | ADMIN_CLIENT | `inbound-log` (CSV)         | inbound requests / returns         |
-| Work Summary  | `work-summary`  | ADMIN        | `work-summary` (CSV)        | _(confirm purpose / retire — §11)_ |
+| Report           | key                | Audience     | Replaces                    | Core source                                                                      |
+| ---------------- | ------------------ | ------------ | --------------------------- | -------------------------------------------------------------------------------- |
+| Issuance Log     | `issuance`         | ADMIN_CLIENT | `client-issuance-log` (CSV) | port of `export-issuance.ts`                                                     |
+| Orders Export    | `orders`           | ADMIN_CLIENT | `orders` (CSV)              | `orders` + items                                                                 |
+| Order History    | `order-history`    | ADMIN_CLIENT | `order-history` (CSV)       | status history                                                                   |
+| Inbound Log      | `inbound-log`      | ADMIN_CLIENT | `inbound-log` (CSV)         | inbound requests / returns                                                       |
+| ~~Work Summary~~ | ~~`work-summary`~~ | —            | —                           | **❌ REMOVED — reports alignment Phase 1 (2026-06); overlapped `cost`, retired** |
 
 ### Section: FINANCIAL — **admin-only forever**
 

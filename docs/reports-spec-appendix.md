@@ -475,7 +475,13 @@ SELECT ir.incoming_at AS incoming_at, ir.inbound_request_id AS inbound_request, 
 
 ---
 
-## Work Summary (`work-summary`)
+## Work Summary (`work-summary`) — ❌ REMOVED (reports alignment Phase 1, 2026-06)
+
+> **This report no longer exists.** The `work-summary` definition, its registry
+> entry, and the e2e count assertion were removed in the reports-alignment Phase 1
+> cleanup (it overlapped the `cost` report heavily and was never confirmed in use).
+> The spec below is retained for historical reference only — do NOT re-implement
+> against it without an explicit product decision to bring the report back.
 
 `OPERATIONS` · `ADMIN` · replaces: work-summary CSV
 

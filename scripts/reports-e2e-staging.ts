@@ -93,16 +93,16 @@ async function main() {
     const adminList = await call(ADMIN, "/operations/v1/reports");
     const adminReports = adminList.json?.data?.reports ?? [];
     check(
-        "admin listReports returns full registry (13)",
-        adminReports.length === 13,
+        "admin listReports returns full registry (12)",
+        adminReports.length === 12,
         `got ${adminReports.length}`
     );
 
     // 2) client listReports — ADMIN_CLIENT subset only, no admin-only financial reports
     const clientList = await call(CLIENT, "/client/v1/reports");
     const clientKeys: string[] = (clientList.json?.data?.reports ?? []).map((x: any) => x.key);
-    const leakedAdminOnly = ["cost", "revenue", "accounts-reconciliation", "work-summary"].filter(
-        (k) => clientKeys.includes(k)
+    const leakedAdminOnly = ["cost", "revenue", "accounts-reconciliation"].filter((k) =>
+        clientKeys.includes(k)
     );
     check(
         "client listReports hides admin-only reports",
