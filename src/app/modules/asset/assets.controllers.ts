@@ -1,8 +1,10 @@
 import httpStatus from "http-status";
+import { z } from "zod";
 import catchAsync from "../../shared/catch-async";
 import sendResponse from "../../shared/send-response";
 import { AssetServices } from "./assets.services";
 import { getRequiredString } from "../../utils/request";
+import CustomizedError from "../../error/customized-error";
 
 // ----------------------------------- CREATE ASSET -----------------------------------
 const createAsset = catchAsync(async (req, res) => {
@@ -37,6 +39,30 @@ const getAssets = catchAsync(async (req, res) => {
         message: "Assets fetched successfully",
         meta: result.meta,
         data: result.data,
+    });
+});
+
+// ----------------------------------- LIST ASSET GROUPS ------------------------------
+// GET /operations/v1/asset/groups?company_id=<uuid> — distinct {id, name} pairs for
+// the reports "Group" filter picker. company_id is REQUIRED; query params are not
+// covered by the Zod body validator, so it is validated manually here.
+const getAssetGroups = catchAsync(async (req, res) => {
+    const platformId = (req as any).platformId;
+
+    const parsed = z.string().uuid().safeParse(req.query.company_id);
+    if (!parsed.success)
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "company_id query parameter is required and must be a valid UUID"
+        );
+
+    const result = await AssetServices.listAssetGroups(parsed.data, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Asset groups fetched successfully",
+        data: result,
     });
 });
 
@@ -299,6 +325,7 @@ const getAssetUsageReport = catchAsync(async (req, res) => {
 export const AssetControllers = {
     createAsset,
     getAssets,
+    getAssetGroups,
     getAssetById,
     updateAsset,
     updateAssetCondition,

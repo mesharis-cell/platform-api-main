@@ -22,6 +22,7 @@ export type ReportFilterType =
     | "date"
     | "category-include-exclude"
     | "group"
+    | "brand"
     | "status"
     | "team"
     // multi-select toggle over the four billing entity arms (ORDER /

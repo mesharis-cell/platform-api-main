@@ -42,6 +42,40 @@ import {
 const ROW_CAP = 10000;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+/** All order statuses (mirror orderStatusEnum in schema.ts), rendered readably. */
+const ORDER_STATUS_VALUES = [
+    "DRAFT",
+    "SUBMITTED",
+    "PRICING_REVIEW",
+    "PENDING_APPROVAL",
+    "QUOTED",
+    "DECLINED",
+    "CONFIRMED",
+    "IN_PREPARATION",
+    "READY_FOR_DELIVERY",
+    "IN_TRANSIT",
+    "DELIVERED",
+    "IN_USE",
+    "DERIG",
+    "AWAITING_RETURN",
+    "RETURN_IN_TRANSIT",
+    "CLOSED",
+    "CANCELLED",
+] as const;
+
+/** ENUM_VALUE → "Title Case" label (e.g. READY_FOR_DELIVERY → "Ready For Delivery"). */
+const toTitleCase = (s: string): string =>
+    s
+        .toLowerCase()
+        .split("_")
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ");
+
+const ORDER_STATUS_OPTIONS = ORDER_STATUS_VALUES.map((v) => ({
+    value: v,
+    label: toTitleCase(v),
+}));
+
 const toArr = (v: unknown): string[] =>
     v === undefined || v === null ? [] : Array.isArray(v) ? v.map(String) : [String(v)];
 
@@ -399,7 +433,13 @@ export const ordersReport: ReportDefinition = {
             mode: "include-exclude",
             scope: "item",
         },
-        { key: "status", label: "Order Status", type: "status", required: false },
+        {
+            key: "status",
+            label: "Order Status",
+            type: "status",
+            required: false,
+            options: ORDER_STATUS_OPTIONS,
+        },
         { key: "group_id", label: "Group", type: "group", required: false, scope: "item" },
         { key: "team_id", label: "Team", type: "team", required: false, scope: "item" },
     ],

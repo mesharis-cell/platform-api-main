@@ -46,6 +46,13 @@ import {
 
 const ROW_CAP = 5000;
 
+/** Asset status values (mirror assetStatusEnum in schema.ts), rendered readably. */
+const ASSET_STATUS_VALUES = ["AVAILABLE", "BOOKED", "OUT", "MAINTENANCE", "TRANSFORMED"] as const;
+const ASSET_STATUS_OPTIONS = ASSET_STATUS_VALUES.map((v) => ({
+    value: v,
+    label: v.charAt(0) + v.slice(1).toLowerCase(),
+}));
+
 const toArr = (v: unknown): string[] =>
     v === undefined || v === null ? [] : Array.isArray(v) ? v.map(String) : [String(v)];
 
@@ -328,7 +335,13 @@ export const currentStockReport: ReportDefinition = {
             scope: "item",
         },
         { key: "group_id", label: "Group", type: "group", required: false },
-        { key: "status", label: "Status", type: "status", required: false },
+        {
+            key: "status",
+            label: "Status",
+            type: "status",
+            required: false,
+            options: ASSET_STATUS_OPTIONS,
+        },
     ],
     paramsSchema,
     rowCap: { max: ROW_CAP, dimension: "rows", narrowHint: "narrow by group, status, or category" },

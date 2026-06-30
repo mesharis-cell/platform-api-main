@@ -344,7 +344,7 @@ export const inboundLogReport: ReportDefinition = {
             required: false,
             options: ALL_STATUSES.map((s) => ({ value: s, label: s.replace(/_/g, " ") })),
         },
-        { key: "brand_id", label: "Brand", type: "group", required: false, scope: "item" },
+        { key: "brand_id", label: "Brand", type: "brand", required: false, scope: "item" },
     ],
     paramsSchema,
     rowCap: {

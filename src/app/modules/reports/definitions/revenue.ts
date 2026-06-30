@@ -81,7 +81,7 @@ const paramsSchema = z
         category_exclude: z.union([z.string(), z.array(z.string())]).optional(),
         // Optional multi-select over the four billing entities. Absent/empty ⇒ all four.
         entity_types: z.union([z.string(), z.array(z.string())]).optional(),
-        team: z.string().uuid().optional(),
+        team_id: z.string().uuid().optional(),
     })
     .refine((v) => !(v.category_include && v.category_exclude), {
         message: "category_include and category_exclude are mutually exclusive",
@@ -172,8 +172,8 @@ async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<
     // applied to the ORDER arm ONLY — a no-op on SR/SP/INBOUND — preserving the
     // legacy single-entity behaviour without overreaching the team concept onto
     // entities that have no equivalent item→team relationship.
-    const orderTeamExists = params.team
-        ? sql` AND EXISTS (SELECT 1 FROM order_items oi JOIN assets a ON oi.asset = a.id WHERE oi."order" = o.id AND a.team_id = ${params.team})`
+    const orderTeamExists = params.team_id
+        ? sql` AND EXISTS (SELECT 1 FROM order_items oi JOIN assets a ON oi.asset = a.id WHERE oi."order" = o.id AND a.team_id = ${params.team_id})`
         : sql``;
 
     // ── Per-entity UNION arms (mirror accounts-reconciliation join shapes) ────
@@ -535,7 +535,7 @@ export const revenueReport: ReportDefinition = {
             options: ALL_ENTITIES.map((e) => ({ value: e, label: e })),
             default: ALL_ENTITIES,
         },
-        { key: "team", label: "Team", type: "team", required: false, scope: "item" },
+        { key: "team_id", label: "Team", type: "team", required: false, scope: "item" },
     ],
     paramsSchema,
     rowCap: {
