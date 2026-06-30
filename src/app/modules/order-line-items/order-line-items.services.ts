@@ -26,6 +26,7 @@ import {
     VoidLineItemPayload,
 } from "./order-line-items.interfaces";
 import { lineItemIdGenerator, lineItemQueryValidationConfig } from "./order-line-items.utils";
+import { buildOrderInfoBlockById } from "../../utils/helper-query";
 import queryValidator from "../../utils/query-validator";
 import { DocumentService } from "../../services/document.service";
 import { roundCurrency } from "../../utils/pricing-engine";
@@ -1288,15 +1289,18 @@ const updateOrderPricingAfterLineItemChange = async (
         entity_id: orderId,
         actor_id: userId,
         actor_role: null,
-        payload: buildEntityUpdatedPayload({
-            entityIdReadable: order.order_id,
-            companyId: order.company_id || "",
-            companyName: company?.name || "N/A",
-            contactName: order.contact_name,
-            changed: [],
-            statusReverted: true,
-            repriceTriggered: true,
-        }),
+        payload: {
+            ...buildEntityUpdatedPayload({
+                entityIdReadable: order.order_id,
+                companyId: order.company_id || "",
+                companyName: company?.name || "N/A",
+                contactName: order.contact_name,
+                changed: [],
+                statusReverted: true,
+                repriceTriggered: true,
+            }),
+            order_info: await buildOrderInfoBlockById(order.id),
+        },
     });
 };
 

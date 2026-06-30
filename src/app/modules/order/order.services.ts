@@ -51,6 +51,7 @@ import paginationMaker from "../../utils/pagination-maker";
 import { buildServiceRequestCodes } from "../../utils/service-request-code";
 import queryValidator from "../../utils/query-validator";
 import { buildOrderInfoBlock } from "../../utils/order-email-info";
+import { resolvePlatformCurrency } from "../../utils/helper-query";
 import {
     SubmitOrderPayload,
     UpdateOrderTimeWindowsPayload,
@@ -2826,6 +2827,7 @@ const approveQuote = async (
     const approvedOrderTotal =
         PricingService.projectSummaryForRole((order.order_pricing as any) || null, "CLIENT")
             ?.final_total || "0";
+    const approvedCurrency = await resolvePlatformCurrency(platformId);
 
     await eventBus.emit({
         platform_id: platformId,
@@ -2840,6 +2842,7 @@ const approveQuote = async (
             company_name: (order.company as any)?.name || "N/A",
             contact_name: order.contact_name,
             final_total: String(approvedOrderTotal),
+            currency: approvedCurrency,
             order_info: buildOrderInfoBlock(order, {
                 companyName: (order.company as any)?.name,
             }),
@@ -3248,6 +3251,7 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
         : null;
     const pendingTotal =
         projectedAdmin?.final_total != null ? String(projectedAdmin.final_total) : undefined;
+    const pendingCurrency = await resolvePlatformCurrency(platformId);
 
     await eventBus.emit({
         platform_id: platformId,
@@ -3272,6 +3276,7 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
             }),
             submitted_by_name: user.name,
             ...(pendingTotal ? { pending_total: pendingTotal } : {}),
+            currency: pendingCurrency,
             order_url: "",
         },
     });
@@ -3454,6 +3459,7 @@ const adminApproveQuote = async (
         : [];
 
     // Step 4: Emit quote.sent event
+    const quoteCurrency = await resolvePlatformCurrency(platformId);
     await eventBus.emit({
         platform_id: platformId,
         event_type: isRevisedQuote ? EVENT_TYPES.QUOTE_REVISED : EVENT_TYPES.QUOTE_SENT,
@@ -3468,6 +3474,7 @@ const adminApproveQuote = async (
             contact_name: order.contact_name,
             contact_email: order.contact_email,
             final_total: finalTotal,
+            currency: quoteCurrency,
             order_info: buildOrderInfoBlock(order, { companyName: company?.name }),
             line_items: clientLineItems,
             // pricing.* MUST be sourced from the CLIENT projection — never

@@ -1,5 +1,14 @@
 import { EmailTemplate } from "./index";
-import { actionButton, footer, formatAmount, formatWindow, infoBox, infoRow, wrap } from "./base";
+import {
+    actionButton,
+    footer,
+    formatAmount,
+    formatMoney,
+    formatWindow,
+    infoBox,
+    infoRow,
+    wrap,
+} from "./base";
 import { orderInfoRows } from "./order-info-rows";
 
 const p = (payload: Record<string, unknown>) => payload as Record<string, any>;
@@ -50,7 +59,7 @@ export const orderPendingApprovalAdmin: EmailTemplate = {
         const d = p(payload);
         const totalLine =
             d.pending_total != null && String(d.pending_total).length > 0
-                ? infoRow("Indicative total (admin view)", `${formatAmount(d.pending_total)} AED`)
+                ? infoRow("Indicative total (admin view)", formatMoney(d.pending_total, d.currency))
                 : "";
         return wrap(`
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Pricing submitted for your review</h1>
@@ -170,10 +179,10 @@ export const quoteSentClient: EmailTemplate = {
         const priceLabel = (i: any): string => {
             if (i.billing_mode === "COMPLIMENTARY") {
                 return i.total != null
-                    ? `Complimentary (valued at ${formatAmount(i.total)} AED)`
+                    ? `Complimentary (valued at ${formatMoney(i.total, d.currency)})`
                     : "Complimentary";
             }
-            return i.total != null ? `${formatAmount(i.total)} AED` : "";
+            return i.total != null ? formatMoney(i.total, d.currency) : "";
         };
         const renderLineRow = (i: any): string => {
             const label = `${i.label}${qtyLabel(i)}`;
@@ -196,7 +205,7 @@ export const quoteSentClient: EmailTemplate = {
         // allowed to see it; otherwise we render the label alone.
         const baseOpsHtml =
             pricing.base_ops_total != null
-                ? `<p style="margin: 6px 0;"><strong>Picking & Handling:</strong> ${formatAmount(pricing.base_ops_total)} AED</p>`
+                ? `<p style="margin: 6px 0;"><strong>Picking & Handling:</strong> ${formatMoney(pricing.base_ops_total, d.currency)}</p>`
                 : `<p style="margin: 6px 0;"><strong>Picking & Handling</strong></p>`;
 
         return wrap(`
@@ -208,7 +217,7 @@ export const quoteSentClient: EmailTemplate = {
                 ${baseOpsHtml}
                 ${lineItemsHtml}
                 <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 12px 0;">
-                <p style="margin: 8px 0; font-size: 18px; font-weight: bold; color: #111827;">Total: ${formatAmount(d.final_total)} AED</p>
+                <p style="margin: 8px 0; font-size: 18px; font-weight: bold; color: #111827;">Total: ${formatMoney(d.final_total, d.currency)}</p>
             `)}
             <p style="margin: 16px 0; color: #dc2626; font-weight: 600;">Action Required: Please review and approve or decline the quote.</p>
             ${actionButton("View Quote", d.order_url)}
@@ -228,7 +237,7 @@ export const quoteSentAdmin: EmailTemplate = {
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">A quote has been sent to the client for order ${d.entity_id_readable}.</p>
             ${infoBox(`
                 ${orderInfoRows(d.order_info)}
-                ${infoRow("Total", `${formatAmount(d.final_total)} AED`)}
+                ${infoRow("Total", formatMoney(d.final_total, d.currency))}
             `)}
             ${actionButton("View Order", d.order_url)}
             ${footer()}
@@ -286,7 +295,7 @@ export const quoteApprovedAdmin: EmailTemplate = {
                 `
                 ${orderInfoRows(d.order_info)}
                 ${actedByRow(d)}
-                <p style="margin: 8px 0; font-size: 18px; font-weight: bold; color: #111827;">Total: ${formatAmount(d.final_total)} AED</p>
+                <p style="margin: 8px 0; font-size: 18px; font-weight: bold; color: #111827;">Total: ${formatMoney(d.final_total, d.currency)}</p>
             `,
                 "#f0fdf4",
                 "#10b981"
@@ -310,7 +319,7 @@ export const quoteApprovedLogistics: EmailTemplate = {
                 `
                 ${orderInfoRows(d.order_info)}
                 ${actedByRow(d)}
-                ${infoRow("Total", `${formatAmount(d.final_total)} AED`)}
+                ${infoRow("Total", formatMoney(d.final_total, d.currency))}
             `,
                 "#f0fdf4",
                 "#10b981"

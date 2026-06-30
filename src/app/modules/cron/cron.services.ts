@@ -9,7 +9,7 @@ import {
     selfPickupStatusHistory,
     systemEvents,
 } from "../../../db/schema";
-import { getSystemUser } from "../../utils/helper-query";
+import { buildOrderInfoBlockById, getSystemUser } from "../../utils/helper-query";
 import { eventBus, EVENT_TYPES } from "../../events";
 import { ACTIVE_PARENT_STATUSES_FOR_BOOKINGS } from "../../shared/availability/availability.core";
 
@@ -588,6 +588,7 @@ const expireStuckQuotes = async () => {
                     entity_id_readable: order.order_id,
                     company_id: order.company_id,
                     contact_name: order.contact_name,
+                    order_info: await buildOrderInfoBlockById(order.id),
                     cancellation_reason: "AUTO_EXPIRED",
                     cancellation_notes: note,
                     suppress_entity_owner: false,

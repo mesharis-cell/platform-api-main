@@ -50,6 +50,7 @@ import {
 } from "../shared/feasibility/feasibility.core";
 import { PricingService } from "./pricing.service";
 import { buildServiceRequestCodes } from "../utils/service-request-code";
+import { buildOrderInfoBlockById } from "../utils/helper-query";
 import {
     buildEntityUpdatedPayload,
     diffChangedFields,
@@ -1342,6 +1343,24 @@ export const editEntity = async (params: EditEntityParams): Promise<EditEntityRe
                 .where(eq(companies.id, ctx.companyId));
             companyName = company?.name || "N/A";
         }
+        const updatedPayload = buildEntityUpdatedPayload({
+            entityIdReadable: ctx.entityIdReadable,
+            companyId: ctx.companyId || "",
+            companyName,
+            // Prefer the freshly-written contact name over the pre-edit snapshot in
+            // ctx.row — an edit that changed the contact name would otherwise notify
+            // with the stale value. columnWrites holds the new column values.
+            contactName: ctx.config.contactNameKey
+                ? ((columnWrites[ctx.config.contactNameKey] as string | null | undefined) ??
+                  (ctx.row[ctx.config.contactNameKey] as string | null))
+                : null,
+            changed,
+            statusReverted,
+            reconcileTriggered,
+            repriceTriggered,
+            actedByName,
+            onBehalfOfName,
+        });
         await eventBus.emit({
             platform_id: platformId,
             event_type: eventType,
@@ -1349,24 +1368,13 @@ export const editEntity = async (params: EditEntityParams): Promise<EditEntityRe
             entity_id: entityId,
             actor_id: user.id,
             actor_role: user.role,
-            payload: buildEntityUpdatedPayload({
-                entityIdReadable: ctx.entityIdReadable,
-                companyId: ctx.companyId || "",
-                companyName,
-                // Prefer the freshly-written contact name over the pre-edit snapshot in
-                // ctx.row — an edit that changed the contact name would otherwise notify
-                // with the stale value. columnWrites holds the new column values.
-                contactName: ctx.config.contactNameKey
-                    ? ((columnWrites[ctx.config.contactNameKey] as string | null | undefined) ??
-                      (ctx.row[ctx.config.contactNameKey] as string | null))
-                    : null,
-                changed,
-                statusReverted,
-                reconcileTriggered,
-                repriceTriggered,
-                actedByName,
-                onBehalfOfName,
-            }),
+            // order.updated renders from the canonical order_info block (Phase 2 cutover);
+            // attach it for ORDER edits. SP/inbound/SR *.updated templates still read flat
+            // fields, so they stay on the base payload until those entities adopt the block.
+            payload:
+                ctx.config.entityType === "ORDER"
+                    ? { ...updatedPayload, order_info: await buildOrderInfoBlockById(entityId) }
+                    : updatedPayload,
         });
     }
 
