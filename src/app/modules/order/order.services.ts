@@ -50,6 +50,7 @@ import { assertCompanyScopeOrManager, resolveCompanyScope } from "../../utils/co
 import paginationMaker from "../../utils/pagination-maker";
 import { buildServiceRequestCodes } from "../../utils/service-request-code";
 import queryValidator from "../../utils/query-validator";
+import { buildOrderInfoBlock } from "../../utils/order-email-info";
 import {
     SubmitOrderPayload,
     UpdateOrderTimeWindowsPayload,
@@ -1140,6 +1141,14 @@ const submitOrderFromCart = async (
         actor_id: user.id,
         actor_role: user.role,
         payload: {
+            // Canonical standardized order-info block (present-when-set). The flat
+            // fields below are retained during the dual-emit phase for backward-compat
+            // with templates not yet cut over; they are removed in the cleanup phase.
+            order_info: buildOrderInfoBlock(orderResult, {
+                companyName: (company as any)?.name,
+                venueCityName: city.name,
+                itemCount: items.length,
+            }),
             entity_id_readable: orderResult.order_id,
             company_id: companyId,
             company_name: (company as any)?.name || "N/A",
