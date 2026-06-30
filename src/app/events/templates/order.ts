@@ -56,11 +56,7 @@ export const orderPendingApprovalAdmin: EmailTemplate = {
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Pricing submitted for your review</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Logistics (${d.submitted_by_name || "team"}) has submitted pricing for this order. Please review margin and approve to send the quote to the client.</p>
             ${infoBox(`
-                ${infoRow("Order ID", d.entity_id_readable)}
-                ${infoRow("Company", d.company_name)}
-                ${infoRow("Event", `${d.event_start_date} – ${d.event_end_date}`)}
-                ${infoRow("Venue", `${d.venue_name}, ${d.venue_city}`)}
-                ${infoRow("Contact", `${d.contact_name} (${d.contact_email})`)}
+                ${orderInfoRows(d.order_info)}
                 ${totalLine}
             `)}
             ${actionButton("Review & approve", d.order_url)}
@@ -108,10 +104,7 @@ export const repairBeforeEventAdmin: EmailTemplate = {
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Repair Before Event Required</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">This order includes item(s) that need repair before the event. Warehouse tasks have been created and fulfillment will remain blocked until repair is completed or an admin exception is approved.</p>
             ${infoBox(`
-                ${infoRow("Order ID", d.entity_id_readable)}
-                ${infoRow("Company", d.company_name)}
-                ${infoRow("Event", `${d.event_start_date} - ${d.event_end_date}`)}
-                ${infoRow("Venue", `${d.venue_name}, ${d.venue_city}`)}
+                ${orderInfoRows(d.order_info)}
                 ${infoRow("Repair tasks", `${repairItems.length}`)}
                 ${renderRepairItems(repairItems)}
             `)}
@@ -130,10 +123,7 @@ export const repairBeforeEventLogistics: EmailTemplate = {
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Repair Before Event Tasks</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Repair tasks are ready in the warehouse queue for this order. Complete each task before delivery.</p>
             ${infoBox(`
-                ${infoRow("Order ID", d.entity_id_readable)}
-                ${infoRow("Company", d.company_name)}
-                ${infoRow("Event", `${d.event_start_date} - ${d.event_end_date}`)}
-                ${infoRow("Venue", `${d.venue_name}, ${d.venue_city}`)}
+                ${orderInfoRows(d.order_info)}
                 ${infoRow("Repair tasks", `${repairItems.length}`)}
                 ${renderRepairItems(repairItems)}
             `)}
@@ -151,8 +141,7 @@ export const maintenanceDecisionChangeRequestedAdmin: EmailTemplate = {
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Maintenance Decision Change Requested</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">A client requested a change to an item repair decision. Review the order before sending the quote.</p>
             ${infoBox(`
-                ${infoRow("Order ID", d.entity_id_readable)}
-                ${infoRow("Company", d.company_name)}
+                ${orderInfoRows(d.order_info)}
                 ${infoRow("Item", d.asset_name || "Item")}
                 ${infoRow("Requested decision", d.requested_decision_label || d.requested_decision)}
             `)}
@@ -214,8 +203,7 @@ export const quoteSentClient: EmailTemplate = {
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Your Quote is Ready</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Hi ${d.contact_name}, your quote for order ${d.entity_id_readable} is ready for review.</p>
             ${infoBox(`
-                ${infoRow("Order ID", d.entity_id_readable)}
-                ${infoRow("Company", d.company_name)}
+                ${orderInfoRows(d.order_info)}
                 <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 12px 0;">
                 ${baseOpsHtml}
                 ${lineItemsHtml}
@@ -239,8 +227,7 @@ export const quoteSentAdmin: EmailTemplate = {
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Quote Sent to Client</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">A quote has been sent to the client for order ${d.entity_id_readable}.</p>
             ${infoBox(`
-                ${infoRow("Order ID", d.entity_id_readable)}
-                ${infoRow("Company", d.company_name)}
+                ${orderInfoRows(d.order_info)}
                 ${infoRow("Total", `${formatAmount(d.final_total)} AED`)}
             `)}
             ${actionButton("View Order", d.order_url)}
@@ -263,8 +250,7 @@ export const quoteRevisedClient: EmailTemplate = {
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Your Quote Has Been Revised</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Hi ${d.contact_name}, the quote for order ${d.entity_id_readable} has been updated.</p>
             ${infoBox(`
-                ${infoRow("Order ID", d.entity_id_readable)}
-                ${d.company_name ? infoRow("Company", d.company_name) : ""}
+                ${orderInfoRows(d.order_info)}
             `)}
             <p style="margin: 16px 0; color: #dc2626; font-weight: 600;">Action Required: Please review and approve or decline the revised quote.</p>
             ${actionButton("View Revised Quote", d.order_url)}
@@ -281,10 +267,7 @@ export const quoteRevisedAdmin: EmailTemplate = {
         return wrap(`
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Quote Revised — Client Notified</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">The quote for order ${d.entity_id_readable} has been revised and re-sent to the client for approval.</p>
-            ${infoBox(`
-                ${infoRow("Order ID", d.entity_id_readable)}
-                ${infoRow("Company", d.company_name)}
-            `)}
+            ${infoBox(orderInfoRows(d.order_info))}
             ${actionButton("View Order", d.order_url)}
             ${footer()}
         `);
@@ -301,8 +284,7 @@ export const quoteApprovedAdmin: EmailTemplate = {
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">The client has approved the quote. The order is proceeding to invoicing.</p>
             ${infoBox(
                 `
-                ${infoRow("Order ID", d.entity_id_readable)}
-                ${infoRow("Company", d.company_name)}
+                ${orderInfoRows(d.order_info)}
                 ${actedByRow(d)}
                 <p style="margin: 8px 0; font-size: 18px; font-weight: bold; color: #111827;">Total: ${formatAmount(d.final_total)} AED</p>
             `,
@@ -326,8 +308,7 @@ export const quoteApprovedLogistics: EmailTemplate = {
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">The client has approved the quote for order ${d.entity_id_readable}.</p>
             ${infoBox(
                 `
-                ${infoRow("Order ID", d.entity_id_readable)}
-                ${infoRow("Company", d.company_name)}
+                ${orderInfoRows(d.order_info)}
                 ${actedByRow(d)}
                 ${infoRow("Total", `${formatAmount(d.final_total)} AED`)}
             `,
@@ -350,8 +331,7 @@ export const quoteDeclinedAdmin: EmailTemplate = {
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">The client has declined the quote for order ${d.entity_id_readable}.</p>
             ${infoBox(
                 `
-                ${infoRow("Order ID", d.entity_id_readable)}
-                ${infoRow("Company", d.company_name)}
+                ${orderInfoRows(d.order_info)}
                 ${actedByRow(d)}
             `,
                 "#fef2f2",
@@ -374,8 +354,7 @@ export const quoteDeclinedLogistics: EmailTemplate = {
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">The client has declined the quote for order ${d.entity_id_readable}.</p>
             ${infoBox(
                 `
-                ${infoRow("Order ID", d.entity_id_readable)}
-                ${infoRow("Company", d.company_name)}
+                ${orderInfoRows(d.order_info)}
                 ${actedByRow(d)}
             `,
                 "#fef2f2",
@@ -543,6 +522,7 @@ export const orderCancelledClient: EmailTemplate = {
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Hi ${d.contact_name}, order ${d.entity_id_readable} has been cancelled.</p>
             ${infoBox(
                 `
+                ${orderInfoRows(d.order_info)}
                 ${d.cancellation_reason ? infoRow("Reason", d.cancellation_reason) : ""}
                 ${d.cancellation_notes ? infoRow("Notes", d.cancellation_notes) : ""}
             `,
@@ -564,6 +544,7 @@ export const orderCancelledAdmin: EmailTemplate = {
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Order ${d.entity_id_readable} (${d.company_name}) has been cancelled.</p>
             ${infoBox(
                 `
+                ${orderInfoRows(d.order_info)}
                 ${d.cancellation_reason ? infoRow("Reason", d.cancellation_reason) : ""}
                 ${d.cancellation_notes ? infoRow("Notes", d.cancellation_notes) : ""}
             `,
@@ -585,8 +566,7 @@ export const orderCancelledLogistics: EmailTemplate = {
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Order ${d.entity_id_readable} has been cancelled. Please ensure no preparation resources are committed.</p>
             ${infoBox(
                 `
-                ${infoRow("Order ID", d.entity_id_readable)}
-                ${infoRow("Company", d.company_name)}
+                ${orderInfoRows(d.order_info)}
                 ${d.cancellation_reason ? infoRow("Reason", d.cancellation_reason) : ""}
             `,
                 "#fef2f2"
@@ -606,11 +586,7 @@ export const orderReadyAdmin: EmailTemplate = {
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #8b5cf6;">All Items Scanned & Ready for Delivery</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">All items for order ${d.entity_id_readable} have been scanned out and are ready to dispatch.</p>
             ${infoBox(
-                `
-                ${infoRow("Order ID", d.entity_id_readable)}
-                ${infoRow("Venue", d.venue_name)}
-                ${d.delivery_window ? infoRow("Delivery Window", formatWindow(d.delivery_window)) : ""}
-            `,
+                orderInfoRows(d.order_info),
                 "#f5f3ff"
             )}
             ${actionButton("View Order", d.order_url, "#8b5cf6")}
@@ -628,11 +604,7 @@ export const orderInTransitClient: EmailTemplate = {
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #0ea5e9;">🚚 Your Order is On The Way</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Hi ${d.contact_name}, your items are in transit to the venue.</p>
             ${infoBox(
-                `
-                ${infoRow("Order ID", d.entity_id_readable)}
-                ${infoRow("Venue", `${d.venue_name}, ${d.venue_city}`)}
-                ${d.delivery_window ? infoRow("Estimated Delivery", formatWindow(d.delivery_window)) : ""}
-            `,
+                orderInfoRows(d.order_info),
                 "#f0f9ff"
             )}
             <p style="margin: 16px 0;">Please ensure someone is available to receive the delivery.</p>
@@ -650,12 +622,7 @@ export const orderInTransitAdmin: EmailTemplate = {
         return wrap(`
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #0ea5e9;">🚚 Order In Transit</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Order ${d.entity_id_readable} is now in transit.</p>
-            ${infoBox(`
-                ${infoRow("Order ID", d.entity_id_readable)}
-                ${infoRow("Company", d.company_name)}
-                ${infoRow("Venue", `${d.venue_name}, ${d.venue_city}`)}
-                ${d.delivery_window ? infoRow("Delivery Window", formatWindow(d.delivery_window)) : ""}
-            `)}
+            ${infoBox(orderInfoRows(d.order_info))}
             ${actionButton("View Order", d.order_url, "#0ea5e9")}
             ${footer()}
         `);
@@ -670,11 +637,7 @@ export const orderDeliveredClient: EmailTemplate = {
         return wrap(`
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #10b981;">✓ Order Delivered Successfully</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Hi ${d.contact_name}, your order has been delivered to the venue.</p>
-            ${infoBox(`
-                ${infoRow("Order ID", d.entity_id_readable)}
-                ${infoRow("Venue", d.venue_name)}
-                ${d.pickup_window ? infoRow("Pickup Window", formatWindow(d.pickup_window)) : ""}
-            `)}
+            ${infoBox(orderInfoRows(d.order_info))}
             <p style="margin: 16px 0;">Please remember to prepare items for return during the scheduled pickup window.</p>
             ${actionButton("View Order", d.order_url, "#10b981")}
             ${footer()}
@@ -690,12 +653,7 @@ export const orderDeliveredAdmin: EmailTemplate = {
         return wrap(`
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #10b981;">✓ Order Delivered</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Order ${d.entity_id_readable} has been delivered to the venue.</p>
-            ${infoBox(`
-                ${infoRow("Order ID", d.entity_id_readable)}
-                ${infoRow("Company", d.company_name)}
-                ${infoRow("Venue", d.venue_name)}
-                ${d.pickup_window ? infoRow("Pickup Window", formatWindow(d.pickup_window)) : ""}
-            `)}
+            ${infoBox(orderInfoRows(d.order_info))}
             ${actionButton("View Order", d.order_url, "#10b981")}
             ${footer()}
         `);
@@ -710,11 +668,7 @@ export const orderDeliveredLogistics: EmailTemplate = {
         return wrap(`
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #10b981;">✓ Delivery Confirmed</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Order ${d.entity_id_readable} has been delivered successfully.</p>
-            ${infoBox(`
-                ${infoRow("Order ID", d.entity_id_readable)}
-                ${infoRow("Venue", d.venue_name)}
-                ${d.pickup_window ? infoRow("Scheduled Pickup", formatWindow(d.pickup_window)) : ""}
-            `)}
+            ${infoBox(orderInfoRows(d.order_info))}
             ${actionButton("View Order", d.order_url, "#10b981")}
             ${footer()}
         `);
@@ -802,11 +756,7 @@ export const orderClosedAdmin: EmailTemplate = {
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #059669;">✓ Order Complete</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">All items have been returned. Order ${d.entity_id_readable} is closed.</p>
             ${infoBox(
-                `
-                ${infoRow("Order ID", d.entity_id_readable)}
-                ${infoRow("Company", d.company_name)}
-                ${infoRow("Event", `${d.event_start_date} – ${d.event_end_date}`)}
-            `,
+                orderInfoRows(d.order_info),
                 "#f0fdf4"
             )}
             ${actionButton("View Order Summary", d.order_url, "#059669")}
@@ -824,11 +774,7 @@ export const timeWindowsUpdatedClient: EmailTemplate = {
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #2563eb;">Delivery Schedule Updated</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Hi ${d.contact_name}, the delivery and pickup windows for your order have been updated.</p>
             ${infoBox(
-                `
-                ${infoRow("Order ID", d.entity_id_readable)}
-                ${d.delivery_window ? infoRow("Delivery Window", formatWindow(d.delivery_window)) : ""}
-                ${d.pickup_window ? infoRow("Pickup Window", formatWindow(d.pickup_window)) : ""}
-            `,
+                orderInfoRows(d.order_info),
                 "#eff6ff"
             )}
             <p style="margin: 16px 0;">Please ensure availability during the scheduled time windows.</p>
@@ -846,12 +792,7 @@ export const timeWindowsUpdatedAdmin: EmailTemplate = {
         return wrap(`
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #2563eb;">Time Windows Updated</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">The delivery/pickup windows for order ${d.entity_id_readable} have been updated.</p>
-            ${infoBox(`
-                ${infoRow("Order ID", d.entity_id_readable)}
-                ${infoRow("Company", d.company_name)}
-                ${d.delivery_window ? infoRow("Delivery Window", formatWindow(d.delivery_window)) : ""}
-                ${d.pickup_window ? infoRow("Pickup Window", formatWindow(d.pickup_window)) : ""}
-            `)}
+            ${infoBox(orderInfoRows(d.order_info))}
             ${actionButton("View Order", d.order_url)}
             ${footer()}
         `);
@@ -959,8 +900,7 @@ export const orderUpdatedAdmin: EmailTemplate = {
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #2563eb;">Order Edited</h1>
             ${lead}
             ${infoBox(`
-                ${infoRow("Order ID", d.entity_id_readable)}
-                ${infoRow("Company", d.company_name)}
+                ${orderInfoRows(d.order_info)}
                 ${actedByRow(d)}
             `)}
             ${
