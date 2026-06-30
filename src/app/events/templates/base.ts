@@ -94,3 +94,48 @@ export function formatWindow(
         return "";
     }
 }
+
+/** Platform operating timezone. Single source for the email date/time helpers. */
+export const TZ = "Asia/Dubai";
+
+/**
+ * Format an EVENT date range for email display — DATE ONLY (no time).
+ *
+ * Event dates (event_start_date / event_end_date) carry no meaningful time-of-day,
+ * unlike delivery/pickup windows (use formatWindow for those). Renders
+ * "Sat, 26 Apr – Wed, 30 Apr" (single en-dash, Asia/Dubai). A single-day event
+ * (start === end) renders as one date. This retires the three divergent event-date
+ * renderings (raw "June 16, 2026", raw ISO "2026-06-16", hyphen vs en-dash).
+ */
+export function eventRange(
+    start?: Date | string | null,
+    end?: Date | string | null,
+    timezone: string = TZ
+): string {
+    if (!start) return "";
+    const opts: Intl.DateTimeFormatOptions = {
+        timeZone: timezone,
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+    };
+    try {
+        const s = new Date(start).toLocaleDateString("en-GB", opts);
+        if (!end) return s;
+        const e = new Date(end).toLocaleDateString("en-GB", opts);
+        return s === e ? s : `${s} – ${e}`;
+    } catch {
+        return "";
+    }
+}
+
+/**
+ * Format a money amount with its currency for email display — the single source of
+ * truth that replaces the ~20 hardcoded " AED" literals scattered across templates.
+ * Currency is sourced from the platform (platforms.config.currency, a 3-letter ISO
+ * code) and threaded through the event payload; defaults to AED when absent.
+ */
+export function formatMoney(value?: number | string | null, currency: string = "AED"): string {
+    if (value === undefined || value === null) return "—";
+    return `${Number(value).toFixed(2)} ${currency}`;
+}
