@@ -34,6 +34,7 @@ import CustomizedError from "../../../error/customized-error";
 import { PricingService } from "../../../services/pricing.service";
 import { ReportDefinition, ReportResult, ReportRunContext } from "../types";
 import { statusExcludeFragment } from "../shared/inclusion";
+import { groupByCompany } from "../shared/group-by-company";
 import {
     colLetter,
     createReportWorkbook,
@@ -305,16 +306,7 @@ ORDER BY company ASC, document_date ASC`;
     const showMargin = ctx.canSeeMargin && !ctx.isClientMount;
 
     // Group docs by company for all-companies mode (rows arrive ordered by company).
-    const groupByCompany = (list: Doc[]): { company: string; docs: Doc[] }[] => {
-        const groups: { company: string; docs: Doc[] }[] = [];
-        for (const d of list) {
-            const name = d.raw.company ?? "—";
-            const last = groups[groups.length - 1];
-            if (last && last.company === name) last.docs.push(d);
-            else groups.push({ company: name, docs: [d] });
-        }
-        return groups;
-    };
+    const groupDocsByCompany = (list: Doc[]) => groupByCompany(list, (d) => d.raw.company);
 
     // ── Common leading columns (document context) ────────────────────────────
     const baseColumns: ReportColumn[] = [
@@ -449,7 +441,7 @@ ORDER BY company ASC, document_date ASC`;
         };
 
         if (allCompanies) {
-            for (const g of groupByCompany(docs)) {
+            for (const g of groupDocsByCompany(docs)) {
                 // Company banner — opens the company section.
                 const banner = sheet.addRow([]);
                 banner.getCell(1).value = g.company;
@@ -457,8 +449,8 @@ ORDER BY company ASC, document_date ASC`;
                 banner.height = 18;
                 for (let c = 1; c <= lastCol; c += 1) banner.getCell(c).fill = STYLE.HEADER_FILL;
                 edge(banner, "top", "medium");
-                for (const d of g.docs) renderDocBlock(d);
-                writeRollup(`SUBTOTAL — ${g.company}`, g.docs, STYLE.SUBTOTAL_FILL);
+                for (const d of g.rows) renderDocBlock(d);
+                writeRollup(`SUBTOTAL — ${g.company}`, g.rows, STYLE.SUBTOTAL_FILL);
                 sheet.addRow([]); // spacer between companies
             }
             if (docs.length > 0)
@@ -555,9 +547,9 @@ ORDER BY company ASC, document_date ASC`;
     };
 
     if (allCompanies) {
-        for (const g of groupByCompany(docs)) {
-            for (const d of g.docs) sheet.addRow(summaryCells(d));
-            writeTotals(`Subtotal — ${g.company}`, g.docs, STYLE.SUBTOTAL_FILL);
+        for (const g of groupDocsByCompany(docs)) {
+            for (const d of g.rows) sheet.addRow(summaryCells(d));
+            writeTotals(`Subtotal — ${g.company}`, g.rows, STYLE.SUBTOTAL_FILL);
             sheet.addRow([]); // spacer between companies
         }
         if (docs.length > 0)

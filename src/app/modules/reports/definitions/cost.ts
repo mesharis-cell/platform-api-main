@@ -34,6 +34,8 @@ import CustomizedError from "../../../error/customized-error";
 import { PricingService } from "../../../services/pricing.service";
 import { ReportDefinition, ReportResult, ReportRunContext } from "../types";
 import { BillingEntity, billableFilterFragment, statusExcludeFragment } from "../shared/inclusion";
+import { groupByCompany } from "../shared/group-by-company";
+import type ExcelJS from "exceljs";
 import {
     colLetter,
     colourStatus,
@@ -76,7 +78,9 @@ function resolveEntities(raw: unknown): BillingEntity[] {
 
 const paramsSchema = z
     .object({
-        company_id: z.string().uuid(),
+        // Optional → when omitted, the report runs across ALL companies on the
+        // platform (the controller sets ctx.allCompanies). Mirrors accounts-reconciliation.
+        company_id: z.string().uuid().optional(),
         date_from: z.string().regex(DATE_RE).optional(),
         date_to: z.string().regex(DATE_RE).optional(),
         category_include: z.union([z.string(), z.array(z.string())]).optional(),
@@ -148,6 +152,14 @@ async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<
     const hasCategoryFilter = inc.length > 0 || exc.length > 0;
     const entities = resolveEntities(params.entity_types);
 
+    // All-companies mode: drop the per-company filter and lean on platform_id scoping
+    // (still present in every arm). Single-company mode: bind to ctx.companyId.
+    const allCompanies = !!ctx.allCompanies;
+    const orderCompanyScope = allCompanies ? sql`` : sql` AND o."company" = ${ctx.companyId}`;
+    const srCompanyScope = allCompanies ? sql`` : sql` AND sr.company_id = ${ctx.companyId}`;
+    const spCompanyScope = allCompanies ? sql`` : sql` AND sp.company_id = ${ctx.companyId}`;
+    const inboundCompanyScope = allCompanies ? sql`` : sql` AND ir.company_id = ${ctx.companyId}`;
+
     // Per-entity category EXISTS subqueries (document-grained — keep the doc if it
     // has >=1 matching item), mirroring accounts-reconciliation.
     const orderCategoryExists = hasCategoryFilter
@@ -183,7 +195,7 @@ LEFT JOIN companies c ON o."company" = c.id
 LEFT JOIN brands b ON o."brand" = b.id
 LEFT JOIN prices p ON p.id = o.order_pricing_id
 WHERE o.platform_id = ${ctx.platformId}
-  AND o."company" = ${ctx.companyId}
+  ${orderCompanyScope}
   AND o.deleted_at IS NULL
   ${statusExcludeFragment(sql.raw("o.order_status"), "ORDER")}
   ${billableFilterFragment("o", "ORDER")}
@@ -202,7 +214,7 @@ FROM service_requests sr
 LEFT JOIN companies c ON sr.company_id = c.id
 LEFT JOIN prices p ON p.id = sr.request_pricing_id
 WHERE sr.platform_id = ${ctx.platformId}
-  AND sr.company_id = ${ctx.companyId}
+  ${srCompanyScope}
   ${statusExcludeFragment(sql.raw("sr.request_status"), "SERVICE_REQUEST")}
   ${billableFilterFragment("sr", "SERVICE_REQUEST")}
   ${srCategoryExists}
@@ -221,7 +233,7 @@ LEFT JOIN companies c ON sp.company_id = c.id
 LEFT JOIN brands b ON sp.brand_id = b.id
 LEFT JOIN prices p ON p.platform_id = sp.platform_id AND p.entity_type = 'SELF_PICKUP' AND p.entity_id = sp.id
 WHERE sp.platform_id = ${ctx.platformId}
-  AND sp.company_id = ${ctx.companyId}
+  ${spCompanyScope}
   ${statusExcludeFragment(sql.raw("sp.self_pickup_status"), "SELF_PICKUP")}
   ${billableFilterFragment("sp", "SELF_PICKUP")}
   ${spCategoryExists}
@@ -239,7 +251,7 @@ FROM inbound_requests ir
 LEFT JOIN companies c ON ir.company_id = c.id
 LEFT JOIN prices p ON p.id = ir.request_pricing_id
 WHERE ir.platform_id = ${ctx.platformId}
-  AND ir.company_id = ${ctx.companyId}
+  ${inboundCompanyScope}
   ${statusExcludeFragment(sql.raw("ir.request_status"), "INBOUND_REQUEST")}
   ${billableFilterFragment("ir", "INBOUND_REQUEST")}
   ${inboundCategoryExists}
@@ -253,13 +265,15 @@ WHERE ir.platform_id = ${ctx.platformId}
 UNION ALL
 `
     )}
-ORDER BY doc_date ASC, reference ASC`;
+ORDER BY company_name ASC, doc_date ASC, reference ASC`;
 
     const rows = ((await db.execute(query)) as any).rows as RawRow[];
     if (rows.length > ROW_CAP)
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            `Cost report has ${rows.length} documents (cap ${ROW_CAP}). Narrow by date range, entities, or category.`
+            `Cost report has ${rows.length} documents (cap ${ROW_CAP}). Narrow by date range${
+                allCompanies ? " (strongly recommended for all-companies runs)" : ""
+            }, entities, or category.`
         );
 
     // All columns are internal (ctx.canSeeMargin already enforced above). The
@@ -304,19 +318,19 @@ ORDER BY doc_date ASC, reference ASC`;
     const MARGIN_AMT = 14;
     const LABEL = 8; // grand-total label sits under EVENT END (last non-money col)
 
-    let firstDataRow = 0;
-    let lastDataRow = 0;
+    // Per-row rounded money — accumulated for the (sub)totals. BASE_OPS / RATE_CARD
+    // / CUSTOM only contribute on ORDER rows (blank on the other three entities);
+    // every entity contributes BUY / SELL / MARGIN.
+    type Totals = {
+        baseOps: number;
+        rateCard: number;
+        custom: number;
+        buy: number;
+        sell: number;
+        margin: number;
+    };
 
-    // Per-report rounded accumulators — grand totals reduce over already-rounded
-    // per-row values (roundMoney), so the Excel SUM ties to the cached JS sum.
-    let sumBaseOps = 0;
-    let sumRateCard = 0;
-    let sumCustom = 0;
-    let sumBuy = 0;
-    let sumSell = 0;
-    let sumMargin = 0;
-
-    for (const r of rows) {
+    const writeDataRow = (r: RawRow): Totals => {
         const isOrder = r.entity_type === "ORDER";
         const pricing = r.breakdown_lines
             ? {
@@ -395,42 +409,100 @@ ORDER BY doc_date ASC, reference ASC`;
 
         colourStatus(row.getCell(STATUS_COL), r.status ?? "");
 
-        if (!firstDataRow) firstDataRow = row.number;
-        lastDataRow = row.number;
-
         // Only order rows contribute to the split sub-totals (others are blank).
-        if (isOrder) {
-            sumBaseOps += baseOps;
-            sumRateCard += rateCard;
-            sumCustom += custom;
-        }
-        sumBuy += buyTotal;
-        sumSell += sellTotal;
-        sumMargin += marginAmount;
-    }
-
-    // Grand-total row: GRAND BUY = Σ TOTAL BUY COST; GRAND SELL = Σ SELL TOTAL;
-    // GRAND MARGIN = Σ MARGIN AMOUNT. Live SUM formulas spanning the data block.
-    if (rows.length > 0) {
-        const grand = sheet.addRow([]);
-        grand.getCell(LABEL).value = `GRAND TOTAL — ${ctx.companyName}`;
-        grand.font = { bold: true, size: 12 };
-        grand.height = 20;
-        grand.eachCell({ includeEmpty: true }, (cell) => (cell.fill = STYLE.GRAND_FILL));
-        const setSum = (col: number, cached: number) => {
-            const L = colLetter(col - 1);
-            grand.getCell(col).value = {
-                formula: sumRange(L, firstDataRow, lastDataRow),
-                result: roundMoney(cached),
-            };
-            grand.getCell(col).numFmt = MONEY_FMT;
+        return {
+            baseOps: isOrder ? baseOps : 0,
+            rateCard: isOrder ? rateCard : 0,
+            custom: isOrder ? custom : 0,
+            buy: buyTotal,
+            sell: sellTotal,
+            margin: marginAmount,
         };
-        setSum(BASE_OPS, sumBaseOps);
-        setSum(RATE_CARD, sumRateCard);
-        setSum(CUSTOM, sumCustom);
-        setSum(TOTAL_BUY, sumBuy);
-        setSum(SELL, sumSell);
-        setSum(MARGIN_AMT, sumMargin);
+    };
+
+    const sumTotals = (list: Totals[]): Totals =>
+        list.reduce<Totals>(
+            (acc, t) => ({
+                baseOps: acc.baseOps + t.baseOps,
+                rateCard: acc.rateCard + t.rateCard,
+                custom: acc.custom + t.custom,
+                buy: acc.buy + t.buy,
+                sell: acc.sell + t.sell,
+                margin: acc.margin + t.margin,
+            }),
+            { baseOps: 0, rateCard: 0, custom: 0, buy: 0, sell: 0, margin: 0 }
+        );
+
+    // Cached (no SUM formula) totals row — used in all-companies mode where the
+    // per-company subtotal rows are interleaved with data and would corrupt a
+    // single contiguous SUM range.
+    const writeCachedTotals = (label: string, t: Totals, fill: ExcelJS.Fill, big = false) => {
+        const row = sheet.addRow([]);
+        row.getCell(LABEL).value = label;
+        row.font = big ? { bold: true, size: 12 } : { bold: true };
+        if (big) row.height = 20;
+        row.eachCell({ includeEmpty: true }, (cell) => (cell.fill = fill));
+        const put = (col: number, val: number) => {
+            row.getCell(col).value = roundMoney(val);
+            row.getCell(col).numFmt = MONEY_FMT;
+        };
+        put(BASE_OPS, t.baseOps);
+        put(RATE_CARD, t.rateCard);
+        put(CUSTOM, t.custom);
+        put(TOTAL_BUY, t.buy);
+        put(SELL, t.sell);
+        put(MARGIN_AMT, t.margin);
+    };
+
+    if (allCompanies) {
+        const all: Totals[] = [];
+        for (const g of groupByCompany(rows, (r) => r.company_name)) {
+            const groupTotals: Totals[] = g.rows.map((r) => writeDataRow(r));
+            all.push(...groupTotals);
+            writeCachedTotals(
+                `Subtotal — ${g.company}`,
+                sumTotals(groupTotals),
+                STYLE.SUBTOTAL_FILL
+            );
+            sheet.addRow([]); // spacer between companies
+        }
+        if (rows.length > 0)
+            writeCachedTotals(
+                `GRAND TOTAL — ${ctx.companyName}`,
+                sumTotals(all),
+                STYLE.GRAND_FILL,
+                true
+            );
+    } else {
+        // Single company → data rows are the first thing added (no banners), so the
+        // block is contiguous from headerRow+1 for rows.length rows.
+        const firstDataRow = h.headerRow + 1;
+        const all: Totals[] = rows.map((r) => writeDataRow(r));
+        // Grand-total row: GRAND BUY = Σ TOTAL BUY COST; GRAND SELL = Σ SELL TOTAL;
+        // GRAND MARGIN = Σ MARGIN AMOUNT. Live SUM formulas spanning the data block.
+        if (rows.length > 0) {
+            const lastDataRow = firstDataRow + rows.length - 1;
+            const grandTotals = sumTotals(all);
+            const grand = sheet.addRow([]);
+            grand.getCell(LABEL).value = `GRAND TOTAL — ${ctx.companyName}`;
+            grand.font = { bold: true, size: 12 };
+            grand.height = 20;
+            grand.eachCell({ includeEmpty: true }, (cell) => (cell.fill = STYLE.GRAND_FILL));
+            const setSum = (col: number, cached: number) => {
+                const L = colLetter(col - 1);
+                grand.getCell(col).value = {
+                    formula: sumRange(L, firstDataRow, lastDataRow),
+                    result: roundMoney(cached),
+                };
+                grand.getCell(col).numFmt = MONEY_FMT;
+            };
+            setSum(BASE_OPS, grandTotals.baseOps);
+            setSum(RATE_CARD, grandTotals.rateCard);
+            setSum(CUSTOM, grandTotals.custom);
+            setSum(TOTAL_BUY, grandTotals.buy);
+            setSum(SELL, grandTotals.sell);
+            setSum(MARGIN_AMT, grandTotals.margin);
+        }
     }
 
     finalizeWorkbook(h, rows.length);
@@ -441,13 +513,14 @@ export const costReport: ReportDefinition = {
     key: "cost",
     label: "Cost Report",
     description:
-        "Admin-only per-document buy-side cost (what the platform owes the warehouse) across orders, service requests, self-pickups and inbound requests — live client-billable documents only (excludes internal SRs, no-cost self-pickups, not-applicable orders/inbound, and dead/cancelled docs). Every document shows total buy cost, sell total (ex-VAT), margin amount and realized margin %; orders additionally show the BASE_OPS / rate-card / custom split + event window. Use Entities to narrow to specific document types. Exposes cost and margin — never client-facing.",
+        "Admin-only per-document buy-side cost (what the platform owes the warehouse) across orders, service requests, self-pickups and inbound requests — live client-billable documents only (excludes internal SRs, no-cost self-pickups, not-applicable orders/inbound, and dead/cancelled docs). Every document shows total buy cost, sell total (ex-VAT), margin amount and realized margin %; orders additionally show the BASE_OPS / rate-card / custom split + event window. Leave Company blank to run across ALL companies on the platform (grouped, with per-company subtotals + an overall total) — use a date range for all-companies runs. Use Entities to narrow to specific document types. Exposes cost and margin — never client-facing.",
     section: "FINANCIAL",
     audience: "ADMIN",
     operationsRoles: ["ADMIN"],
     permissions: ["orders:export"],
     filters: [
-        { key: "company_id", label: "Company", type: "company", required: true },
+        // Optional — leave blank to run across ALL companies on the platform.
+        { key: "company_id", label: "Company", type: "company", required: false },
         { key: "date_from", label: "From", type: "date", required: false },
         { key: "date_to", label: "To", type: "date", required: false },
         {
@@ -471,7 +544,8 @@ export const costReport: ReportDefinition = {
     rowCap: {
         max: ROW_CAP,
         dimension: "rows",
-        narrowHint: "narrow by date range, entities, or category",
+        narrowHint:
+            "narrow by date range (strongly recommended for all-companies runs), entities, or category",
     },
     run,
 };
