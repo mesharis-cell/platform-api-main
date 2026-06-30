@@ -594,10 +594,7 @@ export const orderReadyAdmin: EmailTemplate = {
         return wrap(`
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #8b5cf6;">All Items Scanned & Ready for Delivery</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">All items for order ${d.entity_id_readable} have been scanned out and are ready to dispatch.</p>
-            ${infoBox(
-                orderInfoRows(d.order_info),
-                "#f5f3ff"
-            )}
+            ${infoBox(orderInfoRows(d.order_info), "#f5f3ff")}
             ${actionButton("View Order", d.order_url, "#8b5cf6")}
             ${footer()}
         `);
@@ -612,10 +609,7 @@ export const orderInTransitClient: EmailTemplate = {
         return wrap(`
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #0ea5e9;">🚚 Your Order is On The Way</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Hi ${d.contact_name}, your items are in transit to the venue.</p>
-            ${infoBox(
-                orderInfoRows(d.order_info),
-                "#f0f9ff"
-            )}
+            ${infoBox(orderInfoRows(d.order_info), "#f0f9ff")}
             <p style="margin: 16px 0;">Please ensure someone is available to receive the delivery.</p>
             ${actionButton("Track Order", d.order_url, "#0ea5e9")}
             ${footer()}
@@ -764,10 +758,7 @@ export const orderClosedAdmin: EmailTemplate = {
         return wrap(`
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #059669;">✓ Order Complete</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">All items have been returned. Order ${d.entity_id_readable} is closed.</p>
-            ${infoBox(
-                orderInfoRows(d.order_info),
-                "#f0fdf4"
-            )}
+            ${infoBox(orderInfoRows(d.order_info), "#f0fdf4")}
             ${actionButton("View Order Summary", d.order_url, "#059669")}
             ${footer()}
         `);
@@ -782,10 +773,7 @@ export const timeWindowsUpdatedClient: EmailTemplate = {
         return wrap(`
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #2563eb;">Delivery Schedule Updated</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Hi ${d.contact_name}, the delivery and pickup windows for your order have been updated.</p>
-            ${infoBox(
-                orderInfoRows(d.order_info),
-                "#eff6ff"
-            )}
+            ${infoBox(orderInfoRows(d.order_info), "#eff6ff")}
             <p style="margin: 16px 0;">Please ensure availability during the scheduled time windows.</p>
             ${actionButton("View Updated Schedule", d.order_url)}
             ${footer()}
