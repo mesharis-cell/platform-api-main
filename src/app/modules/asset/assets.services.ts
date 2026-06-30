@@ -1,4 +1,17 @@
-import { and, asc, count, desc, eq, ilike, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import {
+    and,
+    asc,
+    count,
+    desc,
+    eq,
+    ilike,
+    inArray,
+    isNotNull,
+    isNull,
+    ne,
+    or,
+    sql,
+} from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { moveS3Object, s3KeyFromUrl } from "../../services/s3.service";
 import httpStatus from "http-status";
@@ -2980,9 +2993,35 @@ const companyEditAsset = async (
     return updated;
 };
 
+// ----------------------------------- LIST ASSET GROUPS -----------------------------------
+// Distinct (group_id, group_name) pairs for one company on the caller's platform.
+// Powers the reports "Group" filter picker. group_id is an opaque correlation key
+// (no FK); siblings share it. Raw/ungrouped assets (group_id IS NULL) are excluded.
+const listAssetGroups = async (
+    companyId: string,
+    platformId: string
+): Promise<Array<{ id: string; name: string | null }>> => {
+    const rows = await db
+        .selectDistinct({ id: assets.group_id, name: assets.group_name })
+        .from(assets)
+        .where(
+            and(
+                eq(assets.platform_id, platformId),
+                eq(assets.company_id, companyId),
+                isNotNull(assets.group_id),
+                isNull(assets.deleted_at)
+            )
+        )
+        .orderBy(asc(assets.group_name));
+
+    // group_id is non-null by the WHERE clause; narrow the type for the response.
+    return rows.map((r) => ({ id: r.id as string, name: r.name }));
+};
+
 export const AssetServices = {
     createAsset,
     getAssets,
+    listAssetGroups,
     getAssetById,
     updateAsset,
     companyEditAsset,

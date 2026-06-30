@@ -73,6 +73,17 @@ router.get(
     AssetControllers.getAssets
 );
 
+// List distinct asset groups for a company — powers the reports "Group" filter
+// picker. MUST be declared before "/:id" so "groups" isn't captured as an id.
+// Mirrors the asset LIST gate (assets:read) but ops-only (ADMIN+LOGISTICS).
+router.get(
+    "/groups",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.ASSETS_READ),
+    AssetControllers.getAssetGroups
+);
+
 // Get asset by id
 router.get(
     "/:id",

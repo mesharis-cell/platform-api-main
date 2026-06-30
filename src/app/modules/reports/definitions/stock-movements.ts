@@ -56,7 +56,7 @@ const paramsSchema = z.object({
     // `category` is the canonical CLI single-value form. Both feed the include scope.
     category: z.string().optional(),
     category_include: z.union([z.string(), z.array(z.string())]).optional(),
-    group: z.union([z.string().uuid(), z.array(z.string().uuid())]).optional(),
+    group_id: z.union([z.string().uuid(), z.array(z.string().uuid())]).optional(),
     date_from: z.string().regex(DATE_RE).optional(),
     date_to: z.string().regex(DATE_RE).optional(),
 });
@@ -115,7 +115,7 @@ async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<
     const categoryName: string | undefined = includeCats.length
         ? includeCats.join(", ")
         : undefined;
-    const groupIds = toArr(params.group);
+    const groupIds = toArr(params.group_id);
     const { gte, lt } = fmtDateBounds(params.date_from, params.date_to);
 
     // ── Stage 1: resolve pivot families (groups) in scope ────────────────────
@@ -434,7 +434,7 @@ export const stockMovementsReport: ReportDefinition = {
             mode: "include-only",
             scope: "item",
         },
-        { key: "group", label: "Group", type: "group", required: false, mode: "include-only" },
+        { key: "group_id", label: "Group", type: "group", required: false, mode: "include-only" },
         { key: "date_from", label: "From", type: "date", required: false },
         { key: "date_to", label: "To", type: "date", required: false },
     ],
