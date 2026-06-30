@@ -1,5 +1,6 @@
 import { EmailTemplate } from "./index";
 import { actionButton, footer, formatAmount, formatWindow, infoBox, infoRow, wrap } from "./base";
+import { orderInfoRows } from "./order-info-rows";
 
 const p = (payload: Record<string, unknown>) => payload as Record<string, any>;
 
@@ -19,13 +20,7 @@ export const orderSubmittedClient: EmailTemplate = {
         return wrap(`
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Order Submitted Successfully</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Hi ${d.contact_name}, your order has been received and is now being reviewed.</p>
-            ${infoBox(`
-                ${infoRow("Order ID", d.entity_id_readable)}
-                ${infoRow("Company", d.company_name)}
-                ${infoRow("Event", `${d.event_start_date} – ${d.event_end_date}`)}
-                ${infoRow("Venue", `${d.venue_name}, ${d.venue_city}`)}
-                ${infoRow("Items", `${d.item_count} item(s), ${d.total_volume} m³`)}
-            `)}
+            ${infoBox(orderInfoRows(d.order_info))}
             <p style="margin: 16px 0; color: #374151;">Our team will review your order and send pricing within 24 hours.</p>
             ${actionButton("View Order", d.order_url)}
             ${footer()}
@@ -41,13 +36,7 @@ export const orderSubmittedAdmin: EmailTemplate = {
         return wrap(`
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">New Order Received</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">A new order has been submitted and requires pricing review.</p>
-            ${infoBox(`
-                ${infoRow("Order ID", d.entity_id_readable)}
-                ${infoRow("Company", d.company_name)}
-                ${infoRow("Event", `${d.event_start_date} – ${d.event_end_date}`)}
-                ${infoRow("Venue", `${d.venue_name}, ${d.venue_city}`)}
-                ${infoRow("Items", `${d.item_count} item(s), ${d.total_volume} m³`)}
-            `)}
+            ${infoBox(orderInfoRows(d.order_info))}
             ${actionButton("Review Order", d.order_url)}
             ${footer()}
         `);
@@ -88,13 +77,7 @@ export const orderSubmittedLogistics: EmailTemplate = {
         return wrap(`
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Order Submitted — Logistics Review Required</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">A new order has been submitted. Please review the logistics requirements and add pricing.</p>
-            ${infoBox(`
-                ${infoRow("Order ID", d.entity_id_readable)}
-                ${infoRow("Company", d.company_name)}
-                ${infoRow("Event", `${d.event_start_date} – ${d.event_end_date}`)}
-                ${infoRow("Venue", `${d.venue_name}, ${d.venue_city}`)}
-                ${infoRow("Items", `${d.item_count} item(s), ${d.total_volume} m³`)}
-            `)}
+            ${infoBox(orderInfoRows(d.order_info))}
             ${actionButton("Review & Add Pricing", d.order_url)}
             ${footer()}
         `);
