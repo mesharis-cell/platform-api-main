@@ -1182,6 +1182,11 @@ const submitOrderFromCart = async (
                 event_end_date: formatDateForEmail(event_end_date),
                 venue_name,
                 venue_city: city.name,
+                order_info: buildOrderInfoBlock(orderResult, {
+                    companyName: (company as any)?.name,
+                    venueCityName: city.name,
+                    itemCount: items.length,
+                }),
                 order_url: "",
                 repair_items: repairItemsForEvent,
             },
@@ -2014,13 +2019,16 @@ const updateJobNumber = async (
             entity_id: orderId,
             actor_id: user.id,
             actor_role: user.role,
-            payload: buildEntityUpdatedPayload({
-                entityIdReadable: updatedOrder.order_id,
-                companyId: updatedOrder.company_id || "",
-                companyName: company?.name || "N/A",
-                contactName: updatedOrder.contact_name,
-                changed,
-            }),
+            payload: {
+                ...buildEntityUpdatedPayload({
+                    entityIdReadable: updatedOrder.order_id,
+                    companyId: updatedOrder.company_id || "",
+                    companyName: company?.name || "N/A",
+                    contactName: updatedOrder.contact_name,
+                    changed,
+                }),
+                order_info: buildOrderInfoBlock(updatedOrder, { companyName: company?.name }),
+            },
         });
     }
 
@@ -2421,6 +2429,9 @@ const progressOrderStatus = async (
             actor_id: user.id,
             actor_role: user.role,
             payload: {
+                order_info: buildOrderInfoBlock(updatedOrder, {
+                    companyName: orderWithCompany?.company_name,
+                }),
                 entity_id_readable: updatedOrder.order_id,
                 company_id: updatedOrder.company_id,
                 company_name: orderWithCompany?.company_name || "N/A",
@@ -2603,6 +2614,7 @@ const updateOrderTimeWindows = async (
         actor_id: user?.id ?? null,
         actor_role: user?.role ?? null,
         payload: {
+            order_info: buildOrderInfoBlock(updatedOrder, { companyName: twCompany?.name }),
             entity_id_readable: updatedOrder.order_id,
             company_id: updatedOrder.company_id,
             company_name: twCompany?.name || "N/A",
@@ -2828,6 +2840,9 @@ const approveQuote = async (
             company_name: (order.company as any)?.name || "N/A",
             contact_name: order.contact_name,
             final_total: String(approvedOrderTotal),
+            order_info: buildOrderInfoBlock(order, {
+                companyName: (order.company as any)?.name,
+            }),
             order_url: "",
             ...approveAttribution,
         },
@@ -2858,6 +2873,10 @@ const approveQuote = async (
             venue_location: order.venue_location || null,
             delivery_window: order.delivery_window || "",
             pickup_window: order.pickup_window || "",
+            order_info: buildOrderInfoBlock(order, {
+                companyName: (order.company as any)?.name,
+                venueCityName: (order.venue_city as any)?.name,
+            }),
             order_url: "",
         },
     });
@@ -3006,6 +3025,7 @@ const declineQuote = async (
             company_id: order.company_id,
             company_name: order.company?.name || "N/A",
             contact_name: order.contact_name,
+            order_info: buildOrderInfoBlock(order, { companyName: order.company?.name }),
             order_url: "",
             ...declineAttribution,
         },
@@ -3246,6 +3266,10 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
             event_end_date: formatDateForEmail(order.event_end_date),
             venue_name: order.venue_name,
             venue_city: venueCityLabel,
+            order_info: buildOrderInfoBlock(order, {
+                companyName: company.name,
+                venueCityName: venueCityLabel,
+            }),
             submitted_by_name: user.name,
             ...(pendingTotal ? { pending_total: pendingTotal } : {}),
             order_url: "",
@@ -3444,6 +3468,7 @@ const adminApproveQuote = async (
             contact_name: order.contact_name,
             contact_email: order.contact_email,
             final_total: finalTotal,
+            order_info: buildOrderInfoBlock(order, { companyName: company?.name }),
             line_items: clientLineItems,
             // pricing.* MUST be sourced from the CLIENT projection — never
             // admin. Admin's base_ops_total is buy-side and margin_amount is
@@ -3623,6 +3648,9 @@ export async function cancelOrder(
                 company_id: orderForNotification.company_id,
                 company_name: (orderForNotification.company as any)?.name || "N/A",
                 contact_name: orderForNotification.contact_name,
+                order_info: buildOrderInfoBlock(orderForNotification, {
+                    companyName: (orderForNotification.company as any)?.name,
+                }),
                 cancellation_reason: reason,
                 cancellation_notes: notes,
                 suppress_entity_owner: !notify_client,
@@ -4075,6 +4103,7 @@ const createMaintenanceDecisionChangeRequest = async (
             entity_id_readable: order.order_id,
             company_id: order.company_id,
             company_name: order.company_name || "N/A",
+            order_info: buildOrderInfoBlock(order, { companyName: order.company_name }),
             asset_name: item.asset_name,
             requested_decision: payload.requested_decision,
             requested_decision_label: maintenanceDecisionLabel(payload.requested_decision),

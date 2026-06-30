@@ -27,6 +27,7 @@ import {
     UnsettledPooledLine,
 } from "./scanning.interfaces";
 import { eventBus, EVENT_TYPES } from "../../events";
+import { buildOrderInfoBlock } from "../../utils/order-email-info";
 import { releaseBookingsAndRestoreAvailability } from "../order/order.utils";
 import { StockMovementService } from "../../services/stock-movement.service";
 
@@ -637,6 +638,9 @@ const completeInboundScan = async (
             contact_name: order.contact_name,
             event_start_date: order.event_start_date?.toISOString().split("T")[0] || "",
             event_end_date: order.event_end_date?.toISOString().split("T")[0] || "",
+            order_info: buildOrderInfoBlock(order, {
+                companyName: (order.company as any)?.name,
+            }),
             order_url: "",
             settlements_applied: settlementsToApply.length,
         },
@@ -922,6 +926,9 @@ const completeOutboundScan = async (
             company_name: (order.company as any)?.name || "N/A",
             venue_name: order.venue_name,
             delivery_window: order.delivery_window || "",
+            order_info: buildOrderInfoBlock(order, {
+                companyName: (order.company as any)?.name,
+            }),
             order_url: "",
         },
     });
