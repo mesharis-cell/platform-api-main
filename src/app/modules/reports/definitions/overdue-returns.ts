@@ -36,8 +36,9 @@ import {
 const ROW_CAP = 10000;
 
 // Mirrors RETURN_BUFFER_DAYS in order.utils.ts:146 (kept in sync; orders'
-// blocked_until = event_end + this many days).
-const RETURN_BUFFER_DAYS = 3;
+// blocked_until = event_end + this many days). order.utils was lowered to 1;
+// this had drifted at 3, flagging returns 2 days later than the real window.
+const RETURN_BUFFER_DAYS = 1;
 
 const toArr = (v: unknown): string[] =>
     v === undefined || v === null ? [] : Array.isArray(v) ? v.map(String) : [String(v)];
