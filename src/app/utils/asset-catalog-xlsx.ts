@@ -191,7 +191,7 @@ export const generateAssetCatalogXlsx = async (
     // Photo column is only added when includePhotos is true — otherwise the
     // URL-only "Photo URL" column is kept for text-only traceability.
     const headers = includePhotos
-        ? [{ key: "photo" as const, label: "Photo", width: 14 }, ...HEADERS]
+        ? [{ key: "photo" as const, label: "Photo", width: 40 }, ...HEADERS]
         : HEADERS;
 
     sheet.columns = headers.map((h) => ({ header: h.label, key: h.label, width: h.width }));
@@ -247,7 +247,7 @@ export const generateAssetCatalogXlsx = async (
                 // String-range form avoids wrestling with ExcelJS' Anchor type.
                 const rowRef = DATA_START_ROW + i;
                 sheet.addImage(imageId, `A${rowRef}:A${rowRef}`);
-                excelRow.height = 90; // give the image vertical room
+                excelRow.height = 230; // give the image vertical room (large thumbnails)
             }
         }
     }
