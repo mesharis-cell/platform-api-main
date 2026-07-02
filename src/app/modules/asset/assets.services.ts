@@ -2950,12 +2950,15 @@ const companyEditAsset = async (
             // Curated gallery → this sibling's OWN images (CLIENT), keeping its own
             // scan photos; mirror to group_images for the catalog group gallery.
             if (groupClientImages && clientUrls) {
-                const sibScan = (
+                // Keep every entry this sibling already owns that the curated group
+                // gallery does NOT re-supply — its own scan photos AND any per-sibling
+                // CLIENT photo an admin added directly (which never propagated to the
+                // group_images mirror). Filtering by source === "SCAN" here silently
+                // dropped those per-sibling CLIENT photos on every group save.
+                const sibOwn = (
                     Array.isArray(sib.images) ? (sib.images as AssetImageEntry[]) : []
-                ).filter(
-                    (entry) => entry?.source === "SCAN" && !clientUrls.has(entry.url as string)
-                );
-                set.images = [...groupClientImages, ...sibScan];
+                ).filter((entry) => entry?.url != null && !clientUrls.has(entry.url as string));
+                set.images = [...groupClientImages, ...sibOwn];
                 set.group_images = groupClientImages;
             }
 

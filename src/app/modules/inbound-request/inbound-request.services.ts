@@ -1261,7 +1261,14 @@ const completeInboundRequest = async (
                             dimensions: item.dimensions || {},
                             volume_per_unit: item.volume_per_unit,
                             handling_tags: item.handling_tags || [],
-                            images: item.images || [],
+                            // Wrap the request-item reference photos (text[] URLs) as
+                            // tagged catalogue image objects — assets.images is jsonb
+                            // {url, note?, source} and bare strings break every reader
+                            // (and the source-tag backfill).
+                            images: (item.images || []).map((url) => ({
+                                url,
+                                source: "CLIENT" as const,
+                            })),
                         })
                         .returning();
 
@@ -1304,7 +1311,12 @@ const completeInboundRequest = async (
                         dimensions: item.dimensions || {},
                         volume_per_unit: item.volume_per_unit,
                         handling_tags: item.handling_tags || [],
-                        images: item.images || [],
+                        // Wrap the request-item reference photos (text[] URLs) as
+                        // tagged catalogue image objects (see BATCH path above).
+                        images: (item.images || []).map((url) => ({
+                            url,
+                            source: "CLIENT" as const,
+                        })),
                     })
                     .returning();
 

@@ -152,8 +152,19 @@ SELECT
     a.last_scanned_at,
     u.name AS last_scanned_by_name,
     a.created_at,
-    -- image source priority: on_display_image > images[0].url. URL-ONLY (text link).
-    COALESCE(a.on_display_image, a.images->0->>'url') AS photo_url
+    -- image source priority: on_display_image > first non-SCAN (catalogue) photo >
+    -- images[0]. SCAN/return imagery must not surface as the client-downloadable
+    -- catalogue photo. Mirrors imageUrlFromAsset (catalog.services.ts). URL-ONLY.
+    COALESCE(
+        a.on_display_image,
+        (SELECT e->>'url'
+           FROM jsonb_array_elements(
+                    CASE WHEN jsonb_typeof(a.images) = 'array' THEN a.images ELSE '[]'::jsonb END
+                ) e
+          WHERE COALESCE(e->>'source', '') <> 'SCAN' AND e->>'url' IS NOT NULL
+          LIMIT 1),
+        CASE WHEN jsonb_typeof(a.images) = 'array' THEN a.images->0->>'url' END
+    ) AS photo_url
 FROM assets a
 LEFT JOIN legacy_asset_families laf ON laf.id = a.group_id
 LEFT JOIN asset_categories ac ON ac.id = laf.category_id
