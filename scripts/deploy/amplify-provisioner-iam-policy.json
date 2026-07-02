@@ -1,0 +1,90 @@
+{
+    "Version": "2012-10-17",
+    "Id": "KadenceClientTenantAmplifyProvisioner",
+    "Statement": [
+        {
+            "Sid": "StsWhoAmI",
+            "Effect": "Allow",
+            "Action": ["sts:GetCallerIdentity"],
+            "Resource": "*"
+        },
+        {
+            "Sid": "AmplifyListAndCreateAppsNoResourceScope",
+            "Effect": "Allow",
+            "Action": ["amplify:ListApps", "amplify:CreateApp", "amplify:TagResource"],
+            "Resource": "*"
+        },
+        {
+            "Sid": "AmplifyManageProvisionedAppsApSouth1Only",
+            "Effect": "Allow",
+            "Action": [
+                "amplify:GetApp",
+                "amplify:UpdateApp",
+                "amplify:CreateBranch",
+                "amplify:GetBranch",
+                "amplify:UpdateBranch",
+                "amplify:ListBranches",
+                "amplify:CreateDomainAssociation",
+                "amplify:GetDomainAssociation",
+                "amplify:UpdateDomainAssociation",
+                "amplify:DeleteDomainAssociation",
+                "amplify:ListDomainAssociations",
+                "amplify:StartJob",
+                "amplify:GetJob",
+                "amplify:ListJobs"
+            ],
+            "Resource": [
+                "arn:aws:amplify:ap-south-1:609230521830:apps/*",
+                "arn:aws:amplify:ap-south-1:609230521830:apps/*/branches/*",
+                "arn:aws:amplify:ap-south-1:609230521830:apps/*/branches/*/jobs/*",
+                "arn:aws:amplify:ap-south-1:609230521830:apps/*/domains/*"
+            ]
+        },
+        {
+            "Sid": "PassAmplifySsrServiceRoleToAmplifyOnlySeePlanSection1pt3",
+            "Effect": "Allow",
+            "Action": ["iam:PassRole"],
+            "Resource": ["arn:aws:iam::609230521830:role/*"],
+            "Condition": {
+                "StringEquals": {
+                    "iam:PassedToService": "amplify.amazonaws.com"
+                }
+            }
+        },
+        {
+            "Sid": "IamReadOnlyForSsrRoleDiscoveryOptional",
+            "Effect": "Allow",
+            "Action": ["iam:GetRole", "iam:ListRoles"],
+            "Resource": "*"
+        },
+        {
+            "Sid": "Route53ReadForCollisionCheck",
+            "Effect": "Allow",
+            "Action": [
+                "route53:ListHostedZones",
+                "route53:GetHostedZone",
+                "route53:ListResourceRecordSets",
+                "route53:GetChange"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "Route53WriteForAmplifyManagedDomain",
+            "Effect": "Allow",
+            "Action": ["route53:ChangeResourceRecordSets"],
+            "Resource": "arn:aws:route53:::hostedzone/Z08196763MAPSYVZNMTWE"
+        },
+        {
+            "Sid": "AcmReadOnlyStatusPollingOptional",
+            "Effect": "Allow",
+            "Action": ["acm:ListCertificates", "acm:DescribeCertificate"],
+            "Resource": "*"
+        },
+        {
+            "Sid": "ReadBitbucketOAuthSecretForProvisioning",
+            "Effect": "Allow",
+            "Action": ["secretsmanager:GetSecretValue"],
+            "Resource": "arn:aws:secretsmanager:ap-south-1:609230521830:secret:kadence/bitbucket-*"
+        }
+    ]
+}
