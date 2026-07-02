@@ -1412,6 +1412,8 @@ export const lineItems = pgTable(
         quantity: decimal("quantity", { precision: 10, scale: 2 }),
         unit: varchar("unit", { length: 20 }),
         unit_rate: decimal("unit_rate", { precision: 10, scale: 2 }),
+        // Per-line SELL price override (per-unit). NULL = inherit today's margin math (sell = buy * (1+entity margin%), or buy if apply_margin off). ADMIN-only. When set, sell_total = quantity * sell_unit_rate, bypassing the margin formula.
+        sell_unit_rate: decimal("sell_unit_rate", { precision: 10, scale: 2 }),
 
         // Pricing (for both)
         total: decimal("total", { precision: 10, scale: 2 }).notNull(),

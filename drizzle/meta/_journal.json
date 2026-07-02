@@ -484,6 +484,13 @@
             "when": 1781583194000,
             "tag": "0069_seed_orphan_bookings_notification_rule",
             "breakpoints": true
+        },
+        {
+            "idx": 69,
+            "version": "7",
+            "when": 1781583195000,
+            "tag": "0070_sell_unit_rate",
+            "breakpoints": true
         }
     ]
 }
