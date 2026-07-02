@@ -30,6 +30,7 @@ import {
 import { qrCodeGenerator } from "../../utils/qr-code-generator";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
+import { projectLineItemsForClient } from "../order-line-items/order-line-items.utils";
 import {
     generateCostEstimateAndSendEmail,
     inboundRequestIdGenerator,
@@ -494,7 +495,13 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
                 asset,
             };
         }),
-        line_items: lineItemsData,
+        // CLIENT LEAK FIX: the raw line_items array (SELECT *) carries buy-side
+        // unit_rate/total, the ADMIN-only sell_unit_rate override, and
+        // apply_margin. CLIENT is a valid caller on GET /inbound-request/:id, so
+        // project through the SELL-ONLY allowlist for clients. ADMIN/LOGISTICS
+        // keep the full array. Client SELL numbers come from request_pricing.
+        line_items:
+            user.role === "CLIENT" ? projectLineItemsForClient(lineItemsData) : lineItemsData,
         invoice: invoice || null,
         created_at: result.request.created_at,
         updated_at: result.request.updated_at,

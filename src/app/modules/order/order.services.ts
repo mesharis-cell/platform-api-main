@@ -81,6 +81,7 @@ import {
     validateRoleBasedTransition,
 } from "./order.utils";
 import { LineItemsServices } from "../order-line-items/order-line-items.services";
+import { projectLineItemsForClient } from "../order-line-items/order-line-items.utils";
 import { eventBus, EVENT_TYPES } from "../../events";
 import { orderIdGenerator } from "./order.utils";
 import { WorkflowAutoOpenService } from "../../services/workflow-auto-open.service";
@@ -1907,7 +1908,14 @@ const getOrderById = async (
             brand: orderData.brand,
             user: orderData.user,
             items: itemsWithRepairState,
-            line_items: lineItems,
+            // CLIENT LEAK FIX: the raw line_items array (SELECT *) carries
+            // buy-side unit_rate/total, the ADMIN-only sell_unit_rate override,
+            // and apply_margin. Project through the SELL-ONLY allowlist so none
+            // of those reach the client. Client SELL numbers come from
+            // order_pricing (projectForRole) below, not this array. The pricing
+            // projection still reads the FULL lineItems array (it computes sell
+            // internally and returns a client-safe view).
+            line_items: projectLineItemsForClient(lineItems),
             linked_service_requests: linkedServiceRequests,
             maintenance_decision_change_requests: decisionChangeRequests,
             order_status_history: orderHistory.map((h) => ({

@@ -229,6 +229,7 @@ const getLineItems = async (
             ...item,
             quantity: item.quantity ? parseFloat(item.quantity) : null,
             unit_rate: item.unit_rate ? parseFloat(item.unit_rate) : null,
+            sell_unit_rate: item.sell_unit_rate != null ? parseFloat(item.sell_unit_rate) : null,
             total: parseFloat(item.total),
             ...(await getLineItemEditability(item, platformId)),
         }))
@@ -254,6 +255,18 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
         added_by,
         added_by_role,
     } = data;
+
+    // Margin policy is ADMIN-only. Catalog-create is reachable by LOGISTICS
+    // (POST /catalog accepts both roles) and previously persisted a
+    // caller-supplied apply_margin with no role check — LOGISTICS could set
+    // margin policy on create even though they cannot on update. Close that gap
+    // to match the update-path guard.
+    if (added_by_role === "LOGISTICS" && data.apply_margin !== undefined) {
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            "Only Platform Admin can set margin policy"
+        );
+    }
 
     // Get service type details
     const [serviceType] = await db
@@ -392,6 +405,7 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
         ...result,
         quantity: result.quantity ? parseFloat(result.quantity) : null,
         unit_rate: result.unit_rate ? parseFloat(result.unit_rate) : null,
+        sell_unit_rate: result.sell_unit_rate != null ? parseFloat(result.sell_unit_rate) : null,
         total: parseFloat(result.total),
         ...(await getLineItemEditability(result, platform_id)),
     };
@@ -444,6 +458,14 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
     const customApplyMargin =
         data.apply_margin === undefined ? null : (data.apply_margin as boolean | null);
 
+    // Per-line sell override at create time. Route gates custom-create to
+    // ADMIN, so no role check needed. NULL = fall back to margin math; a
+    // value = fixed sell rate (stored as decimal string).
+    const customSellUnitRate =
+        data.sell_unit_rate === undefined || data.sell_unit_rate === null
+            ? null
+            : data.sell_unit_rate.toString();
+
     const result = await runWithLineItemIdRetry(async () =>
         db.transaction(async (tx) => {
             const lineItemId = await lineItemIdGenerator(platform_id, tx);
@@ -465,6 +487,7 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
                     quantity: quantity.toString(),
                     unit,
                     unit_rate: unit_rate.toString(),
+                    sell_unit_rate: customSellUnitRate,
                     total: total.toString(),
                     added_by,
                     notes: notes || null,
@@ -532,6 +555,7 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
         ...result,
         quantity: result.quantity ? parseFloat(result.quantity) : null,
         unit_rate: result.unit_rate ? parseFloat(result.unit_rate) : null,
+        sell_unit_rate: result.sell_unit_rate != null ? parseFloat(result.sell_unit_rate) : null,
         total: parseFloat(result.total),
         ...(await getLineItemEditability(result, platform_id)),
     };
@@ -575,7 +599,8 @@ const updateLineItem = async (
         data.unit !== undefined ||
         data.unit_rate !== undefined ||
         data.billing_mode !== undefined ||
-        data.apply_margin !== undefined;
+        data.apply_margin !== undefined ||
+        data.sell_unit_rate !== undefined;
     if (!editability.can_edit_pricing_fields && pricingFieldRequested) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
@@ -592,6 +617,12 @@ const updateLineItem = async (
         throw new CustomizedError(
             httpStatus.FORBIDDEN,
             "Only Platform Admin can change margin policy"
+        );
+    }
+    if (userRole === "LOGISTICS" && data.sell_unit_rate !== undefined) {
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            "Only Platform Admin can set a sell price override"
         );
     }
     if (userRole === "LOGISTICS" && data.logistics_visible !== undefined) {
@@ -611,6 +642,12 @@ const updateLineItem = async (
         ...(data.apply_margin !== undefined && { apply_margin: data.apply_margin }),
         ...(data.logistics_visible !== undefined && {
             logistics_visible: data.logistics_visible,
+        }),
+        // Per-line sell override. ABSENT = no change. Explicit null = clear the
+        // override so pricing falls back to margin math. A value = fixed sell
+        // rate (stored as decimal string). ADMIN-only (guarded above).
+        ...(data.sell_unit_rate !== undefined && {
+            sell_unit_rate: data.sell_unit_rate !== null ? data.sell_unit_rate.toString() : null,
         }),
     };
 
@@ -729,6 +766,7 @@ const updateLineItem = async (
         ...result,
         quantity: result.quantity ? parseFloat(result.quantity) : null,
         unit_rate: result.unit_rate ? parseFloat(result.unit_rate) : null,
+        sell_unit_rate: result.sell_unit_rate != null ? parseFloat(result.sell_unit_rate) : null,
         total: parseFloat(result.total),
         ...editability,
     };
@@ -800,6 +838,7 @@ const patchLineItemMetadata = async (
         ...result,
         quantity: result.quantity ? parseFloat(result.quantity) : null,
         unit_rate: result.unit_rate ? parseFloat(result.unit_rate) : null,
+        sell_unit_rate: result.sell_unit_rate != null ? parseFloat(result.sell_unit_rate) : null,
         total: parseFloat(result.total),
         ...editability,
     };
@@ -1095,6 +1134,7 @@ const voidLineItem = async (id: string, platformId: string, data: VoidLineItemPa
         ...result,
         quantity: result.quantity ? parseFloat(result.quantity) : null,
         unit_rate: result.unit_rate ? parseFloat(result.unit_rate) : null,
+        sell_unit_rate: result.sell_unit_rate != null ? parseFloat(result.sell_unit_rate) : null,
         total: parseFloat(result.total),
     };
 };

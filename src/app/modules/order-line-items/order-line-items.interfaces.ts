@@ -47,6 +47,7 @@ export interface OrderLineItem {
     quantity: string | null;
     unit: string | null;
     unit_rate: string | null;
+    sell_unit_rate: string | null;
     total: string;
     added_by: string;
     added_at: Date;

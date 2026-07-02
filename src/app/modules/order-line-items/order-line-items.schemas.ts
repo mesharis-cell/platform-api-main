@@ -11,6 +11,12 @@ const billingModeSchema = z.enum(["BILLABLE", "NON_BILLABLE", "COMPLIMENTARY"], 
 const applyMarginSchema = z.boolean().nullable().optional();
 const logisticsVisibleSchema = z.boolean().optional();
 
+// Per-line SELL price override (per-unit). Nullable so callers can express
+// "clear the override, fall back to margin math" via explicit null.
+// ADMIN-only — enforced at the service layer (route gates custom-create to
+// ADMIN; update has an explicit LOGISTICS guard).
+const sellUnitRateSchema = z.number().min(0).nullable().optional();
+
 const createCatalogLineItemSchema = z.object({
     body: z
         .object({
@@ -88,6 +94,7 @@ const createCustomLineItemSchema = z.object({
             client_price_visible: z.boolean().optional().default(false),
             apply_margin: applyMarginSchema,
             logistics_visible: logisticsVisibleSchema,
+            sell_unit_rate: sellUnitRateSchema,
         })
         .refine((data) => {
             if (data.purpose_type === "ORDER" && !data.order_id) return false;
@@ -111,6 +118,7 @@ const updateLineItemSchema = z.object({
             client_price_visible: z.boolean().optional(),
             apply_margin: applyMarginSchema,
             logistics_visible: logisticsVisibleSchema,
+            sell_unit_rate: sellUnitRateSchema,
         })
         .strict(),
 });
