@@ -32,7 +32,9 @@ import httpStatus from "http-status";
 import { z } from "zod";
 import { db } from "../../../../db";
 import CustomizedError from "../../../error/customized-error";
+import type ExcelJS from "exceljs";
 import { ReportDefinition, ReportResult, ReportRunContext } from "../types";
+import { groupByCompany } from "../shared/group-by-company";
 import {
     addGrandTotalRow,
     addSubtotalRow,
@@ -42,6 +44,7 @@ import {
     fmtDate,
     INT_FMT,
     ReportColumn,
+    STYLE,
 } from "../../../utils/report-workbook";
 
 const ROW_CAP = 5000;
@@ -58,7 +61,9 @@ const toArr = (v: unknown): string[] =>
 
 const paramsSchema = z
     .object({
-        company_id: z.string().uuid(),
+        // Optional → when omitted, the report runs across ALL companies on the
+        // platform (the controller sets ctx.allCompanies). Mirrors accounts-reconciliation.
+        company_id: z.string().uuid().optional(),
         // date_from/date_to are accepted for filter-shape parity with the other
         // INVENTORY reports but a state-of-assets snapshot has no native time
         // axis — they are intentionally NOT applied (the OUT window is the
@@ -101,6 +106,11 @@ async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<
     const exc = toArr(params.category_exclude);
     const cat = categoryFilter(inc, exc);
 
+    // All-companies mode: drop the per-company filter and lean on platform_id scoping.
+    // Single-company mode: bind to ctx.companyId.
+    const allCompanies = !!ctx.allCompanies;
+    const companyScope = allCompanies ? sql`` : sql` AND a.company_id = ${ctx.companyId}`;
+
     // Snapshot as-of window: start/end of the as-of (Dubai) calendar day so an
     // asset doesn't flicker out of OUT on a same-day boundary. blocked_from/
     // until are timestamp(mode:date) — we cast ::date and compare to the day.
@@ -136,6 +146,7 @@ all_windows_out AS (
     GROUP BY ab.asset_id
 )
 SELECT
+    co.name AS company_name,
     a.group_id,
     laf.company_item_code AS company_item_code,
     a.group_name,
@@ -162,6 +173,7 @@ SELECT
     t.name AS team_name,
     a.last_scanned_at
 FROM assets a
+LEFT JOIN companies co ON a.company_id = co.id
 LEFT JOIN legacy_asset_families laf ON a.group_id = laf.id
 LEFT JOIN warehouses w ON a.warehouse_id = w.id
 LEFT JOIN zones z ON a.zone_id = z.id
@@ -169,22 +181,30 @@ LEFT JOIN brands b ON a.brand_id = b.id
 LEFT JOIN teams t ON a.team_id = t.id
 LEFT JOIN active_out ao ON ao.asset_id = a.id
 LEFT JOIN all_windows_out awo ON awo.asset_id = a.id
-WHERE a.platform_id = ${ctx.platformId} AND a.company_id = ${ctx.companyId} AND a.deleted_at IS NULL
+WHERE a.platform_id = ${ctx.platformId} AND a.deleted_at IS NULL
+  ${companyScope}
   ${cat}
   ${groupFilter}
   ${statusFilter}
-ORDER BY a.group_name ASC NULLS LAST, a.name ASC`;
+ORDER BY co.name ASC NULLS LAST, a.group_name ASC NULLS LAST, a.name ASC`;
 
     const rows = ((await db.execute(query)) as any).rows as any[];
     if (rows.length > ROW_CAP)
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            `Current Stock has ${rows.length} asset rows (cap ${ROW_CAP}). Narrow by group, status, or category.`
+            `Current Stock has ${rows.length} asset rows (cap ${ROW_CAP}). Narrow by group, status, or category${
+                allCompanies ? " (strongly recommended for all-companies runs)" : ""
+            }.`
         );
+
+    // ITEM CODE column header: avoid "ALL COMPANIES ITEM CODE" in all-companies mode.
+    const itemCodeHeader = allCompanies
+        ? "COMPANY ITEM CODE"
+        : `${ctx.companyName.toUpperCase()} ITEM CODE`;
 
     const columns: ReportColumn[] = [
         { header: "GROUP ID", width: 38 },
-        { header: `${ctx.companyName.toUpperCase()} ITEM CODE`, width: 22 },
+        { header: itemCodeHeader, width: 22 },
         { header: "GROUP NAME", width: 30 },
         { header: "ASSET ID", width: 38 },
         { header: "ASSET NAME", width: 32 },
@@ -224,45 +244,42 @@ ORDER BY a.group_name ASC NULLS LAST, a.name ASC`;
     const ALLWIN = 15;
     const LABEL = 3; // GROUP NAME column carries the "Subtotal — <group>" label
 
-    // Group by group_id (NULL → its own "(no group)" bucket of orphans/raw assets).
-    const groups = new Map<string, { name: string; rows: any[] }>();
-    for (const r of rows) {
-        const key = r.group_id ? String(r.group_id) : "__nogroup__";
-        if (!groups.has(key)) groups.set(key, { name: r.group_name ?? "(no group)", rows: [] });
-        groups.get(key)!.rows.push(r);
-    }
-
     const sum = (gr: any[], field: string) => gr.reduce((n, r) => n + (Number(r[field]) || 0), 0);
 
-    const subRows: number[] = [];
-    for (const { name, rows: gr } of groups.values()) {
+    // Emit a data row; returns the ExcelJS row.
+    const addDataRow = (r: any) =>
+        sheet.addRow([
+            r.group_id ?? "",
+            r.company_item_code ?? "",
+            r.group_name ?? "",
+            r.asset_id,
+            r.asset_name ?? "",
+            r.qr_code ?? "",
+            r.category ?? "",
+            r.stock_mode ?? "",
+            r.condition ?? "",
+            r.status ?? "",
+            Number(r.total_qty) || 0,
+            Number(r.available_qty) || 0,
+            Number(r.out_qty) || 0,
+            Number(r.unavailable_qty) || 0,
+            Number(r.all_windows_booked) || 0,
+            r.refurb_days_estimate == null ? "" : Number(r.refurb_days_estimate),
+            r.low_stock_threshold == null ? "" : Number(r.low_stock_threshold),
+            r.warehouse_name ?? "",
+            r.zone_name ?? "",
+            r.brand_name ?? "",
+            r.team_name ?? "",
+            fmtDate(r.last_scanned_at),
+        ]);
+
+    // Render per-asset-group rows + a live-formula subtotal. Returns the subtotal
+    // row number (used to build the grand-total SUM in single-company mode).
+    const renderGroup = (name: string, gr: any[]): number => {
         let first = 0;
         let last = 0;
         for (const r of gr) {
-            const row = sheet.addRow([
-                r.group_id ?? "",
-                r.company_item_code ?? "",
-                r.group_name ?? "",
-                r.asset_id,
-                r.asset_name ?? "",
-                r.qr_code ?? "",
-                r.category ?? "",
-                r.stock_mode ?? "",
-                r.condition ?? "",
-                r.status ?? "",
-                Number(r.total_qty) || 0,
-                Number(r.available_qty) || 0,
-                Number(r.out_qty) || 0,
-                Number(r.unavailable_qty) || 0,
-                Number(r.all_windows_booked) || 0,
-                r.refurb_days_estimate == null ? "" : Number(r.refurb_days_estimate),
-                r.low_stock_threshold == null ? "" : Number(r.low_stock_threshold),
-                r.warehouse_name ?? "",
-                r.zone_name ?? "",
-                r.brand_name ?? "",
-                r.team_name ?? "",
-                fmtDate(r.last_scanned_at),
-            ]);
+            const row = addDataRow(r);
             if (!first) first = row.number;
             last = row.number;
         }
@@ -277,21 +294,86 @@ ORDER BY a.group_name ASC NULLS LAST, a.name ASC`;
                 { col: ALLWIN, from: first, to: last, cached: sum(gr, "all_windows_booked") },
             ],
         });
-        subRows.push(sub.number);
         sheet.addRow([]);
-    }
+        return sub.number;
+    };
 
-    addGrandTotalRow(sheet, {
-        label: `GRAND TOTAL — ${ctx.companyName}`,
-        labelCol: LABEL,
-        sums: [
-            { col: TOTAL, subtotalRows: subRows, cached: sum(rows, "total_qty") },
-            { col: AVAIL, subtotalRows: subRows, cached: sum(rows, "available_qty") },
-            { col: OUT, subtotalRows: subRows, cached: sum(rows, "out_qty") },
-            { col: UNAVAIL, subtotalRows: subRows, cached: sum(rows, "unavailable_qty") },
-            { col: ALLWIN, subtotalRows: subRows, cached: sum(rows, "all_windows_booked") },
-        ],
-    });
+    // Cached (no SUM formula) grand/company-subtotal row — used in all-companies
+    // mode where interleaved company subtotals corrupt a single contiguous SUM
+    // range (same trap revenue/cost handle).
+    const writeCachedTotal = (label: string, gr: any[], fill: ExcelJS.Fill, big = false) => {
+        const row = sheet.addRow([]);
+        row.getCell(LABEL).value = label;
+        row.font = big ? { bold: true, size: 12 } : { bold: true };
+        if (big) row.height = 20;
+        row.eachCell({ includeEmpty: true }, (c) => (c.fill = fill));
+        const put = (col: number, val: number) => {
+            row.getCell(col).value = val;
+        };
+        put(TOTAL, sum(gr, "total_qty"));
+        put(AVAIL, sum(gr, "available_qty"));
+        put(OUT, sum(gr, "out_qty"));
+        put(UNAVAIL, sum(gr, "unavailable_qty"));
+        put(ALLWIN, sum(gr, "all_windows_booked"));
+    };
+
+    if (allCompanies) {
+        // All-companies mode: outer loop = company, inner loop = asset group.
+        // Per-company subtotals AND grand total are cached JS values (no live SUM
+        // formulas) — interleaved subtotal rows would corrupt a contiguous SUM range.
+        for (const cg of groupByCompany(rows, (r) => r.company_name)) {
+            // Company banner
+            const banner = sheet.addRow([]);
+            banner.getCell(1).value = cg.company;
+            banner.font = { bold: true, size: 12 };
+            banner.height = 18;
+            banner.eachCell({ includeEmpty: true }, (c) => (c.fill = STYLE.HEADER_FILL));
+
+            // Group by asset group within the company slice.
+            const assetGroups = new Map<string, { name: string; rows: any[] }>();
+            for (const r of cg.rows) {
+                const key = r.group_id ? String(r.group_id) : "__nogroup__";
+                if (!assetGroups.has(key))
+                    assetGroups.set(key, { name: r.group_name ?? "(no group)", rows: [] });
+                assetGroups.get(key)!.rows.push(r);
+            }
+            for (const { name, rows: gr } of assetGroups.values()) {
+                renderGroup(name, gr);
+            }
+
+            writeCachedTotal(`Subtotal — ${cg.company}`, cg.rows, STYLE.SUBTOTAL_FILL);
+            sheet.addRow([]); // spacer between companies
+        }
+        if (rows.length > 0)
+            writeCachedTotal(`GRAND TOTAL — ${ctx.companyName}`, rows, STYLE.GRAND_FILL, true);
+    } else {
+        // Single-company mode: group by asset group only; grand total sums the
+        // group subtotal rows via live SUM formulas (no interleaving, safe).
+        const assetGroups = new Map<string, { name: string; rows: any[] }>();
+        for (const r of rows) {
+            const key = r.group_id ? String(r.group_id) : "__nogroup__";
+            if (!assetGroups.has(key))
+                assetGroups.set(key, { name: r.group_name ?? "(no group)", rows: [] });
+            assetGroups.get(key)!.rows.push(r);
+        }
+
+        const subRows: number[] = [];
+        for (const { name, rows: gr } of assetGroups.values()) {
+            subRows.push(renderGroup(name, gr));
+        }
+
+        addGrandTotalRow(sheet, {
+            label: `GRAND TOTAL — ${ctx.companyName}`,
+            labelCol: LABEL,
+            sums: [
+                { col: TOTAL, subtotalRows: subRows, cached: sum(rows, "total_qty") },
+                { col: AVAIL, subtotalRows: subRows, cached: sum(rows, "available_qty") },
+                { col: OUT, subtotalRows: subRows, cached: sum(rows, "out_qty") },
+                { col: UNAVAIL, subtotalRows: subRows, cached: sum(rows, "unavailable_qty") },
+                { col: ALLWIN, subtotalRows: subRows, cached: sum(rows, "all_windows_booked") },
+            ],
+        });
+    }
 
     // On-sheet footnotes — the reconciliation caveats the spec mandates surface
     // directly on the workbook (never as runtime asserts).
@@ -318,12 +400,13 @@ export const currentStockReport: ReportDefinition = {
     key: "current-stock",
     label: "Current Stock / State of Assets",
     description:
-        "Per-asset snapshot (with per-family subtotals) of every live asset's stock state for one company — total vs available (all-window) vs currently-out (active bookings overlapping now) vs derived unavailable. Absorbs the legacy stock-report + assets-out CSVs.",
+        "Per-asset snapshot (with per-family subtotals) of every live asset's stock state — total vs available (all-window) vs currently-out (active bookings overlapping now) vs derived unavailable. Leave Company blank to run across ALL companies on the platform (grouped by company, with per-company subtotals). Absorbs the legacy stock-report + assets-out CSVs.",
     section: "INVENTORY",
     audience: "ADMIN_CLIENT",
     permissions: ["assets:read"],
     filters: [
-        { key: "company_id", label: "Company", type: "company", required: true },
+        // Optional — leave blank to run across ALL companies on the platform.
+        { key: "company_id", label: "Company", type: "company", required: false },
         { key: "date_from", label: "From", type: "date", required: false },
         { key: "date_to", label: "To", type: "date", required: false },
         {
@@ -344,6 +427,11 @@ export const currentStockReport: ReportDefinition = {
         },
     ],
     paramsSchema,
-    rowCap: { max: ROW_CAP, dimension: "rows", narrowHint: "narrow by group, status, or category" },
+    rowCap: {
+        max: ROW_CAP,
+        dimension: "rows",
+        narrowHint:
+            "narrow by group, status, or category (strongly recommended for all-companies runs)",
+    },
     run,
 };

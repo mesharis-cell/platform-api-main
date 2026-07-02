@@ -33,7 +33,9 @@ import httpStatus from "http-status";
 import { z } from "zod";
 import { db } from "../../../../db";
 import CustomizedError from "../../../error/customized-error";
+import type ExcelJS from "exceljs";
 import { ReportDefinition, ReportResult, ReportRunContext } from "../types";
+import { groupByCompany } from "../shared/group-by-company";
 import {
     addGrandTotalRow,
     addSubtotalRow,
@@ -44,6 +46,7 @@ import {
     fmtRangeLabel,
     INT_FMT,
     ReportColumn,
+    STYLE,
 } from "../../../utils/report-workbook";
 
 const ROW_CAP = 5000;
@@ -55,7 +58,9 @@ const toArr = (v: unknown): string[] =>
 
 const paramsSchema = z
     .object({
-        company_id: z.string().uuid(),
+        // Optional → when omitted, the report runs across ALL companies on the
+        // platform (the controller sets ctx.allCompanies). Mirrors accounts-reconciliation.
+        company_id: z.string().uuid().optional(),
         date_from: z.string().regex(DATE_RE).optional(),
         date_to: z.string().regex(DATE_RE).optional(),
         category_include: z.union([z.string(), z.array(z.string())]).optional(),
@@ -82,6 +87,7 @@ function categoryFilter(inc: string[], exc: string[]): SQL {
 }
 
 interface UtilRow {
+    company_name: string | null;
     group_id: string | null;
     group_name: string | null;
     company_item_code: string | null;
@@ -104,6 +110,11 @@ async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<
     const inc = toArr(params.category_include);
     const exc = toArr(params.category_exclude);
     const cat = categoryFilter(inc, exc);
+
+    // All-companies mode: drop the per-company filter and lean on platform_id scoping.
+    // Single-company mode: bind to ctx.companyId.
+    const allCompanies = !!ctx.allCompanies;
+    const companyScope = allCompanies ? sql`` : sql` AND a.company_id = ${ctx.companyId}`;
 
     // DEFAULT WINDOW: trailing 365 days when no dates given — all-time makes
     // utilization% meaningless (dominated by ancient bookings, huge RANGE DAYS).
@@ -129,10 +140,11 @@ WITH params AS (
 ),
 scoped_assets AS (
     SELECT a.id, a.group_id, a.group_name, a.category, a.stock_mode, a.team_id,
-           a.total_quantity, a.available_quantity
+           a.company_id, a.total_quantity, a.available_quantity
     FROM assets a
-    WHERE a.platform_id = ${ctx.platformId} AND a.company_id = ${ctx.companyId}
+    WHERE a.platform_id = ${ctx.platformId}
       AND a.deleted_at IS NULL
+      ${companyScope}
       ${cat}
 ),
 active_bookings AS (
@@ -181,7 +193,9 @@ outbound_by_asset AS (
     GROUP BY sea.asset_id
 )
 SELECT
+    MIN(co.name) AS company_name,
     sa.group_id,
+    sa.company_id,
     MIN(sa.group_name) AS group_name,
     MIN(laf.company_item_code) AS company_item_code,
     MIN(sa.category) AS category,
@@ -197,25 +211,29 @@ SELECT
     COALESCE(SUM(oba.outbound_scan_qty), 0)::bigint AS outbound_scan_qty,
     MAX(oba.last_outbound) AS last_outbound
 FROM scoped_assets sa
+LEFT JOIN companies co ON sa.company_id = co.id
 LEFT JOIN legacy_asset_families laf ON sa.group_id = laf.id
 LEFT JOIN teams t ON sa.team_id = t.id
 LEFT JOIN booked_by_asset bba ON bba.asset_id = sa.id
 LEFT JOIN outbound_by_asset oba ON oba.asset_id = sa.id
 LEFT JOIN LATERAL unnest(bba.entity_ids) AS e(entity_id) ON true
-GROUP BY sa.group_id
-ORDER BY MIN(sa.group_name) ASC NULLS LAST`;
+GROUP BY sa.group_id, sa.company_id
+ORDER BY MIN(co.name) ASC NULLS LAST, MIN(sa.group_name) ASC NULLS LAST`;
 
     const raw = ((await db.execute(query)) as any).rows as any[];
     if (raw.length > ROW_CAP)
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            `Asset utilization has ${raw.length} groups (cap ${ROW_CAP}). Narrow by date range or category.`
+            `Asset utilization has ${raw.length} groups (cap ${ROW_CAP}). Narrow by date range or category${
+                allCompanies ? " (strongly recommended for all-companies runs)" : ""
+            }.`
         );
 
     const nowMs = ctx.now.getTime();
     const rows: UtilRow[] = raw.map((r) => {
         const last = r.last_outbound ? new Date(r.last_outbound) : null;
         return {
+            company_name: r.company_name ?? null,
             group_id: r.group_id ?? null,
             group_name: r.group_name ?? null,
             company_item_code: r.company_item_code ?? null,
@@ -235,10 +253,15 @@ ORDER BY MIN(sa.group_name) ASC NULLS LAST`;
         };
     });
 
+    // ITEM CODE column header: avoid "ALL COMPANIES ITEM CODE" in all-companies mode.
+    const itemCodeHeader = allCompanies
+        ? "COMPANY ITEM CODE"
+        : `${ctx.companyName.toUpperCase()} ITEM CODE`;
+
     const columns: ReportColumn[] = [
         { header: "GROUP ID", width: 16 },
         { header: "GROUP NAME", width: 34 },
-        { header: `${ctx.companyName.toUpperCase()} ITEM CODE`, width: 22 },
+        { header: itemCodeHeader, width: 22 },
         { header: "CATEGORY", width: 16 },
         { header: "STOCK MODE", width: 13 },
         { header: "TEAM", width: 18 },
@@ -269,10 +292,11 @@ ORDER BY MIN(sa.group_name) ASC NULLS LAST`;
     const TOTAL = 7;
     const BOOKED = 10;
     const AVAIL_DAYS = 11;
+    const UTIL_PCT = 12;
     const OUTBOUND = 15;
+    const LABEL_COL = 6; // TEAM column carries total labels
 
-    const firstDataRow = h.headerRow + 1;
-    for (const r of rows) {
+    const addDataRow = (r: UtilRow) => {
         const utilization =
             r.available_asset_days > 0 ? (100 * r.booked_asset_days) / r.available_asset_days : 0;
         let coverage: string;
@@ -281,7 +305,7 @@ ORDER BY MIN(sa.group_name) ASC NULLS LAST`;
             coverage = "SCAN, NO BOOKING";
         else coverage = "OK";
 
-        sheet.addRow([
+        return sheet.addRow([
             r.group_id ?? "",
             r.group_name ?? "",
             r.company_item_code ?? "",
@@ -301,40 +325,89 @@ ORDER BY MIN(sa.group_name) ASC NULLS LAST`;
             r.idle_days === null ? "N/A" : r.idle_days,
             coverage,
         ]);
-    }
+    };
 
-    if (rows.length > 0) {
-        const lastDataRow = firstDataRow + rows.length - 1;
-        const sumTotal = rows.reduce((n, r) => n + r.total_qty, 0);
-        const sumBooked = rows.reduce((n, r) => n + r.booked_asset_days, 0);
-        const sumAvailDays = rows.reduce((n, r) => n + r.available_asset_days, 0);
-        const sumOutbound = rows.reduce((n, r) => n + r.outbound_scan_qty, 0);
+    // Cached (no SUM formula) totals row — used in all-companies mode where the
+    // per-company subtotal rows are interleaved with data and would corrupt a
+    // single contiguous SUM range (same trap revenue/cost handle).
+    const writeCachedTotal = (label: string, gr: UtilRow[], fill: ExcelJS.Fill, big = false) => {
+        const sumTotal = gr.reduce((n, r) => n + r.total_qty, 0);
+        const sumBooked = gr.reduce((n, r) => n + r.booked_asset_days, 0);
+        const sumAvailDays = gr.reduce((n, r) => n + r.available_asset_days, 0);
+        const sumOutbound = gr.reduce((n, r) => n + r.outbound_scan_qty, 0);
+        const util = sumAvailDays > 0 ? Number(((100 * sumBooked) / sumAvailDays).toFixed(1)) : 0;
+        const row = sheet.addRow([]);
+        row.getCell(LABEL_COL).value = label;
+        row.font = big ? { bold: true, size: 12 } : { bold: true };
+        if (big) row.height = 20;
+        row.eachCell({ includeEmpty: true }, (c) => (c.fill = fill));
+        row.getCell(TOTAL).value = sumTotal;
+        row.getCell(BOOKED).value = sumBooked;
+        row.getCell(AVAIL_DAYS).value = sumAvailDays;
+        if (sumAvailDays > 0) row.getCell(UTIL_PCT).value = util;
+        row.getCell(OUTBOUND).value = sumOutbound;
+        return row;
+    };
 
-        const sub = addSubtotalRow(sheet, {
-            label: `TOTAL — ${ctx.companyName}`,
-            labelCol: 6,
-            sums: [
-                { col: TOTAL, from: firstDataRow, to: lastDataRow, cached: sumTotal },
-                { col: BOOKED, from: firstDataRow, to: lastDataRow, cached: sumBooked },
-                { col: AVAIL_DAYS, from: firstDataRow, to: lastDataRow, cached: sumAvailDays },
-                { col: OUTBOUND, from: firstDataRow, to: lastDataRow, cached: sumOutbound },
-            ],
-        });
-        // Footer UTILIZATION % = 100 × ΣBOOKED / ΣAVAILABLE (computed once, fleet-wide).
-        if (sumAvailDays > 0) {
-            sub.getCell(12).value = Number(((100 * sumBooked) / sumAvailDays).toFixed(1));
+    if (allCompanies) {
+        // All-companies mode: outer loop = company; per-company subtotals + grand
+        // total are cached JS values (no live SUM formulas) — interleaved subtotal
+        // rows would corrupt a contiguous SUM range.
+        for (const cg of groupByCompany(rows, (r) => r.company_name)) {
+            // Company banner
+            const banner = sheet.addRow([]);
+            banner.getCell(1).value = cg.company;
+            banner.font = { bold: true, size: 12 };
+            banner.height = 18;
+            banner.eachCell({ includeEmpty: true }, (c) => (c.fill = STYLE.HEADER_FILL));
+
+            for (const r of cg.rows) addDataRow(r);
+            // Per-company subtotal is cached (no live SUM formula) — interleaved
+            // subtotal rows would corrupt a contiguous SUM range across companies.
+            writeCachedTotal(`Subtotal — ${cg.company}`, cg.rows, STYLE.SUBTOTAL_FILL);
+            sheet.addRow([]); // spacer between companies
         }
+        if (rows.length > 0)
+            writeCachedTotal(`GRAND TOTAL — ${ctx.companyName}`, rows, STYLE.GRAND_FILL, true);
+    } else {
+        // Single-company mode: flat list of groups + a subtotal + grand total
+        // via live SUM formulas (no interleaving, safe).
+        const firstDataRow = h.headerRow + 1;
+        for (const r of rows) addDataRow(r);
 
-        addGrandTotalRow(sheet, {
-            label: `GRAND TOTAL — ${ctx.companyName}`,
-            labelCol: 6,
-            sums: [
-                { col: TOTAL, subtotalRows: [sub.number], cached: sumTotal },
-                { col: BOOKED, subtotalRows: [sub.number], cached: sumBooked },
-                { col: AVAIL_DAYS, subtotalRows: [sub.number], cached: sumAvailDays },
-                { col: OUTBOUND, subtotalRows: [sub.number], cached: sumOutbound },
-            ],
-        });
+        if (rows.length > 0) {
+            const lastDataRow = firstDataRow + rows.length - 1;
+            const sumTotal = rows.reduce((n, r) => n + r.total_qty, 0);
+            const sumBooked = rows.reduce((n, r) => n + r.booked_asset_days, 0);
+            const sumAvailDays = rows.reduce((n, r) => n + r.available_asset_days, 0);
+            const sumOutbound = rows.reduce((n, r) => n + r.outbound_scan_qty, 0);
+
+            const sub = addSubtotalRow(sheet, {
+                label: `TOTAL — ${ctx.companyName}`,
+                labelCol: LABEL_COL,
+                sums: [
+                    { col: TOTAL, from: firstDataRow, to: lastDataRow, cached: sumTotal },
+                    { col: BOOKED, from: firstDataRow, to: lastDataRow, cached: sumBooked },
+                    { col: AVAIL_DAYS, from: firstDataRow, to: lastDataRow, cached: sumAvailDays },
+                    { col: OUTBOUND, from: firstDataRow, to: lastDataRow, cached: sumOutbound },
+                ],
+            });
+            // Footer UTILIZATION % = 100 × ΣBOOKED / ΣAVAILABLE (computed once, fleet-wide).
+            if (sumAvailDays > 0) {
+                sub.getCell(UTIL_PCT).value = Number(((100 * sumBooked) / sumAvailDays).toFixed(1));
+            }
+
+            addGrandTotalRow(sheet, {
+                label: `GRAND TOTAL — ${ctx.companyName}`,
+                labelCol: LABEL_COL,
+                sums: [
+                    { col: TOTAL, subtotalRows: [sub.number], cached: sumTotal },
+                    { col: BOOKED, subtotalRows: [sub.number], cached: sumBooked },
+                    { col: AVAIL_DAYS, subtotalRows: [sub.number], cached: sumAvailDays },
+                    { col: OUTBOUND, subtotalRows: [sub.number], cached: sumOutbound },
+                ],
+            });
+        }
     }
 
     // Footnotes — surface the load-bearing caveats on the sheet itself.
@@ -358,12 +431,13 @@ export const assetUtilizationReport: ReportDefinition = {
     key: "asset-utilization",
     label: "Asset Utilization",
     description:
-        "Per-asset-group (family) utilization over a date window: booked asset-days vs theoretical capacity, with utilization %, distinct booking/entity counts, and an outbound-scan cross-check to surface booking-vs-physical drift. Defaults to a trailing 365-day window. No money columns.",
+        "Per-asset-group (family) utilization over a date window: booked asset-days vs theoretical capacity, with utilization %, distinct booking/entity counts, and an outbound-scan cross-check to surface booking-vs-physical drift. Defaults to a trailing 365-day window. Leave Company blank to run across ALL companies on the platform (grouped by company, with per-company subtotals). No money columns.",
     section: "INVENTORY",
     audience: "ADMIN_CLIENT",
     permissions: ["assets:read"],
     filters: [
-        { key: "company_id", label: "Company", type: "company", required: true },
+        // Optional — leave blank to run across ALL companies on the platform.
+        { key: "company_id", label: "Company", type: "company", required: false },
         { key: "date_from", label: "From", type: "date", required: false },
         { key: "date_to", label: "To", type: "date", required: false },
         {
@@ -376,6 +450,11 @@ export const assetUtilizationReport: ReportDefinition = {
         },
     ],
     paramsSchema,
-    rowCap: { max: ROW_CAP, dimension: "rows", narrowHint: "narrow by date range or category" },
+    rowCap: {
+        max: ROW_CAP,
+        dimension: "rows",
+        narrowHint:
+            "narrow by date range or category (strongly recommended for all-companies runs)",
+    },
     run,
 };

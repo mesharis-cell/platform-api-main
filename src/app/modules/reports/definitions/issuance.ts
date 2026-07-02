@@ -20,6 +20,8 @@ import { z } from "zod";
 import { db } from "../../../../db";
 import CustomizedError from "../../../error/customized-error";
 import { ReportDefinition, ReportResult, ReportRunContext } from "../types";
+import { groupByCompany } from "../shared/group-by-company";
+import type ExcelJS from "exceljs";
 import {
     addGrandTotalRow,
     addSubtotalRow,
@@ -31,6 +33,7 @@ import {
     fmtRangeLabel,
     INT_FMT,
     ReportColumn,
+    STYLE,
 } from "../../../utils/report-workbook";
 
 const ROW_CAP = 25000;
@@ -55,7 +58,9 @@ const permanentLabel = (createdAt: unknown, isPermanent: boolean): string => {
 
 const paramsSchema = z
     .object({
-        company_id: z.string().uuid(),
+        // Optional → when omitted, the report runs across ALL companies on the
+        // platform (the controller sets ctx.allCompanies). Mirrors accounts-reconciliation.
+        company_id: z.string().uuid().optional(),
         date_from: z.string().regex(DATE_RE).optional(),
         date_to: z.string().regex(DATE_RE).optional(),
         category_include: z.union([z.string(), z.array(z.string())]).optional(),
@@ -93,6 +98,12 @@ async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<
     const exc = toArr(params.category_exclude);
     const { gte, lt } = fmtDateBounds(params.date_from, params.date_to);
     const cat = categoryFilter(inc, exc);
+
+    // All-companies mode: drop the per-company filter and lean on platform_id scoping.
+    // Single-company mode: bind to ctx.companyId.
+    const allCompanies = !!ctx.allCompanies;
+    const orderCompanyScope = allCompanies ? sql`` : sql` AND o.company = ${ctx.companyId}`;
+    const spCompanyScope = allCompanies ? sql`` : sql` AND sp.company_id = ${ctx.companyId}`;
 
     const query = sql`
 WITH order_returns AS (
@@ -143,9 +154,11 @@ SELECT
         WHEN COALESCE(ret.returned_qty,0) > 0 THEN 'PARTIAL'
         WHEN COALESCE(con.consumed_qty,0) > 0 THEN 'CONSUMED'
         ELSE 'OUT' END AS outcome,
-    '' AS comments
+    '' AS comments,
+    co.name AS company_name
 FROM orders o
 JOIN order_items oi ON oi."order" = o.id
+LEFT JOIN companies co ON o.company = co.id
 LEFT JOIN users u ON o.created_by = u.id
 LEFT JOIN cities c ON o.venue_city_id = c.id
 LEFT JOIN assets a ON oi.asset = a.id
@@ -154,7 +167,8 @@ LEFT JOIN teams t ON a.team_id = t.id
 LEFT JOIN order_returns ret ON ret.asset_id = oi.asset AND ret.order_id = o.id
 LEFT JOIN order_consumed con ON con.asset_id = oi.asset AND con.order_id = o.id
 JOIN order_outbound_at ooa ON ooa.order_id = o.id
-WHERE o.platform_id = ${ctx.platformId} AND o.company = ${ctx.companyId}
+WHERE o.platform_id = ${ctx.platformId}
+  ${orderCompanyScope}
   ${cat}
   ${dateFilter(sql.raw("ooa.issued_at"), gte, lt)}
 
@@ -177,9 +191,11 @@ SELECT
         WHEN COALESCE(spret.returned_qty,0) > 0 THEN 'PARTIAL'
         WHEN COALESCE(spcon.consumed_qty,0) > 0 THEN 'CONSUMED'
         ELSE 'OUT' END AS outcome,
-    CASE WHEN sp.collector_name IS NOT NULL AND sp.collector_name != '' THEN 'Collector: ' || sp.collector_name ELSE '' END AS comments
+    CASE WHEN sp.collector_name IS NOT NULL AND sp.collector_name != '' THEN 'Collector: ' || sp.collector_name ELSE '' END AS comments,
+    co.name AS company_name
 FROM self_pickups sp
 JOIN self_pickup_items spi ON spi.self_pickup_id = sp.id
+LEFT JOIN companies co ON sp.company_id = co.id
 LEFT JOIN users u ON sp.created_by = u.id
 LEFT JOIN assets a ON spi.asset_id = a.id
 LEFT JOIN legacy_asset_families af ON a.group_id = af.id
@@ -187,19 +203,28 @@ LEFT JOIN teams t ON a.team_id = t.id
 LEFT JOIN sp_returns spret ON spret.asset_id = spi.asset_id AND spret.self_pickup_id = sp.id
 LEFT JOIN sp_consumed spcon ON spcon.asset_id = spi.asset_id AND spcon.sp_id = sp.id
 JOIN sp_outbound_at spo ON spo.self_pickup_id = sp.id
-WHERE sp.platform_id = ${ctx.platformId} AND sp.company_id = ${ctx.companyId}
+WHERE sp.platform_id = ${ctx.platformId}
+  ${spCompanyScope}
   AND NOT spi.skipped
   ${cat}
   ${dateFilter(sql.raw("spo.issued_at"), gte, lt)}
 
-ORDER BY doc_date ASC`;
+ORDER BY company_name ASC, doc_date ASC`;
 
     const rows = ((await db.execute(query)) as any).rows as any[];
     if (rows.length > ROW_CAP)
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            `Issuance log has ${rows.length} rows (cap ${ROW_CAP}). Narrow by date range or category.`
+            `Issuance log has ${rows.length} rows (cap ${ROW_CAP}). Narrow by date range${
+                allCompanies ? " (strongly recommended for all-companies runs)" : ""
+            } or category.`
         );
+
+    // In all-companies mode the company_item_code column is company-agnostic —
+    // avoid rendering 'ALL COMPANIES ITEM CODE'. Single-company keeps the branded label.
+    const itemCodeHeader = allCompanies
+        ? "COMPANY ITEM CODE"
+        : `${ctx.companyName.toUpperCase()} ITEM CODE`;
 
     const columns: ReportColumn[] = [
         { header: "DATE", width: 13 },
@@ -209,7 +234,7 @@ ORDER BY doc_date ASC`;
         { header: "CITY", width: 13 },
         { header: "USER", width: 20 },
         { header: "PERMANENT", width: 11 },
-        { header: `${ctx.companyName.toUpperCase()} ITEM CODE`, width: 22 },
+        { header: itemCodeHeader, width: 22 },
         { header: "ITEM DESCRIPTION", width: 44 },
         { header: "TEAM", width: 18 },
         { header: "QUANTITY", width: 11, align: "right", numFmt: INT_FMT },
@@ -229,76 +254,121 @@ ORDER BY doc_date ASC`;
     const RET = 13;
     const LABEL = 9;
 
-    const groups = new Map<string, any[]>();
-    for (const r of rows) {
-        const ref = String(r.reference);
-        if (!groups.has(ref)) groups.set(ref, []);
-        groups.get(ref)!.push(r);
-    }
-
-    const subRows: number[] = [];
-    for (const [ref, gr] of groups) {
-        let first = 0;
-        let last = 0;
-        for (const r of gr) {
-            const row = sheet.addRow([
-                fmtDate(r.doc_date),
-                r.type,
-                r.reference,
-                r.venue ?? "",
-                r.city ?? "",
-                r.user_name ?? "",
-                permanentLabel(r.doc_created, r.is_permanent),
-                r.company_item_code ?? "",
-                r.description ?? "",
-                r.team_name ?? "",
-                Number(r.delivered_qty) || 0,
-                r.outcome,
-                Number(r.returned_qty) || 0,
-                r.comments ?? "",
-            ]);
-            colourOutcome(row.getCell(12), String(r.outcome));
-            if (!first) first = row.number;
-            last = row.number;
+    // Write a per-document group (subtotalled) for a slice of rows. Returns the
+    // subtotal row numbers so the grand total can sum them, and the qty/ret sums.
+    const writeDocGroups = (
+        slice: any[]
+    ): { subRows: number[]; totalQty: number; totalRet: number } => {
+        // Group by document reference within this slice (order is preserved from SQL).
+        const docGroups = new Map<string, any[]>();
+        for (const r of slice) {
+            const ref = String(r.reference);
+            if (!docGroups.has(ref)) docGroups.set(ref, []);
+            docGroups.get(ref)!.push(r);
         }
-        const sub = addSubtotalRow(sheet, {
-            label: `Subtotal — ${ref}`,
+        const localSubRows: number[] = [];
+        let totalQty = 0;
+        let totalRet = 0;
+        for (const [ref, gr] of docGroups) {
+            let first = 0;
+            let last = 0;
+            for (const r of gr) {
+                const row = sheet.addRow([
+                    fmtDate(r.doc_date),
+                    r.type,
+                    r.reference,
+                    r.venue ?? "",
+                    r.city ?? "",
+                    r.user_name ?? "",
+                    permanentLabel(r.doc_created, r.is_permanent),
+                    r.company_item_code ?? "",
+                    r.description ?? "",
+                    r.team_name ?? "",
+                    Number(r.delivered_qty) || 0,
+                    r.outcome,
+                    Number(r.returned_qty) || 0,
+                    r.comments ?? "",
+                ]);
+                colourOutcome(row.getCell(12), String(r.outcome));
+                if (!first) first = row.number;
+                last = row.number;
+            }
+            const grQty = gr.reduce((n, r) => n + (Number(r.delivered_qty) || 0), 0);
+            const grRet = gr.reduce((n, r) => n + (Number(r.returned_qty) || 0), 0);
+            totalQty += grQty;
+            totalRet += grRet;
+            const sub = addSubtotalRow(sheet, {
+                label: `Subtotal — ${ref}`,
+                labelCol: LABEL,
+                sums: [
+                    { col: QTY, from: first, to: last, cached: grQty },
+                    { col: RET, from: first, to: last, cached: grRet },
+                ],
+            });
+            localSubRows.push(sub.number);
+            sheet.addRow([]);
+        }
+        return { subRows: localSubRows, totalQty, totalRet };
+    };
+
+    // Cached grand-total row (no live SUM formulas) — used in all-companies mode
+    // where interleaved per-company subtotals corrupt a single SUM range. In
+    // single-company mode addGrandTotalRow is used instead (it writes SUM(subtotals)).
+    const writeCachedGrand = (
+        label: string,
+        qty: number,
+        ret: number,
+        fill: ExcelJS.Fill,
+        big = false
+    ) => {
+        const row = sheet.addRow([]);
+        row.getCell(LABEL).value = label;
+        row.font = big ? { bold: true, size: 12 } : { bold: true };
+        if (big) row.height = 20;
+        row.eachCell({ includeEmpty: true }, (cell) => (cell.fill = fill));
+        row.getCell(QTY).value = qty;
+        row.getCell(QTY).numFmt = INT_FMT;
+        row.getCell(RET).value = ret;
+        row.getCell(RET).numFmt = INT_FMT;
+    };
+
+    if (allCompanies) {
+        let grandQty = 0;
+        let grandRet = 0;
+        for (const g of groupByCompany(rows, (r: any) => r.company_name as string | null)) {
+            const { subRows: _sub, totalQty, totalRet } = writeDocGroups(g.rows);
+            grandQty += totalQty;
+            grandRet += totalRet;
+            writeCachedGrand(`Subtotal — ${g.company}`, totalQty, totalRet, STYLE.SUBTOTAL_FILL);
+            sheet.addRow([]); // spacer between companies
+        }
+        if (rows.length > 0)
+            writeCachedGrand(
+                `GRAND TOTAL — ${ctx.companyName}`,
+                grandQty,
+                grandRet,
+                STYLE.GRAND_FILL,
+                true
+            );
+    } else {
+        const { subRows } = writeDocGroups(rows);
+        addGrandTotalRow(sheet, {
+            label: `GRAND TOTAL — ${ctx.companyName}`,
             labelCol: LABEL,
             sums: [
                 {
                     col: QTY,
-                    from: first,
-                    to: last,
-                    cached: gr.reduce((n, r) => n + (Number(r.delivered_qty) || 0), 0),
+                    subtotalRows: subRows,
+                    cached: rows.reduce((n, r) => n + (Number(r.delivered_qty) || 0), 0),
                 },
                 {
                     col: RET,
-                    from: first,
-                    to: last,
-                    cached: gr.reduce((n, r) => n + (Number(r.returned_qty) || 0), 0),
+                    subtotalRows: subRows,
+                    cached: rows.reduce((n, r) => n + (Number(r.returned_qty) || 0), 0),
                 },
             ],
         });
-        subRows.push(sub.number);
-        sheet.addRow([]);
     }
-
-    addGrandTotalRow(sheet, {
-        label: `GRAND TOTAL — ${ctx.companyName}`,
-        labelCol: LABEL,
-        sums: [
-            {
-                col: QTY,
-                subtotalRows: subRows,
-                cached: rows.reduce((n, r) => n + (Number(r.delivered_qty) || 0), 0),
-            },
-            {
-                col: RET,
-                subtotalRows: subRows,
-                cached: rows.reduce((n, r) => n + (Number(r.returned_qty) || 0), 0),
-            },
-        ],
-    });
 
     finalizeWorkbook(h, rows.length);
     return { wb: h.wb, rowCount: rows.length };
@@ -308,12 +378,13 @@ export const issuanceReport: ReportDefinition = {
     key: "issuance",
     label: "Issuance Log",
     description:
-        "Per-document log of physical items issued (orders + self-pickups) with lifecycle outcome, owning team, and the permanent-placement flag. Grouped by document with subtotals.",
+        "Per-document log of physical items issued (orders + self-pickups) with lifecycle outcome, owning team, and the permanent-placement flag. Grouped by document with subtotals. Leave Company blank to run across ALL companies on the platform (grouped with per-company subtotals) — use a date range for all-companies runs.",
     section: "OPERATIONS",
     audience: "ADMIN_CLIENT",
     permissions: ["orders:export", "orders:read"],
     filters: [
-        { key: "company_id", label: "Company", type: "company", required: true },
+        // Optional — leave blank to run across ALL companies on the platform.
+        { key: "company_id", label: "Company", type: "company", required: false },
         { key: "date_from", label: "From", type: "date", required: false },
         { key: "date_to", label: "To", type: "date", required: false },
         {
@@ -326,6 +397,11 @@ export const issuanceReport: ReportDefinition = {
         },
     ],
     paramsSchema,
-    rowCap: { max: ROW_CAP, dimension: "rows", narrowHint: "narrow by date range or category" },
+    rowCap: {
+        max: ROW_CAP,
+        dimension: "rows",
+        narrowHint:
+            "narrow by date range (strongly recommended for all-companies runs) or category",
+    },
     run,
 };

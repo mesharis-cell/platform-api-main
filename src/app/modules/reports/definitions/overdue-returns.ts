@@ -45,7 +45,9 @@ const toArr = (v: unknown): string[] =>
 
 const paramsSchema = z
     .object({
-        company_id: z.string().uuid(),
+        // Optional → when omitted, the report runs across ALL companies on the
+        // platform (the controller sets ctx.allCompanies).
+        company_id: z.string().uuid().optional(),
         category_include: z.union([z.string(), z.array(z.string())]).optional(),
         category_exclude: z.union([z.string(), z.array(z.string())]).optional(),
     })
@@ -75,6 +77,12 @@ async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<
     const cat = categoryFilter(inc, exc);
     const now = ctx.now;
 
+    // All-companies mode: drop the per-company predicates; platform_id scoping
+    // (always present in both arms) keeps the tenant boundary intact.
+    const allCompanies = !!ctx.allCompanies;
+    const orderCompanyScope = allCompanies ? sql`` : sql` AND o.company = ${ctx.companyId}`;
+    const spCompanyScope = allCompanies ? sql`` : sql` AND sp.company_id = ${ctx.companyId}`;
+
     const query = sql`
 WITH order_returns AS (
     SELECT sea.asset_id, se."order"::uuid AS order_id, SUM(sea.quantity)::int AS returned_qty
@@ -92,6 +100,7 @@ SELECT * FROM (
     SELECT
         'DELIVERY' AS type,
         o.order_id AS reference,
+        co.name AS company,
         o.venue_name AS who,
         af.company_item_code AS company_item_code,
         COALESCE(af.name, oi.asset_name) AS description,
@@ -99,10 +108,12 @@ SELECT * FROM (
         (oi.quantity - COALESCE(ret.returned_qty, 0)) AS outstanding_qty
     FROM orders o
     JOIN order_items oi ON oi."order" = o.id
+    LEFT JOIN companies co ON co.id = o."company"
     LEFT JOIN assets a ON oi.asset = a.id
     LEFT JOIN legacy_asset_families af ON a.group_id = af.id
     LEFT JOIN order_returns ret ON ret.asset_id = oi.asset AND ret.order_id = o.id
-    WHERE o.platform_id = ${ctx.platformId} AND o.company = ${ctx.companyId}
+    WHERE o.platform_id = ${ctx.platformId}
+      ${orderCompanyScope}
       AND o.deleted_at IS NULL
       AND o.is_permanent_placement = false
       AND o.order_status IN ('READY_FOR_DELIVERY','IN_TRANSIT','DELIVERED','IN_USE','DERIG','AWAITING_RETURN','RETURN_IN_TRANSIT')
@@ -113,6 +124,7 @@ SELECT * FROM (
     SELECT
         'SELF-PICKUP' AS type,
         sp.self_pickup_id AS reference,
+        co.name AS company,
         sp.collector_name AS who,
         af.company_item_code AS company_item_code,
         COALESCE(af.name, spi.asset_name) AS description,
@@ -121,10 +133,12 @@ SELECT * FROM (
             - COALESCE(spret.returned_qty, 0)) AS outstanding_qty
     FROM self_pickups sp
     JOIN self_pickup_items spi ON spi.self_pickup_id = sp.id
+    LEFT JOIN companies co ON co.id = sp.company_id
     LEFT JOIN assets a ON spi.asset_id = a.id
     LEFT JOIN legacy_asset_families af ON a.group_id = af.id
     LEFT JOIN sp_returns spret ON spret.asset_id = spi.asset_id AND spret.self_pickup_id = sp.id
-    WHERE sp.platform_id = ${ctx.platformId} AND sp.company_id = ${ctx.companyId}
+    WHERE sp.platform_id = ${ctx.platformId}
+      ${spCompanyScope}
       AND sp.deleted_at IS NULL
       AND sp.is_permanent_placement = false
       AND NOT spi.skipped
@@ -135,13 +149,15 @@ SELECT * FROM (
 WHERE outstanding_qty > 0
   AND expected_return IS NOT NULL
   AND expected_return < ${now}
-ORDER BY expected_return ASC`;
+ORDER BY ${allCompanies ? sql`company ASC, ` : sql``}expected_return ASC`;
 
     const rows = ((await db.execute(query)) as any).rows as any[];
     if (rows.length > ROW_CAP)
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            `Overdue returns has ${rows.length} rows (cap ${ROW_CAP}). Narrow by category.`
+            `Overdue returns has ${rows.length} rows (cap ${ROW_CAP}). Narrow by category${
+                allCompanies ? " (strongly recommended for all-companies runs)" : ""
+            }.`
         );
 
     const DAY_MS = 24 * 60 * 60 * 1000;
@@ -152,11 +168,17 @@ ORDER BY expected_return ASC`;
         return "60+";
     };
 
+    // Header relabel: avoid 'ALL COMPANIES ITEM CODE' in all-companies mode.
+    const codeHeader = allCompanies
+        ? "COMPANY ITEM CODE"
+        : `${ctx.companyName.toUpperCase()} ITEM CODE`;
+
     const columns: ReportColumn[] = [
         { header: "KADENCE REFERENCE", width: 20 },
         { header: "TYPE", width: 13 },
+        { header: "COMPANY", width: 24 },
         { header: "VENUE / COLLECTOR", width: 28 },
-        { header: `${ctx.companyName.toUpperCase()} ITEM CODE`, width: 22 },
+        { header: codeHeader, width: 22 },
         { header: "ITEM DESCRIPTION", width: 44 },
         { header: "QTY OUTSTANDING", width: 15, align: "right", numFmt: INT_FMT },
         { header: "EXPECTED RETURN", width: 15 },
@@ -172,7 +194,7 @@ ORDER BY expected_return ASC`;
         sheetName: "Overdue Returns",
     });
     const sheet = h.sheet;
-    const DAYS_COL = 8; // 1-based index of DAYS OVERDUE
+    const DAYS_COL = 9; // 1-based index of DAYS OVERDUE (shifted +1 by new COMPANY column)
 
     for (const r of rows) {
         const expected = r.expected_return ? new Date(r.expected_return) : null;
@@ -183,6 +205,7 @@ ORDER BY expected_return ASC`;
         const row = sheet.addRow([
             r.reference,
             r.type,
+            r.company ?? "",
             r.who ?? "",
             r.company_item_code ?? "",
             r.description ?? "",
@@ -202,12 +225,13 @@ export const overdueReturnsReport: ReportDefinition = {
     key: "overdue-returns",
     label: "Overdue / Outstanding Returns",
     description:
-        "One row per still-out item past its expected return — orders (event end + return buffer) and self-pickups (expected return date) where outstanding quantity has not yet come back. Days-overdue and aging buckets surface the late-fee / lost-item recovery queue.",
+        "One row per still-out item past its expected return — orders (event end + return buffer) and self-pickups (expected return date) where outstanding quantity has not yet come back. Days-overdue and aging buckets surface the late-fee / lost-item recovery queue. Leave Company blank to run across ALL companies on the platform.",
     section: "OPERATIONS",
     audience: "ADMIN_CLIENT",
     permissions: ["orders:export", "orders:read"],
     filters: [
-        { key: "company_id", label: "Company", type: "company", required: true },
+        // Optional — leave blank to run across ALL companies on the platform.
+        { key: "company_id", label: "Company", type: "company", required: false },
         {
             key: "category",
             label: "Category",
@@ -218,6 +242,10 @@ export const overdueReturnsReport: ReportDefinition = {
         },
     ],
     paramsSchema,
-    rowCap: { max: ROW_CAP, dimension: "rows", narrowHint: "narrow by category" },
+    rowCap: {
+        max: ROW_CAP,
+        dimension: "rows",
+        narrowHint: "narrow by category (strongly recommended for all-companies runs)",
+    },
     run,
 };

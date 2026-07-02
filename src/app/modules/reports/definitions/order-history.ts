@@ -35,7 +35,9 @@ const ROW_CAP = 5000;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const paramsSchema = z.object({
-    company_id: z.string().uuid(),
+    // Optional → when omitted, the report runs across ALL companies on the
+    // platform (the controller sets ctx.allCompanies).
+    company_id: z.string().uuid().optional(),
     date_from: z.string().regex(DATE_RE).optional(),
     date_to: z.string().regex(DATE_RE).optional(),
 });
@@ -49,6 +51,11 @@ function dateFilter(expr: SQL, gte: Date | null, lt: Date | null): SQL {
 
 async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<ReportResult> {
     const { gte, lt } = fmtDateBounds(params.date_from, params.date_to);
+
+    // All-companies mode: drop the per-company predicate; platform_id scoping
+    // (always present) keeps the tenant boundary intact.
+    const allCompanies = !!ctx.allCompanies;
+    const companyScope = allCompanies ? sql`` : sql` AND o."company" = ${ctx.companyId}`;
 
     // One row per order. Pull the raw pricing record fields projectSummaryForRole
     // needs (breakdown_lines + margin_percent + vat_percent + calculated_at) via
@@ -72,16 +79,18 @@ FROM orders o
 LEFT JOIN companies c ON c.id = o."company"
 LEFT JOIN prices p ON p.id = o.order_pricing_id
 WHERE o.platform_id = ${ctx.platformId}
-  AND o."company" = ${ctx.companyId}
+  ${companyScope}
   AND o.deleted_at IS NULL
   ${dateFilter(sql.raw("o.created_at"), gte, lt)}
-ORDER BY o.created_at DESC`;
+ORDER BY ${allCompanies ? sql`c.name ASC, ` : sql``}o.created_at DESC`;
 
     const rows = ((await db.execute(query)) as any).rows as any[];
     if (rows.length > ROW_CAP)
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            `Order History has ${rows.length} rows (cap ${ROW_CAP}). Narrow by date range.`
+            `Order History has ${rows.length} rows (cap ${ROW_CAP}). Narrow by date range${
+                allCompanies ? " (strongly recommended for all-companies runs)" : ""
+            }.`
         );
 
     // FINAL TOTAL is the only money column and is always the SELL figure → safe
@@ -143,16 +152,21 @@ export const orderHistoryReport: ReportDefinition = {
     key: "order-history",
     label: "Order History",
     description:
-        "One row per order: a current-state snapshot of every order for a company (status, financial status, event window) with its sell-side final total. Replaces the legacy order-history CSV. Sell-only — no cost or margin columns, so client-safe.",
+        "One row per order: a current-state snapshot of every order for a company (status, financial status, event window) with its sell-side final total. Replaces the legacy order-history CSV. Sell-only — no cost or margin columns, so client-safe. Leave Company blank to run across ALL companies on the platform (use a date range for all-companies runs).",
     section: "OPERATIONS",
     audience: "ADMIN_CLIENT",
     permissions: ["orders:export", "orders:read"],
     filters: [
-        { key: "company_id", label: "Company", type: "company", required: true },
+        // Optional — leave blank to run across ALL companies on the platform.
+        { key: "company_id", label: "Company", type: "company", required: false },
         { key: "date_from", label: "From", type: "date", required: false },
         { key: "date_to", label: "To", type: "date", required: false },
     ],
     paramsSchema,
-    rowCap: { max: ROW_CAP, dimension: "rows", narrowHint: "narrow by date range" },
+    rowCap: {
+        max: ROW_CAP,
+        dimension: "rows",
+        narrowHint: "narrow by date range (strongly recommended for all-companies runs)",
+    },
     run,
 };

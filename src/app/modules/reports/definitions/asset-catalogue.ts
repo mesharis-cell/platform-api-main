@@ -42,7 +42,9 @@ const toArr = (v: unknown): string[] =>
 
 const paramsSchema = z
     .object({
-        company_id: z.string().uuid(),
+        // Optional → when omitted, the report runs across ALL companies on the
+        // platform (the controller sets ctx.allCompanies).
+        company_id: z.string().uuid().optional(),
         // optional onboarding-date filter — targets assets.created_at (assets have
         // no issuance/movement date), bounded via the shared Dubai date convention.
         date_from: z.string().regex(DATE_RE).optional(),
@@ -95,6 +97,11 @@ async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<
     const statuses = toArr(params.status);
     const { gte, lt } = fmtDateBounds(params.date_from, params.date_to);
     const cat = categoryFilter(inc, exc);
+
+    // All-companies mode: drop the per-company predicate; platform_id scoping
+    // (assets.platform_id — a real column) keeps the tenant boundary intact.
+    const allCompanies = !!ctx.allCompanies;
+    const companyScope = allCompanies ? sql`` : sql` AND a.company_id = ${ctx.companyId}`;
 
     // NOTE on joins (all to a PRIMARY KEY, 1:0-or-1, no fan-out → row count is
     // exactly one-per-asset; no SUM can be inflated):
@@ -156,22 +163,28 @@ LEFT JOIN teams t ON t.id = a.team_id
 LEFT JOIN warehouses w ON w.id = a.warehouse_id
 LEFT JOIN zones z ON z.id = a.zone_id
 LEFT JOIN users u ON u.id = a.last_scanned_by
-WHERE a.platform_id = ${ctx.platformId} AND a.company_id = ${ctx.companyId}
+WHERE a.platform_id = ${ctx.platformId}
+  ${companyScope}
   AND a.deleted_at IS NULL
   ${cat}
   ${inListFilter(sql.raw("a.group_id::text"), groupIds)}
   ${inListFilter(sql.raw("a.status::text"), statuses)}
   ${dateFilter(sql.raw("a.created_at"), gte, lt)}
-ORDER BY COALESCE(a.group_name, laf.name) ASC NULLS LAST, a.name ASC`;
+ORDER BY ${allCompanies ? sql`co.name ASC NULLS LAST, ` : sql``}COALESCE(a.group_name, laf.name) ASC NULLS LAST, a.name ASC`;
 
     const rows = ((await db.execute(query)) as any).rows as any[];
     if (rows.length > ROW_CAP)
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            `Asset catalogue has ${rows.length} assets (cap ${ROW_CAP}). Narrow by category, group, status, or onboarding date.`
+            `Asset catalogue has ${rows.length} assets (cap ${ROW_CAP}). Narrow by category, group, status, or onboarding date${
+                allCompanies ? " (strongly recommended for all-companies runs)" : ""
+            }.`
         );
 
-    const codeHeader = `${ctx.companyName.toUpperCase()} ITEM CODE`;
+    // Header relabel: avoid 'ALL COMPANIES ITEM CODE' in all-companies mode.
+    const codeHeader = allCompanies
+        ? "COMPANY ITEM CODE"
+        : `${ctx.companyName.toUpperCase()} ITEM CODE`;
     // No money/cost/margin columns exist in this report, so there is nothing to
     // gate on ctx.canSeeMargin and nothing internal-only to drop on ctx.isClientMount.
     const columns: ReportColumn[] = [
@@ -275,12 +288,13 @@ export const assetCatalogueReport: ReportDefinition = {
     key: "asset-catalogue",
     label: "Asset Catalogue",
     description:
-        "Current-state, one-row-per-asset descriptive inventory catalogue for a company: identity, group/family labels, curated category, condition/status, physical specs (weight, volume, dimensions, packaging, handling tags), location, and the primary image as a plain-text URL link. No photos are embedded (that path stays the CLI export); no money.",
+        "Current-state, one-row-per-asset descriptive inventory catalogue for a company: identity, group/family labels, curated category, condition/status, physical specs (weight, volume, dimensions, packaging, handling tags), location, and the primary image as a plain-text URL link. No photos are embedded (that path stays the CLI export); no money. Leave Company blank to run across ALL companies on the platform.",
     section: "INVENTORY",
     audience: "ADMIN_CLIENT",
     permissions: ["assets:read"],
     filters: [
-        { key: "company_id", label: "Company", type: "company", required: true },
+        // Optional — leave blank to run across ALL companies on the platform.
+        { key: "company_id", label: "Company", type: "company", required: false },
         { key: "date_from", label: "Onboarded From", type: "date", required: false },
         { key: "date_to", label: "Onboarded To", type: "date", required: false },
         {
@@ -304,7 +318,8 @@ export const assetCatalogueReport: ReportDefinition = {
     rowCap: {
         max: ROW_CAP,
         dimension: "rows",
-        narrowHint: "narrow by category, group, status, or onboarding date",
+        narrowHint:
+            "narrow by category, group, status, or onboarding date (strongly recommended for all-companies runs)",
     },
     run,
 };

@@ -25,6 +25,8 @@ import { db } from "../../../../db";
 import CustomizedError from "../../../error/customized-error";
 import { PricingService } from "../../../services/pricing.service";
 import { ReportDefinition, ReportResult, ReportRunContext } from "../types";
+import { groupByCompany } from "../shared/group-by-company";
+import type ExcelJS from "exceljs";
 import {
     addGrandTotalRow,
     createReportWorkbook,
@@ -37,6 +39,7 @@ import {
     parseNum,
     ReportColumn,
     roundMoney,
+    STYLE,
 } from "../../../utils/report-workbook";
 
 const ROW_CAP = 10000;
@@ -81,7 +84,9 @@ const toArr = (v: unknown): string[] =>
 
 const paramsSchema = z
     .object({
-        company_id: z.string().uuid(),
+        // Optional → when omitted, the report runs across ALL companies on the
+        // platform (the controller sets ctx.allCompanies). Mirrors accounts-reconciliation.
+        company_id: z.string().uuid().optional(),
         date_from: z.string().regex(DATE_RE).optional(),
         date_to: z.string().regex(DATE_RE).optional(),
         category_include: z.union([z.string(), z.array(z.string())]).optional(),
@@ -138,6 +143,11 @@ async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<
     const groupFilter = params.group_id ? sql` AND a.group_id = ${params.group_id}` : sql``;
     const teamFilter = params.team_id ? sql` AND a.team_id = ${params.team_id}` : sql``;
 
+    // All-companies mode: drop the per-company filter and lean on platform_id scoping.
+    // Single-company mode: bind to ctx.companyId.
+    const allCompanies = !!ctx.allCompanies;
+    const companyScope = allCompanies ? sql`` : sql` AND o.company = ${ctx.companyId}`;
+
     // INNER join orders⋈order_items at item grain; order-level pricing carried
     // alongside (identical across the order's item rows — de-duped in JS below).
     // scan_events FK for order is the PG-quoted column "order".
@@ -189,23 +199,32 @@ LEFT JOIN prices p ON o.order_pricing_id = p.id
 LEFT JOIN assets a ON oi.asset = a.id
 LEFT JOIN legacy_asset_families af ON a.group_id = af.id
 LEFT JOIN teams t ON a.team_id = t.id
-WHERE o.platform_id = ${ctx.platformId} AND o.company = ${ctx.companyId}
+WHERE o.platform_id = ${ctx.platformId}
+  ${companyScope}
   AND o.deleted_at IS NULL
   ${statusFilter(statuses)}
   ${cat}
   ${groupFilter}
   ${teamFilter}
   ${dateFilter(sql.raw("o.created_at"), gte, lt)}
-ORDER BY o.created_at ASC, o.order_id ASC, oi.id ASC`;
+ORDER BY co.name ASC, o.created_at ASC, o.order_id ASC, oi.id ASC`;
 
     const rows = ((await db.execute(query)) as any).rows as any[];
     if (rows.length > ROW_CAP)
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            `Orders export has ${rows.length} item rows (cap ${ROW_CAP}). Narrow by date range, status, category, group, or team.`
+            `Orders export has ${rows.length} item rows (cap ${ROW_CAP}). Narrow by date range${
+                allCompanies ? " (strongly recommended for all-companies runs)" : ""
+            }, status, category, group, or team.`
         );
 
     const showMargin = ctx.canSeeMargin && !ctx.isClientMount;
+
+    // In all-companies mode the company_item_code column is company-agnostic —
+    // avoid rendering 'ALL COMPANIES ITEM CODE'. Single-company keeps the branded label.
+    const itemCodeHeader = allCompanies
+        ? "COMPANY ITEM CODE"
+        : `${ctx.companyName.toUpperCase()} ITEM CODE`;
 
     const columns: ReportColumn[] = [
         { header: "ORDER REFERENCE", width: 20 },
@@ -224,7 +243,7 @@ ORDER BY o.created_at ASC, o.order_id ASC, oi.id ASC`;
         { header: "PERMANENT PLACEMENT", width: 12 },
         { header: "ISSUED AT", width: 13 },
         { header: "ORDER CREATED AT", width: 14 },
-        { header: `${ctx.companyName.toUpperCase()} ITEM CODE`, width: 22 },
+        { header: itemCodeHeader, width: 22 },
         { header: "ITEM DESCRIPTION", width: 44 },
         { header: "ITEM CATEGORY", width: 18 },
         { header: "TEAM", width: 18 },
@@ -271,18 +290,74 @@ ORDER BY o.created_at ASC, o.order_id ASC, oi.id ASC`;
         marginPercent: number;
         buyTotal: number;
         baseOpsBuy: number;
+        company: string; // used to bucket into per-company subtotals
     };
-    const moneyByOrder = new Map<string, OrderMoney>();
+
+    // Helper: sum de-duped order money from a Map, skipping already-seen UUIDs.
+    type MoneySums = {
+        subtotal: number;
+        vatAmount: number;
+        finalTotal: number;
+        buyTotal: number;
+        baseOpsBuy: number;
+        qty: number;
+        orderCount: number;
+    };
+    const sumMoneyMap = (map: Map<string, OrderMoney>, qtyMap: Map<string, number>): MoneySums => {
+        let subtotal = 0,
+            vatAmount = 0,
+            finalTotal = 0,
+            buyTotal = 0,
+            baseOpsBuy = 0,
+            qty = 0;
+        for (const [uuid, m] of map) {
+            subtotal += m.subtotal;
+            vatAmount += m.vatAmount;
+            finalTotal += m.finalTotal;
+            buyTotal += m.buyTotal;
+            baseOpsBuy += m.baseOpsBuy;
+            qty += qtyMap.get(uuid) ?? 0;
+        }
+        return { subtotal, vatAmount, finalTotal, buyTotal, baseOpsBuy, qty, orderCount: map.size };
+    };
+
+    // Write a cached totals row (no live SUM formulas) — used in all-companies mode
+    // where interleaved subtotal rows corrupt a single SUM range, and also in
+    // single-company mode for the money columns (money is de-duped at order level,
+    // not per item, so column SUMs would multiply by item count).
+    const writeCachedTotals = (label: string, sums: MoneySums, fill: ExcelJS.Fill, big = false) => {
+        const row = sheet.addRow([]);
+        row.getCell(LABEL).value = label;
+        row.font = big ? { bold: true, size: 12 } : { bold: true };
+        if (big) row.height = 20;
+        row.eachCell({ includeEmpty: true }, (cell) => (cell.fill = fill));
+        const put = (col: number, val: number) => {
+            row.getCell(col).value = roundMoney(val);
+            row.getCell(col).numFmt = MONEY_FMT;
+        };
+        row.getCell(QTY).value = sums.qty;
+        row.getCell(QTY).numFmt = INT_FMT;
+        put(29, sums.subtotal); // ORDER SUBTOTAL (EX VAT)
+        put(31, sums.vatAmount); // ORDER VAT AMOUNT
+        put(32, sums.finalTotal); // ORDER FINAL TOTAL (INC VAT)
+        if (showMargin) {
+            put(34, sums.buyTotal); // ORDER BUY TOTAL
+            put(35, sums.baseOpsBuy); // ORDER BASE OPS (BUY)
+        }
+        return row;
+    };
+
+    // Global tracking.
+    const globalMoneyByOrder = new Map<string, OrderMoney>();
+    const qtyByOrder = new Map<string, number>();
     const seenFirstRow = new Set<string>();
 
-    let qtyGrandTotal = 0;
-
-    for (const r of rows) {
+    const writeDataRow = (r: any) => {
         const orderUuid = String(r.order_uuid);
         const isFirstRowOfOrder = !seenFirstRow.has(orderUuid);
 
         // Project + cache the order money exactly once per order.
-        if (!moneyByOrder.has(orderUuid)) {
+        if (!globalMoneyByOrder.has(orderUuid)) {
             const sellSummary = PricingService.projectSummaryForRole(r as any, "CLIENT") as any;
             const subtotal = parseNum(sellSummary?.subtotal);
             const vatPercent = parseNum(sellSummary?.vat_percent);
@@ -296,10 +371,9 @@ ORDER BY o.created_at ASC, o.order_id ASC, oi.id ASC`;
                 const adminDetail = PricingService.projectByRole(r as any, "ADMIN") as any;
                 marginPercent = parseNum(adminDetail?.margin?.percent);
                 buyTotal = parseNum(adminDetail?.totals?.buy_total);
-                // base_ops_total on the ADMIN projection is the BUY base-ops figure.
                 baseOpsBuy = parseNum(adminDetail?.base_ops_total);
             }
-            moneyByOrder.set(orderUuid, {
+            globalMoneyByOrder.set(orderUuid, {
                 subtotal,
                 vatPercent,
                 vatAmount,
@@ -307,12 +381,14 @@ ORDER BY o.created_at ASC, o.order_id ASC, oi.id ASC`;
                 marginPercent,
                 buyTotal,
                 baseOpsBuy,
+                company: r.company_name ?? "",
             });
+            qtyByOrder.set(orderUuid, 0);
         }
-        const money = moneyByOrder.get(orderUuid)!;
+        const money = globalMoneyByOrder.get(orderUuid)!;
 
         const qty = Number(r.item_quantity) || 0;
-        qtyGrandTotal += qty;
+        qtyByOrder.set(orderUuid, (qtyByOrder.get(orderUuid) ?? 0) + qty);
 
         const cells: (string | number)[] = [
             r.order_ref ?? "",
@@ -359,53 +435,71 @@ ORDER BY o.created_at ASC, o.order_id ASC, oi.id ASC`;
 
         sheet.addRow(cells);
         seenFirstRow.add(orderUuid);
-    }
+    };
 
-    // Grand-total footer: ONLY the additive QUANTITY column gets a column SUM.
-    // Order-level money is summed in JS over the per-order-deduped Map (counted
-    // ONCE per order) and rendered as a cached literal — never a fan-out SUM.
-    if (rows.length > 0) {
-        const firstDataRow = h.headerRow + 1;
-        const lastDataRow = h.headerRow + rows.length;
-
-        let subtotalSum = 0;
-        let vatAmountSum = 0;
-        let finalTotalSum = 0;
-        let buyTotalSum = 0;
-        let baseOpsBuySum = 0;
-        for (const m of moneyByOrder.values()) {
-            subtotalSum += m.subtotal;
-            vatAmountSum += m.vatAmount;
-            finalTotalSum += m.finalTotal;
-            buyTotalSum += m.buyTotal;
-            baseOpsBuySum += m.baseOpsBuy;
+    if (allCompanies) {
+        for (const g of groupByCompany(rows, (r: any) => r.company_name as string | null)) {
+            // Track this company's orders only (for per-company subtotal).
+            const companyOrdersBefore = new Set(globalMoneyByOrder.keys());
+            for (const r of g.rows) writeDataRow(r);
+            // Collect only the orders added by this company's rows.
+            const companyMoneyMap = new Map<string, OrderMoney>();
+            for (const [uuid, m] of globalMoneyByOrder) {
+                if (!companyOrdersBefore.has(uuid)) companyMoneyMap.set(uuid, m);
+            }
+            const subs = sumMoneyMap(companyMoneyMap, qtyByOrder);
+            writeCachedTotals(
+                `Subtotal — ${g.company} (${subs.orderCount} orders)`,
+                subs,
+                STYLE.SUBTOTAL_FILL
+            );
+            sheet.addRow([]); // spacer between companies
         }
+        if (rows.length > 0) {
+            const grandSums = sumMoneyMap(globalMoneyByOrder, qtyByOrder);
+            writeCachedTotals(
+                `GRAND TOTAL — ${ctx.companyName} (${grandSums.orderCount} orders)`,
+                grandSums,
+                STYLE.GRAND_FILL,
+                true
+            );
+        }
+    } else {
+        for (const r of rows) writeDataRow(r);
 
-        const grand = addGrandTotalRow(sheet, {
-            label: `GRAND TOTAL — ${ctx.companyName} (${moneyByOrder.size} orders)`,
-            labelCol: LABEL,
-            sums: [
-                {
-                    col: QTY,
-                    subtotalRows: [],
-                    cached: 0, // overwritten below with the real QTY column SUM
-                },
-            ],
-        });
-        // QUANTITY: a real column SUM over the data rows (genuinely per-line additive).
-        const qtyL = "U"; // colLetter(QTY-1) = colLetter(20) = "U"
-        grand.getCell(QTY).value = {
-            formula: `SUM(${qtyL}${firstDataRow}:${qtyL}${lastDataRow})`,
-            result: qtyGrandTotal,
-        };
-        // Order-level money: de-duped JS totals as literals (NOT column SUMs —
-        // those would multiply by item count). Columns are fixed indices.
-        grand.getCell(29).value = roundMoney(subtotalSum); // ORDER SUBTOTAL (EX VAT)
-        grand.getCell(31).value = roundMoney(vatAmountSum); // ORDER VAT AMOUNT
-        grand.getCell(32).value = roundMoney(finalTotalSum); // ORDER FINAL TOTAL (INC VAT)
-        if (showMargin) {
-            grand.getCell(34).value = roundMoney(buyTotalSum); // ORDER BUY TOTAL
-            grand.getCell(35).value = roundMoney(baseOpsBuySum); // ORDER BASE OPS (BUY)
+        // Grand-total footer: QUANTITY gets a live column SUM (genuinely per-line
+        // additive). Order-level money is summed from the de-duped Map as cached
+        // literals (never a fan-out SUM — that would multiply by item count).
+        if (rows.length > 0) {
+            const firstDataRow = h.headerRow + 1;
+            const lastDataRow = h.headerRow + rows.length;
+            const grandSums = sumMoneyMap(globalMoneyByOrder, qtyByOrder);
+
+            const grand = addGrandTotalRow(sheet, {
+                label: `GRAND TOTAL — ${ctx.companyName} (${grandSums.orderCount} orders)`,
+                labelCol: LABEL,
+                sums: [
+                    {
+                        col: QTY,
+                        subtotalRows: [],
+                        cached: 0, // overwritten below with the real QTY column SUM
+                    },
+                ],
+            });
+            // QUANTITY: a real column SUM over the data rows (genuinely per-line additive).
+            const qtyL = "U"; // colLetter(QTY-1) = colLetter(20) = "U"
+            grand.getCell(QTY).value = {
+                formula: `SUM(${qtyL}${firstDataRow}:${qtyL}${lastDataRow})`,
+                result: grandSums.qty,
+            };
+            // Order-level money: de-duped JS totals as literals (NOT column SUMs).
+            grand.getCell(29).value = roundMoney(grandSums.subtotal); // ORDER SUBTOTAL (EX VAT)
+            grand.getCell(31).value = roundMoney(grandSums.vatAmount); // ORDER VAT AMOUNT
+            grand.getCell(32).value = roundMoney(grandSums.finalTotal); // ORDER FINAL TOTAL (INC VAT)
+            if (showMargin) {
+                grand.getCell(34).value = roundMoney(grandSums.buyTotal); // ORDER BUY TOTAL
+                grand.getCell(35).value = roundMoney(grandSums.baseOpsBuy); // ORDER BASE OPS (BUY)
+            }
         }
     }
 
@@ -417,12 +511,13 @@ export const ordersReport: ReportDefinition = {
     key: "orders",
     label: "Orders Export",
     description:
-        "One row per order line item with order-level header context, per-item quantity/volume/weight, the curated company item code + category, and order financial totals. Order-level money appears once per order. Cost/margin columns are admin-only.",
+        "One row per order line item with order-level header context, per-item quantity/volume/weight, the curated company item code + category, and order financial totals. Order-level money appears once per order. Cost/margin columns are admin-only. Leave Company blank to run across ALL companies on the platform (grouped with per-company subtotals) — use a date range for all-companies runs.",
     section: "OPERATIONS",
     audience: "ADMIN_CLIENT",
     permissions: ["orders:export", "orders:read"],
     filters: [
-        { key: "company_id", label: "Company", type: "company", required: true },
+        // Optional — leave blank to run across ALL companies on the platform.
+        { key: "company_id", label: "Company", type: "company", required: false },
         { key: "date_from", label: "From", type: "date", required: false },
         { key: "date_to", label: "To", type: "date", required: false },
         {
@@ -447,7 +542,8 @@ export const ordersReport: ReportDefinition = {
     rowCap: {
         max: ROW_CAP,
         dimension: "rows",
-        narrowHint: "narrow by date range, status, category, group, or team",
+        narrowHint:
+            "narrow by date range (strongly recommended for all-companies runs), status, category, group, or team",
     },
     run,
 };

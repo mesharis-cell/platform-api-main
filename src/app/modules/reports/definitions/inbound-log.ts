@@ -22,6 +22,8 @@ import { db } from "../../../../db";
 import CustomizedError from "../../../error/customized-error";
 import { PricingService } from "../../../services/pricing.service";
 import { ReportDefinition, ReportResult, ReportRunContext } from "../types";
+import { groupByCompany } from "../shared/group-by-company";
+import type ExcelJS from "exceljs";
 import {
     addGrandTotalRow,
     addSubtotalRow,
@@ -36,6 +38,7 @@ import {
     parseNum,
     ReportColumn,
     roundMoney,
+    STYLE,
 } from "../../../utils/report-workbook";
 
 const ROW_CAP = 25000;
@@ -56,7 +59,9 @@ const toArr = (v: unknown): string[] =>
 
 const paramsSchema = z
     .object({
-        company_id: z.string().uuid(),
+        // Optional → when omitted, the report runs across ALL companies on the
+        // platform (the controller sets ctx.allCompanies). Mirrors accounts-reconciliation.
+        company_id: z.string().uuid().optional(),
         date_from: z.string().regex(DATE_RE).optional(),
         date_to: z.string().regex(DATE_RE).optional(),
         category_include: z.union([z.string(), z.array(z.string())]).optional(),
@@ -101,6 +106,11 @@ async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<
     const { gte, lt } = fmtDateBounds(params.date_from, params.date_to);
     const cat = categoryFilter(inc, exc);
 
+    // All-companies mode: drop the per-company filter and lean on platform_id scoping.
+    // Single-company mode: bind to ctx.companyId.
+    const allCompanies = !!ctx.allCompanies;
+    const companyScope = allCompanies ? sql`` : sql` AND ir.company_id = ${ctx.companyId}`;
+
     // Status scope: default to the five live statuses (drop DECLINED/CANCELLED).
     const statuses = toArr(params.status).length ? toArr(params.status) : [...DEFAULT_STATUSES];
     const statusFilter = sql` AND ir.request_status IN (${sql.join(
@@ -141,25 +151,30 @@ SELECT
     p.vat_percent                                                         AS vat_percent,
     p.margin_is_override                                                  AS margin_is_override,
     p.margin_override_reason                                              AS margin_override_reason,
-    p.calculated_at                                                       AS calculated_at
+    p.calculated_at                                                       AS calculated_at,
+    co.name                                                               AS company_name
 FROM inbound_requests ir
 JOIN inbound_request_items iri ON iri.inbound_request_id = ir.id
+LEFT JOIN companies co ON ir.company_id = co.id
 LEFT JOIN users u ON ir.created_by = u.id
 LEFT JOIN brands b ON iri.brand_id = b.id
 LEFT JOIN assets a ON iri.asset_id = a.id
 LEFT JOIN prices p ON ir.request_pricing_id = p.id
-WHERE ir.platform_id = ${ctx.platformId} AND ir.company_id = ${ctx.companyId}
+WHERE ir.platform_id = ${ctx.platformId}
+  ${companyScope}
   ${statusFilter}
   ${brandFilter}
   ${cat}
   ${dateFilter(sql.raw("ir.created_at"), gte, lt)}
-ORDER BY ir.created_at ASC, iri.created_at ASC`;
+ORDER BY co.name ASC, ir.created_at ASC, iri.created_at ASC`;
 
     const rows = ((await db.execute(query)) as any).rows as any[];
     if (rows.length > ROW_CAP)
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            `Inbound log has ${rows.length} rows (cap ${ROW_CAP}). Narrow by date range, status, brand, or category.`
+            `Inbound log has ${rows.length} rows (cap ${ROW_CAP}). Narrow by date range${
+                allCompanies ? " (strongly recommended for all-companies runs)" : ""
+            }, status, brand, or category.`
         );
 
     // ── Columns. Sell (FINAL TOTAL) always; cost (BASE OPS TOTAL) gated. ──────
@@ -205,113 +220,159 @@ ORDER BY ir.created_at ASC, iri.created_at ASC`;
     });
     const sheet = h.sheet;
 
-    // Group by request — one prices snapshot per request, expanded across items.
-    const groups = new Map<string, any[]>();
-    for (const r of rows) {
-        const ref = String(r.inbound_request);
-        if (!groups.has(ref)) groups.set(ref, []);
-        groups.get(ref)!.push(r);
-    }
+    // Write a slice of rows grouped by inbound_request reference. Returns the
+    // subtotal row numbers, and per-group grand-total qty sums (pricing is NOT
+    // summed — it is request-scoped and echoed onto the subtotal row only).
+    const writeRequestGroups = (
+        slice: any[]
+    ): { subRows: number[]; totalReg: number; totalRec: number } => {
+        const reqGroups = new Map<string, any[]>();
+        for (const r of slice) {
+            const ref = String(r.inbound_request);
+            if (!reqGroups.has(ref)) reqGroups.set(ref, []);
+            reqGroups.get(ref)!.push(r);
+        }
+        const localSubRows: number[] = [];
+        let totalReg = 0;
+        let totalRec = 0;
 
-    const subRows: number[] = [];
-    for (const [ref, gr] of groups) {
-        // Request-level pricing — projected ONCE, rendered first-row-only.
-        const pricing = gr[0]?.breakdown_lines != null ? (gr[0] as any) : null;
-        const baseOps = showCost
-            ? roundMoney(
-                  parseNum(
-                      (PricingService.projectByRole(pricing as any, "ADMIN") as any)?.base_ops_total
+        for (const [ref, gr] of reqGroups) {
+            // Request-level pricing — projected ONCE, rendered first-row-only.
+            const pricing = gr[0]?.breakdown_lines != null ? (gr[0] as any) : null;
+            const baseOps = showCost
+                ? roundMoney(
+                      parseNum(
+                          (PricingService.projectByRole(pricing as any, "ADMIN") as any)
+                              ?.base_ops_total
+                      )
                   )
-              )
-            : 0;
-        const finalTotal = roundMoney(
-            parseNum(
-                (
-                    PricingService.projectSummaryForRole(
-                        pricing as any,
-                        ctx.isClientMount ? "CLIENT" : "ADMIN"
-                    ) as any
-                )?.final_total
-            )
-        );
+                : 0;
+            const finalTotal = roundMoney(
+                parseNum(
+                    (
+                        PricingService.projectSummaryForRole(
+                            pricing as any,
+                            ctx.isClientMount ? "CLIENT" : "ADMIN"
+                        ) as any
+                    )?.final_total
+                )
+            );
 
-        let first = 0;
-        let last = 0;
-        gr.forEach((r, idx) => {
-            const base: any[] = [
-                fmtDate(r.incoming_at),
-                r.inbound_request,
-                r.request_status,
-                r.requester ?? "",
-                r.requester_email ?? "",
-                r.brand ?? "",
-                r.item_name ?? "",
-                r.category ?? "",
-                r.tracking ?? "",
-                Number(r.registered_qty) || 0,
-                Number(r.received_qty) || 0,
-                r.received_outcome,
-                r.created_asset_qr ?? "",
-                r.asset_status ?? "",
-            ];
-            // Pricing columns appear once per request (first item row only).
-            if (showCost) base.push(idx === 0 ? baseOps : "");
-            base.push(idx === 0 ? finalTotal : "");
-            base.push(r.note ?? "");
-            base.push(fmtDate(r.created_at));
+            let first = 0;
+            let last = 0;
+            gr.forEach((r, idx) => {
+                const base: any[] = [
+                    fmtDate(r.incoming_at),
+                    r.inbound_request,
+                    r.request_status,
+                    r.requester ?? "",
+                    r.requester_email ?? "",
+                    r.brand ?? "",
+                    r.item_name ?? "",
+                    r.category ?? "",
+                    r.tracking ?? "",
+                    Number(r.registered_qty) || 0,
+                    Number(r.received_qty) || 0,
+                    r.received_outcome,
+                    r.created_asset_qr ?? "",
+                    r.asset_status ?? "",
+                ];
+                // Pricing columns appear once per request (first item row only).
+                if (showCost) base.push(idx === 0 ? baseOps : "");
+                base.push(idx === 0 ? finalTotal : "");
+                base.push(r.note ?? "");
+                base.push(fmtDate(r.created_at));
 
-            const row = sheet.addRow(base);
-            colourOutcome(row.getCell(OUTCOME), String(r.received_outcome));
-            if (!first) first = row.number;
-            last = row.number;
-        });
+                const row = sheet.addRow(base);
+                colourOutcome(row.getCell(OUTCOME), String(r.received_outcome));
+                if (!first) first = row.number;
+                last = row.number;
+            });
 
-        // Subtotal: ONLY the two quantity columns are summed. Pricing columns
-        // are request-scoped (single snapshot) and must NOT be =SUM()'d here.
-        const sub = addSubtotalRow(sheet, {
-            label: `Subtotal — ${ref}`,
+            const grReg = gr.reduce((n, r) => n + (Number(r.registered_qty) || 0), 0);
+            const grRec = gr.reduce((n, r) => n + (Number(r.received_qty) || 0), 0);
+            totalReg += grReg;
+            totalRec += grRec;
+
+            // Subtotal: ONLY the two quantity columns are summed. Pricing columns
+            // are request-scoped (single snapshot) and must NOT be =SUM()'d here.
+            const sub = addSubtotalRow(sheet, {
+                label: `Subtotal — ${ref}`,
+                labelCol: LABEL,
+                sums: [
+                    { col: REG, from: first, to: last, cached: grReg },
+                    { col: REC, from: first, to: last, cached: grRec },
+                ],
+            });
+            // Echo the request-level pricing onto the subtotal row so each request's
+            // single BASE OPS / FINAL figure is legible alongside its qty subtotal,
+            // without being part of any sum.
+            if (BASE_OPS_COL) sub.getCell(BASE_OPS_COL).value = baseOps;
+            sub.getCell(FINAL_COL).value = finalTotal;
+            localSubRows.push(sub.number);
+            sheet.addRow([]);
+        }
+        return { subRows: localSubRows, totalReg, totalRec };
+    };
+
+    // Cached grand-total row (no live SUM formulas) — used in all-companies mode
+    // where interleaved per-company subtotals corrupt a single SUM range.
+    const writeCachedGrand = (
+        label: string,
+        reg: number,
+        rec: number,
+        fill: ExcelJS.Fill,
+        big = false
+    ) => {
+        const row = sheet.addRow([]);
+        row.getCell(LABEL).value = label;
+        row.font = big ? { bold: true, size: 12 } : { bold: true };
+        if (big) row.height = 20;
+        row.eachCell({ includeEmpty: true }, (cell) => (cell.fill = fill));
+        row.getCell(REG).value = reg;
+        row.getCell(REG).numFmt = INT_FMT;
+        row.getCell(REC).value = rec;
+        row.getCell(REC).numFmt = INT_FMT;
+    };
+
+    if (allCompanies) {
+        let grandReg = 0;
+        let grandRec = 0;
+        for (const g of groupByCompany(rows, (r: any) => r.company_name as string | null)) {
+            const { totalReg, totalRec } = writeRequestGroups(g.rows);
+            grandReg += totalReg;
+            grandRec += totalRec;
+            writeCachedGrand(`Subtotal — ${g.company}`, totalReg, totalRec, STYLE.SUBTOTAL_FILL);
+            sheet.addRow([]); // spacer between companies
+        }
+        if (rows.length > 0)
+            writeCachedGrand(
+                `GRAND TOTAL — ${ctx.companyName}`,
+                grandReg,
+                grandRec,
+                STYLE.GRAND_FILL,
+                true
+            );
+    } else {
+        const { subRows } = writeRequestGroups(rows);
+        // Grand total — quantity columns only (pricing is per-request, not summed).
+        addGrandTotalRow(sheet, {
+            label: `GRAND TOTAL — ${ctx.companyName}`,
             labelCol: LABEL,
             sums: [
                 {
                     col: REG,
-                    from: first,
-                    to: last,
-                    cached: gr.reduce((n, r) => n + (Number(r.registered_qty) || 0), 0),
+                    subtotalRows: subRows,
+                    cached: rows.reduce((n, r) => n + (Number(r.registered_qty) || 0), 0),
                 },
                 {
                     col: REC,
-                    from: first,
-                    to: last,
-                    cached: gr.reduce((n, r) => n + (Number(r.received_qty) || 0), 0),
+                    subtotalRows: subRows,
+                    cached: rows.reduce((n, r) => n + (Number(r.received_qty) || 0), 0),
                 },
             ],
         });
-        // Echo the request-level pricing onto the subtotal row so each request's
-        // single BASE OPS / FINAL figure is legible alongside its qty subtotal,
-        // without being part of any sum.
-        if (BASE_OPS_COL) sub.getCell(BASE_OPS_COL).value = baseOps;
-        sub.getCell(FINAL_COL).value = finalTotal;
-        subRows.push(sub.number);
-        sheet.addRow([]);
     }
-
-    // Grand total — quantity columns only (pricing is per-request, not summed).
-    addGrandTotalRow(sheet, {
-        label: `GRAND TOTAL — ${ctx.companyName}`,
-        labelCol: LABEL,
-        sums: [
-            {
-                col: REG,
-                subtotalRows: subRows,
-                cached: rows.reduce((n, r) => n + (Number(r.registered_qty) || 0), 0),
-            },
-            {
-                col: REC,
-                subtotalRows: subRows,
-                cached: rows.reduce((n, r) => n + (Number(r.received_qty) || 0), 0),
-            },
-        ],
-    });
 
     finalizeWorkbook(h, rows.length);
     return { wb: h.wb, rowCount: rows.length };
@@ -321,12 +382,13 @@ export const inboundLogReport: ReportDefinition = {
     key: "inbound-log",
     label: "Inbound Log",
     description:
-        "Per-inbound-request operations log of goods registered to arrive at the warehouse, one row per item, grouped by request with REGISTERED/RECEIVED quantity subtotals and a receipt outcome (REGISTERED vs RECEIVED). Pricing columns are request-scoped.",
+        "Per-inbound-request operations log of goods registered to arrive at the warehouse, one row per item, grouped by request with REGISTERED/RECEIVED quantity subtotals and a receipt outcome (REGISTERED vs RECEIVED). Pricing columns are request-scoped. Leave Company blank to run across ALL companies on the platform (grouped with per-company subtotals) — use a date range for all-companies runs.",
     section: "OPERATIONS",
     audience: "ADMIN_CLIENT",
     permissions: ["orders:export", "orders:read"],
     filters: [
-        { key: "company_id", label: "Company", type: "company", required: true },
+        // Optional — leave blank to run across ALL companies on the platform.
+        { key: "company_id", label: "Company", type: "company", required: false },
         { key: "date_from", label: "From", type: "date", required: false },
         { key: "date_to", label: "To", type: "date", required: false },
         {
@@ -350,7 +412,8 @@ export const inboundLogReport: ReportDefinition = {
     rowCap: {
         max: ROW_CAP,
         dimension: "rows",
-        narrowHint: "narrow by date range, status, brand, or category",
+        narrowHint:
+            "narrow by date range (strongly recommended for all-companies runs), status, brand, or category",
     },
     run,
 };
