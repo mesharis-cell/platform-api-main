@@ -369,9 +369,13 @@ ORDER BY co.name ASC, o.created_at ASC, o.order_id ASC, oi.id ASC`;
             let baseOpsBuy = 0;
             if (showMargin) {
                 const adminDetail = PricingService.projectByRole(r as any, "ADMIN") as any;
-                marginPercent = parseNum(adminDetail?.margin?.percent);
                 buyTotal = parseNum(adminDetail?.totals?.buy_total);
+                const marginAmount = parseNum(adminDetail?.totals?.margin_amount);
                 baseOpsBuy = parseNum(adminDetail?.base_ops_total);
+                // BLENDED (realized) margin % = margin_amount / buy_total * 100 — the
+                // entity-wide margin_percent no longer equals the realized margin once
+                // per-line sell overrides exist. Guard buy_total == 0 (un-priced order).
+                marginPercent = buyTotal > 0 ? (marginAmount / buyTotal) * 100 : 0;
             }
             globalMoneyByOrder.set(orderUuid, {
                 subtotal,

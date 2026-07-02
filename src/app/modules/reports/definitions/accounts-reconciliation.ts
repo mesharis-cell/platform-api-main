@@ -258,7 +258,6 @@ ORDER BY company ASC, document_date ASC`;
         const vatPercent = parseNum(totals?.sell_vat_percent ?? r.vat_percent);
         let vatAmount = roundMoney(parseNum(totals?.sell_vat_amount));
         let finalTotal = roundMoney(parseNum(totals?.sell_total_with_vat));
-        const marginPercent = parseNum(r.margin_percent);
 
         // SR sell/final override (summary grain only — line-item shows projected lines).
         const overrideRaw =
@@ -272,6 +271,15 @@ ORDER BY company ASC, document_date ASC`;
             sellSubtotal = roundMoney(finalTotal / (1 + vatPercent / 100));
             vatAmount = roundMoney(finalTotal - sellSubtotal);
         }
+
+        // BLENDED (realized) margin % = margin_amount / buy_total * 100. The
+        // entity-wide margin_percent no longer equals the realized margin once
+        // per-line sell overrides exist (and the SR-override branch above re-derives
+        // sellSubtotal, moving margin too). marginAmount is computed below as
+        // sellSubtotal - buyTotal; recompute it here off the (possibly overridden)
+        // sellSubtotal so the % ties out. Guard buy_total == 0 (un-priced doc).
+        const marginAmount = roundMoney(sellSubtotal - buyTotal);
+        const marginPercent = buyTotal > 0 ? roundMoney((marginAmount / buyTotal) * 100) : 0;
 
         const lines: LineRow[] = (detail?.lines ?? [])
             .filter((l: any) => !l.is_voided)
@@ -294,7 +302,7 @@ ORDER BY company ASC, document_date ASC`;
             raw: r,
             buyTotal,
             sellSubtotal,
-            marginAmount: roundMoney(sellSubtotal - buyTotal),
+            marginAmount,
             marginPercent,
             vatPercent,
             vatAmount,

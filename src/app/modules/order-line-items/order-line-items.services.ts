@@ -43,6 +43,23 @@ const isLineItemIdConflict = (error: unknown) => {
     return pgError?.code === "23505" && pgError?.constraint === LINE_ITEM_ID_UNIQUE_CONSTRAINT;
 };
 
+// A missing S3 object (NoSuchKey / NotFound / 404) — surfaced either as a raw AWS
+// SDK error or wrapped by deleteFileFromS3 into a generic "Failed to delete file
+// from S3". Used to make estimate regen best-effort when no estimate exists yet.
+const isMissingS3ObjectError = (error: unknown): boolean => {
+    const e = error as {
+        name?: string;
+        message?: string;
+        $metadata?: { httpStatusCode?: number };
+    };
+    return (
+        e?.name === "NoSuchKey" ||
+        e?.name === "NotFound" ||
+        e?.$metadata?.httpStatusCode === 404 ||
+        /failed to delete file from s3/i.test(e?.message ?? "")
+    );
+};
+
 const runWithLineItemIdRetry = async <T>(operation: () => Promise<T>): Promise<T> => {
     for (let attempt = 1; attempt <= MAX_LINE_ITEM_ID_INSERT_RETRIES; attempt += 1) {
         try {
@@ -624,6 +641,20 @@ const updateLineItem = async (
             httpStatus.FORBIDDEN,
             "Only Platform Admin can set a sell price override"
         );
+    }
+    // A per-line sell override only applies to BILLABLE lines — on NON_BILLABLE /
+    // COMPLIMENTARY lines the projection excludes the line's sell from totals, so an
+    // override there is silently dropped (misleading). Block setting a value; clearing
+    // (explicit null) is always allowed. Use the EFFECTIVE billing mode so setting
+    // billing_mode=BILLABLE + a sell override in the same request is permitted.
+    if (typeof data.sell_unit_rate === "number") {
+        const effectiveBillingMode = data.billing_mode ?? existing.billing_mode;
+        if (effectiveBillingMode !== "BILLABLE") {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "A sell price override only applies to billable lines"
+            );
+        }
     }
     if (userRole === "LOGISTICS" && data.logistics_visible !== undefined) {
         throw new CustomizedError(
@@ -1373,6 +1404,24 @@ const updateSelfPickupPricingAfterLineItemChange = async (
         platform_id: platformId,
         calculated_by: userId,
     });
+    // Regenerate the cost-estimate PDF so it reflects the new line item totals —
+    // mirrors the inbound path. But an SP edited at PRICING_REVIEW may have no
+    // estimate on S3 yet (the estimate is only generated once the pickup is quoted).
+    // Swallow the S3 NoSuchKey / missing-file case (log-and-continue — pricing is
+    // already rebuilt; the estimate will be generated fresh at quote time) and
+    // rethrow anything else so genuine failures still surface.
+    try {
+        await DocumentService.regenerateEstimate("SELF_PICKUP", selfPickupId, platformId);
+    } catch (error) {
+        if (isMissingS3ObjectError(error)) {
+            console.warn(
+                `Skipped self-pickup ${selfPickupId} estimate regen — no estimate on S3 yet`,
+                error
+            );
+            return;
+        }
+        throw error;
+    }
 };
 
 // ----------------------------------- UPDATE SERVICE REQUEST PRICING AFTER LINE ITEM CHANGE --

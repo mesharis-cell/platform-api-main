@@ -373,7 +373,11 @@ ORDER BY company ASC, doc_date ASC`;
 
         // Margin is sell-ex-VAT minus buy (VAT is pass-through, never margin).
         const marginAmount = roundMoney(subtotal - buyTotal);
-        const marginPercent = parseNum(detail?.margin_policy?.percent ?? r.margin_percent);
+        // BLENDED (realized) margin % = margin_amount / buy_total * 100 — the
+        // entity-wide margin_policy.percent no longer equals the realized margin once
+        // per-line sell overrides exist (and the SR-override branch above re-derives
+        // subtotal, moving margin too). Guard buy_total == 0 (un-priced doc).
+        const marginPercent = buyTotal > 0 ? roundMoney((marginAmount / buyTotal) * 100) : 0;
 
         const cells: any[] = [
             fmtDate(r.doc_date),

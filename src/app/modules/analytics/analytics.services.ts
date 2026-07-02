@@ -36,6 +36,10 @@ const pricingMetrics = (pricing: unknown) => {
         revenue: toNum(projected?.final_total),
         marginAmount: toNum(projected?.margin?.amount),
         marginPercent: toNum(projected?.margin?.percent ?? projected?.margin_policy?.percent),
+        // Buy total drives the VALUE-WEIGHTED realized margin % (Σmargin / Σbuy *
+        // 100). An arithmetic mean of per-order margin_percent is wrong once
+        // per-line sell overrides exist — a $10 order and a $100k order weigh equally.
+        buyTotal: toNum(projected?.totals?.buy_total),
     };
 };
 
@@ -149,7 +153,7 @@ const getTimeSeries = async (
             periodStart: Date;
             totalRevenue: number;
             totalMarginAmount: number;
-            marginPercentSum: number;
+            totalBuyAmount: number;
             orderCount: number;
         }
     >();
@@ -163,12 +167,12 @@ const getTimeSeries = async (
             periodStart,
             totalRevenue: 0,
             totalMarginAmount: 0,
-            marginPercentSum: 0,
+            totalBuyAmount: 0,
             orderCount: 0,
         };
         current.totalRevenue += metrics.revenue;
         current.totalMarginAmount += metrics.marginAmount;
-        current.marginPercentSum += metrics.marginPercent;
+        current.totalBuyAmount += metrics.buyTotal;
         current.orderCount += 1;
         bucket.set(key, current);
     }
@@ -183,10 +187,14 @@ const getTimeSeries = async (
                 periodEnd: periodEnd.toISOString(),
                 totalRevenue: Number(entry.totalRevenue.toFixed(2)),
                 totalMarginAmount: Number(entry.totalMarginAmount.toFixed(2)),
+                // VALUE-WEIGHTED realized margin % = Σmargin / Σbuy * 100 across the
+                // bucket (not an arithmetic mean of per-order margin_percent). Guard
+                // Σbuy == 0 (un-priced bucket).
                 averageMarginPercent: Number(
-                    (entry.orderCount > 0 ? entry.marginPercentSum / entry.orderCount : 0).toFixed(
-                        2
-                    )
+                    (entry.totalBuyAmount > 0
+                        ? (entry.totalMarginAmount / entry.totalBuyAmount) * 100
+                        : 0
+                    ).toFixed(2)
                 ),
                 orderCount: entry.orderCount,
             };
@@ -257,15 +265,16 @@ const getMarginSummary = async (
         .leftJoin(invoices, eq(invoices.order_id, orders.id))
         .where(and(...conditions));
 
-    const totalMarginAmount = rows.reduce(
-        (sum, row) => sum + pricingMetrics(row.pricing).marginAmount,
-        0
-    );
-    const avgMargin =
-        rows.length > 0
-            ? rows.reduce((sum, row) => sum + pricingMetrics(row.pricing).marginPercent, 0) /
-              rows.length
-            : 0;
+    let totalMarginAmount = 0;
+    let totalBuyAmount = 0;
+    for (const row of rows) {
+        const metrics = pricingMetrics(row.pricing);
+        totalMarginAmount += metrics.marginAmount;
+        totalBuyAmount += metrics.buyTotal;
+    }
+    // VALUE-WEIGHTED realized margin % = Σmargin / Σbuy * 100 (not an arithmetic
+    // mean of per-order margin_percent). Guard Σbuy == 0 (un-priced bucket).
+    const avgMargin = totalBuyAmount > 0 ? (totalMarginAmount / totalBuyAmount) * 100 : 0;
 
     let companyName = "All Companies";
     if (company_id) {
@@ -328,7 +337,7 @@ const getCompanyBreakdown = async (
             companyName: string;
             totalRevenue: number;
             totalMarginAmount: number;
-            marginPercentSum: number;
+            totalBuyAmount: number;
             orderCount: number;
         }
     >();
@@ -338,12 +347,12 @@ const getCompanyBreakdown = async (
             companyName: row.companyName,
             totalRevenue: 0,
             totalMarginAmount: 0,
-            marginPercentSum: 0,
+            totalBuyAmount: 0,
             orderCount: 0,
         };
         current.totalRevenue += metrics.revenue;
         current.totalMarginAmount += metrics.marginAmount;
-        current.marginPercentSum += metrics.marginPercent;
+        current.totalBuyAmount += metrics.buyTotal;
         current.orderCount += 1;
         byCompany.set(row.companyId, current);
     }
@@ -354,8 +363,13 @@ const getCompanyBreakdown = async (
             companyName: metric.companyName,
             totalRevenue: Number(metric.totalRevenue.toFixed(2)),
             totalMarginAmount: Number(metric.totalMarginAmount.toFixed(2)),
+            // VALUE-WEIGHTED realized margin % = Σmargin / Σbuy * 100 (not an
+            // arithmetic mean of per-order margin_percent). Guard Σbuy == 0.
             averageMarginPercent: Number(
-                (metric.orderCount > 0 ? metric.marginPercentSum / metric.orderCount : 0).toFixed(2)
+                (metric.totalBuyAmount > 0
+                    ? (metric.totalMarginAmount / metric.totalBuyAmount) * 100
+                    : 0
+                ).toFixed(2)
             ),
             orderCount: metric.orderCount,
             averageOrderValue: Number(
