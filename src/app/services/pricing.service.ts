@@ -66,6 +66,11 @@ type BreakdownLine = {
     // can render policy indicators without re-querying.
     apply_margin: boolean;
     logistics_visible: boolean;
+    // Per-line sell override marker. When non-null, the line's sell_total was
+    // set directly from this per-unit rate (margin math skipped). null means
+    // the sell price was derived normally (buy × margin or buy passthrough).
+    // ADMIN-only field — never projected to CLIENT/LOGISTICS.
+    sell_unit_rate_override: number | null;
 };
 
 type BuildInitialPricingParams = {
@@ -114,6 +119,7 @@ type RawLineItem = {
     total?: string | number | null;
     unit_rate?: string | number | null;
     unitRate?: string | number | null;
+    sell_unit_rate?: string | number | null;
     category?: string | null;
     billing_mode?: string | null;
     billingMode?: string | null;
@@ -205,6 +211,10 @@ const toBreakdownLine = (line: unknown): BreakdownLine | null => {
         // policy fields. New snapshots always carry explicit values.
         apply_margin: row.apply_margin === false ? false : true,
         logistics_visible: row.logistics_visible === false ? false : true,
+        // Old snapshots pre-dating the override field read back as null; new
+        // snapshots round-trip the stored override value.
+        sell_unit_rate_override:
+            row.sell_unit_rate_override != null ? Number(row.sell_unit_rate_override) : null,
     };
 };
 
@@ -295,6 +305,7 @@ const loadEntityLineItems = async (
             quantity: lineItems.quantity,
             unit: lineItems.unit,
             unit_rate: lineItems.unit_rate,
+            sell_unit_rate: lineItems.sell_unit_rate,
             total: lineItems.total,
             billing_mode: lineItems.billing_mode,
             is_voided: lineItems.is_voided,
@@ -347,14 +358,34 @@ const buildBreakdownLinesFromLineItems = (
                   ? false
                   : true;
 
-        const sellTotal = effectiveApplyMargin
-            ? applyMarginPerLine(buyTotal, marginPercent)
-            : buyTotal;
-        const sellUnitPrice = effectiveApplyMargin
-            ? quantity > 0
-                ? roundCurrency(sellTotal / quantity)
-                : applyMarginPerLine(buyUnitPrice, marginPercent)
-            : buyUnitPrice;
+        // Per-line sell override. When set (and not a SYSTEM BASE_OPS line),
+        // the sell price is driven directly by this per-unit rate and the
+        // margin math is bypassed entirely (regardless of apply_margin).
+        const rawSellUnitRate =
+            !isSystemBaseOps && item.sell_unit_rate != null && item.sell_unit_rate !== ""
+                ? toNum(item.sell_unit_rate)
+                : null;
+
+        let sellTotal: number;
+        let sellUnitPrice: number;
+        if (rawSellUnitRate !== null) {
+            // Multiply THEN round once — never round the per-unit rate first
+            // (rate 33.333 × qty 3 must yield 100.00, not 99.99). sellUnitPrice
+            // is derived from sellTotal, mirroring how buyUnitPrice comes from
+            // buyTotal, so the displayed unit × qty always reconciles to total.
+            sellTotal = roundCurrency(quantity * rawSellUnitRate);
+            sellUnitPrice =
+                quantity > 0 ? roundCurrency(sellTotal / quantity) : roundCurrency(rawSellUnitRate);
+        } else {
+            sellTotal = effectiveApplyMargin
+                ? applyMarginPerLine(buyTotal, marginPercent)
+                : buyTotal;
+            sellUnitPrice = effectiveApplyMargin
+                ? quantity > 0
+                    ? roundCurrency(sellTotal / quantity)
+                    : applyMarginPerLine(buyUnitPrice, marginPercent)
+                : buyUnitPrice;
+        }
 
         const nowIso = new Date().toISOString();
         return {
@@ -408,6 +439,7 @@ const buildBreakdownLinesFromLineItems = (
             client_price_visible: !!item.client_price_visible,
             apply_margin: effectiveApplyMargin,
             logistics_visible: item.logistics_visible === false ? false : true,
+            sell_unit_rate_override: rawSellUnitRate,
         };
     });
 
