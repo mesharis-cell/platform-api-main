@@ -227,7 +227,7 @@ export const SelfPickupOperationRoutes = (() => {
     router.post(
         "/:id/cancel",
         platformValidator,
-        auth("ADMIN"),
+        auth("ADMIN", "LOGISTICS"),
         requirePermission(PERMISSIONS.SELF_PICKUPS_CANCEL),
         featureValidator(featureNames.enable_self_pickup),
         payloadValidator(SelfPickupSchemas.cancelSelfPickupSchema),

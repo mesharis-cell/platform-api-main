@@ -1010,7 +1010,7 @@ const cancelInboundRequest = async (
     }
 
     // Step 2: Check if the inbound request is in a status that allows cancellation
-    if (["COMPLETED", "CANCELLED"].includes(inboundRequest.request_status)) {
+    if (["COMPLETED", "CANCELLED", "DECLINED"].includes(inboundRequest.request_status)) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
             `Cannot cancel request when status is ${inboundRequest.request_status}`

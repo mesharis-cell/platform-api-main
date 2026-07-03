@@ -135,11 +135,11 @@ router.post(
     InboundRequestControllers.completeInboundRequest
 );
 
-// Cancel inbound request by admin
+// Cancel inbound request (ops roles; service guards terminal statuses)
 router.post(
     "/:id/cancel",
     platformValidator,
-    auth("ADMIN"),
+    auth("ADMIN", "LOGISTICS"),
     requirePermission(PERMISSIONS.INBOUND_REQUESTS_UPDATE),
     payloadValidator(inboundRequestSchemas.cancelInboundRequestSchema),
     InboundRequestControllers.cancelInboundRequest
