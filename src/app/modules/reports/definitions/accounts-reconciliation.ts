@@ -102,6 +102,8 @@ type RawRow = {
     document_date: Date | string | null;
     company: string | null;
     context_name: string | null;
+    ordered_by: string | null;
+    ordered_by_email: string | null;
     operational_status: string | null;
     financial_status: string | null;
     breakdown_lines: unknown;
@@ -147,12 +149,13 @@ async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<
     const query = sql`
 SELECT
     'ORDER' AS document_type, o.order_id AS reference, o.created_at AS document_date,
-    co.name AS company, o.venue_name AS context_name,
+    co.name AS company, o.venue_name AS context_name, uo.name AS ordered_by, uo.email AS ordered_by_email,
     o.order_status::text AS operational_status, o.financial_status::text AS financial_status,
     p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
     p.margin_override_reason, p.calculated_at, NULL::text AS client_sell_override_total
 FROM orders o
 JOIN companies co ON o.company = co.id
+LEFT JOIN users uo ON o.created_by = uo.id
 LEFT JOIN prices p ON p.id = o.order_pricing_id
 WHERE o.platform_id = ${ctx.platformId}
   ${orderCompanyScope}
@@ -166,12 +169,13 @@ UNION ALL
 
 SELECT
     'SERVICE_REQUEST' AS document_type, sr.service_request_id AS reference, sr.created_at AS document_date,
-    co.name AS company, sr.title AS context_name,
+    co.name AS company, sr.title AS context_name, usr.name AS ordered_by, usr.email AS ordered_by_email,
     sr.request_status::text AS operational_status, sr.commercial_status::text AS financial_status,
     p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
     p.margin_override_reason, p.calculated_at, sr.client_sell_override_total::text AS client_sell_override_total
 FROM service_requests sr
 JOIN companies co ON sr.company_id = co.id
+LEFT JOIN users usr ON sr.created_by = usr.id
 LEFT JOIN prices p ON p.id = sr.request_pricing_id
 WHERE sr.platform_id = ${ctx.platformId}
   ${srCompanyScope}
@@ -184,12 +188,13 @@ UNION ALL
 
 SELECT
     'SELF_PICKUP' AS document_type, sp.self_pickup_id AS reference, sp.created_at AS document_date,
-    co.name AS company, ('Collector: ' || sp.collector_name) AS context_name,
+    co.name AS company, ('Collector: ' || sp.collector_name) AS context_name, usp.name AS ordered_by, usp.email AS ordered_by_email,
     sp.self_pickup_status::text AS operational_status, sp.financial_status::text AS financial_status,
     p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
     p.margin_override_reason, p.calculated_at, NULL::text AS client_sell_override_total
 FROM self_pickups sp
 JOIN companies co ON sp.company_id = co.id
+LEFT JOIN users usp ON sp.created_by = usp.id
 LEFT JOIN prices p ON p.platform_id = sp.platform_id AND p.entity_type = 'SELF_PICKUP' AND p.entity_id = sp.id
 WHERE sp.platform_id = ${ctx.platformId}
   ${spCompanyScope}
@@ -202,12 +207,13 @@ UNION ALL
 
 SELECT
     'INBOUND_REQUEST' AS document_type, ir.inbound_request_id AS reference, ir.created_at AS document_date,
-    co.name AS company, COALESCE(ir.note, '') AS context_name,
+    co.name AS company, COALESCE(ir.note, '') AS context_name, uir.name AS ordered_by, uir.email AS ordered_by_email,
     ir.request_status::text AS operational_status, ir.financial_status::text AS financial_status,
     p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
     p.margin_override_reason, p.calculated_at, NULL::text AS client_sell_override_total
 FROM inbound_requests ir
 JOIN companies co ON ir.company_id = co.id
+LEFT JOIN users uir ON ir.created_by = uir.id
 LEFT JOIN prices p ON p.id = ir.request_pricing_id
 WHERE ir.platform_id = ${ctx.platformId}
   ${inboundCompanyScope}
@@ -323,6 +329,8 @@ ORDER BY company ASC, document_date ASC`;
         { header: "DOCUMENT DATE", width: 14 },
         { header: "COMPANY", width: 24 },
         { header: "CONTEXT NAME", width: 30 },
+        { header: "ORDERED BY", width: 22 },
+        { header: "EMAIL", width: 28 },
         { header: "OPERATIONAL STATUS", width: 18 },
         { header: "FINANCIAL STATUS", width: 18 },
     ];
@@ -333,6 +341,8 @@ ORDER BY company ASC, document_date ASC`;
         fmtDate(r.document_date),
         r.company ?? "",
         r.context_name ?? "",
+        r.ordered_by ?? "",
+        r.ordered_by_email ?? "",
         r.operational_status ?? "",
         r.financial_status ?? "",
     ];
@@ -359,7 +369,7 @@ ORDER BY company ASC, document_date ASC`;
             sheetName: "Charges",
         });
         const sheet = h.sheet;
-        const DESC = 8; // first line-detail column (after the 7 document-context columns)
+        const DESC = baseColumns.length + 1; // first line-detail column (after the document-context columns)
         const BUY_C = DESC + 3;
         const SELL_C = showMargin ? DESC + 4 : DESC + 3;
         const MARGIN_C = DESC + 5;
