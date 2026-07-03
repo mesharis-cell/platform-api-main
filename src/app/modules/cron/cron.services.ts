@@ -699,7 +699,7 @@ const checkOrphanBookings = async () => {
         const query = sql`
 WITH orphans AS (
     SELECT
-        ab.platform_id,
+        COALESCE(o.platform_id, sp.platform_id) AS platform_id,
         ab.id AS booking_id,
         CASE WHEN ab.order_id IS NOT NULL THEN 'ORDER' ELSE 'SELF_PICKUP' END AS parent_type,
         COALESCE(ab.order_id, ab.self_pickup_id) AS parent_id,
