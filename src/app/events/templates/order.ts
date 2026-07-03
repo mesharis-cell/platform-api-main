@@ -29,7 +29,7 @@ export const orderSubmittedClient: EmailTemplate = {
         return wrap(`
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Order Submitted Successfully</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Hi ${d.contact_name}, your order has been received and is now being reviewed.</p>
-            ${infoBox(orderInfoRows(d.order_info))}
+            ${infoBox(orderInfoRows(d.order_info, { audience: "client" }))}
             <p style="margin: 16px 0; color: #374151;">Our team will review your order and send pricing within 24 hours.</p>
             ${actionButton("View Order", d.order_url)}
             ${footer()}
@@ -212,7 +212,7 @@ export const quoteSentClient: EmailTemplate = {
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Your Quote is Ready</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Hi ${d.contact_name}, your quote for order ${d.entity_id_readable} is ready for review.</p>
             ${infoBox(`
-                ${orderInfoRows(d.order_info)}
+                ${orderInfoRows(d.order_info, { audience: "client" })}
                 <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 12px 0;">
                 ${baseOpsHtml}
                 ${lineItemsHtml}
@@ -259,7 +259,7 @@ export const quoteRevisedClient: EmailTemplate = {
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Your Quote Has Been Revised</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Hi ${d.contact_name}, the quote for order ${d.entity_id_readable} has been updated.</p>
             ${infoBox(`
-                ${orderInfoRows(d.order_info)}
+                ${orderInfoRows(d.order_info, { audience: "client" })}
             `)}
             <p style="margin: 16px 0; color: #dc2626; font-weight: 600;">Action Required: Please review and approve or decline the revised quote.</p>
             ${actionButton("View Revised Quote", d.order_url)}
@@ -477,7 +477,7 @@ export const orderConfirmedClient: EmailTemplate = {
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Hi ${d.contact_name}, your order has been confirmed and assets are reserved. Fulfillment is beginning.</p>
             ${infoBox(
                 `
-                ${orderInfoRows(d.order_info)}
+                ${orderInfoRows(d.order_info, { audience: "client" })}
             `,
                 "#eff6ff"
             )}
@@ -531,7 +531,7 @@ export const orderCancelledClient: EmailTemplate = {
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Hi ${d.contact_name}, order ${d.entity_id_readable} has been cancelled.</p>
             ${infoBox(
                 `
-                ${orderInfoRows(d.order_info)}
+                ${orderInfoRows(d.order_info, { audience: "client" })}
                 ${d.cancellation_reason ? infoRow("Reason", d.cancellation_reason) : ""}
                 ${d.cancellation_notes ? infoRow("Notes", d.cancellation_notes) : ""}
             `,
@@ -609,7 +609,7 @@ export const orderInTransitClient: EmailTemplate = {
         return wrap(`
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #0ea5e9;">🚚 Your Order is On The Way</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Hi ${d.contact_name}, your items are in transit to the venue.</p>
-            ${infoBox(orderInfoRows(d.order_info), "#f0f9ff")}
+            ${infoBox(orderInfoRows(d.order_info, { audience: "client" }), "#f0f9ff")}
             <p style="margin: 16px 0;">Please ensure someone is available to receive the delivery.</p>
             ${actionButton("Track Order", d.order_url, "#0ea5e9")}
             ${footer()}
@@ -640,7 +640,7 @@ export const orderDeliveredClient: EmailTemplate = {
         return wrap(`
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #10b981;">✓ Order Delivered Successfully</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Hi ${d.contact_name}, your order has been delivered to the venue.</p>
-            ${infoBox(orderInfoRows(d.order_info))}
+            ${infoBox(orderInfoRows(d.order_info, { audience: "client" }))}
             <p style="margin: 16px 0;">Please remember to prepare items for return during the scheduled pickup window.</p>
             ${actionButton("View Order", d.order_url, "#10b981")}
             ${footer()}
@@ -773,7 +773,7 @@ export const timeWindowsUpdatedClient: EmailTemplate = {
         return wrap(`
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #2563eb;">Delivery Schedule Updated</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Hi ${d.contact_name}, the delivery and pickup windows for your order have been updated.</p>
-            ${infoBox(orderInfoRows(d.order_info), "#eff6ff")}
+            ${infoBox(orderInfoRows(d.order_info, { audience: "client" }), "#eff6ff")}
             <p style="margin: 16px 0;">Please ensure availability during the scheduled time windows.</p>
             ${actionButton("View Updated Schedule", d.order_url)}
             ${footer()}

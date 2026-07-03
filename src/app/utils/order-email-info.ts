@@ -130,8 +130,12 @@ export function buildOrderInfoBlock(
     );
     if (venueContact) block.venue_contact = venueContact;
 
-    // Event — DATE ONLY range
-    const event = eventRange(order.event_start_date, order.event_end_date);
+    // Event — DATE ONLY range. Permanent placements carry a far-future sentinel
+    // event_end (no return), so render start-only instead of "– Thu, 31 Dec 2099";
+    // the Placement row communicates the no-return nature.
+    const event = order.is_permanent_placement
+        ? eventRange(order.event_start_date, null)
+        : eventRange(order.event_start_date, order.event_end_date);
     if (event) block.event = event;
 
     // Windows — authoritative ?? requested, DATE + TIME

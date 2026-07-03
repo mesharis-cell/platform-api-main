@@ -32,9 +32,21 @@ const LABELS: ReadonlyArray<readonly [keyof OrderInfoBlock, string]> = [
     ["placement", "Placement"],
 ];
 
-export function orderInfoRows(info?: OrderInfoBlock | null): string {
+// Internal references clients shouldn't receive: job_number is an ops-side
+// reference, special_instructions can carry internal handling notes.
+const CLIENT_HIDDEN_KEYS: ReadonlySet<keyof OrderInfoBlock> = new Set([
+    "job_number",
+    "special_instructions",
+]);
+
+export function orderInfoRows(
+    info?: OrderInfoBlock | null,
+    opts?: { audience?: "client" | "ops" }
+): string {
     if (!info) return "";
+    const forClient = opts?.audience === "client";
     return LABELS.filter(([key]) => {
+        if (forClient && CLIENT_HIDDEN_KEYS.has(key)) return false;
         const value = info[key];
         return typeof value === "string" && value.length > 0;
     })
