@@ -176,8 +176,6 @@ SELECT
     p.breakdown_lines,
     p.margin_percent,
     p.vat_percent,
-    p.margin_is_override,
-    p.margin_override_reason,
     p.calculated_at,
     af.company_item_code AS company_item_code,
     a.category AS item_category,

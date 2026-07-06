@@ -26,7 +26,11 @@ import {
     UpdateLineItemPayload,
     VoidLineItemPayload,
 } from "./order-line-items.interfaces";
-import { lineItemIdGenerator, lineItemQueryValidationConfig } from "./order-line-items.utils";
+import {
+    lineItemIdGenerator,
+    lineItemQueryValidationConfig,
+    projectLineItemsForLogistics,
+} from "./order-line-items.utils";
 import { buildOrderInfoBlockById } from "../../utils/helper-query";
 import queryValidator from "../../utils/query-validator";
 import { DocumentService } from "../../services/document.service";
@@ -253,6 +257,14 @@ const getLineItems = async (
         }))
     );
 
+    // LEAK GATE: the ADMIN-only sell override must never reach LOGISTICS. This
+    // endpoint feeds the warehouse buy-only ledger + the admin role-preview's
+    // "as logistics" lens; strip sell_unit_rate for LOGISTICS callers. ADMIN
+    // keeps the full row (its own preview + edit lens need it).
+    if (callerRole === "LOGISTICS") {
+        return projectLineItemsForLogistics(formattedResults);
+    }
+
     return formattedResults;
 };
 
@@ -274,17 +286,6 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
         added_by_role,
     } = data;
 
-    // Margin policy is ADMIN-only. Catalog-create is reachable by LOGISTICS
-    // (POST /catalog accepts both roles) and previously persisted a
-    // caller-supplied apply_margin with no role check — LOGISTICS could set
-    // margin policy on create even though they cannot on update. Close that gap
-    // to match the update-path guard.
-    if (added_by_role === "LOGISTICS" && data.apply_margin !== undefined) {
-        throw new CustomizedError(
-            httpStatus.FORBIDDEN,
-            "Only Platform Admin can set margin policy"
-        );
-    }
     // Per-line sell override is ADMIN-only (mirrors the update-path guard).
     // Catalog-create is reachable by LOGISTICS (POST /catalog accepts both
     // roles) so reject a caller-supplied sell rate from logistics.
@@ -349,11 +350,6 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
     // Calculate total
     const total = quantity * Number(serviceType.default_rate);
 
-    // Per-line apply_margin: NULL by default (inherits from service_type).
-    // Caller can explicitly override to true/false here.
-    const applyMarginValue =
-        data.apply_margin === undefined ? null : (data.apply_margin as boolean | null);
-
     // Per-line sell override. NULL = fall back to margin math (seed-derived);
     // a value = fixed sell rate (stored as decimal string).
     const catalogSellUnitRate =
@@ -388,7 +384,6 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
                     notes: notes || null,
                     metadata: effectiveMetadata,
                     client_price_visible: data.client_price_visible ?? false,
-                    apply_margin: applyMarginValue,
                     logistics_visible: data.logistics_visible ?? true,
                 })
                 .returning();
@@ -508,12 +503,6 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
         );
     }
 
-    // Custom lines have no service_type to inherit from. NULL apply_margin
-    // therefore resolves to true at projection time. Callers (fuel-surcharge
-    // style usage) pass false explicitly.
-    const customApplyMargin =
-        data.apply_margin === undefined ? null : (data.apply_margin as boolean | null);
-
     // Per-line sell override at create time. Route gates custom-create to
     // ADMIN, so no role check needed. NULL = fall back to margin math; a
     // value = fixed sell rate (stored as decimal string).
@@ -549,7 +538,6 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
                     notes: notes || null,
                     metadata: parsedMetadata,
                     client_price_visible: data.client_price_visible ?? false,
-                    apply_margin: customApplyMargin,
                     logistics_visible: data.logistics_visible ?? true,
                 })
                 .returning();
@@ -646,16 +634,15 @@ const updateLineItem = async (
     }
 
     const editability = await getLineItemEditability(existing, platformId);
-    // apply_margin is a pricing-affecting field — flipping it changes sell
-    // totals. Treat it like quantity / unit_rate / billing_mode for the
-    // pricing-lock gate. logistics_visible is NOT pricing-affecting (it's
-    // a display filter); admin can flip it any time, including post-lock.
+    // sell_unit_rate / quantity / unit_rate / billing_mode are pricing-affecting
+    // fields — they change sell totals, so they hit the pricing-lock gate.
+    // logistics_visible is NOT pricing-affecting (it's a display filter); admin
+    // can flip it any time, including post-lock.
     const pricingFieldRequested =
         data.quantity !== undefined ||
         data.unit !== undefined ||
         data.unit_rate !== undefined ||
         data.billing_mode !== undefined ||
-        data.apply_margin !== undefined ||
         data.sell_unit_rate !== undefined;
     if (!editability.can_edit_pricing_fields && pricingFieldRequested) {
         throw new CustomizedError(
@@ -667,12 +654,6 @@ const updateLineItem = async (
         throw new CustomizedError(
             httpStatus.FORBIDDEN,
             "Only Platform Admin can change billing mode"
-        );
-    }
-    if (userRole === "LOGISTICS" && data.apply_margin !== undefined) {
-        throw new CustomizedError(
-            httpStatus.FORBIDDEN,
-            "Only Platform Admin can change margin policy"
         );
     }
     if (userRole === "LOGISTICS" && data.sell_unit_rate !== undefined) {
@@ -709,7 +690,6 @@ const updateLineItem = async (
         ...(data.client_price_visible !== undefined && {
             client_price_visible: data.client_price_visible,
         }),
-        ...(data.apply_margin !== undefined && { apply_margin: data.apply_margin }),
         ...(data.logistics_visible !== undefined && {
             logistics_visible: data.logistics_visible,
         }),
@@ -759,15 +739,13 @@ const updateLineItem = async (
 
     const [result] = await db.update(lineItems).set(dbData).where(eq(lineItems.id, id)).returning();
 
-    // Trigger a rebuild whenever apply_margin / logistics_visible / client_price_visible
-    // change, in addition to the existing pricing fields. apply_margin alters
-    // sell totals; logistics_visible affects what LOGISTICS sees in the snapshot;
-    // client_price_visible affects what CLIENT sees per line. All need the
-    // breakdown_lines JSONB to be refreshed so downstream readers see the new state.
+    // Trigger a rebuild whenever logistics_visible / client_price_visible change,
+    // in addition to the existing pricing fields. logistics_visible affects what
+    // LOGISTICS sees in the snapshot; client_price_visible affects what CLIENT
+    // sees per line. Both need the breakdown_lines JSONB refreshed so downstream
+    // readers see the new state.
     const visibilityOrPolicyChanged =
-        data.apply_margin !== undefined ||
-        data.logistics_visible !== undefined ||
-        data.client_price_visible !== undefined;
+        data.logistics_visible !== undefined || data.client_price_visible !== undefined;
     const shouldTriggerRebuild = pricingFieldRequested || visibilityOrPolicyChanged;
 
     if (shouldTriggerRebuild) {
@@ -1624,8 +1602,6 @@ const updateServiceRequestPricingAfterLineItemChange = async (
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
                 vat_percent: prices.vat_percent,
-                margin_is_override: prices.margin_is_override,
-                margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
             },
         })
@@ -1664,10 +1640,9 @@ const updateServiceRequestPricingAfterLineItemChange = async (
             .update(serviceRequests)
             .set({
                 commercial_status: "PENDING_QUOTE",
-                client_sell_override_total: null,
-                concession_reason: null,
-                concession_approved_by: null,
-                concession_applied_at: null,
+                // Re-quoting un-waives any prior no-cost decision (concession_*
+                // columns retired in 0073 — pricing_mode is the sole signal now).
+                pricing_mode: "STANDARD",
                 updated_at: new Date(),
             })
             .where(eq(serviceRequests.id, serviceRequestId));

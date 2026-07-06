@@ -388,9 +388,6 @@ export const companies = pgTable(
         })
             .notNull()
             .default("25.00"),
-        warehouse_ops_rate: decimal("warehouse_ops_rate", { precision: 10, scale: 2 })
-            .notNull()
-            .default("25.20"), // AED per m³
         vat_percent_override: decimal("vat_percent_override", { precision: 5, scale: 2 }),
         contact_email: varchar("contact_email", { length: 255 }),
         contact_phone: varchar("contact_phone", { length: 50 }),
@@ -1109,9 +1106,10 @@ export const serviceTypes = pgTable(
             .default(sql`'{}'::jsonb`),
         description: text("description"),
 
-        // Pricing policy default for lines added from this service type.
-        // false => lines default to buy = sell (no margin markup). Per-line
-        // override available via line_items.apply_margin.
+        // Legacy service-type margin-policy default. No longer consumed by the
+        // pricing engine (the pricing-ledger rewrite made per-line
+        // sell_unit_rate the sole sell control; the line_items.apply_margin
+        // sibling was dropped in migration 0073). Retained as a dormant column.
         apply_margin: boolean("apply_margin").notNull().default(true),
 
         display_order: integer("display_order").notNull().default(0),
@@ -1416,7 +1414,7 @@ export const lineItems = pgTable(
         quantity: decimal("quantity", { precision: 10, scale: 2 }),
         unit: varchar("unit", { length: 20 }),
         unit_rate: decimal("unit_rate", { precision: 10, scale: 2 }),
-        // Per-line SELL price override (per-unit). NULL = inherit today's margin math (sell = buy * (1+entity margin%), or buy if apply_margin off). ADMIN-only. When set, sell_total = quantity * sell_unit_rate, bypassing the margin formula.
+        // Per-line SELL price override (per-unit). NULL = derive from the entity margin seed (sell = buy * (1 + entity margin%)); for a billable line this is normally stamped explicitly at create/edit. ADMIN-only. When set, sell_total = quantity * sell_unit_rate, bypassing the margin formula.
         sell_unit_rate: decimal("sell_unit_rate", { precision: 10, scale: 2 }),
 
         // Pricing (for both)
@@ -1432,11 +1430,6 @@ export const lineItems = pgTable(
             .notNull()
             .default(sql`'{}'::jsonb`),
         client_price_visible: boolean("client_price_visible").notNull().default(false),
-
-        // Per-line override of the service-type margin policy.
-        // NULL means "inherit": resolves to service_type.apply_margin for
-        // CATALOG lines, true for CUSTOM/SYSTEM lines with no service_type.
-        apply_margin: boolean("apply_margin"),
 
         // Per-line audience flag. When false, the line is stripped from
         // LOGISTICS role projections entirely (display rows + totals).
@@ -2899,8 +2892,6 @@ export const prices = pgTable(
             .notNull()
             .default("0"),
         vat_percent: decimal("vat_percent", { precision: 5, scale: 2 }).notNull().default("0"),
-        margin_is_override: boolean("margin_is_override").notNull().default(false),
-        margin_override_reason: text("margin_override_reason"),
         calculated_at: timestamp("calculated_at").notNull().defaultNow(),
         calculated_by: uuid("calculated_by")
             .notNull()
@@ -3091,13 +3082,6 @@ export const serviceRequests = pgTable(
         related_order_id: uuid("related_order_id").references(() => orders.id),
         related_order_item_id: uuid("related_order_item_id").references(() => orderItems.id),
         request_pricing_id: uuid("request_pricing_id").references(() => prices.id),
-        client_sell_override_total: decimal("client_sell_override_total", {
-            precision: 12,
-            scale: 2,
-        }),
-        concession_reason: text("concession_reason"),
-        concession_approved_by: uuid("concession_approved_by").references(() => users.id),
-        concession_applied_at: timestamp("concession_applied_at"),
         fulfillment_override_reason: text("fulfillment_override_reason"),
         fulfillment_override_approved_by: uuid("fulfillment_override_approved_by").references(
             () => users.id
@@ -3215,11 +3199,6 @@ export const serviceRequestsRelations = relations(serviceRequests, ({ one, many 
         fields: [serviceRequests.cancelled_by],
         references: [users.id],
         relationName: "service_request_cancelled_by_user",
-    }),
-    concession_approved_by_user: one(users, {
-        fields: [serviceRequests.concession_approved_by],
-        references: [users.id],
-        relationName: "service_request_concession_approved_by_user",
     }),
     fulfillment_override_approved_by_user: one(users, {
         fields: [serviceRequests.fulfillment_override_approved_by],

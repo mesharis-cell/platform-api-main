@@ -6,9 +6,6 @@ const billingModeSchema = z.enum(["BILLABLE", "NON_BILLABLE", "COMPLIMENTARY"], 
     message: "Invalid billing mode",
 });
 
-// Per-line pricing policy. Nullable so callers can express the
-// "inherit from service_type / default true" semantic.
-const applyMarginSchema = z.boolean().nullable().optional();
 const logisticsVisibleSchema = z.boolean().optional();
 
 // Per-line SELL price override (per-unit). Nullable so callers can express
@@ -36,7 +33,6 @@ const createCatalogLineItemSchema = z.object({
             billing_mode: billingModeSchema.optional().default("BILLABLE"),
             metadata: z.record(z.string(), z.unknown()).optional().default({}),
             client_price_visible: z.boolean().optional().default(false),
-            apply_margin: applyMarginSchema,
             logistics_visible: logisticsVisibleSchema,
             // Per-line SELL override at create time — kills the admin
             // create-then-PUT hack. ADMIN-only (guarded at the service layer;
@@ -96,7 +92,6 @@ const createCustomLineItemSchema = z.object({
             billing_mode: billingModeSchema.optional().default("BILLABLE"),
             metadata: z.record(z.string(), z.unknown()).optional().default({}),
             client_price_visible: z.boolean().optional().default(false),
-            apply_margin: applyMarginSchema,
             logistics_visible: logisticsVisibleSchema,
             sell_unit_rate: sellUnitRateSchema,
         })
@@ -120,7 +115,6 @@ const updateLineItemSchema = z.object({
             billing_mode: billingModeSchema.optional(),
             metadata: z.record(z.string(), z.unknown()).optional(),
             client_price_visible: z.boolean().optional(),
-            apply_margin: applyMarginSchema,
             logistics_visible: logisticsVisibleSchema,
             sell_unit_rate: sellUnitRateSchema,
         })

@@ -5,9 +5,9 @@
  * mirroring the inclusion semantics of accounts-reconciliation.ts.
  *
  * One row per live, client-billable document showing TOTAL BUY COST, SELL TOTAL
- * (ex-VAT), MARGIN AMOUNT, derived MARGIN %, and the margin-override flag — so
- * finance can reconcile what the platform owes the warehouse against client
- * revenue per company over a date window.
+ * (ex-VAT), MARGIN AMOUNT, and derived MARGIN % — so finance can reconcile what
+ * the platform owes the warehouse against client revenue per company over a date
+ * window.
  *
  * ORDER rows additionally carry the buy-side cost SPLIT (rate-card / custom) +
  * EVENT START / EVENT END. Those columns are BLANK on SR / SP / INBOUND rows —
@@ -127,10 +127,7 @@ type RawRow = {
     breakdown_lines: unknown;
     margin_percent: string | number | null;
     vat_percent: string | number | null;
-    margin_is_override: boolean | null;
-    margin_override_reason: string | null;
     priced_at: Date | string | null;
-    client_sell_override_total: string | null;
     pricing_mode: string | null;
 };
 
@@ -188,9 +185,8 @@ SELECT
     o.order_status::text AS status, o.financial_status::text AS financial_status,
     c.name AS company_name, b.name AS brand_name,
     o.event_start_date AS event_start_date, o.event_end_date AS event_end_date,
-    p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
-    p.margin_override_reason, p.calculated_at AS priced_at, NULL::text AS client_sell_override_total,
-    NULL::text AS pricing_mode
+    p.breakdown_lines, p.margin_percent, p.vat_percent,
+    p.calculated_at AS priced_at, NULL::text AS pricing_mode
 FROM orders o
 LEFT JOIN companies c ON o."company" = c.id
 LEFT JOIN brands b ON o."brand" = b.id
@@ -209,9 +205,8 @@ SELECT
     sr.request_status::text AS status, sr.commercial_status::text AS financial_status,
     c.name AS company_name, NULL::text AS brand_name,
     NULL::timestamp AS event_start_date, NULL::timestamp AS event_end_date,
-    p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
-    p.margin_override_reason, p.calculated_at AS priced_at, sr.client_sell_override_total::text AS client_sell_override_total,
-    sr.pricing_mode::text AS pricing_mode
+    p.breakdown_lines, p.margin_percent, p.vat_percent,
+    p.calculated_at AS priced_at, sr.pricing_mode::text AS pricing_mode
 FROM service_requests sr
 LEFT JOIN companies c ON sr.company_id = c.id
 LEFT JOIN prices p ON p.id = sr.request_pricing_id
@@ -228,9 +223,8 @@ SELECT
     sp.self_pickup_status::text AS status, sp.financial_status::text AS financial_status,
     c.name AS company_name, b.name AS brand_name,
     NULL::timestamp AS event_start_date, NULL::timestamp AS event_end_date,
-    p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
-    p.margin_override_reason, p.calculated_at AS priced_at, NULL::text AS client_sell_override_total,
-    NULL::text AS pricing_mode
+    p.breakdown_lines, p.margin_percent, p.vat_percent,
+    p.calculated_at AS priced_at, NULL::text AS pricing_mode
 FROM self_pickups sp
 LEFT JOIN companies c ON sp.company_id = c.id
 LEFT JOIN brands b ON sp.brand_id = b.id
@@ -248,9 +242,8 @@ SELECT
     ir.request_status::text AS status, ir.financial_status::text AS financial_status,
     c.name AS company_name, NULL::text AS brand_name,
     NULL::timestamp AS event_start_date, NULL::timestamp AS event_end_date,
-    p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
-    p.margin_override_reason, p.calculated_at AS priced_at, NULL::text AS client_sell_override_total,
-    NULL::text AS pricing_mode
+    p.breakdown_lines, p.margin_percent, p.vat_percent,
+    p.calculated_at AS priced_at, NULL::text AS pricing_mode
 FROM inbound_requests ir
 LEFT JOIN companies c ON ir.company_id = c.id
 LEFT JOIN prices p ON p.id = ir.request_pricing_id
@@ -298,7 +291,6 @@ ORDER BY company_name ASC, doc_date ASC, reference ASC`;
         { header: "SELL TOTAL (EX VAT)", width: 17, align: "right", numFmt: MONEY_FMT },
         { header: "MARGIN AMOUNT", width: 15, align: "right", numFmt: MONEY_FMT },
         { header: "MARGIN %", width: 11, align: "right", numFmt: "#,##0.00" },
-        { header: "MARGIN OVERRIDE", width: 16 },
         { header: "PRICED AT", width: 13 },
     ];
 
@@ -338,8 +330,6 @@ ORDER BY company_name ASC, doc_date ASC, reference ASC`;
                   breakdown_lines: r.breakdown_lines,
                   margin_percent: r.margin_percent,
                   vat_percent: r.vat_percent,
-                  margin_is_override: r.margin_is_override,
-                  margin_override_reason: r.margin_override_reason,
                   calculated_at: r.priced_at,
               }
             : null;
@@ -362,37 +352,19 @@ ORDER BY company_name ASC, doc_date ASC, reference ASC`;
         let sellTotal = roundMoney(parseNum(totals?.sell_total));
         let marginAmount = roundMoney(parseNum(totals?.margin_amount));
 
-        // SR no-cost (P1-9): a NO_COST service request zeroes the SELL (buy stays,
-        // so margin goes negative by the full cost — matches the concession model).
-        // Priority over the dormant client_sell_override_total branch (0071 migrated
-        // legacy zero-total concessions to pricing_mode=NO_COST).
+        // SR no-cost: a NO_COST service request zeroes the SELL (buy stays, so
+        // margin goes negative by the full cost). pricing_mode is the sole SR
+        // no-cost signal now (the client_sell_override_total override branch +
+        // column were retired in migration 0073).
         const isNoCostSr = r.entity_type === "SERVICE_REQUEST" && r.pricing_mode === "NO_COST";
-        // SR sell/margin override — honour client_sell_override_total (the SELL is
-        // the override ex-VAT; margin re-derives against the same buy_total), to
-        // keep cost↔revenue tie-out consistent with accounts-reconciliation.
-        const overrideRaw =
-            !isNoCostSr &&
-            r.entity_type === "SERVICE_REQUEST" &&
-            r.client_sell_override_total !== null &&
-            r.client_sell_override_total !== ""
-                ? r.client_sell_override_total
-                : null;
         if (isNoCostSr) {
             sellTotal = 0;
             marginAmount = roundMoney(0 - buyTotal);
-        } else if (overrideRaw !== null) {
-            const vatPercent = parseNum(totals?.sell_vat_percent ?? r.vat_percent);
-            const overrideFinal = roundMoney(parseNum(overrideRaw));
-            sellTotal = roundMoney(overrideFinal / (1 + vatPercent / 100));
-            marginAmount = roundMoney(sellTotal - buyTotal);
         }
 
         // Derived / realized MARGIN % = margin_amount / buy_total * 100. Guard the
         // divide; with zero buy (empty pricing) margin % is N/A.
         const marginPct = buyTotal > 0 ? roundMoney((marginAmount / buyTotal) * 100) : null;
-
-        const isOverride = !!r.margin_is_override;
-        const overrideReason = r.margin_override_reason ? ` — ${r.margin_override_reason}` : "";
 
         // ORDER-only split + event columns; BLANK on the other three entities.
         const row = sheet.addRow([
@@ -410,7 +382,6 @@ ORDER BY company_name ASC, doc_date ASC, reference ASC`;
             sellTotal,
             marginAmount,
             marginPct === null ? "N/A" : marginPct,
-            isOverride ? `YES${overrideReason}` : "NO",
             fmtDate(r.priced_at),
         ]);
 

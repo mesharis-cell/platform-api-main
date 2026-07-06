@@ -46,7 +46,7 @@ export const lineItemQueryValidationConfig = {
 
 // -------------------------------- CLIENT LINE-ITEM PROJECTION --------------------------------
 // Raw line_items rows (from getLineItems / SELECT *) carry BUY-side pricing:
-// unit_rate, total, sell_unit_rate (the ADMIN-only sell override), apply_margin.
+// unit_rate, total, sell_unit_rate (the ADMIN-only sell override).
 // Those must NEVER reach a CLIENT. Any CLIENT-facing detail response that
 // embeds the raw line_items array (order + inbound request) has to project it
 // through this SELL-ONLY allowlist first.
@@ -79,9 +79,27 @@ export const projectLineItemForClient = (item: Record<string, any>) => ({
     updated_at: item.updated_at,
     added_at: item.added_at,
     // Intentionally OMITTED (buy-side / margin / sell override): unit_rate,
-    // total, sell_unit_rate, apply_margin, logistics_visible, service_type_id,
+    // total, sell_unit_rate, logistics_visible, service_type_id,
     // added_by, voided_by/voided_at/void_reason, editability flags.
 });
 
 export const projectLineItemsForClient = (items: Array<Record<string, any>>) =>
     items.map(projectLineItemForClient);
+
+// -------------------------------- LOGISTICS LINE-ITEM PROJECTION --------------------------------
+// LOGISTICS is a BUY-only audience: it legitimately sees the buy-side unit_rate
+// + total (that IS the warehouse cost it operates on) but must NEVER see the
+// ADMIN-only SELL override. sell_unit_rate is the only sell/margin field on a
+// raw line_items row (apply_margin + the prices-level margin-override columns
+// were retired in migration 0073), so a targeted denylist strip is sufficient
+// and keeps every buy/display/logistics field the warehouse app needs. Apply
+// this to any LOGISTICS-facing response that embeds the raw line_items array
+// (order/inbound detail) or returns rows from getLineItems.
+export const projectLineItemForLogistics = <T extends Record<string, any>>(item: T) => {
+    const { sell_unit_rate: _sellUnitRate, ...rest } = item;
+    void _sellUnitRate;
+    return rest;
+};
+
+export const projectLineItemsForLogistics = (items: Array<Record<string, any>>) =>
+    items.map(projectLineItemForLogistics);

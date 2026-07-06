@@ -149,8 +149,6 @@ SELECT
     p.breakdown_lines                                                     AS breakdown_lines,
     p.margin_percent                                                      AS margin_percent,
     p.vat_percent                                                         AS vat_percent,
-    p.margin_is_override                                                  AS margin_is_override,
-    p.margin_override_reason                                              AS margin_override_reason,
     p.calculated_at                                                       AS calculated_at,
     co.name                                                               AS company_name
 FROM inbound_requests ir
