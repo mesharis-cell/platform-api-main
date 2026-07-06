@@ -240,8 +240,7 @@ const getLinkedServiceRequestSummaries = async (
             requested_due_at: serviceRequests.requested_due_at,
             related_order_item_id: serviceRequests.related_order_item_id,
             related_asset_id: serviceRequests.related_asset_id,
-            client_sell_override_total: serviceRequests.client_sell_override_total,
-            concession_applied_at: serviceRequests.concession_applied_at,
+            pricing_mode: serviceRequests.pricing_mode,
             fulfillment_override_reason: serviceRequests.fulfillment_override_reason,
             fulfillment_override_approved_by: serviceRequests.fulfillment_override_approved_by,
             fulfillment_override_applied_at: serviceRequests.fulfillment_override_applied_at,
@@ -250,8 +249,6 @@ const getLinkedServiceRequestSummaries = async (
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
                 vat_percent: prices.vat_percent,
-                margin_is_override: prices.margin_is_override,
-                margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
             },
         })
@@ -269,11 +266,11 @@ const getLinkedServiceRequestSummaries = async (
         .filter((row) => role !== "CLIENT" || row.billing_mode === "CLIENT_BILLABLE")
         .map((row) => {
             const projected = PricingService.projectSummaryForRole(row.pricing as any, "CLIENT");
+            // No-cost (formerly "concession") SRs bill the client zero — the
+            // pricing_mode flag is the sole signal now (client_sell_override_total
+            // + concession_* columns retired in migration 0073).
             const clientTotal =
-                row.client_sell_override_total !== null &&
-                row.client_sell_override_total !== undefined
-                    ? String(row.client_sell_override_total)
-                    : String(projected?.final_total || "0");
+                row.pricing_mode === "NO_COST" ? "0" : String(projected?.final_total || "0");
             return {
                 id: row.id,
                 service_request_id: row.service_request_id,
@@ -287,7 +284,7 @@ const getLinkedServiceRequestSummaries = async (
                 requested_due_at: row.requested_due_at,
                 related_order_item_id: row.related_order_item_id,
                 related_asset_id: row.related_asset_id,
-                is_concession_applied: !!row.concession_applied_at,
+                is_concession_applied: row.pricing_mode === "NO_COST",
                 fulfillment_override_reason: row.fulfillment_override_reason,
                 fulfillment_override_approved_by: row.fulfillment_override_approved_by,
                 fulfillment_override_applied_at: row.fulfillment_override_applied_at,
@@ -302,7 +299,7 @@ const hasUnresolvedBlockingServiceRequests = async (orderDbId: string, platformI
     const blocking = await db
         .select({
             request_status: serviceRequests.request_status,
-            concession_applied_at: serviceRequests.concession_applied_at,
+            pricing_mode: serviceRequests.pricing_mode,
             fulfillment_override_applied_at: serviceRequests.fulfillment_override_applied_at,
         })
         .from(serviceRequests)
@@ -315,7 +312,9 @@ const hasUnresolvedBlockingServiceRequests = async (orderDbId: string, platformI
         );
 
     return blocking.some((request) => {
-        if (request.concession_applied_at) return false;
+        // A no-cost SR (formerly concession) resolves the block — the waiver
+        // decision has been made. pricing_mode is the signal post-0073.
+        if (request.pricing_mode === "NO_COST") return false;
         if (request.fulfillment_override_applied_at) return false;
         return !["COMPLETED", "CANCELLED"].includes(request.request_status);
     });
@@ -344,7 +343,7 @@ const getUnresolvedMaintenanceReadinessItems = async (orderDbId: string, platfor
         .select({
             related_order_item_id: serviceRequests.related_order_item_id,
             request_status: serviceRequests.request_status,
-            concession_applied_at: serviceRequests.concession_applied_at,
+            pricing_mode: serviceRequests.pricing_mode,
             fulfillment_override_applied_at: serviceRequests.fulfillment_override_applied_at,
         })
         .from(serviceRequests)
@@ -366,7 +365,7 @@ const getUnresolvedMaintenanceReadinessItems = async (orderDbId: string, platfor
         }
 
         return linkedRequests.some((request) => {
-            if (request.concession_applied_at) return false;
+            if (request.pricing_mode === "NO_COST") return false;
             if (request.fulfillment_override_applied_at) return false;
             return !["COMPLETED", "CANCELLED"].includes(request.request_status);
         });
@@ -386,7 +385,7 @@ const autoApproveBundledServiceRequests = async (
             request_status: serviceRequests.request_status,
             commercial_status: serviceRequests.commercial_status,
             request_pricing_id: serviceRequests.request_pricing_id,
-            client_sell_override_total: serviceRequests.client_sell_override_total,
+            pricing_mode: serviceRequests.pricing_mode,
             related_order_id: serviceRequests.related_order_id,
             request_type: serviceRequests.request_type,
             billing_mode: serviceRequests.billing_mode,
@@ -395,8 +394,6 @@ const autoApproveBundledServiceRequests = async (
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
                 vat_percent: prices.vat_percent,
-                margin_is_override: prices.margin_is_override,
-                margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
             },
         })
@@ -432,9 +429,8 @@ const autoApproveBundledServiceRequests = async (
         });
 
         const finalTotal =
-            request.client_sell_override_total !== null &&
-            request.client_sell_override_total !== undefined
-                ? String(request.client_sell_override_total)
+            request.pricing_mode === "NO_COST"
+                ? "0"
                 : String(
                       PricingService.projectSummaryForRole(request.pricing as any, "CLIENT")
                           ?.final_total || "0"
@@ -1332,8 +1328,6 @@ const getOrders = async (query: Record<string, any>, user: AuthUser, platformId:
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
                 vat_percent: prices.vat_percent,
-                margin_is_override: prices.margin_is_override,
-                margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
             },
         })
@@ -1547,8 +1541,6 @@ const getMyOrders = async (
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
                 vat_percent: prices.vat_percent,
-                margin_is_override: prices.margin_is_override,
-                margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
             },
         })
@@ -1638,8 +1630,6 @@ const getOrderById = async (
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
                 vat_percent: prices.vat_percent,
-                margin_is_override: prices.margin_is_override,
-                margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
             },
         })
@@ -1899,8 +1889,8 @@ const getOrderById = async (
             user: orderData.user,
             items: itemsWithRepairState,
             // CLIENT LEAK FIX: the raw line_items array (SELECT *) carries
-            // buy-side unit_rate/total, the ADMIN-only sell_unit_rate override,
-            // and apply_margin. Project through the SELL-ONLY allowlist so none
+            // buy-side unit_rate/total and the ADMIN-only sell_unit_rate
+            // override. Project through the SELL-ONLY allowlist so none
             // of those reach the client. Client SELL numbers come from
             // order_pricing (projectForRole) below, not this array. The pricing
             // projection still reads the FULL lineItems array (it computes sell
@@ -3169,8 +3159,6 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
                 vat_percent: prices.vat_percent,
-                margin_is_override: prices.margin_is_override,
-                margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
             },
         })
@@ -3235,8 +3223,6 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
             breakdown_lines: prices.breakdown_lines,
             margin_percent: prices.margin_percent,
             vat_percent: prices.vat_percent,
-            margin_is_override: prices.margin_is_override,
-            margin_override_reason: prices.margin_override_reason,
             calculated_at: prices.calculated_at,
         })
         .from(prices)
@@ -3307,8 +3293,6 @@ const adminApproveQuote = async (
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
                 vat_percent: prices.vat_percent,
-                margin_is_override: prices.margin_is_override,
-                margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
             },
         })

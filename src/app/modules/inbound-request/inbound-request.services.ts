@@ -289,8 +289,6 @@ const getInboundRequests = async (
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
                 vat_percent: prices.vat_percent,
-                margin_is_override: prices.margin_is_override,
-                margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
             },
         })
@@ -372,8 +370,6 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
                 vat_percent: prices.vat_percent,
-                margin_is_override: prices.margin_is_override,
-                margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
             },
         })
@@ -485,8 +481,8 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
             };
         }),
         // CLIENT LEAK FIX: the raw line_items array (SELECT *) carries buy-side
-        // unit_rate/total, the ADMIN-only sell_unit_rate override, and
-        // apply_margin. CLIENT is a valid caller on GET /inbound-request/:id, so
+        // unit_rate/total and the ADMIN-only sell_unit_rate override.
+        // CLIENT is a valid caller on GET /inbound-request/:id, so
         // project through the SELL-ONLY allowlist for clients. ADMIN/LOGISTICS
         // keep the full array. Client SELL numbers come from request_pricing.
         line_items:
@@ -512,8 +508,6 @@ const submitForApproval = async (requestId: string, user: AuthUser, platformId: 
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
                 vat_percent: prices.vat_percent,
-                margin_is_override: prices.margin_is_override,
-                margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
             },
         })
@@ -610,8 +604,6 @@ const approveInboundRequestByAdmin = async (
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
                 vat_percent: prices.vat_percent,
-                margin_is_override: prices.margin_is_override,
-                margin_override_reason: prices.margin_override_reason,
                 calculated_at: prices.calculated_at,
             },
         })
@@ -892,8 +884,6 @@ const updateInboundRequestItem = async (
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
                 vat_percent: prices.vat_percent,
-                margin_is_override: prices.margin_is_override,
-                margin_override_reason: prices.margin_override_reason,
                 calculated_by: prices.calculated_by,
                 calculated_at: prices.calculated_at,
             },
@@ -1080,8 +1070,6 @@ const completeInboundRequest = async (
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
                 vat_percent: prices.vat_percent,
-                margin_is_override: prices.margin_is_override,
-                margin_override_reason: prices.margin_override_reason,
                 calculated_by: prices.calculated_by,
                 calculated_at: prices.calculated_at,
             },
@@ -1424,8 +1412,6 @@ const updateInboundRequest = async (
                 breakdown_lines: prices.breakdown_lines,
                 margin_percent: prices.margin_percent,
                 vat_percent: prices.vat_percent,
-                margin_is_override: prices.margin_is_override,
-                margin_override_reason: prices.margin_override_reason,
                 calculated_by: prices.calculated_by,
                 calculated_at: prices.calculated_at,
             },

@@ -112,22 +112,17 @@ const assertServiceRequestAccess = (
 
 const getServiceRequestClientTotal = async (serviceRequest: {
     request_pricing_id: string | null;
-    client_sell_override_total?: string | null;
+    pricing_mode?: string | null;
 }) => {
-    if (
-        serviceRequest.client_sell_override_total !== null &&
-        serviceRequest.client_sell_override_total
-    ) {
-        return String(serviceRequest.client_sell_override_total);
-    }
+    // No-cost SRs bill the client zero (concession/client_sell_override_total
+    // retired in 0073 — pricing_mode is the sole waiver signal).
+    if (serviceRequest.pricing_mode === "NO_COST") return "0";
     if (!serviceRequest.request_pricing_id) return "0";
     const [pricing] = await db
         .select({
             breakdown_lines: prices.breakdown_lines,
             margin_percent: prices.margin_percent,
             vat_percent: prices.vat_percent,
-            margin_is_override: prices.margin_is_override,
-            margin_override_reason: prices.margin_override_reason,
             calculated_at: prices.calculated_at,
         })
         .from(prices)
@@ -146,7 +141,7 @@ const getServiceRequestEventContext = async (serviceRequest: {
     billing_mode: string;
     related_order_id: string | null;
     request_pricing_id: string | null;
-    client_sell_override_total?: string | null;
+    pricing_mode?: string | null;
 }) => {
     const [company, relatedOrder, finalTotal] = await Promise.all([
         db
@@ -189,7 +184,7 @@ const emitServiceRequestEvent = async (
         billing_mode: string;
         related_order_id: string | null;
         request_pricing_id: string | null;
-        client_sell_override_total?: string | null;
+        pricing_mode?: string | null;
     },
     actor: AuthUser,
     payloadExtras: Record<string, unknown> = {}
@@ -213,7 +208,7 @@ const assertOperationalCommercialCoupling = (
     serviceRequest: {
         billing_mode: string;
         commercial_status: string;
-        concession_applied_at?: Date | null;
+        pricing_mode?: string | null;
     },
     nextStatus: string
 ) => {
@@ -221,7 +216,7 @@ const assertOperationalCommercialCoupling = (
     if (serviceRequest.billing_mode !== "CLIENT_BILLABLE") return;
     const commerciallyCleared =
         ["QUOTE_APPROVED", "INVOICED", "PAID"].includes(serviceRequest.commercial_status) ||
-        !!serviceRequest.concession_applied_at;
+        serviceRequest.pricing_mode === "NO_COST";
     if (commerciallyCleared) return;
     throw new CustomizedError(
         httpStatus.BAD_REQUEST,
@@ -278,8 +273,6 @@ const listServiceRequests = async (
                     breakdown_lines: prices.breakdown_lines,
                     margin_percent: prices.margin_percent,
                     vat_percent: prices.vat_percent,
-                    margin_is_override: prices.margin_is_override,
-                    margin_override_reason: prices.margin_override_reason,
                     calculated_at: prices.calculated_at,
                 },
             })
@@ -321,8 +314,6 @@ const getServiceRequestById = async (id: string, platformId: string, user: AuthU
                   breakdown_lines: prices.breakdown_lines,
                   margin_percent: prices.margin_percent,
                   vat_percent: prices.vat_percent,
-                  margin_is_override: prices.margin_is_override,
-                  margin_override_reason: prices.margin_override_reason,
                   calculated_at: prices.calculated_at,
               })
               .from(prices)
@@ -524,10 +515,9 @@ const updateServiceRequest = async (
         ["QUOTED", "QUOTE_APPROVED", "INVOICED", "PAID"].includes(existing.commercial_status)
     ) {
         updatePayload.commercial_status = "PENDING_QUOTE";
-        updatePayload.client_sell_override_total = null;
-        updatePayload.concession_reason = null;
-        updatePayload.concession_approved_by = null;
-        updatePayload.concession_applied_at = null;
+        // Re-quoting un-waives a previously no-cost SR (concession_* columns
+        // retired in 0073 — pricing_mode is the sole waiver signal now).
+        updatePayload.pricing_mode = "STANDARD";
         shouldEmitQuoteRevised = true;
     }
     if (Object.keys(updatePayload).length > 0) {
@@ -895,10 +885,9 @@ const respondToServiceRequestQuote = async (
         .update(serviceRequests)
         .set({
             commercial_status: "PENDING_QUOTE",
-            client_sell_override_total: null,
-            concession_reason: null,
-            concession_approved_by: null,
-            concession_applied_at: null,
+            // Reverting to PENDING_QUOTE un-waives any prior no-cost decision
+            // (concession_* columns retired in 0073 — pricing_mode is the signal).
+            pricing_mode: "STANDARD",
             updated_at: new Date(),
         })
         .where(eq(serviceRequests.id, id));
@@ -949,9 +938,9 @@ const applyServiceRequestConcession = async (
     // items + zero the prices row + flip pricing_mode=NO_COST via the shared
     // entity-agnostic helper, then revert commercial_status to PENDING_QUOTE
     // (the original concession-revert semantics are preserved). The legacy
-    // concession columns (client_sell_override_total / concession_*) are NO LONGER
-    // written — they're dormant until dropped in migration 0073; reports already
-    // read pricing_mode=NO_COST for the SR sell-zero arm (P1-9).
+    // concession columns (client_sell_override_total / concession_*) were dropped
+    // in migration 0073; reports read pricing_mode=NO_COST for the SR sell-zero
+    // arm (P1-9).
     await db.transaction(async (tx) => {
         await PricingService.markEntityAsNoCost({
             entityType: "SERVICE_REQUEST",
