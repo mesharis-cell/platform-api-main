@@ -505,6 +505,13 @@
             "when": 1781583197000,
             "tag": "0072_stamp_sell_unit_rate",
             "breakpoints": true
+        },
+        {
+            "idx": 72,
+            "version": "7",
+            "when": 1781583198000,
+            "tag": "0073_drop_retired_pricing_columns",
+            "breakpoints": true
         }
     ]
 }
