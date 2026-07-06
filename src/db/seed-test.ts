@@ -56,9 +56,9 @@ const TEST_PLATFORM = {
     name: "Kadence",
     domain: "demo.kadence.test",
     // Must match a domain verified on the test Resend API key. Current verified
-    // domain: notifications.staging.kadence.ae. If the test key ever rotates to
+    // domain: staging.notifications.kadence.ae. If the test key ever rotates to
     // a different verified sender, update here + seed config will flow through.
-    from_email: "no-reply@notifications.staging.kadence.ae",
+    from_email: "no-reply@staging.notifications.kadence.ae",
     currency: "AED",
 };
 
@@ -66,14 +66,13 @@ const TEST_COMPANY_NAME = "Kadence Demo";
 const TEST_COMPANY_HOSTNAME = "demo.kadence.test";
 
 // Feature flags — per docs/e2e-testing-system.md §12 decision 1.
-// companyFeatures already has the intended defaults (attachments/workflows/
-// base_operations ON, self_pickup/kadence_invoicing OFF). Explicit spread here
-// so anyone reading seed-test.ts sees the invariant locally, not via defaults.
+// companyFeatures already has the intended defaults (attachments/workflows ON,
+// self_pickup/kadence_invoicing OFF). Explicit spread here so anyone reading
+// seed-test.ts sees the invariant locally, not via defaults.
 const TEST_TENANT_FEATURES = {
     ...companyFeatures,
     enable_attachments: true,
     enable_workflows: true,
-    enable_base_operations: true,
     enable_self_pickup: true,
     enable_kadence_invoicing: false,
 };
@@ -235,7 +234,6 @@ const seedCompany = async (platformId: string) => {
             },
             features: TEST_TENANT_FEATURES,
             platform_margin_percent: "25.00",
-            warehouse_ops_rate: "10.00",
             contact_email: "e2e.kadence.admin@homeofpmg.com",
             contact_phone: "+971-50-000-0000",
             is_active: true,

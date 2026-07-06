@@ -69,6 +69,8 @@ direction, not commentary.
 
 ### 2A.1 Verified must-fix (grounded in code)
 
+> **BASE_OPS removed 2026-07 — historical.** The BASE_OPS / "Base Ops" / "Picking & Handling" cost columns and `base_ops_total` projection field referenced below no longer exist (feature deleted entirely; report columns dropped). The surrounding leak-gating guidance still applies to the remaining ADMIN-only cost/margin columns.
+
 - **LIVE CLIENT LEAK — fix regardless of refactor pace.** The _current_ orders
   CSV already ships `ORDER BASE OPS (BUY)` + `ORDER MARGIN %` on a
   client-reachable export (`export.services.ts:197-198`); inbound-log ships a

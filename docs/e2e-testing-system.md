@@ -421,8 +421,9 @@ Before day-1 implementation can start:
 All pre-implementation decisions agreed with stakeholder:
 
 1. **Feature flags for test tenant:**
-    - ON: `enable_attachments`, `enable_workflows`, `enable_base_operations`, `enable_ordering`
+    - ON: `enable_attachments`, `enable_workflows`, `enable_ordering`
     - OFF: `enable_self_pickup`, `enable_kadence_invoicing`
+    - (`enable_base_operations` removed 2026-07 — BASE_OPS feature deleted entirely)
 
 2. **Migration strategy:** Suite verifies schema state at startup and fails fast if drift is detected. Does not apply migrations itself (consistent with CLAUDE.md rule that migrations run outside the app).
 

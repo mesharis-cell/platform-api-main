@@ -5,9 +5,8 @@
  *
  * Pricing uses the real PricingService.rebuildBreakdown after inserting
  * CATALOG line items, so the resulting `prices` rows match production shape
- * (BASE_OPS auto-synced as a SYSTEM line, breakdown_lines populated, totals
- * computed). That means the docs UI renders these orders identically to
- * orders created through the real flow.
+ * (breakdown_lines populated, totals computed). That means the docs UI renders
+ * these orders identically to orders created through the real flow.
  *
  * Status histories walk the full path each order took to reach its final
  * state so the timeline UI has rich content. Bookings are inserted for

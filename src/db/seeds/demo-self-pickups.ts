@@ -9,8 +9,7 @@
  * (gotcha #36) so end-state inventory matches a real run.
  *
  * Pricing on SPs 2–5 uses the real `PricingService.rebuildBreakdown` after
- * inserting CATALOG line items, so the `prices` row + BASE_OPS sync match
- * production shape (gotcha #29).
+ * inserting CATALOG line items, so the `prices` row matches production shape.
  */
 
 import { eq, sql } from "drizzle-orm";
@@ -308,7 +307,7 @@ const seedSp1PricingReview = async (opts: SeedDemoSelfPickupsOpts) => {
     ]);
 };
 
-// SPK-DEMO-002 — QUOTED: BASE_OPS + Loading/Unloading line; awaiting client.
+// SPK-DEMO-002 — QUOTED: Loading/Unloading line; awaiting client.
 const seedSp2Quoted = async (opts: SeedDemoSelfPickupsOpts) => {
     const spUuid = DEMO_UUIDS.selfPickups.sp2Quoted;
     const pricesId = await insertPlaceholderPrices({
