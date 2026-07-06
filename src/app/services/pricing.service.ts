@@ -361,9 +361,15 @@ const buildBreakdownLinesFromLineItems = (
                 : roundCurrency(toNum(item.unit_rate || 0));
         const systemKey = item.system_key ? String(item.system_key) : null;
         const isSystem = item.line_item_type === "SYSTEM";
+        const billingMode = String(item.billing_mode || "BILLABLE");
 
-        // Resolve effective apply_margin per line:
-        // line override → service_type default → true.
+        // Effective apply_margin — INFORMATIONAL ONLY as of the pricing-ledger
+        // rewrite (Phase 1). The sell math below NO LONGER consults it: every
+        // BILLABLE line now carries an explicit sell_unit_rate (stamped by
+        // migration 0072 + written on create/edit). This value is still
+        // resolved + surfaced on the breakdown line so the (Phase-1-era) admin
+        // accordion keeps rendering its margin indicator; the column + this
+        // resolution retire in Phase 4. line override → service_type → true.
         const effectiveApplyMargin =
             item.apply_margin === false
                 ? false
@@ -373,17 +379,30 @@ const buildBreakdownLinesFromLineItems = (
                     ? false
                     : true;
 
-        // Per-line sell override. When set, the sell price is driven directly
-        // by this per-unit rate and the margin math is bypassed entirely
-        // (regardless of apply_margin).
+        // Canonical per-line sell rate. NULL only for NON_BILLABLE/COMPLIMENTARY
+        // lines (never charged) or a legacy in-flight BILLABLE row that predates
+        // the 0072 stamp (defensive path below).
         const rawSellUnitRate =
             item.sell_unit_rate != null && item.sell_unit_rate !== ""
                 ? toNum(item.sell_unit_rate)
                 : null;
 
+        // ── Sell precedence (PLAN §2.2) ────────────────────────────────────
+        //   billing_mode != BILLABLE       → sell 0 (never charged)
+        //   sell_unit_rate present         → sell = qty × rate  (the ledger path)
+        //   SYSTEM line, no explicit rate  → sell = buy (safe passthrough; real
+        //                                    SYSTEM lines route through the
+        //                                    handler registry — none post-Phase-0)
+        //   BILLABLE, rate NULL (legacy)   → defensive: derive from margin seed
+        //                                    + warn (should never fire in steady
+        //                                    state; apply_margin NOT consulted —
+        //                                    dormant per §2.1)
         let sellTotal: number;
         let sellUnitPrice: number;
-        if (rawSellUnitRate !== null) {
+        if (billingMode !== "BILLABLE") {
+            sellTotal = 0;
+            sellUnitPrice = 0;
+        } else if (rawSellUnitRate !== null) {
             // Multiply THEN round once — never round the per-unit rate first
             // (rate 33.333 × qty 3 must yield 100.00, not 99.99). sellUnitPrice
             // is derived from sellTotal, mirroring how buyUnitPrice comes from
@@ -391,15 +410,26 @@ const buildBreakdownLinesFromLineItems = (
             sellTotal = roundCurrency(quantity * rawSellUnitRate);
             sellUnitPrice =
                 quantity > 0 ? roundCurrency(sellTotal / quantity) : roundCurrency(rawSellUnitRate);
+        } else if (isSystem) {
+            sellTotal = buyTotal;
+            sellUnitPrice = buyUnitPrice;
         } else {
-            sellTotal = effectiveApplyMargin
-                ? applyMarginPerLine(buyTotal, marginPercent)
-                : buyTotal;
-            sellUnitPrice = effectiveApplyMargin
-                ? quantity > 0
+            // Voided lines legitimately have NULL sell_unit_rate — the 0072 stamp
+            // deliberately skipped them (is_voided = false predicate), and they
+            // are excluded from every total + projection. Only warn for LIVE
+            // rows, where a NULL rate is a genuine "predates the stamp" signal.
+            if (!item.is_voided) {
+                console.warn(
+                    `[pricing] BILLABLE line ${String(
+                        item.line_item_id || item.id || "?"
+                    )} is missing sell_unit_rate; deriving sell from margin seed ${marginPercent}% (defensive legacy path). This row predates the 0072 sell-rate stamp and should be restamped.`
+                );
+            }
+            sellTotal = applyMarginPerLine(buyTotal, marginPercent);
+            sellUnitPrice =
+                quantity > 0
                     ? roundCurrency(sellTotal / quantity)
-                    : applyMarginPerLine(buyUnitPrice, marginPercent)
-                : buyUnitPrice;
+                    : applyMarginPerLine(buyUnitPrice, marginPercent);
         }
 
         const nowIso = new Date().toISOString();
@@ -479,6 +509,7 @@ const resolveEntityContext = async (
                 company_vat_percent_override: companies.vat_percent_override,
                 platform_vat_percent: platforms.vat_percent,
                 created_by: orders.created_by,
+                pricing_mode: orders.pricing_mode,
             })
             .from(orders)
             .leftJoin(companies, eq(orders.company_id, companies.id))
@@ -496,9 +527,7 @@ const resolveEntityContext = async (
                     ? toNum(row.company_vat_percent_override)
                     : toNum(row.platform_vat_percent),
             created_by: String(row.created_by),
-            // Orders don't have pricing_mode yet; treat as STANDARD so the
-            // rebuildBreakdown short-circuit stays uniform across entity types.
-            pricing_mode: "STANDARD" as const,
+            pricing_mode: (row.pricing_mode as "STANDARD" | "NO_COST" | null) ?? "STANDARD",
         };
     }
 
@@ -511,6 +540,7 @@ const resolveEntityContext = async (
                 company_vat_percent_override: companies.vat_percent_override,
                 platform_vat_percent: platforms.vat_percent,
                 created_by: inboundRequests.created_by,
+                pricing_mode: inboundRequests.pricing_mode,
             })
             .from(inboundRequests)
             .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
@@ -530,8 +560,7 @@ const resolveEntityContext = async (
                     ? toNum(row.company_vat_percent_override)
                     : toNum(row.platform_vat_percent),
             created_by: String(row.created_by),
-            // Inbound requests don't have pricing_mode yet; treat as STANDARD.
-            pricing_mode: "STANDARD" as const,
+            pricing_mode: (row.pricing_mode as "STANDARD" | "NO_COST" | null) ?? "STANDARD",
         };
     }
 
@@ -574,6 +603,7 @@ const resolveEntityContext = async (
             company_vat_percent_override: companies.vat_percent_override,
             platform_vat_percent: platforms.vat_percent,
             created_by: serviceRequests.created_by,
+            pricing_mode: serviceRequests.pricing_mode,
         })
         .from(serviceRequests)
         .leftJoin(companies, eq(serviceRequests.company_id, companies.id))
@@ -591,8 +621,7 @@ const resolveEntityContext = async (
                 ? toNum(row.company_vat_percent_override)
                 : toNum(row.platform_vat_percent),
         created_by: String(row.created_by),
-        // Service requests don't have pricing_mode yet; treat as STANDARD.
-        pricing_mode: "STANDARD" as const,
+        pricing_mode: (row.pricing_mode as "STANDARD" | "NO_COST" | null) ?? "STANDARD",
     };
 };
 
@@ -822,6 +851,74 @@ const rebuildBreakdown = async (params: RebuildBreakdownParams) => {
             override_reason: marginOverrideReason,
         },
         calculated_at: now,
+    };
+};
+
+/**
+ * READ-ONLY recompute of an entity's breakdown TOTALS via the current engine,
+ * WITHOUT writing anything. Used by the pricing-stamp tie-out harness
+ * (src/db/scripts/verify-pricing-stamp-tieout.ts) to diff freshly-recomputed
+ * totals against the stored breakdown snapshot. Mirrors rebuildBreakdown's
+ * compute path (context resolve → NO_COST short-circuit → load line items →
+ * build lines → total) minus persistence + event emit. The margin seed is the
+ * stored prices.margin_percent (what rebuildBreakdown reads for a non-override
+ * entity), so the recompute is 1:1 with a real rebuild.
+ */
+const recomputeTotalsForTieout = async (params: {
+    entity_type: PricedEntityType;
+    entity_id: string;
+    platform_id: string;
+    tx?: any;
+}): Promise<{
+    totals: BreakdownTotals;
+    pricing_mode: "STANDARD" | "NO_COST";
+    margin_seed: number;
+    vat_percent: number;
+} | null> => {
+    const executor = params.tx ?? db;
+    const context = await resolveEntityContext(
+        executor,
+        params.entity_type,
+        params.entity_id,
+        params.platform_id
+    );
+    const [pricingRow] = await executor
+        .select({ margin_percent: prices.margin_percent, vat_percent: prices.vat_percent })
+        .from(prices)
+        .where(
+            and(
+                eq(prices.platform_id, params.platform_id),
+                eq(prices.entity_type, params.entity_type),
+                eq(prices.entity_id, params.entity_id)
+            )
+        )
+        .limit(1);
+    if (!pricingRow) return null;
+
+    const vatPercent = toNum(pricingRow.vat_percent);
+    const marginSeed = toNum(pricingRow.margin_percent);
+
+    if (context.pricing_mode === "NO_COST") {
+        return {
+            totals: calculateBreakdownTotals([], vatPercent),
+            pricing_mode: "NO_COST",
+            margin_seed: marginSeed,
+            vat_percent: vatPercent,
+        };
+    }
+
+    const rawLineItems = await loadEntityLineItems(
+        executor,
+        params.entity_type,
+        params.entity_id,
+        params.platform_id
+    );
+    const lines = buildBreakdownLinesFromLineItems(rawLineItems as any, marginSeed);
+    return {
+        totals: calculateBreakdownTotals(lines, vatPercent),
+        pricing_mode: "STANDARD",
+        margin_seed: marginSeed,
+        vat_percent: vatPercent,
     };
 };
 
@@ -1131,4 +1228,5 @@ export const PricingService = {
     parseBreakdownLines,
     calculateBreakdownTotals,
     markEntityAsNoCost,
+    recomputeTotalsForTieout,
 };
