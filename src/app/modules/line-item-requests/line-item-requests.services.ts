@@ -337,7 +337,11 @@ const approveLineItemRequest = async (
         notes: finalNotes,
         billing_mode: finalBillingMode,
         metadata: {},
-        client_price_visible: false,
+        // Full commercial decision at approval (PLAN decision 6 / P1-7): carry the
+        // admin's sell rate + client visibility onto the created line. sell absent/
+        // null → seed-derived (margin math); visibility defaults false.
+        client_price_visible: payload.client_price_visible ?? false,
+        sell_unit_rate: payload.sell_unit_rate ?? null,
         added_by: adminUser.id,
         added_by_role: "ADMIN",
     });
