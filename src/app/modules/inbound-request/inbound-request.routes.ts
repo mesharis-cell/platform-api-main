@@ -135,12 +135,13 @@ router.post(
     InboundRequestControllers.completeInboundRequest
 );
 
-// Cancel inbound request (ops roles; service guards terminal statuses)
+// Cancel inbound request (ops roles; grant-only for LOGISTICS — not in the
+// default template. Service guards terminal statuses.)
 router.post(
     "/:id/cancel",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.INBOUND_REQUESTS_UPDATE),
+    requirePermission(PERMISSIONS.INBOUND_REQUESTS_CANCEL),
     payloadValidator(inboundRequestSchemas.cancelInboundRequestSchema),
     InboundRequestControllers.cancelInboundRequest
 );

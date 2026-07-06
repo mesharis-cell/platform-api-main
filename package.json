@@ -26,6 +26,8 @@
         "db:access:audit": "bun --preload ./src/bootstrap/env-preload.ts ./src/db/scripts/audit-admin-access.ts",
         "db:access:cleanup-stale-default-overrides": "bun --preload ./src/bootstrap/env-preload.ts ./src/db/scripts/cleanup-stale-default-overrides.ts",
         "db:access:cleanup-stale-default-overrides:apply": "bun --preload ./src/bootstrap/env-preload.ts ./src/db/scripts/cleanup-stale-default-overrides.ts --apply",
+        "db:access:strip-logistics-cancel": "bun --preload ./src/bootstrap/env-preload.ts ./src/db/scripts/strip-logistics-cancel-perms.ts",
+        "db:access:strip-logistics-cancel:apply": "bun --preload ./src/bootstrap/env-preload.ts ./src/db/scripts/strip-logistics-cancel-perms.ts --apply",
         "db:access:sync-defaults": "bun --preload ./src/bootstrap/env-preload.ts ./src/db/scripts/sync-default-access-policies.ts",
         "db:access:sync-defaults:apply": "bun --preload ./src/bootstrap/env-preload.ts ./src/db/scripts/sync-default-access-policies.ts --apply",
         "dbops:login-report:prod": "bash scripts/dbops/login-report.sh prod",

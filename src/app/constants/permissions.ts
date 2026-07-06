@@ -101,6 +101,9 @@ export const PERMISSIONS = {
     INBOUND_REQUESTS_READ: "inbound_requests:read",
     INBOUND_REQUESTS_UPDATE: "inbound_requests:update",
     INBOUND_REQUESTS_EDIT_DETAILS: "inbound_requests:edit_details", // order-editing P4 retrofit
+    // Cancel is deliberately NOT in any default LOGISTICS template —
+    // grant per-user/policy. ADMIN gets it via inbound_requests:*.
+    INBOUND_REQUESTS_CANCEL: "inbound_requests:cancel",
     INBOUND_REQUESTS_ALL: "inbound_requests:*",
 
     // ==================== LINE ITEM REQUESTS ====================
@@ -404,7 +407,8 @@ export const PERMISSION_TEMPLATES = {
         PERMISSIONS.SELF_PICKUPS_CREATE,
         PERMISSIONS.SELF_PICKUPS_READ,
         PERMISSIONS.SELF_PICKUPS_APPROVE,
-        PERMISSIONS.SELF_PICKUPS_CANCEL,
+        // SELF_PICKUPS_CANCEL deliberately excluded: cancel is grant-only
+        // for logistics (owner decision 2026-07-06), not a default.
         PERMISSIONS.SELF_PICKUPS_MARK_NO_COST,
         PERMISSIONS.SELF_PICKUPS_VIEW_PAGE,
         PERMISSIONS.STOCK_MOVEMENTS_READ,
