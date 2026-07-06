@@ -91,19 +91,10 @@ export const returnToLogisticsSchema = z.object({
     }),
 });
 
-// Mirrors order.schemas.ts:adminApproveQuoteSchema.
+// Mirrors order.schemas.ts:adminApproveQuoteSchema. Blanket margin override
+// retired (Phase 1, P1-6) — approval carries no pricing payload.
 export const adminApproveQuoteSchema = z.object({
-    body: z
-        .object({
-            margin_override_percent: z
-                .number()
-                .min(0, "Margin override must be >= 0")
-                .max(100, "Margin override must be <= 100")
-                .optional(),
-            margin_override_reason: z.string().max(1000).optional(),
-        })
-        .optional()
-        .default({}),
+    body: z.object({}).strict().optional().default({}),
 });
 
 // Edit an existing self-pickup's details (order-editing feature, P4). All optional + allowlisted;

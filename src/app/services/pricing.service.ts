@@ -87,7 +87,6 @@ type RebuildBreakdownParams = {
     entity_id: string;
     platform_id: string;
     calculated_by: string;
-    set_margin_override?: { percent: number; reason: string | null };
     tx?: any;
 };
 
@@ -750,8 +749,6 @@ const rebuildBreakdown = async (params: RebuildBreakdownParams) => {
             id: prices.id,
             margin_percent: prices.margin_percent,
             vat_percent: prices.vat_percent,
-            margin_is_override: prices.margin_is_override,
-            margin_override_reason: prices.margin_override_reason,
             breakdown_lines: prices.breakdown_lines,
             calculated_at: prices.calculated_at,
         })
@@ -759,23 +756,20 @@ const rebuildBreakdown = async (params: RebuildBreakdownParams) => {
         .where(eq(prices.id, pricingId))
         .limit(1);
 
+    // Margin seed resolution (blanket override retired — Phase 1, P1-6). The seed
+    // is the company default on first build, then the stored prices.margin_percent
+    // thereafter. There is NO runtime override path anymore: per-line
+    // line_items.sell_unit_rate is the only sell control (stamped at create/edit/
+    // bulk-margin). `margin_is_override` / `margin_override_reason` are dormant
+    // columns — no longer read for resolution nor written (dropped in migration
+    // 0073). They remain constant false/null here purely to keep the return +
+    // event shape stable for existing readers until the Phase 4 cleanup.
     let marginPercent = context.company_margin;
-    let marginIsOverride = false;
-    let marginOverrideReason: string | null = null;
-
-    if (params.set_margin_override) {
-        marginPercent = roundCurrency(params.set_margin_override.percent);
-        marginIsOverride = true;
-        marginOverrideReason = params.set_margin_override.reason || null;
-    } else if (pricingRow?.margin_is_override) {
+    if (pricingRow?.margin_percent !== undefined && pricingRow?.margin_percent !== null) {
         marginPercent = toNum(pricingRow.margin_percent);
-        marginIsOverride = true;
-        marginOverrideReason = pricingRow.margin_override_reason ?? null;
-    } else if (pricingRow?.margin_percent !== undefined && pricingRow?.margin_percent !== null) {
-        marginPercent = toNum(pricingRow.margin_percent);
-        marginIsOverride = false;
-        marginOverrideReason = null;
     }
+    const marginIsOverride = false;
+    const marginOverrideReason: string | null = null;
 
     const now = new Date();
     const rawLineItems = await loadEntityLineItems(
@@ -795,8 +789,8 @@ const rebuildBreakdown = async (params: RebuildBreakdownParams) => {
             breakdown_lines: breakdownLines,
             margin_percent: marginPercent.toFixed(2),
             vat_percent: context.vat_percent.toFixed(2),
-            margin_is_override: marginIsOverride,
-            margin_override_reason: marginOverrideReason,
+            // margin_is_override / margin_override_reason intentionally NOT written
+            // (blanket override retired, P1-6) — columns dormant until dropped in 0073.
             calculated_at: now,
             calculated_by: params.calculated_by,
         })
@@ -822,7 +816,7 @@ const rebuildBreakdown = async (params: RebuildBreakdownParams) => {
             vat_percent: context.vat_percent,
             final_total: totals.sell_total_with_vat,
             final_total_with_vat: totals.sell_total_with_vat,
-            trigger: params.set_margin_override ? "margin_override" : "line_item_change",
+            trigger: "line_item_change",
         },
     });
 

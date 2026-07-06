@@ -3292,10 +3292,8 @@ const adminApproveQuote = async (
     orderId: string,
     user: AuthUser,
     platformId: string,
-    payload: AdminApproveQuotePayload
+    _payload: AdminApproveQuotePayload
 ) => {
-    const { margin_override_percent, margin_override_reason } = payload;
-
     // Step 1: Fetch order with details
     const [result] = await db
         .select({
@@ -3372,25 +3370,12 @@ const adminApproveQuote = async (
     const newFinancialStatus = "QUOTE_SENT";
 
     const projectedAdminPricing = PricingService.projectByRole(orderPricing as any, "ADMIN") as any;
-    let finalTotal = String(projectedAdminPricing?.final_total || "0");
+    const finalTotal = String(projectedAdminPricing?.final_total || "0");
 
-    // Step 3: Update order pricing and status
+    // Step 3: Update order status. Blanket margin override retired (P1-6): approval
+    // no longer recalculates pricing — the quote is sent exactly as priced via the
+    // per-line ledger. finalTotal is the already-projected admin total above.
     await db.transaction(async (tx) => {
-        if (margin_override_percent) {
-            const result = await PricingService.recalculate({
-                entity_type: "ORDER",
-                entity_id: orderId,
-                platform_id: platformId,
-                calculated_by: user.id,
-                set_margin_override: {
-                    percent: margin_override_percent,
-                    reason: margin_override_reason || null,
-                },
-                tx,
-            });
-            finalTotal = result.final_total.toFixed(2);
-        }
-
         // Step 3.2: Update order status
         await tx
             .update(orders)
@@ -3406,11 +3391,7 @@ const adminApproveQuote = async (
             platform_id: platformId,
             order_id: orderId,
             status: "QUOTED",
-            notes: margin_override_percent
-                ? `Admin approved with margin override (${margin_override_percent}%): ${margin_override_reason}`
-                : isRevisedQuote
-                  ? "Admin approved revised quote"
-                  : "Admin approved quote",
+            notes: isRevisedQuote ? "Admin approved revised quote" : "Admin approved quote",
             updated_by: user.id,
         });
 

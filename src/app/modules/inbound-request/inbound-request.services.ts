@@ -590,10 +590,8 @@ const approveInboundRequestByAdmin = async (
     requestId: string,
     user: AuthUser,
     platformId: string,
-    payload: ApproveInboundRequestPayload
+    _payload: ApproveInboundRequestPayload
 ) => {
-    const { margin_override_percent, margin_override_reason } = payload;
-
     // Step 1: Fetch inbound request with details
     const [result] = await db
         .select({
@@ -664,28 +662,13 @@ const approveInboundRequestByAdmin = async (
     // download 409 gate. Mirrors the order fix in adminApproveQuote.
     const newFinancialStatus = "QUOTE_SENT";
 
-    let finalTotal = String(
+    const finalTotal = String(
         PricingService.projectSummaryForRole(requestPricing as any, "CLIENT")?.final_total || "0"
     );
 
-    // Step 3: Update order pricing and status
+    // Step 3: Update status. Blanket margin override retired (P1-6) — approval no
+    // longer recalculates pricing; the quote is sent as priced via the per-line ledger.
     await db.transaction(async (tx) => {
-        // Step 3.1: Update pricing if margin override is provided
-        if (margin_override_percent) {
-            const recalcResult = await PricingService.recalculate({
-                entity_type: "INBOUND_REQUEST",
-                entity_id: inboundRequest.id,
-                platform_id: platformId,
-                calculated_by: user.id,
-                set_margin_override: {
-                    percent: margin_override_percent,
-                    reason: margin_override_reason || null,
-                },
-                tx,
-            });
-            finalTotal = recalcResult.final_total.toFixed(2);
-        }
-
         // Step 3.2: Update order status
         await tx
             .update(inboundRequests)

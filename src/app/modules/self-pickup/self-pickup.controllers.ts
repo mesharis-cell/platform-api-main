@@ -195,10 +195,7 @@ const approveQuote = catchAsync(async (req, res) => {
     const platformId = (req as any).platformId;
     const user = (req as any).user;
     const id = getRequiredString(req.params.id, "id");
-    const result = await SelfPickupServices.approveQuote(id, platformId, user, {
-        margin_override_percent: req.body?.margin_override_percent,
-        margin_override_reason: req.body?.margin_override_reason,
-    });
+    const result = await SelfPickupServices.approveQuote(id, platformId, user);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,

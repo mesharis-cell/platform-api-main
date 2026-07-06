@@ -548,17 +548,13 @@ const cancelOrderSchema = z.object({
         .strict(),
 });
 
+// Blanket margin override retired (Phase 1, P1-6). Admin approval no longer
+// carries a margin override — per-line sell rates (line_items.sell_unit_rate,
+// set via the ledger / bulk-margin) are the only sell control. Body is an empty
+// strict object so any stray override fields are rejected rather than silently
+// ignored.
 const adminApproveQuoteSchema = z.object({
-    body: z
-        .object({
-            margin_override_percent: z
-                .number("Margin override percent should be a number")
-                .min(0, "Margin override percent must be greater than 0")
-                .max(100, "Margin override percent must be less than 100")
-                .optional(),
-            margin_override_reason: z.string("Margin override reason should be a text").optional(),
-        })
-        .strict(),
+    body: z.object({}).strict().optional().default({}),
 });
 
 const derigCaptureSchema = z.object({
