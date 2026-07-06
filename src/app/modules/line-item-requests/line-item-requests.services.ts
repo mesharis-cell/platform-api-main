@@ -254,6 +254,17 @@ const approveLineItemRequest = async (
     if (finalUnitRate < 0) {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Unit rate must be 0 or greater");
     }
+    // A per-line sell override only applies to BILLABLE lines — mirrors the
+    // updateLineItem / createCatalogLineItem guards. Reject a numeric
+    // sell_unit_rate against a non-billable effective billing mode EARLY, before
+    // any side-effecting service-type resolution below, so the request fails
+    // cleanly instead of surfacing from deep inside the create-path guard.
+    if (typeof payload.sell_unit_rate === "number" && finalBillingMode !== "BILLABLE") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "A sell price override only applies to billable lines"
+        );
+    }
 
     const purposeType = request.purpose_type as SupportedPurpose;
 

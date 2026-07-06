@@ -19,6 +19,7 @@ import { ZoneRoutes } from "../modules/zone/zone.routes";
 import { ScanningRoutes } from "../modules/scanning/scanning.routes";
 import { UploadRoutes } from "../modules/upload/upload.route";
 import { LineItemsRoutes } from "../modules/order-line-items/order-line-items.routes";
+import { PricingRoutes } from "../modules/pricing/pricing.routes";
 import { ReportsOperationRoutes } from "../modules/reports/reports.routes";
 import { OrderRoutes } from "../modules/order/order.routes";
 import { ServiceRequestRoutes } from "../modules/service-request/service-request.routes";
@@ -82,6 +83,12 @@ const routes = [
     {
         path: "/pricing/service-types",
         route: ServiceTypesRoutes,
+    },
+    // Mounted AFTER /pricing/service-types so the more-specific service-types
+    // prefix wins; this router only owns /pricing/:purposeType/:entityId/preview.
+    {
+        path: "/pricing",
+        route: PricingRoutes,
     },
     {
         path: "/asset",
