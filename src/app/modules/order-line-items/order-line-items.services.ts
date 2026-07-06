@@ -284,6 +284,15 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
             "Only Platform Admin can set margin policy"
         );
     }
+    // Per-line sell override is ADMIN-only (mirrors the update-path guard).
+    // Catalog-create is reachable by LOGISTICS (POST /catalog accepts both
+    // roles) so reject a caller-supplied sell rate from logistics.
+    if (added_by_role === "LOGISTICS" && data.sell_unit_rate !== undefined) {
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            "Only Platform Admin can set a sell price override"
+        );
+    }
 
     // Get service type details
     const [serviceType] = await db
@@ -326,6 +335,16 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
     const effectiveBillingMode =
         added_by_role === "LOGISTICS" ? "BILLABLE" : billing_mode || "BILLABLE";
 
+    // A per-line sell override only applies to BILLABLE lines (the projection
+    // excludes NON_BILLABLE/COMPLIMENTARY sell from totals). Block setting a
+    // value on a non-billable line; mirrors the update-path guard.
+    if (typeof data.sell_unit_rate === "number" && effectiveBillingMode !== "BILLABLE") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "A sell price override only applies to billable lines"
+        );
+    }
+
     // Calculate total
     const total = quantity * Number(serviceType.default_rate);
 
@@ -333,6 +352,13 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
     // Caller can explicitly override to true/false here.
     const applyMarginValue =
         data.apply_margin === undefined ? null : (data.apply_margin as boolean | null);
+
+    // Per-line sell override. NULL = fall back to margin math (seed-derived);
+    // a value = fixed sell rate (stored as decimal string).
+    const catalogSellUnitRate =
+        data.sell_unit_rate === undefined || data.sell_unit_rate === null
+            ? null
+            : data.sell_unit_rate.toString();
 
     const result = await runWithLineItemIdRetry(async () =>
         db.transaction(async (tx) => {
@@ -355,6 +381,7 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
                     quantity: quantity.toString(),
                     unit: serviceType.unit,
                     unit_rate: serviceType.default_rate,
+                    sell_unit_rate: catalogSellUnitRate,
                     total: total.toString(),
                     added_by,
                     notes: notes || null,
@@ -468,6 +495,17 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
     const parsedMetadata = (metadata || {}) as Record<string, unknown>;
     const effectiveBillingMode =
         added_by_role === "LOGISTICS" ? "BILLABLE" : billing_mode || "BILLABLE";
+
+    // A per-line sell override only applies to BILLABLE lines. Custom-create
+    // accepted a sell_unit_rate with no billing-mode check — the known
+    // asymmetry vs updateLineItem. Close it: block setting a value on a
+    // non-billable line (clearing via null is always allowed).
+    if (typeof data.sell_unit_rate === "number" && effectiveBillingMode !== "BILLABLE") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "A sell price override only applies to billable lines"
+        );
+    }
 
     // Custom lines have no service_type to inherit from. NULL apply_margin
     // therefore resolves to true at projection time. Callers (fuel-surcharge

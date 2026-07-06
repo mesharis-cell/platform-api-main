@@ -38,6 +38,10 @@ const createCatalogLineItemSchema = z.object({
             client_price_visible: z.boolean().optional().default(false),
             apply_margin: applyMarginSchema,
             logistics_visible: logisticsVisibleSchema,
+            // Per-line SELL override at create time — kills the admin
+            // create-then-PUT hack. ADMIN-only (guarded at the service layer;
+            // LOGISTICS catalog-create rejects a supplied value).
+            sell_unit_rate: sellUnitRateSchema,
         })
         .refine((data) => {
             if (data.purpose_type === "ORDER" && !data.order_id) {
