@@ -471,7 +471,7 @@
  *     summary: Get orders pending pricing review (ADMIN only)
  *     description: |
  *       Retrieves a list of orders that are in the PRICING_REVIEW status.
- *       Includes pricing summary derived from active line items and base operations configuration.
+ *       Includes pricing summary derived from active line items.
  *
  *       **Access Control:**
  *       - ADMIN users only

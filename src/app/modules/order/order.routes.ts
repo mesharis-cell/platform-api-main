@@ -350,13 +350,13 @@ router.patch(
     OrderControllers.saveOnSiteCapture
 );
 
-// Recalculate base operations from current asset dimensions
+// Resync order-item dimensions (volume/weight) from current asset dimensions
 router.post(
-    "/:id/recalculate-base-ops",
+    "/:id/resync-item-dimensions",
     platformValidator,
     auth("LOGISTICS"),
     requirePermission(PERMISSIONS.ORDERS_UPDATE),
-    OrderControllers.recalculateBaseOps
+    OrderControllers.resyncItemDimensions
 );
 
 // Submit for approval (Logistics → Admin)

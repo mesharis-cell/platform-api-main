@@ -670,8 +670,10 @@ const applyOrderItemEdits = async (
 };
 
 /**
- * Recompute the order's volume/weight from its (just-updated) items and reprice — re-syncs the
- * volume-based BASE_OPS system line. Mirrors recalculateBaseOps but runs inside the edit tx.
+ * Recompute the order's volume/weight from its (just-updated) items and reprice.
+ * Refreshes per-item volume/weight from current asset dimensions, re-stamps the
+ * order's calculated_totals, and recalculates pricing from the current line
+ * items. Runs inside the edit tx.
  */
 const repriceOrderAfterItemChange = async (
     tx: any,
@@ -684,14 +686,6 @@ const repriceOrderAfterItemChange = async (
         .from(orders)
         .where(eq(orders.id, orderId));
     if (!order) return;
-
-    const [company] = order.company_id
-        ? await tx
-              .select({ rate: companies.warehouse_ops_rate })
-              .from(companies)
-              .where(eq(companies.id, order.company_id))
-        : [];
-    const rate = Number(company?.rate ?? 0);
 
     const items = await tx
         .select({
@@ -747,7 +741,6 @@ const repriceOrderAfterItemChange = async (
         entity_id: orderId,
         platform_id: platformId,
         calculated_by: userId,
-        base_ops_total_override: rate * totalVolume,
         tx,
     });
 
@@ -945,14 +938,6 @@ const repriceSelfPickupAfterItemChange = async (
         .where(eq(selfPickups.id, selfPickupId));
     if (!pickup) return;
 
-    const [company] = pickup.company_id
-        ? await tx
-              .select({ rate: companies.warehouse_ops_rate })
-              .from(companies)
-              .where(eq(companies.id, pickup.company_id))
-        : [];
-    const rate = Number(company?.rate ?? 0);
-
     const items = await tx
         .select({
             id: selfPickupItems.id,
@@ -1007,7 +992,6 @@ const repriceSelfPickupAfterItemChange = async (
         entity_id: selfPickupId,
         platform_id: platformId,
         calculated_by: userId,
-        base_ops_total_override: rate * totalVolume,
         tx,
     });
 
@@ -1222,7 +1206,8 @@ export const editEntity = async (params: EditEntityParams): Promise<EditEntityRe
             reconcileTriggered = true;
         }
 
-        // 4. Reprice on an item change (volume → BASE_OPS). recalculate accepts the tx.
+        // 4. Reprice on an item change (refresh item dimensions + recalc from
+        //    current line items). recalculate accepts the tx.
         if (itemsChanged) {
             if (isSelfPickup) {
                 await repriceSelfPickupAfterItemChange(tx, entityId, platformId, user.id);

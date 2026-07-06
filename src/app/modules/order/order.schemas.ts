@@ -672,7 +672,7 @@ const editOrderSchema = z.object({
                 .transform((d) => new Date(d))
                 .optional(),
             // Tier B+C — edit the order's physical items (P3b qty change + P3c add/remove "swap").
-            // Each op cascades into reconcileBookings (holds) + the volume-based BASE_OPS reprice.
+            // Each op cascades into reconcileBookings (holds) + item-dimension reprice.
             //   UPDATE (default): order_item_id + quantity — change an existing item's quantity.
             //   ADD:              asset_id + quantity — add a new asset (non-maintenance only).
             //   REMOVE:           order_item_id — drop an item (cancels its bundled maintenance SR).

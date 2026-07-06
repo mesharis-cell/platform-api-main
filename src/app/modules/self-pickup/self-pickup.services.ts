@@ -24,7 +24,6 @@ import { PricingService } from "../../services/pricing.service";
 import { EntityEditService } from "../../services/entity-edit.service";
 import { WorkflowAutoOpenService } from "../../services/workflow-auto-open.service";
 import { eventBus, EVENT_TYPES } from "../../events";
-import { resolveEffectiveFeature } from "../../constants/common";
 import {
     getPlatformFeasibilityConfig,
     spLeadHoursForWindow,
@@ -253,18 +252,6 @@ const submitSelfPickupFromCart = async (
     }
 
     // Step 3: Create pricing (same pattern as orders)
-    const volume = parseFloat(calculatedVolume);
-    const baseOpsTotal = Number(company.warehouse_ops_rate) * volume;
-    // Use the canonical feature resolver (company override → platform value →
-    // registry default). Reading company.features directly with `?? true`
-    // ignored the platform-level flag and defaulted ON — that's the bug that
-    // caused BASE_OPS to show up on Red Bull self-pickups even though
-    // enable_base_operations was OFF at every level. See CLAUDE.md
-    // <feature_flag_discipline>.
-    const enableBaseOperations = resolveEffectiveFeature("enable_base_operations", {
-        platformFeatures: (platform?.features as Record<string, unknown> | null) || null,
-        companyFeatures: (company.features as Record<string, unknown> | null) || null,
-    });
     const vatPercent =
         company.vat_percent_override !== null && company.vat_percent_override !== undefined
             ? Number(company.vat_percent_override)
@@ -274,13 +261,9 @@ const submitSelfPickupFromCart = async (
         platform_id: platformId,
         entity_type: "SELF_PICKUP",
         entity_id: randomUUID(),
-        warehouse_ops_rate: company.warehouse_ops_rate,
-        base_ops_total: baseOpsTotal,
         margin_percent: Number(company.platform_margin_percent || 0),
         vat_percent: vatPercent,
         calculated_by: user.id,
-        volume,
-        enable_base_operations: enableBaseOperations,
     });
 
     // Step 4: Create the self-pickup record in a transaction
@@ -416,7 +399,6 @@ const submitSelfPickupFromCart = async (
         entity_id: result.id,
         platform_id: platformId,
         calculated_by: user.id,
-        base_ops_total_override: baseOpsTotal,
     });
 
     await CommerceRulesServices.recordCheckoutAcknowledgementAudit({
