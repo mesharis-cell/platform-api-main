@@ -26,7 +26,11 @@ import {
     UpdateLineItemPayload,
     VoidLineItemPayload,
 } from "./order-line-items.interfaces";
-import { lineItemIdGenerator, lineItemQueryValidationConfig } from "./order-line-items.utils";
+import {
+    lineItemIdGenerator,
+    lineItemQueryValidationConfig,
+    projectLineItemsForLogistics,
+} from "./order-line-items.utils";
 import { buildOrderInfoBlockById } from "../../utils/helper-query";
 import queryValidator from "../../utils/query-validator";
 import { DocumentService } from "../../services/document.service";
@@ -252,6 +256,14 @@ const getLineItems = async (
             ...(await getLineItemEditability(item, platformId)),
         }))
     );
+
+    // LEAK GATE: the ADMIN-only sell override must never reach LOGISTICS. This
+    // endpoint feeds the warehouse buy-only ledger + the admin role-preview's
+    // "as logistics" lens; strip sell_unit_rate for LOGISTICS callers. ADMIN
+    // keeps the full row (its own preview + edit lens need it).
+    if (callerRole === "LOGISTICS") {
+        return projectLineItemsForLogistics(formattedResults);
+    }
 
     return formattedResults;
 };

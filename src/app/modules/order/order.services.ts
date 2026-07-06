@@ -81,7 +81,10 @@ import {
     validateRoleBasedTransition,
 } from "./order.utils";
 import { LineItemsServices } from "../order-line-items/order-line-items.services";
-import { projectLineItemsForClient } from "../order-line-items/order-line-items.utils";
+import {
+    projectLineItemsForClient,
+    projectLineItemsForLogistics,
+} from "../order-line-items/order-line-items.utils";
 import { eventBus, EVENT_TYPES } from "../../events";
 import { orderIdGenerator } from "./order.utils";
 import { WorkflowAutoOpenService } from "../../services/workflow-auto-open.service";
@@ -1937,7 +1940,10 @@ const getOrderById = async (
         brand: orderData.brand,
         user: orderData.user,
         items: itemsWithRepairState,
-        line_items: lineItems,
+        // LEAK GATE: strip the ADMIN-only sell override from the raw array for
+        // LOGISTICS (buy-only audience). CLIENT is handled on its own return
+        // path above via projectLineItemsForClient; ADMIN keeps the full array.
+        line_items: user.role === "LOGISTICS" ? projectLineItemsForLogistics(lineItems) : lineItems,
         linked_service_requests: linkedServiceRequests,
         maintenance_decision_change_requests: decisionChangeRequests,
         financial_status_history: financialHistory,

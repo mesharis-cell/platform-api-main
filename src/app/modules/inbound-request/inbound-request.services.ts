@@ -30,7 +30,10 @@ import {
 import { qrCodeGenerator } from "../../utils/qr-code-generator";
 import paginationMaker from "../../utils/pagination-maker";
 import queryValidator from "../../utils/query-validator";
-import { projectLineItemsForClient } from "../order-line-items/order-line-items.utils";
+import {
+    projectLineItemsForClient,
+    projectLineItemsForLogistics,
+} from "../order-line-items/order-line-items.utils";
 import {
     generateCostEstimateAndSendEmail,
     inboundRequestIdGenerator,
@@ -480,13 +483,17 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
                 asset,
             };
         }),
-        // CLIENT LEAK FIX: the raw line_items array (SELECT *) carries buy-side
-        // unit_rate/total and the ADMIN-only sell_unit_rate override.
-        // CLIENT is a valid caller on GET /inbound-request/:id, so
-        // project through the SELL-ONLY allowlist for clients. ADMIN/LOGISTICS
-        // keep the full array. Client SELL numbers come from request_pricing.
+        // LEAK GATE: the raw line_items array (SELECT *) carries buy-side
+        // unit_rate/total AND the ADMIN-only sell_unit_rate override. CLIENT
+        // gets the SELL-ONLY allowlist; LOGISTICS (buy-only) gets the array with
+        // sell_unit_rate stripped; only ADMIN keeps the full array. Client SELL
+        // numbers come from request_pricing.
         line_items:
-            user.role === "CLIENT" ? projectLineItemsForClient(lineItemsData) : lineItemsData,
+            user.role === "CLIENT"
+                ? projectLineItemsForClient(lineItemsData)
+                : user.role === "LOGISTICS"
+                  ? projectLineItemsForLogistics(lineItemsData)
+                  : lineItemsData,
         invoice: invoice || null,
         created_at: result.request.created_at,
         updated_at: result.request.updated_at,
