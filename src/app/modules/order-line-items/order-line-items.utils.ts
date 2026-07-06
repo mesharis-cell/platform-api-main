@@ -46,7 +46,7 @@ export const lineItemQueryValidationConfig = {
 
 // -------------------------------- CLIENT LINE-ITEM PROJECTION --------------------------------
 // Raw line_items rows (from getLineItems / SELECT *) carry BUY-side pricing:
-// unit_rate, total, sell_unit_rate (the ADMIN-only sell override), apply_margin.
+// unit_rate, total, sell_unit_rate (the ADMIN-only sell override).
 // Those must NEVER reach a CLIENT. Any CLIENT-facing detail response that
 // embeds the raw line_items array (order + inbound request) has to project it
 // through this SELL-ONLY allowlist first.
@@ -79,7 +79,7 @@ export const projectLineItemForClient = (item: Record<string, any>) => ({
     updated_at: item.updated_at,
     added_at: item.added_at,
     // Intentionally OMITTED (buy-side / margin / sell override): unit_rate,
-    // total, sell_unit_rate, apply_margin, logistics_visible, service_type_id,
+    // total, sell_unit_rate, logistics_visible, service_type_id,
     // added_by, voided_by/voided_at/void_reason, editability flags.
 });
 

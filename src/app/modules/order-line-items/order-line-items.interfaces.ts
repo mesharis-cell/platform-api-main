@@ -56,7 +56,6 @@ export interface OrderLineItem {
     notes: string | null;
     metadata: Record<string, unknown>;
     client_price_visible: boolean;
-    apply_margin: boolean | null;
     logistics_visible: boolean;
     is_voided: boolean;
     voided_at: Date | null;
