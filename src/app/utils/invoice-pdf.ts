@@ -431,26 +431,6 @@ export async function renderInvoicePDF(
                 doc.fontSize(10)
                     .font("Helvetica")
                     .fillColor("#555")
-                    .text("Picking & Handling", summaryX, doc.y);
-
-                doc.fontSize(10)
-                    .font("Helvetica")
-                    .fillColor("#000")
-                    .text(
-                        formatCurrency(data.pricing.picking_handling_price),
-                        summaryX,
-                        doc.y - 12,
-                        {
-                            align: "right",
-                            width: summaryWidth,
-                        }
-                    );
-
-                doc.moveDown(0.6);
-
-                doc.fontSize(10)
-                    .font("Helvetica")
-                    .fillColor("#555")
                     .text("Subtotal", summaryX, doc.y);
 
                 doc.fontSize(10)

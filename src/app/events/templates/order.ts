@@ -165,7 +165,6 @@ export const quoteSentClient: EmailTemplate = {
     subject: (payload) => `Quote Ready: ${p(payload).entity_id_readable}`,
     html: (payload) => {
         const d = p(payload);
-        const pricing = d.pricing || {};
         const lineItems = Array.isArray(d.line_items) ? d.line_items : [];
         const qtyLabel = (i: any) => {
             if (i.quantity == null) return "";
@@ -200,13 +199,6 @@ export const quoteSentClient: EmailTemplate = {
                   .map(renderLineRow)
                   .join("")
             : `<p style="margin: 6px 0; color: #6b7280;">No additional service items</p>`;
-        // Picking & Handling — same visibility rule as line items. The
-        // payload sends pricing.base_ops_total only when the client is
-        // allowed to see it; otherwise we render the label alone.
-        const baseOpsHtml =
-            pricing.base_ops_total != null
-                ? `<p style="margin: 6px 0;"><strong>Picking & Handling:</strong> ${formatMoney(pricing.base_ops_total, d.currency)}</p>`
-                : `<p style="margin: 6px 0;"><strong>Picking & Handling</strong></p>`;
 
         return wrap(`
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #1f2937;">Your Quote is Ready</h1>
@@ -214,7 +206,6 @@ export const quoteSentClient: EmailTemplate = {
             ${infoBox(`
                 ${orderInfoRows(d.order_info, { audience: "client" })}
                 <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 12px 0;">
-                ${baseOpsHtml}
                 ${lineItemsHtml}
                 <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 12px 0;">
                 <p style="margin: 8px 0; font-size: 18px; font-weight: bold; color: #111827;">Total: ${formatMoney(d.final_total, d.currency)}</p>

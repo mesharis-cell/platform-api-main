@@ -162,9 +162,6 @@ export interface QuoteSentPayload extends BaseEventPayload {
         amount: number;
     }>;
     pricing: {
-        base_ops_total: string;
-        logistics_sub_total: string;
-        margin_amount: string;
         final_total: string;
     };
     cost_estimate_url?: string;
@@ -495,17 +492,12 @@ export interface LineItemVoidedPayload extends BaseEventPayload {
 
 export interface PricingRecalculatedPayload extends BaseEventPayload {
     pricing_id: string;
-    base_ops_total: number;
+    system_total: number;
     catalog_total: number;
     custom_total: number;
     margin_percent: number;
     final_total: number;
-    trigger:
-        | "line_item_change"
-        | "manual_recalc"
-        | "base_ops_recalc"
-        | "margin_override"
-        | "submission";
+    trigger: "line_item_change" | "manual_recalc" | "margin_override" | "submission";
 }
 
 // ============================================================

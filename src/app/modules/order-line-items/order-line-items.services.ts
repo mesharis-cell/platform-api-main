@@ -1392,7 +1392,7 @@ const updateInboundRequestPricingAfterLineItemChange = async (
 
 // ----------------------------------- UPDATE SELF-PICKUP PRICING AFTER LINE ITEM CHANGE ------
 // Mirrors updateOrderPricingAfterLineItemChange — rebuildBreakdown picks up the
-// new line item totals + re-syncs BASE_OPS (subject to enable_base_operations).
+// new line item totals.
 const updateSelfPickupPricingAfterLineItemChange = async (
     selfPickupId: string,
     platformId: string,

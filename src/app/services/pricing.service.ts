@@ -1,9 +1,8 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../db";
 import {
     companies,
-    inboundRequestItems,
     inboundRequests,
     lineItems,
     orders,
@@ -17,13 +16,14 @@ import CustomizedError from "../error/customized-error";
 import { eventBus } from "../events/event-bus";
 import { EVENT_TYPES } from "../events/event-types";
 import { applyMarginPerLine, roundCurrency } from "../utils/pricing-engine";
-import { lineItemIdGenerator } from "../modules/order-line-items/order-line-items.utils";
-import { resolveEffectiveFeature } from "../constants/common";
 
 export type PricedEntityType = "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP";
 type PricingRole = "ADMIN" | "LOGISTICS" | "CLIENT";
 
-type BreakdownLineKind = "BASE_OPS" | "RATE_CARD" | "CUSTOM";
+// SYSTEM covers auto-managed line items (system_key-keyed). BASE_OPS is gone
+// (removed 2026-07); the bucket survives as the substrate for future
+// auto-spawn fee lines — see the system-key handler registry below + PLAN §11.
+type BreakdownLineKind = "SYSTEM" | "RATE_CARD" | "CUSTOM";
 type BreakdownSourceMode =
     | "WAREHOUSE_OPS_RATE"
     | "SERVICE_TYPE"
@@ -77,13 +77,9 @@ type BuildInitialPricingParams = {
     platform_id: string;
     entity_type: PricedEntityType;
     entity_id: string;
-    warehouse_ops_rate: string | number;
-    base_ops_total: number;
     margin_percent: number;
     vat_percent?: number;
     calculated_by: string;
-    volume?: number;
-    enable_base_operations?: boolean;
 };
 
 type RebuildBreakdownParams = {
@@ -91,7 +87,6 @@ type RebuildBreakdownParams = {
     entity_id: string;
     platform_id: string;
     calculated_by: string;
-    base_ops_total_override?: number;
     set_margin_override?: { percent: number; reason: string | null };
     tx?: any;
 };
@@ -134,11 +129,11 @@ type RawLineItem = {
 };
 
 type BreakdownTotals = {
-    buy_base_ops_total: number;
+    buy_system_total: number;
     buy_rate_card_total: number;
     buy_custom_total: number;
     buy_total: number;
-    sell_base_ops_total: number;
+    sell_system_total: number;
     sell_rate_card_total: number;
     sell_custom_total: number;
     sell_total: number;
@@ -163,8 +158,13 @@ const toIso = (v: Date | string | null | undefined): string | null => {
 const toBreakdownLine = (line: unknown): BreakdownLine | null => {
     if (!line || typeof line !== "object") return null;
     const row = line as Record<string, unknown>;
-    const lineKind = String(row.line_kind || "");
-    if (!["BASE_OPS", "RATE_CARD", "CUSTOM"].includes(lineKind)) return null;
+    const rawLineKind = String(row.line_kind || "");
+    // Read path tolerance: historical breakdown_lines JSONB (frozen financial
+    // records — never rewritten) may carry the legacy "BASE_OPS" kind. Accept
+    // it and normalize to "SYSTEM" so old snapshots still project + bucket
+    // correctly. New writes only ever emit "SYSTEM".
+    if (!["SYSTEM", "BASE_OPS", "RATE_CARD", "CUSTOM"].includes(rawLineKind)) return null;
+    const lineKind = rawLineKind === "BASE_OPS" ? "SYSTEM" : rawLineKind;
 
     const sourceRaw =
         row.source && typeof row.source === "object" ? (row.source as Record<string, unknown>) : {};
@@ -231,11 +231,11 @@ const shouldHideLineForClient = (line: BreakdownLine) =>
 
 const calculateBreakdownTotals = (lines: BreakdownLine[], vatPercent = 0): BreakdownTotals => {
     const totals: BreakdownTotals = {
-        buy_base_ops_total: 0,
+        buy_system_total: 0,
         buy_rate_card_total: 0,
         buy_custom_total: 0,
         buy_total: 0,
-        sell_base_ops_total: 0,
+        sell_system_total: 0,
         sell_rate_card_total: 0,
         sell_custom_total: 0,
         sell_total: 0,
@@ -249,9 +249,9 @@ const calculateBreakdownTotals = (lines: BreakdownLine[], vatPercent = 0): Break
         if (!shouldCountInTotals(line)) continue;
         const buy = toNum(line.buy_total);
         const sell = toNum(line.sell_total);
-        if (line.line_kind === "BASE_OPS") {
-            totals.buy_base_ops_total += buy;
-            totals.sell_base_ops_total += sell;
+        if (line.line_kind === "SYSTEM") {
+            totals.buy_system_total += buy;
+            totals.sell_system_total += sell;
         } else if (line.line_kind === "RATE_CARD") {
             totals.buy_rate_card_total += buy;
             totals.sell_rate_card_total += sell;
@@ -261,18 +261,18 @@ const calculateBreakdownTotals = (lines: BreakdownLine[], vatPercent = 0): Break
         }
     }
 
-    totals.buy_base_ops_total = roundCurrency(totals.buy_base_ops_total);
+    totals.buy_system_total = roundCurrency(totals.buy_system_total);
     totals.buy_rate_card_total = roundCurrency(totals.buy_rate_card_total);
     totals.buy_custom_total = roundCurrency(totals.buy_custom_total);
-    totals.sell_base_ops_total = roundCurrency(totals.sell_base_ops_total);
+    totals.sell_system_total = roundCurrency(totals.sell_system_total);
     totals.sell_rate_card_total = roundCurrency(totals.sell_rate_card_total);
     totals.sell_custom_total = roundCurrency(totals.sell_custom_total);
 
     totals.buy_total = roundCurrency(
-        totals.buy_base_ops_total + totals.buy_rate_card_total + totals.buy_custom_total
+        totals.buy_system_total + totals.buy_rate_card_total + totals.buy_custom_total
     );
     totals.sell_total = roundCurrency(
-        totals.sell_base_ops_total + totals.sell_rate_card_total + totals.sell_custom_total
+        totals.sell_system_total + totals.sell_rate_card_total + totals.sell_custom_total
     );
     totals.sell_vat_percent = roundCurrency(vatPercent);
     totals.sell_vat_amount = roundCurrency((totals.sell_total * totals.sell_vat_percent) / 100);
@@ -331,6 +331,23 @@ const loadEntityLineItems = async (
         )
         .orderBy(asc(lineItems.created_at));
 
+// ── System-key handler registry ────────────────────────────────────────────
+// SYSTEM line items (line_item_type='SYSTEM', keyed by system_key) route
+// their breakdown-line construction through this registry. It is EMPTY after
+// Phase 0 — BASE_OPS is gone. The future AUTO_FEE handler (percentage fee
+// lines spawned from a parent line) plugs in here without touching the
+// precedence logic again — see PLAN §11. A SYSTEM line with no registered
+// handler falls through to the generic per-line treatment below (buy = its
+// own total, sell per margin/override), which is a safe default.
+type SystemLineHandler = (ctx: {
+    item: Record<string, unknown>;
+    marginPercent: number;
+}) => Partial<BreakdownLine> | null;
+
+const SYSTEM_LINE_HANDLERS: Record<string, SystemLineHandler> = {
+    // AUTO_FEE: (ctx) => ({ ... })  ← plugs in here (PLAN §11)
+};
+
 const buildBreakdownLinesFromLineItems = (
     rawItems: Array<Record<string, unknown>>,
     marginPercent: number
@@ -343,26 +360,24 @@ const buildBreakdownLinesFromLineItems = (
                 ? roundCurrency(buyTotal / quantity)
                 : roundCurrency(toNum(item.unit_rate || 0));
         const systemKey = item.system_key ? String(item.system_key) : null;
-        const isSystemBaseOps = item.line_item_type === "SYSTEM" && systemKey === "BASE_OPS";
+        const isSystem = item.line_item_type === "SYSTEM";
 
-        // Resolve effective apply_margin per line.
-        // SYSTEM BASE_OPS is hardcoded to true (entity-wide ops markup always
-        // applies). Otherwise: line override → service_type default → true.
-        const effectiveApplyMargin = isSystemBaseOps
-            ? true
-            : item.apply_margin === false
-              ? false
-              : item.apply_margin === true
-                ? true
-                : item.service_type_apply_margin === false
-                  ? false
-                  : true;
+        // Resolve effective apply_margin per line:
+        // line override → service_type default → true.
+        const effectiveApplyMargin =
+            item.apply_margin === false
+                ? false
+                : item.apply_margin === true
+                  ? true
+                  : item.service_type_apply_margin === false
+                    ? false
+                    : true;
 
-        // Per-line sell override. When set (and not a SYSTEM BASE_OPS line),
-        // the sell price is driven directly by this per-unit rate and the
-        // margin math is bypassed entirely (regardless of apply_margin).
+        // Per-line sell override. When set, the sell price is driven directly
+        // by this per-unit rate and the margin math is bypassed entirely
+        // (regardless of apply_margin).
         const rawSellUnitRate =
-            !isSystemBaseOps && item.sell_unit_rate != null && item.sell_unit_rate !== ""
+            item.sell_unit_rate != null && item.sell_unit_rate !== ""
                 ? toNum(item.sell_unit_rate)
                 : null;
 
@@ -388,19 +403,15 @@ const buildBreakdownLinesFromLineItems = (
         }
 
         const nowIso = new Date().toISOString();
-        return {
+        const baseLine: BreakdownLine = {
             line_id: String(item.line_item_id || ""),
-            line_kind: isSystemBaseOps
-                ? "BASE_OPS"
+            line_kind: isSystem
+                ? "SYSTEM"
                 : item.line_item_type === "CATALOG"
                   ? "RATE_CARD"
                   : "CUSTOM",
-            category: isSystemBaseOps ? "BASE_OPS" : String(item.category || "OTHER"),
-            label: isSystemBaseOps
-                ? quantity > 0
-                    ? `Picking & Handling (${quantity.toFixed(3)} m³)`
-                    : "Picking & Handling"
-                : String(item.description || ""),
+            category: String(item.category || "OTHER"),
+            label: String(item.description || ""),
             quantity,
             unit: String(item.unit || "service"),
             buy_unit_price: buyUnitPrice,
@@ -409,7 +420,7 @@ const buildBreakdownLinesFromLineItems = (
             sell_total: sellTotal,
             billing_mode: (String(item.billing_mode || "BILLABLE") as any) || "BILLABLE",
             source: {
-                mode: isSystemBaseOps
+                mode: isSystem
                     ? "SYSTEM_LINE_ITEM"
                     : item.line_item_type === "CATALOG"
                       ? "SERVICE_TYPE"
@@ -441,117 +452,17 @@ const buildBreakdownLinesFromLineItems = (
             logistics_visible: item.logistics_visible === false ? false : true,
             sell_unit_rate_override: rawSellUnitRate,
         };
-    });
 
-const computeBaseOpsTotal = (volume: number | undefined, warehouseOpsRate: number) =>
-    roundCurrency(roundCurrency(volume || 0) * roundCurrency(warehouseOpsRate));
-
-const syncSystemBaseLineItem = async (
-    executor: any,
-    params: {
-        entityType: PricedEntityType;
-        entityId: string;
-        platformId: string;
-        addedBy: string;
-        companyOpsRate: number;
-        volume?: number;
-        enableBaseOperations: boolean;
-        baseOpsTotalOverride?: number;
-    }
-) => {
-    if (params.entityType === "SERVICE_REQUEST") return null;
-
-    const baseTotal =
-        params.baseOpsTotalOverride !== undefined
-            ? roundCurrency(params.baseOpsTotalOverride)
-            : computeBaseOpsTotal(params.volume, params.companyOpsRate);
-    const condition = getLineItemCondition(params.entityType, params.entityId);
-
-    const [existing] = await executor
-        .select()
-        .from(lineItems)
-        .where(
-            and(
-                eq(lineItems.platform_id, params.platformId),
-                condition,
-                eq(lineItems.line_item_type, "SYSTEM"),
-                eq(lineItems.system_key, "BASE_OPS")
-            )
-        )
-        .limit(1);
-
-    if (!params.enableBaseOperations || baseTotal <= 0) {
-        if (existing && !existing.is_voided) {
-            await executor
-                .update(lineItems)
-                .set({
-                    is_voided: true,
-                    voided_at: new Date(),
-                    voided_by: params.addedBy,
-                    void_reason: "Base operations disabled or zero total",
-                    updated_at: new Date(),
-                })
-                .where(eq(lineItems.id, existing.id));
+        // Route SYSTEM lines through the system-key handler registry (empty
+        // after Phase 0). A handler may override buy/sell/label; absent a
+        // handler the generic line above stands. See PLAN §11 (AUTO_FEE).
+        if (isSystem && systemKey && SYSTEM_LINE_HANDLERS[systemKey]) {
+            const override = SYSTEM_LINE_HANDLERS[systemKey]({ item, marginPercent });
+            if (override) return { ...baseLine, ...override };
         }
-        return null;
-    }
 
-    const quantity = roundCurrency(params.volume || 0);
-    const unitRate =
-        quantity > 0 ? roundCurrency(baseTotal / quantity) : roundCurrency(params.companyOpsRate);
-
-    const values = {
-        quantity: quantity.toFixed(2),
-        unit: "m3",
-        unit_rate: unitRate.toFixed(2),
-        total: baseTotal.toFixed(2),
-        category: "HANDLING" as const,
-        description: "Picking & Handling",
-        billing_mode: "BILLABLE" as const,
-        notes: null,
-        metadata: {
-            generated_by: "pricing_service",
-            volume_snapshot: quantity,
-            warehouse_ops_rate_snapshot: roundCurrency(params.companyOpsRate),
-        },
-        client_price_visible: existing?.client_price_visible ?? false,
-        is_voided: false,
-        voided_at: null,
-        voided_by: null,
-        void_reason: null,
-        updated_at: new Date(),
-    };
-
-    if (existing) {
-        const [updated] = await executor
-            .update(lineItems)
-            .set(values)
-            .where(eq(lineItems.id, existing.id))
-            .returning();
-        return updated;
-    }
-
-    const lineItemId = await lineItemIdGenerator(params.platformId, executor);
-    const [inserted] = await executor
-        .insert(lineItems)
-        .values({
-            platform_id: params.platformId,
-            line_item_id: lineItemId,
-            order_id: params.entityType === "ORDER" ? params.entityId : null,
-            inbound_request_id: params.entityType === "INBOUND_REQUEST" ? params.entityId : null,
-            service_request_id: null, // SERVICE_REQUEST returns early at top of fn
-            self_pickup_id: params.entityType === "SELF_PICKUP" ? params.entityId : null,
-            purpose_type: params.entityType,
-            service_type_id: null,
-            line_item_type: "SYSTEM",
-            system_key: "BASE_OPS",
-            added_by: params.addedBy,
-            ...values,
-        })
-        .returning();
-
-    return inserted;
-};
+        return baseLine;
+    });
 
 const resolveEntityContext = async (
     executor: any,
@@ -565,13 +476,9 @@ const resolveEntityContext = async (
                 entity_id: orders.id,
                 pricing_id: orders.order_pricing_id,
                 company_margin: companies.platform_margin_percent,
-                company_ops_rate: companies.warehouse_ops_rate,
                 company_vat_percent_override: companies.vat_percent_override,
-                company_features: companies.features,
-                platform_features: platforms.features,
                 platform_vat_percent: platforms.vat_percent,
                 created_by: orders.created_by,
-                calculated_totals: orders.calculated_totals,
             })
             .from(orders)
             .leftJoin(companies, eq(orders.company_id, companies.id))
@@ -583,18 +490,12 @@ const resolveEntityContext = async (
             entity_id: row.entity_id,
             pricing_id: row.pricing_id as string | null,
             company_margin: toNum(row.company_margin),
-            company_ops_rate: toNum(row.company_ops_rate),
             vat_percent:
                 row.company_vat_percent_override !== null &&
                 row.company_vat_percent_override !== undefined
                     ? toNum(row.company_vat_percent_override)
                     : toNum(row.platform_vat_percent),
             created_by: String(row.created_by),
-            volume: toNum((row.calculated_totals as Record<string, unknown> | null)?.volume),
-            enable_base_operations: resolveEffectiveFeature("enable_base_operations", {
-                platformFeatures: row.platform_features as Record<string, unknown> | null,
-                companyFeatures: row.company_features as Record<string, unknown> | null,
-            }),
             // Orders don't have pricing_mode yet; treat as STANDARD so the
             // rebuildBreakdown short-circuit stays uniform across entity types.
             pricing_mode: "STANDARD" as const,
@@ -607,10 +508,7 @@ const resolveEntityContext = async (
                 entity_id: inboundRequests.id,
                 pricing_id: inboundRequests.request_pricing_id,
                 company_margin: companies.platform_margin_percent,
-                company_ops_rate: companies.warehouse_ops_rate,
                 company_vat_percent_override: companies.vat_percent_override,
-                company_features: companies.features,
-                platform_features: platforms.features,
                 platform_vat_percent: platforms.vat_percent,
                 created_by: inboundRequests.created_by,
             })
@@ -622,28 +520,16 @@ const resolveEntityContext = async (
             )
             .limit(1);
         if (!row) throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found");
-        const [volumeRow] = await executor
-            .select({
-                total_volume: sql<string>`COALESCE(SUM(${inboundRequestItems.quantity} * ${inboundRequestItems.volume_per_unit}), 0)`,
-            })
-            .from(inboundRequestItems)
-            .where(eq(inboundRequestItems.inbound_request_id, entityId));
         return {
             entity_id: row.entity_id,
             pricing_id: row.pricing_id as string | null,
             company_margin: toNum(row.company_margin),
-            company_ops_rate: toNum(row.company_ops_rate),
             vat_percent:
                 row.company_vat_percent_override !== null &&
                 row.company_vat_percent_override !== undefined
                     ? toNum(row.company_vat_percent_override)
                     : toNum(row.platform_vat_percent),
             created_by: String(row.created_by),
-            volume: toNum(volumeRow?.total_volume),
-            enable_base_operations: resolveEffectiveFeature("enable_base_operations", {
-                platformFeatures: row.platform_features as Record<string, unknown> | null,
-                companyFeatures: row.company_features as Record<string, unknown> | null,
-            }),
             // Inbound requests don't have pricing_mode yet; treat as STANDARD.
             pricing_mode: "STANDARD" as const,
         };
@@ -655,13 +541,9 @@ const resolveEntityContext = async (
                 entity_id: selfPickups.id,
                 pricing_id: selfPickups.self_pickup_pricing_id,
                 company_margin: companies.platform_margin_percent,
-                company_ops_rate: companies.warehouse_ops_rate,
                 company_vat_percent_override: companies.vat_percent_override,
-                company_features: companies.features,
-                platform_features: platforms.features,
                 platform_vat_percent: platforms.vat_percent,
                 created_by: selfPickups.created_by,
-                calculated_totals: selfPickups.calculated_totals,
                 pricing_mode: selfPickups.pricing_mode,
             })
             .from(selfPickups)
@@ -674,18 +556,12 @@ const resolveEntityContext = async (
             entity_id: row.entity_id,
             pricing_id: row.pricing_id as string | null,
             company_margin: toNum(row.company_margin),
-            company_ops_rate: toNum(row.company_ops_rate),
             vat_percent:
                 row.company_vat_percent_override !== null &&
                 row.company_vat_percent_override !== undefined
                     ? toNum(row.company_vat_percent_override)
                     : toNum(row.platform_vat_percent),
             created_by: String(row.created_by),
-            volume: toNum((row.calculated_totals as Record<string, unknown> | null)?.volume),
-            enable_base_operations: resolveEffectiveFeature("enable_base_operations", {
-                platformFeatures: row.platform_features as Record<string, unknown> | null,
-                companyFeatures: row.company_features as Record<string, unknown> | null,
-            }),
             pricing_mode: (row.pricing_mode as "STANDARD" | "NO_COST" | null) ?? "STANDARD",
         };
     }
@@ -695,10 +571,7 @@ const resolveEntityContext = async (
             entity_id: serviceRequests.id,
             pricing_id: serviceRequests.request_pricing_id,
             company_margin: companies.platform_margin_percent,
-            company_ops_rate: companies.warehouse_ops_rate,
             company_vat_percent_override: companies.vat_percent_override,
-            company_features: companies.features,
-            platform_features: platforms.features,
             platform_vat_percent: platforms.vat_percent,
             created_by: serviceRequests.created_by,
         })
@@ -712,18 +585,12 @@ const resolveEntityContext = async (
         entity_id: row.entity_id,
         pricing_id: row.pricing_id as string | null,
         company_margin: toNum(row.company_margin),
-        company_ops_rate: toNum(row.company_ops_rate),
         vat_percent:
             row.company_vat_percent_override !== null &&
             row.company_vat_percent_override !== undefined
                 ? toNum(row.company_vat_percent_override)
                 : toNum(row.platform_vat_percent),
         created_by: String(row.created_by),
-        volume: undefined,
-        enable_base_operations: resolveEffectiveFeature("enable_base_operations", {
-            platformFeatures: row.platform_features as Record<string, unknown> | null,
-            companyFeatures: row.company_features as Record<string, unknown> | null,
-        }),
         // Service requests don't have pricing_mode yet; treat as STANDARD.
         pricing_mode: "STANDARD" as const,
     };
@@ -882,16 +749,6 @@ const rebuildBreakdown = async (params: RebuildBreakdownParams) => {
     }
 
     const now = new Date();
-    await syncSystemBaseLineItem(executor, {
-        entityType: params.entity_type,
-        entityId: params.entity_id,
-        platformId: params.platform_id,
-        addedBy: params.calculated_by,
-        companyOpsRate: context.company_ops_rate,
-        volume: context.volume,
-        enableBaseOperations: context.enable_base_operations,
-        baseOpsTotalOverride: params.base_ops_total_override,
-    });
     const rawLineItems = await loadEntityLineItems(
         executor,
         params.entity_type,
@@ -929,19 +786,14 @@ const rebuildBreakdown = async (params: RebuildBreakdownParams) => {
             company_id: "",
             company_name: "",
             pricing_id: pricingId,
-            base_ops_total: totals.buy_base_ops_total,
+            system_total: totals.buy_system_total,
             catalog_total: totals.buy_rate_card_total,
             custom_total: totals.buy_custom_total,
             margin_percent: marginPercent,
             vat_percent: context.vat_percent,
             final_total: totals.sell_total_with_vat,
             final_total_with_vat: totals.sell_total_with_vat,
-            trigger:
-                params.base_ops_total_override !== undefined
-                    ? "base_ops_recalc"
-                    : params.set_margin_override
-                      ? "margin_override"
-                      : "line_item_change",
+            trigger: params.set_margin_override ? "margin_override" : "line_item_change",
         },
     });
 
@@ -954,7 +806,7 @@ const rebuildBreakdown = async (params: RebuildBreakdownParams) => {
         buy_total: totals.buy_total,
         subtotal: totals.sell_total,
         final_total: totals.sell_total_with_vat,
-        base_ops_total: totals.buy_base_ops_total,
+        system_total: totals.buy_system_total,
         line_items: {
             catalog_total: totals.buy_rate_card_total,
             custom_total: totals.buy_custom_total,
@@ -993,7 +845,7 @@ const projectByRole = (pricing: RawPricingRecord | null | undefined, role: Prici
             margin_policy: marginPolicy,
             calculated_at: pricing.calculated_at,
             // Legacy compatibility fields
-            base_ops_total: totals.buy_base_ops_total,
+            system_total: totals.buy_system_total,
             line_items: {
                 catalog_total: totals.buy_rate_card_total,
                 custom_total: totals.buy_custom_total,
@@ -1009,7 +861,7 @@ const projectByRole = (pricing: RawPricingRecord | null | undefined, role: Prici
                 override_reason: marginPolicy.override_reason,
             },
             sell: {
-                base_ops_total: totals.sell_base_ops_total,
+                system_total: totals.sell_system_total,
                 subtotal: totals.sell_total,
                 vat_amount: totals.sell_vat_amount,
                 final_total: totals.sell_total_with_vat,
@@ -1048,14 +900,14 @@ const projectByRole = (pricing: RawPricingRecord | null | undefined, role: Prici
             breakdown_lines: logisticsLines,
             lines: logisticsLines,
             totals: {
-                base_ops_total: logisticsTotals.buy_base_ops_total,
+                system_total: logisticsTotals.buy_system_total,
                 rate_card_total: logisticsTotals.buy_rate_card_total,
                 custom_total: logisticsTotals.buy_custom_total,
                 total: logisticsTotals.buy_total,
             },
             calculated_at: pricing.calculated_at,
             // Legacy compatibility fields
-            base_ops_total: logisticsTotals.buy_base_ops_total,
+            system_total: logisticsTotals.buy_system_total,
             line_items: {
                 catalog_total: logisticsTotals.buy_rate_card_total,
                 custom_total: logisticsTotals.buy_custom_total,
@@ -1086,7 +938,7 @@ const projectByRole = (pricing: RawPricingRecord | null | undefined, role: Prici
         breakdown_lines: clientLines,
         lines: clientLines,
         totals: {
-            base_ops_total: totals.sell_base_ops_total,
+            system_total: totals.sell_system_total,
             rate_card_total: totals.sell_rate_card_total,
             custom_total: totals.sell_custom_total,
             subtotal: totals.sell_total,
@@ -1150,77 +1002,6 @@ const sumLineItems = (items: RawLineItem[]) => {
     return { catalog_total: roundCurrency(catalog), custom_total: roundCurrency(custom) };
 };
 
-const projectLineItemsForRole = (
-    items: RawLineItem[],
-    marginPercent: number,
-    role: PricingRole
-) => {
-    const billable = items.filter((item) => {
-        const voided = item.is_voided ?? item.isVoided ?? false;
-        const billing = item.billing_mode ?? item.billingMode ?? "BILLABLE";
-        return !voided && billing === "BILLABLE";
-    });
-
-    return billable.map((item) => {
-        const qty = toNum(item.quantity);
-        const buyTotal = toNum(item.total);
-        const buyUnitRate =
-            qty > 0 ? roundCurrency(buyTotal / qty) : toNum(item.unit_rate ?? item.unitRate);
-
-        // Resolve effective apply_margin for legacy/raw line item callers.
-        // No service_type fallback here (the raw shape doesn't always carry
-        // it). Pure line override → default true.
-        const applyMarginFlag =
-            (item as Record<string, unknown>).apply_margin === false ||
-            (item as Record<string, unknown>).applyMargin === false
-                ? false
-                : true;
-        const sellTotal = applyMarginFlag ? applyMarginPerLine(buyTotal, marginPercent) : buyTotal;
-        const sellUnitRate = applyMarginFlag
-            ? qty > 0
-                ? roundCurrency(sellTotal / qty)
-                : applyMarginPerLine(buyUnitRate, marginPercent)
-            : buyUnitRate;
-        const itemId = item.line_item_id || item.id || "";
-
-        if (role === "CLIENT") {
-            const clientPriceVisible =
-                (item.client_price_visible ?? item.clientPriceVisible ?? false) === true;
-            return {
-                line_item_id: itemId,
-                description: item.description || "",
-                quantity: qty,
-                category: item.category || undefined,
-                unit_rate: clientPriceVisible ? sellUnitRate : null,
-                total: clientPriceVisible ? sellTotal : null,
-                client_price_visible: clientPriceVisible,
-            };
-        }
-
-        if (role === "LOGISTICS") {
-            return {
-                line_item_id: itemId,
-                description: item.description || "",
-                quantity: qty,
-                category: item.category || undefined,
-                unit_rate: buyUnitRate,
-                total: buyTotal,
-            };
-        }
-
-        return {
-            line_item_id: itemId,
-            description: item.description || "",
-            quantity: qty,
-            category: item.category || undefined,
-            buy_unit_rate: buyUnitRate,
-            buy_total: buyTotal,
-            sell_unit_rate: sellUnitRate,
-            sell_total: sellTotal,
-        };
-    });
-};
-
 // Backward-compatible aliases used by existing modules.
 const recalculate = (params: RebuildBreakdownParams) => rebuildBreakdown(params);
 const projectForRole = (
@@ -1267,8 +1048,8 @@ const markEntityAsNoCost = async (params: {
     const executor = params.tx ?? db;
 
     // 1. Void all non-voided line items for this entity.
-    //    Uses the existing getLineItemCondition helper (the same one
-    //    syncSystemBaseLineItem uses) — no new entity-routing code paths.
+    //    Uses the existing getLineItemCondition helper — no new entity-routing
+    //    code paths.
     await executor
         .update(lineItems)
         .set({
@@ -1345,7 +1126,6 @@ export const PricingService = {
     projectByRole,
     projectForRole,
     projectSummaryForRole,
-    projectLineItemsForRole,
     projectAllRolesForAdmin,
     sumLineItems,
     parseBreakdownLines,

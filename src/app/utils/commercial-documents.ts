@@ -56,13 +56,11 @@ type NormalizedDocumentLineItem = {
 type NormalizedPricing = {
     margin_percent: number;
     buy: {
-        base_ops_total: number;
         catalog_total: number;
         custom_total: number;
         final_total: number;
     };
     sell: {
-        base_ops_total: number;
         catalog_total: number;
         custom_total: number;
         margin_amount: number;
@@ -121,7 +119,6 @@ export type CommercialDocumentPdfPayload = {
         subtotal_price: string;
         vat_percent: string;
         vat_amount: string;
-        picking_handling_price: string;
         final_total_price: string;
         show_breakdown: boolean;
     };
@@ -182,7 +179,6 @@ const mapPricing = (projected: any): NormalizedPricing => {
     const margin = projected?.margin || {};
     const buyCatalog = toNumber(projected?.line_items?.catalog_total ?? totals.buy_rate_card_total);
     const buyCustom = toNumber(projected?.line_items?.custom_total ?? totals.buy_custom_total);
-    const buyBaseOps = toNumber(projected?.base_ops_total ?? totals.buy_base_ops_total);
     const buyFinal = toNumber(totals.buy_total);
     const sellSubtotal = toNumber(
         projected?.subtotal ?? totals.subtotal ?? totals.sell_total ?? projected?.final_total
@@ -196,13 +192,11 @@ const mapPricing = (projected: any): NormalizedPricing => {
     return {
         margin_percent: toNumber(margin.percent ?? projected?.margin_policy?.percent),
         buy: {
-            base_ops_total: buyBaseOps,
             catalog_total: buyCatalog,
             custom_total: buyCustom,
             final_total: buyFinal,
         },
         sell: {
-            base_ops_total: toNumber(projected?.sell?.base_ops_total ?? totals.sell_base_ops_total),
             catalog_total: toNumber(totals.sell_rate_card_total),
             custom_total: toNumber(totals.sell_custom_total),
             margin_amount: toNumber(margin.amount),
@@ -740,10 +734,6 @@ export const buildCommercialDocumentPdfPayload = (
             from_collection_name: item.from_collection_name,
         })),
         pricing: {
-            picking_handling_price: (sellSide
-                ? context.pricing.sell.base_ops_total
-                : context.pricing.buy.base_ops_total
-            ).toFixed(2),
             subtotal_price: (sellSide
                 ? context.pricing.sell.subtotal
                 : context.pricing.buy.final_total
