@@ -194,6 +194,29 @@ const voidLineItemSchema = z.object({
         .strict(),
 });
 
+// Bulk-margin: stamp an explicit per-line sell rate on every BILLABLE,
+// non-SYSTEM, non-voided line of one entity — sell = ROUND(unit_rate ×
+// (1 + margin_percent/100), 2). Replaces the retired blanket margin override
+// with a one-time per-line stamp (PLAN R3/R4). ADMIN-only. `entity_id` is the
+// generic parent id resolved by purpose_type. margin_percent is a markup over
+// buy (0 = pass-through sell=buy); capped to keep decimal(10,2) safe.
+const bulkMarginSchema = z.object({
+    body: z
+        .object({
+            purpose_type: z.enum(
+                invoiceTypeEnum.enumValues,
+                enumMessageGenerator("Purpose type", invoiceTypeEnum.enumValues)
+            ),
+            entity_id: z.uuid("Invalid entity ID"),
+            margin_percent: z
+                .number({ message: "Margin percent must be a number" })
+                .min(0, "Margin percent must be 0 or greater")
+                .max(1000, "Margin percent must be 1000 or less"),
+            reason: z.string().max(1000).optional(),
+        })
+        .strict(),
+});
+
 export const LineItemsSchemas = {
     createCatalogLineItemSchema,
     createCustomLineItemSchema,
@@ -202,4 +225,5 @@ export const LineItemsSchemas = {
     patchLineItemVisibilitySchema,
     patchEntityLineItemsVisibilitySchema,
     voidLineItemSchema,
+    bulkMarginSchema,
 };

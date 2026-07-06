@@ -171,6 +171,21 @@ const voidLineItem = catchAsync(async (req: Request, res: Response) => {
     });
 });
 
+// ----------------------------------- BULK MARGIN -----------------------------------
+const bulkMargin = catchAsync(async (req: Request, res: Response) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+
+    const result = await LineItemsServices.bulkMarginLineItems(platformId, req.body, user.id);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Bulk margin applied to line items successfully",
+        data: result,
+    });
+});
+
 export const LineItemsControllers = {
     getLineItems,
     createCatalogLineItem,
@@ -180,4 +195,5 @@ export const LineItemsControllers = {
     patchLineItemVisibility,
     patchEntityLineItemsVisibility,
     voidLineItem,
+    bulkMargin,
 };

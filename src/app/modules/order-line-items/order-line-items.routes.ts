@@ -2,6 +2,8 @@ import { Router } from "express";
 import auth from "../../middleware/auth";
 import payloadValidator from "../../middleware/payload-validator";
 import platformValidator from "../../middleware/platform-validator";
+import requirePermission from "../../middleware/permission";
+import { PERMISSIONS } from "../../constants/permissions";
 import { LineItemsControllers } from "./order-line-items.controllers";
 import { LineItemsSchemas } from "./order-line-items.schemas";
 
@@ -9,6 +11,17 @@ const router = Router({ mergeParams: true }); // mergeParams to access :orderId
 
 // Get line items
 router.get("/", platformValidator, auth("ADMIN", "LOGISTICS"), LineItemsControllers.getLineItems);
+
+// Bulk-margin: stamp per-line sell rates across a whole entity (ADMIN-only).
+// Registered before the /:itemId routes; a distinct literal POST path.
+router.post(
+    "/bulk-margin",
+    platformValidator,
+    auth("ADMIN"),
+    requirePermission(PERMISSIONS.PRICING_ADJUST),
+    payloadValidator(LineItemsSchemas.bulkMarginSchema),
+    LineItemsControllers.bulkMargin
+);
 
 // Create catalog line item
 router.post(

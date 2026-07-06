@@ -32,6 +32,8 @@ export type VoidLineItemPayload = z.infer<typeof LineItemsSchemas.voidLineItemSc
     voided_by: string;
 };
 
+export type BulkMarginPayload = z.infer<typeof LineItemsSchemas.bulkMarginSchema>["body"];
+
 export interface OrderLineItem {
     id: string;
     platform_id: string;

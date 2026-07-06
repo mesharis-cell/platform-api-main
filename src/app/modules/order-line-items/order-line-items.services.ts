@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import httpStatus from "http-status";
 import { db } from "../../../db";
 import {
@@ -15,6 +15,7 @@ import {
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import {
+    BulkMarginPayload,
     CreateCatalogLineItemPayload,
     CreateCustomLineItemPayload,
     LineItemEditability,
@@ -33,7 +34,7 @@ import { roundCurrency } from "../../utils/pricing-engine";
 import { eventBus } from "../../events/event-bus";
 import { EVENT_TYPES } from "../../events/event-types";
 import { PricingService } from "../../services/pricing.service";
-import { buildEntityUpdatedPayload } from "../../utils/entity-change-history";
+import { buildEntityUpdatedPayload, writeChangeHistory } from "../../utils/entity-change-history";
 
 const LINE_ITEM_ID_UNIQUE_CONSTRAINT = "line_items_platform_line_item_id_unique";
 const MAX_LINE_ITEM_ID_INSERT_RETRIES = 3;
@@ -1208,6 +1209,150 @@ const voidLineItem = async (id: string, platformId: string, data: VoidLineItemPa
     };
 };
 
+// ----------------------------------- BULK MARGIN --------------------------------------------
+// Stamp an explicit per-line sell rate on every BILLABLE, non-SYSTEM, non-voided
+// line of one entity: sell_unit_rate = ROUND(unit_rate × (1 + pct/100), 2)
+// (PLAN R3). This REPLACES the retired blanket margin override with a one-time
+// per-line stamp — it does NOT change the entity's margin seed (prices.margin_percent,
+// R4). One transaction stamps + writes the ORDER/SP audit row, then a single
+// rebuild via the entity's post-quote revert hook (identical to a single-line
+// edit) reprices + reverts a QUOTED order to PENDING_APPROVAL. Emits the
+// PRICING_RECALCULATED audit event tagged {action:'bulk_margin'} (R5).
+const bulkMarginLineItems = async (
+    platformId: string,
+    data: BulkMarginPayload,
+    userId: string
+) => {
+    const { purpose_type, entity_id, margin_percent, reason } = data;
+
+    const parentCondition =
+        purpose_type === "ORDER"
+            ? eq(lineItems.order_id, entity_id)
+            : purpose_type === "INBOUND_REQUEST"
+              ? eq(lineItems.inbound_request_id, entity_id)
+              : purpose_type === "SELF_PICKUP"
+                ? eq(lineItems.self_pickup_id, entity_id)
+                : eq(lineItems.service_request_id, entity_id);
+
+    // Pricing lock gate — same as a single-line pricing edit. A no-cost /
+    // quote-accepted entity cannot be re-priced.
+    const editability = await getLineItemEditability(
+        {
+            order_id: purpose_type === "ORDER" ? entity_id : null,
+            inbound_request_id: purpose_type === "INBOUND_REQUEST" ? entity_id : null,
+            service_request_id: purpose_type === "SERVICE_REQUEST" ? entity_id : null,
+            self_pickup_id: purpose_type === "SELF_PICKUP" ? entity_id : null,
+        },
+        platformId
+    );
+    if (!editability.can_edit_pricing_fields) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            editability.lock_reason || "Pricing fields are locked"
+        );
+    }
+
+    const updated = await db.transaction(async (tx) => {
+        const rows = await tx
+            .update(lineItems)
+            .set({
+                // ROUND to 2dp so the stamped rate is representable in decimal(10,2)
+                // and matches the engine's qty×rate sell math exactly.
+                sell_unit_rate: sql`ROUND(${lineItems.unit_rate}::numeric * (1 + ${margin_percent}::numeric / 100.0), 2)`,
+                updated_at: new Date(),
+            })
+            .where(
+                and(
+                    eq(lineItems.platform_id, platformId),
+                    parentCondition,
+                    eq(lineItems.is_voided, false),
+                    ne(lineItems.line_item_type, "SYSTEM"),
+                    eq(lineItems.billing_mode, "BILLABLE")
+                )
+            )
+            .returning({ id: lineItems.id });
+
+        // R5 audit: one entity_change_history row for ORDER / SELF_PICKUP.
+        if (purpose_type === "ORDER" || purpose_type === "SELF_PICKUP") {
+            const [readable] =
+                purpose_type === "ORDER"
+                    ? await tx
+                          .select({ ref: orders.order_id })
+                          .from(orders)
+                          .where(eq(orders.id, entity_id))
+                          .limit(1)
+                    : await tx
+                          .select({ ref: selfPickups.self_pickup_id })
+                          .from(selfPickups)
+                          .where(eq(selfPickups.id, entity_id))
+                          .limit(1);
+            await writeChangeHistory(tx, {
+                platformId,
+                entityType: purpose_type,
+                entityId: entity_id,
+                entityIdReadable: readable?.ref ?? null,
+                changed: [
+                    {
+                        field: "bulk_margin",
+                        old: null,
+                        new: reason ? `${margin_percent}% — ${reason}` : `${margin_percent}%`,
+                        tier: "A",
+                    },
+                ],
+                actorId: userId,
+                actorRole: "ADMIN",
+            });
+        }
+
+        return rows;
+    });
+
+    // Single rebuild via the entity's post-quote revert hook — same path a
+    // single-line edit takes (rebuild + QUOTED→PENDING_APPROVAL revert + estimate
+    // regen where applicable).
+    switch (purpose_type) {
+        case "ORDER":
+            await updateOrderPricingAfterLineItemChange(entity_id, platformId, userId);
+            break;
+        case "INBOUND_REQUEST":
+            await updateInboundRequestPricingAfterLineItemChange(entity_id, platformId, userId);
+            break;
+        case "SERVICE_REQUEST":
+            await updateServiceRequestPricingAfterLineItemChange(entity_id, platformId, userId);
+            break;
+        case "SELF_PICKUP":
+            await updateSelfPickupPricingAfterLineItemChange(entity_id, platformId, userId);
+            break;
+    }
+
+    // R5 audit event — the existing PRICING_RECALCULATED event, tagged with the
+    // bulk-margin action so history/audit can distinguish it from a plain reprice.
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: EVENT_TYPES.PRICING_RECALCULATED,
+        entity_type: purpose_type as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP",
+        entity_id,
+        actor_id: userId,
+        actor_role: "ADMIN",
+        payload: {
+            entity_id_readable: entity_id,
+            company_id: "",
+            company_name: "",
+            action: "bulk_margin",
+            percent: margin_percent,
+            reason: reason || null,
+            updated_count: updated.length,
+        },
+    });
+
+    return {
+        purpose_type,
+        entity_id,
+        margin_percent,
+        updated_count: updated.length,
+    };
+};
+
 // ----------------------------------- CALCULATE ORDER LINE ITEMS TOTAL -----------------------
 const calculateOrderLineItemsTotals = async (
     orderId: string,
@@ -1556,6 +1701,7 @@ export const LineItemsServices = {
     patchLineItemVisibility,
     patchEntityLineItemsVisibility,
     voidLineItem,
+    bulkMarginLineItems,
     calculateOrderLineItemsTotals,
     calculateInboundRequestLineItemsTotals,
     calculateServiceRequestLineItemsTotals,
