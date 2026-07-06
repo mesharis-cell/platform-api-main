@@ -373,7 +373,7 @@ router.post(
     "/:id/admin-approve-quote",
     platformValidator,
     auth("ADMIN"),
-    // requirePermission(PERMISSIONS.PRICING_ADMIN_APPROVE),
+    requirePermission(PERMISSIONS.PRICING_ADMIN_APPROVE),
     payloadValidator(orderSchemas.adminApproveQuoteSchema),
     OrderControllers.adminApproveQuote
 );
