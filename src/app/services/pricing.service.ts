@@ -1181,10 +1181,13 @@ const markEntityAsNoCost = async (params: {
             )
         );
 
-    // 3. Flip the parent entity's pricing_mode + financial_status.
-    //    Only SELF_PICKUP wired now; other entities throw until their column
-    //    lands (deliberate — surfaces missing wiring loudly if someone tries
-    //    to mark an order no-cost before the follow-up migration).
+    // 3. Flip the parent entity's pricing_mode (+ financial_status where the
+    //    entity has one). All four entities carry pricing_mode as of migration
+    //    0071. ORDER / INBOUND / SELF_PICKUP additionally move financial_status
+    //    to NOT_APPLICABLE (terminal — never invoiced). SERVICE_REQUEST has no
+    //    financial_status column (it uses commercial_status); its status revert
+    //    is owned by the caller wrapper (applyServiceRequestConcession) to keep
+    //    the concession-revert semantics intact.
     switch (params.entityType) {
         case "SELF_PICKUP":
             await executor
@@ -1201,12 +1204,46 @@ const markEntityAsNoCost = async (params: {
                 );
             break;
         case "ORDER":
+            await executor
+                .update(orders)
+                .set({
+                    pricing_mode: "NO_COST",
+                    financial_status: "NOT_APPLICABLE",
+                })
+                .where(
+                    and(
+                        eq(orders.id, params.entityId),
+                        eq(orders.platform_id, params.platformId)
+                    )
+                );
+            break;
         case "INBOUND_REQUEST":
+            await executor
+                .update(inboundRequests)
+                .set({
+                    pricing_mode: "NO_COST",
+                    financial_status: "NOT_APPLICABLE",
+                })
+                .where(
+                    and(
+                        eq(inboundRequests.id, params.entityId),
+                        eq(inboundRequests.platform_id, params.platformId)
+                    )
+                );
+            break;
         case "SERVICE_REQUEST":
-            throw new CustomizedError(
-                httpStatus.NOT_IMPLEMENTED,
-                `mark-as-no-cost is not yet wired for ${params.entityType}. Add the pricing_mode column + migration first.`
-            );
+            await executor
+                .update(serviceRequests)
+                .set({
+                    pricing_mode: "NO_COST",
+                })
+                .where(
+                    and(
+                        eq(serviceRequests.id, params.entityId),
+                        eq(serviceRequests.platform_id, params.platformId)
+                    )
+                );
+            break;
     }
 };
 

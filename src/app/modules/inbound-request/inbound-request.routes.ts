@@ -106,6 +106,15 @@ router.post(
     InboundRequestControllers.approveInboundRequestByAdmin
 );
 
+// Mark inbound request as no-cost (Admin; grant-only inbound_requests:mark_no_cost)
+router.post(
+    "/:id/mark-no-cost",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.INBOUND_REQUESTS_MARK_NO_COST),
+    InboundRequestControllers.markInboundRequestAsNoCost
+);
+
 // Client approve or decline quote
 router.post(
     "/:id/approve-or-decline-quote",

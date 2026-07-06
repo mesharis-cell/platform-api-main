@@ -945,25 +945,38 @@ const applyServiceRequestConcession = async (
         );
     }
 
-    await db
-        .update(serviceRequests)
-        .set({
-            commercial_status: "PENDING_QUOTE",
-            client_sell_override_total: "0.00",
-            concession_reason: payload.concession_reason,
-            concession_approved_by: user.id,
-            concession_applied_at: new Date(),
-            updated_at: new Date(),
-        })
-        .where(eq(serviceRequests.id, id));
+    // Concession is now the SR "mark no-cost" gesture (Phase 1, P1-8): void line
+    // items + zero the prices row + flip pricing_mode=NO_COST via the shared
+    // entity-agnostic helper, then revert commercial_status to PENDING_QUOTE
+    // (the original concession-revert semantics are preserved). The legacy
+    // concession columns (client_sell_override_total / concession_*) are NO LONGER
+    // written — they're dormant until dropped in migration 0073; reports already
+    // read pricing_mode=NO_COST for the SR sell-zero arm (P1-9).
+    await db.transaction(async (tx) => {
+        await PricingService.markEntityAsNoCost({
+            entityType: "SERVICE_REQUEST",
+            entityId: id,
+            platformId,
+            actorId: user.id,
+            tx,
+        });
 
-    await db.insert(serviceRequestStatusHistory).values({
-        service_request_id: id,
-        platform_id: platformId,
-        from_status: existing.request_status,
-        to_status: existing.request_status,
-        note: `Client concession applied: ${payload.concession_reason}`,
-        changed_by: user.id,
+        await tx
+            .update(serviceRequests)
+            .set({
+                commercial_status: "PENDING_QUOTE",
+                updated_at: new Date(),
+            })
+            .where(eq(serviceRequests.id, id));
+
+        await tx.insert(serviceRequestStatusHistory).values({
+            service_request_id: id,
+            platform_id: platformId,
+            from_status: existing.request_status,
+            to_status: existing.request_status,
+            note: `Marked no-cost (concession): ${payload.concession_reason}`,
+            changed_by: user.id,
+        });
     });
 
     const refreshed = await getServiceRequestInternal(id, platformId);

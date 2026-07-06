@@ -94,6 +94,10 @@ export const PERMISSIONS = {
     SERVICE_REQUESTS_READ: "service_requests:read",
     SERVICE_REQUESTS_UPDATE: "service_requests:update",
     SERVICE_REQUESTS_EDIT_DETAILS: "service_requests:edit_details", // order-editing P4 retrofit
+    // Mark a service request as no-cost (waives all pricing; unifies the retired
+    // concession path onto the shared no-cost gesture). GRANT-ONLY — deliberately
+    // NOT in any default template; ADMIN reaches it via service_requests:*.
+    SERVICE_REQUESTS_MARK_NO_COST: "service_requests:mark_no_cost",
     SERVICE_REQUESTS_ALL: "service_requests:*",
 
     // ==================== INBOUND REQUESTS ====================
@@ -104,6 +108,9 @@ export const PERMISSIONS = {
     // Cancel is deliberately NOT in any default LOGISTICS template —
     // grant per-user/policy. ADMIN gets it via inbound_requests:*.
     INBOUND_REQUESTS_CANCEL: "inbound_requests:cancel",
+    // Mark an inbound request as no-cost. GRANT-ONLY — not in any default
+    // template; ADMIN reaches it via inbound_requests:*.
+    INBOUND_REQUESTS_MARK_NO_COST: "inbound_requests:mark_no_cost",
     INBOUND_REQUESTS_ALL: "inbound_requests:*",
 
     // ==================== LINE ITEM REQUESTS ====================
@@ -189,6 +196,9 @@ export const PERMISSIONS = {
     // Edit an existing order's details pre-CONFIRMED (descriptive/money/inventory). Distinct
     // from the orphaned ORDERS_UPDATE (the granular gate for the order-editing feature).
     ORDERS_EDIT_DETAILS: "orders:edit_details",
+    // Mark an order as no-cost (waives all pricing). GRANT-ONLY — not in any
+    // default template; ADMIN reaches it via orders:*.
+    ORDERS_MARK_NO_COST: "orders:mark_no_cost",
     ORDERS_ALL: "orders:*",
 
     // ==================== QUOTES ====================

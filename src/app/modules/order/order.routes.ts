@@ -378,6 +378,15 @@ router.post(
     OrderControllers.adminApproveQuote
 );
 
+// Mark order as no-cost (Admin; grant-only orders:mark_no_cost for others)
+router.post(
+    "/:id/mark-no-cost",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.ORDERS_MARK_NO_COST),
+    OrderControllers.markOrderAsNoCost
+);
+
 // Return to Logistics (Admin → Logistics)
 router.post(
     "/:id/return-to-logistics",

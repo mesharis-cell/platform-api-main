@@ -135,11 +135,15 @@ router.post(
     ServiceRequestControllers.respondToServiceRequestQuote
 );
 
+// Concession is the SR "mark no-cost" gesture (P1-8). Gated on the grant-only
+// service_requests:mark_no_cost key — ADMIN reaches it via service_requests:*;
+// LOGISTICS needs an explicit grant (a pricing waiver is admin-tier now,
+// tightened from the old SERVICE_REQUESTS_UPDATE default).
 router.post(
     "/:id/concession",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.SERVICE_REQUESTS_UPDATE),
+    requirePermission(PERMISSIONS.SERVICE_REQUESTS_MARK_NO_COST),
     payloadValidator(ServiceRequestSchemas.applyServiceRequestConcessionSchema),
     ServiceRequestControllers.applyServiceRequestConcession
 );
