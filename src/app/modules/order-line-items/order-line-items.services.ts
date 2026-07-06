@@ -1218,11 +1218,7 @@ const voidLineItem = async (id: string, platformId: string, data: VoidLineItemPa
 // rebuild via the entity's post-quote revert hook (identical to a single-line
 // edit) reprices + reverts a QUOTED order to PENDING_APPROVAL. Emits the
 // PRICING_RECALCULATED audit event tagged {action:'bulk_margin'} (R5).
-const bulkMarginLineItems = async (
-    platformId: string,
-    data: BulkMarginPayload,
-    userId: string
-) => {
+const bulkMarginLineItems = async (platformId: string, data: BulkMarginPayload, userId: string) => {
     const { purpose_type, entity_id, margin_percent, reason } = data;
 
     const parentCondition =
@@ -1330,7 +1326,11 @@ const bulkMarginLineItems = async (
     await eventBus.emit({
         platform_id: platformId,
         event_type: EVENT_TYPES.PRICING_RECALCULATED,
-        entity_type: purpose_type as "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP",
+        entity_type: purpose_type as
+            | "ORDER"
+            | "INBOUND_REQUEST"
+            | "SERVICE_REQUEST"
+            | "SELF_PICKUP",
         entity_id,
         actor_id: userId,
         actor_role: "ADMIN",

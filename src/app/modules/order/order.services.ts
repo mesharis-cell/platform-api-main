@@ -3481,7 +3481,12 @@ const adminApproveQuote = async (
 // stays with the real confirm path; the client + workflow wiring lands when the
 // admin ledger surfaces this action (Phase 2/3). An ORDER audit trail (status +
 // financial history + entity_change_history + PRICING_RECALCULATED event) is written.
-const ORDER_NO_COST_ALLOWED_STATUSES = ["SUBMITTED", "PRICING_REVIEW", "PENDING_APPROVAL", "QUOTED"];
+const ORDER_NO_COST_ALLOWED_STATUSES = [
+    "SUBMITTED",
+    "PRICING_REVIEW",
+    "PENDING_APPROVAL",
+    "QUOTED",
+];
 
 const markOrderAsNoCost = async (orderId: string, user: AuthUser, platformId: string) => {
     const [order] = await db

@@ -367,8 +367,7 @@ ORDER BY company ASC, doc_date ASC`;
         // dormant client_sell_override_total branch below (0071 migrated existing
         // zero-total concession rows to pricing_mode=NO_COST, so that branch reads
         // dormant data until the column is dropped in Phase 4).
-        const isNoCostSr =
-            r.entity_type === "SERVICE_REQUEST" && r.pricing_mode === "NO_COST";
+        const isNoCostSr = r.entity_type === "SERVICE_REQUEST" && r.pricing_mode === "NO_COST";
         // SR sell/final override — honour client_sell_override_total exactly as
         // accounts-reconciliation does: the final IS the override; subtotal + VAT
         // are derived back-out from the frozen VAT%.

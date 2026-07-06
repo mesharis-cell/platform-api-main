@@ -1211,10 +1211,7 @@ const markEntityAsNoCost = async (params: {
                     financial_status: "NOT_APPLICABLE",
                 })
                 .where(
-                    and(
-                        eq(orders.id, params.entityId),
-                        eq(orders.platform_id, params.platformId)
-                    )
+                    and(eq(orders.id, params.entityId), eq(orders.platform_id, params.platformId))
                 );
             break;
         case "INBOUND_REQUEST":
