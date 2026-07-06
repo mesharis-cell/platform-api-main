@@ -113,6 +113,7 @@ type RawRow = {
     margin_override_reason: string | null;
     calculated_at: Date | string | null;
     client_sell_override_total: string | null;
+    pricing_mode: string | null;
 };
 
 type LineRow = { label: string; category: string; quantity: number; buy: number; sell: number };
@@ -152,7 +153,8 @@ SELECT
     co.name AS company, o.venue_name AS context_name, uo.name AS ordered_by, uo.email AS ordered_by_email,
     o.order_status::text AS operational_status, o.financial_status::text AS financial_status,
     p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
-    p.margin_override_reason, p.calculated_at, NULL::text AS client_sell_override_total
+    p.margin_override_reason, p.calculated_at, NULL::text AS client_sell_override_total,
+    NULL::text AS pricing_mode
 FROM orders o
 JOIN companies co ON o.company = co.id
 LEFT JOIN users uo ON o.created_by = uo.id
@@ -172,7 +174,8 @@ SELECT
     co.name AS company, sr.title AS context_name, usr.name AS ordered_by, usr.email AS ordered_by_email,
     sr.request_status::text AS operational_status, sr.commercial_status::text AS financial_status,
     p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
-    p.margin_override_reason, p.calculated_at, sr.client_sell_override_total::text AS client_sell_override_total
+    p.margin_override_reason, p.calculated_at, sr.client_sell_override_total::text AS client_sell_override_total,
+    sr.pricing_mode::text AS pricing_mode
 FROM service_requests sr
 JOIN companies co ON sr.company_id = co.id
 LEFT JOIN users usr ON sr.created_by = usr.id
@@ -191,7 +194,8 @@ SELECT
     co.name AS company, ('Collector: ' || sp.collector_name) AS context_name, usp.name AS ordered_by, usp.email AS ordered_by_email,
     sp.self_pickup_status::text AS operational_status, sp.financial_status::text AS financial_status,
     p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
-    p.margin_override_reason, p.calculated_at, NULL::text AS client_sell_override_total
+    p.margin_override_reason, p.calculated_at, NULL::text AS client_sell_override_total,
+    NULL::text AS pricing_mode
 FROM self_pickups sp
 JOIN companies co ON sp.company_id = co.id
 LEFT JOIN users usp ON sp.created_by = usp.id
@@ -210,7 +214,8 @@ SELECT
     co.name AS company, COALESCE(ir.note, '') AS context_name, uir.name AS ordered_by, uir.email AS ordered_by_email,
     ir.request_status::text AS operational_status, ir.financial_status::text AS financial_status,
     p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
-    p.margin_override_reason, p.calculated_at, NULL::text AS client_sell_override_total
+    p.margin_override_reason, p.calculated_at, NULL::text AS client_sell_override_total,
+    NULL::text AS pricing_mode
 FROM inbound_requests ir
 JOIN companies co ON ir.company_id = co.id
 LEFT JOIN users uir ON ir.created_by = uir.id
@@ -265,14 +270,23 @@ ORDER BY company ASC, document_date ASC`;
         let vatAmount = roundMoney(parseNum(totals?.sell_vat_amount));
         let finalTotal = roundMoney(parseNum(totals?.sell_total_with_vat));
 
+        // SR no-cost (P1-9): a NO_COST service request zeroes the SELL side (summary
+        // grain). Priority over the dormant client_sell_override_total branch (0071
+        // migrated legacy zero-total concessions to pricing_mode=NO_COST).
+        const isNoCostSr = r.document_type === "SERVICE_REQUEST" && r.pricing_mode === "NO_COST";
         // SR sell/final override (summary grain only — line-item shows projected lines).
         const overrideRaw =
+            !isNoCostSr &&
             r.document_type === "SERVICE_REQUEST" &&
             r.client_sell_override_total !== null &&
             r.client_sell_override_total !== ""
                 ? r.client_sell_override_total
                 : null;
-        if (overrideRaw !== null && !detailMode) {
+        if (isNoCostSr && !detailMode) {
+            finalTotal = 0;
+            sellSubtotal = 0;
+            vatAmount = 0;
+        } else if (overrideRaw !== null && !detailMode) {
             finalTotal = roundMoney(parseNum(overrideRaw));
             sellSubtotal = roundMoney(finalTotal / (1 + vatPercent / 100));
             vatAmount = roundMoney(finalTotal - sellSubtotal);

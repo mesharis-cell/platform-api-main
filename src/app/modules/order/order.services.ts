@@ -3292,10 +3292,8 @@ const adminApproveQuote = async (
     orderId: string,
     user: AuthUser,
     platformId: string,
-    payload: AdminApproveQuotePayload
+    _payload: AdminApproveQuotePayload
 ) => {
-    const { margin_override_percent, margin_override_reason } = payload;
-
     // Step 1: Fetch order with details
     const [result] = await db
         .select({
@@ -3372,25 +3370,12 @@ const adminApproveQuote = async (
     const newFinancialStatus = "QUOTE_SENT";
 
     const projectedAdminPricing = PricingService.projectByRole(orderPricing as any, "ADMIN") as any;
-    let finalTotal = String(projectedAdminPricing?.final_total || "0");
+    const finalTotal = String(projectedAdminPricing?.final_total || "0");
 
-    // Step 3: Update order pricing and status
+    // Step 3: Update order status. Blanket margin override retired (P1-6): approval
+    // no longer recalculates pricing — the quote is sent exactly as priced via the
+    // per-line ledger. finalTotal is the already-projected admin total above.
     await db.transaction(async (tx) => {
-        if (margin_override_percent) {
-            const result = await PricingService.recalculate({
-                entity_type: "ORDER",
-                entity_id: orderId,
-                platform_id: platformId,
-                calculated_by: user.id,
-                set_margin_override: {
-                    percent: margin_override_percent,
-                    reason: margin_override_reason || null,
-                },
-                tx,
-            });
-            finalTotal = result.final_total.toFixed(2);
-        }
-
         // Step 3.2: Update order status
         await tx
             .update(orders)
@@ -3406,11 +3391,7 @@ const adminApproveQuote = async (
             platform_id: platformId,
             order_id: orderId,
             status: "QUOTED",
-            notes: margin_override_percent
-                ? `Admin approved with margin override (${margin_override_percent}%): ${margin_override_reason}`
-                : isRevisedQuote
-                  ? "Admin approved revised quote"
-                  : "Admin approved quote",
+            notes: isRevisedQuote ? "Admin approved revised quote" : "Admin approved quote",
             updated_by: user.id,
         });
 
@@ -3487,6 +3468,117 @@ const adminApproveQuote = async (
         financial_status: newFinancialStatus,
         final_total: finalTotal,
         updated_at: new Date(),
+    };
+};
+
+// ----------------------------------- MARK ORDER AS NO-COST ----------------------------------
+// Admin/logistics (grant-gated) waives all pricing on an order. One-way: voids
+// line items + zeros the prices row + flips pricing_mode=NO_COST + financial_status=
+// NOT_APPLICABLE (shared PricingService.markEntityAsNoCost), then moves the order
+// to CONFIRMED so it proceeds to fulfilment (bookings already exist from SUBMIT —
+// gotcha #44 — so no booking work here). Mirrors the SP mark-no-cost pattern.
+// NOTE: no client-facing confirm email / workflow auto-open is emitted here — that
+// stays with the real confirm path; the client + workflow wiring lands when the
+// admin ledger surfaces this action (Phase 2/3). An ORDER audit trail (status +
+// financial history + entity_change_history + PRICING_RECALCULATED event) is written.
+const ORDER_NO_COST_ALLOWED_STATUSES = [
+    "SUBMITTED",
+    "PRICING_REVIEW",
+    "PENDING_APPROVAL",
+    "QUOTED",
+];
+
+const markOrderAsNoCost = async (orderId: string, user: AuthUser, platformId: string) => {
+    const [order] = await db
+        .select({
+            id: orders.id,
+            order_id: orders.order_id,
+            order_status: orders.order_status,
+            pricing_mode: orders.pricing_mode,
+            company_id: orders.company_id,
+        })
+        .from(orders)
+        .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)))
+        .limit(1);
+
+    if (!order) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+    }
+    if (order.pricing_mode === "NO_COST") {
+        throw new CustomizedError(httpStatus.BAD_REQUEST, "Order is already marked as no-cost");
+    }
+    if (!ORDER_NO_COST_ALLOWED_STATUSES.includes(String(order.order_status))) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Cannot mark as no-cost in status: ${order.order_status}. Must be SUBMITTED, PRICING_REVIEW, PENDING_APPROVAL or QUOTED.`
+        );
+    }
+
+    await db.transaction(async (tx) => {
+        // Voids line items + zeros prices + sets pricing_mode=NO_COST +
+        // financial_status=NOT_APPLICABLE on the order row.
+        await PricingService.markEntityAsNoCost({
+            entityType: "ORDER",
+            entityId: orderId,
+            platformId,
+            actorId: user.id,
+            tx,
+        });
+
+        await tx
+            .update(orders)
+            .set({ order_status: "CONFIRMED", updated_at: new Date() })
+            .where(eq(orders.id, orderId));
+
+        await tx.insert(orderStatusHistory).values({
+            platform_id: platformId,
+            order_id: orderId,
+            status: "CONFIRMED",
+            notes: "Marked as no-cost — pricing waived, order confirmed for fulfilment.",
+            updated_by: user.id,
+        });
+        await tx.insert(financialStatusHistory).values({
+            platform_id: platformId,
+            order_id: orderId,
+            status: "NOT_APPLICABLE",
+            notes: "Order marked as no-cost.",
+            updated_by: user.id,
+        });
+
+        // R5 audit row.
+        await writeChangeHistory(tx, {
+            platformId,
+            entityType: "ORDER",
+            entityId: orderId,
+            entityIdReadable: order.order_id,
+            changed: [{ field: "pricing_mode", old: "STANDARD", new: "NO_COST", tier: "A" }],
+            actorId: user.id,
+            actorRole: user.role,
+        });
+    });
+
+    // R5 audit event.
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: EVENT_TYPES.PRICING_RECALCULATED,
+        entity_type: "ORDER",
+        entity_id: orderId,
+        actor_id: user.id,
+        actor_role: user.role,
+        payload: {
+            entity_id_readable: order.order_id,
+            company_id: order.company_id || "",
+            company_name: "",
+            action: "no_cost",
+            reason: null,
+        },
+    });
+
+    return {
+        id: orderId,
+        order_status: "CONFIRMED",
+        financial_status: "NOT_APPLICABLE",
+        pricing_mode: "NO_COST",
     };
 };
 
@@ -4666,6 +4758,7 @@ export const OrderServices = {
     sendInvoice,
     submitForApproval,
     adminApproveQuote,
+    markOrderAsNoCost,
     returnToLogistics,
     cancelOrder,
     calculateEstimate,

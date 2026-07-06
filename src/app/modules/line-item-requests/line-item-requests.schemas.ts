@@ -53,6 +53,12 @@ const approveLineItemRequestSchema = z.object({
                 )
                 .optional()
                 .default("BILLABLE"),
+            // LIR approval is a full commercial decision (PLAN decision 6): admin
+            // can set the per-line sell rate + client visibility on the created
+            // line. sell_unit_rate absent/null → seed-derived sell (margin math);
+            // client_price_visible absent → false.
+            sell_unit_rate: z.number().min(0).nullable().optional(),
+            client_price_visible: z.boolean().optional().default(false),
             admin_note: z.string().trim().optional(),
         })
         .strict(),

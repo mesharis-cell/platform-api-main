@@ -590,10 +590,8 @@ const approveInboundRequestByAdmin = async (
     requestId: string,
     user: AuthUser,
     platformId: string,
-    payload: ApproveInboundRequestPayload
+    _payload: ApproveInboundRequestPayload
 ) => {
-    const { margin_override_percent, margin_override_reason } = payload;
-
     // Step 1: Fetch inbound request with details
     const [result] = await db
         .select({
@@ -664,28 +662,13 @@ const approveInboundRequestByAdmin = async (
     // download 409 gate. Mirrors the order fix in adminApproveQuote.
     const newFinancialStatus = "QUOTE_SENT";
 
-    let finalTotal = String(
+    const finalTotal = String(
         PricingService.projectSummaryForRole(requestPricing as any, "CLIENT")?.final_total || "0"
     );
 
-    // Step 3: Update order pricing and status
+    // Step 3: Update status. Blanket margin override retired (P1-6) — approval no
+    // longer recalculates pricing; the quote is sent as priced via the per-line ledger.
     await db.transaction(async (tx) => {
-        // Step 3.1: Update pricing if margin override is provided
-        if (margin_override_percent) {
-            const recalcResult = await PricingService.recalculate({
-                entity_type: "INBOUND_REQUEST",
-                entity_id: inboundRequest.id,
-                platform_id: platformId,
-                calculated_by: user.id,
-                set_margin_override: {
-                    percent: margin_override_percent,
-                    reason: margin_override_reason || null,
-                },
-                tx,
-            });
-            finalTotal = recalcResult.final_total.toFixed(2);
-        }
-
         // Step 3.2: Update order status
         await tx
             .update(inboundRequests)
@@ -733,6 +716,85 @@ const approveInboundRequestByAdmin = async (
         financial_status: newFinancialStatus,
         final_total: finalTotal,
         updated_at: new Date(),
+    };
+};
+
+// ----------------------------------- MARK INBOUND REQUEST AS NO-COST ------------------------
+// Admin (grant-only inbound_requests:mark_no_cost for others) waives all pricing.
+// One-way: voids line items + zeros prices + flips pricing_mode=NO_COST +
+// financial_status=NOT_APPLICABLE (shared helper), then moves the request to
+// CONFIRMED. Mirrors the order/SP mark-no-cost pattern. No client confirm email
+// here (deferred to the frontend-wiring phase, like the order path).
+const INBOUND_NO_COST_ALLOWED_STATUSES = ["PRICING_REVIEW", "PENDING_APPROVAL", "QUOTED"];
+
+const markInboundRequestAsNoCost = async (
+    requestId: string,
+    user: AuthUser,
+    platformId: string
+) => {
+    const [request] = await db
+        .select({
+            id: inboundRequests.id,
+            inbound_request_id: inboundRequests.inbound_request_id,
+            request_status: inboundRequests.request_status,
+            pricing_mode: inboundRequests.pricing_mode,
+            company_id: inboundRequests.company_id,
+        })
+        .from(inboundRequests)
+        .where(and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)))
+        .limit(1);
+
+    if (!request) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found");
+    }
+    if (request.pricing_mode === "NO_COST") {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Inbound request is already marked as no-cost"
+        );
+    }
+    if (!INBOUND_NO_COST_ALLOWED_STATUSES.includes(String(request.request_status))) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Cannot mark as no-cost in status: ${request.request_status}. Must be PRICING_REVIEW, PENDING_APPROVAL or QUOTED.`
+        );
+    }
+
+    await db.transaction(async (tx) => {
+        await PricingService.markEntityAsNoCost({
+            entityType: "INBOUND_REQUEST",
+            entityId: requestId,
+            platformId,
+            actorId: user.id,
+            tx,
+        });
+        await tx
+            .update(inboundRequests)
+            .set({ request_status: "CONFIRMED", updated_at: new Date() })
+            .where(eq(inboundRequests.id, requestId));
+    });
+
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: EVENT_TYPES.PRICING_RECALCULATED,
+        entity_type: "INBOUND_REQUEST",
+        entity_id: requestId,
+        actor_id: user.id,
+        actor_role: user.role,
+        payload: {
+            entity_id_readable: request.inbound_request_id,
+            company_id: request.company_id || "",
+            company_name: "",
+            action: "no_cost",
+            reason: null,
+        },
+    });
+
+    return {
+        id: requestId,
+        request_status: "CONFIRMED",
+        financial_status: "NOT_APPLICABLE",
+        pricing_mode: "NO_COST",
     };
 };
 
@@ -1527,6 +1589,7 @@ export const InboundRequestServices = {
     getInboundRequestById,
     submitForApproval,
     approveInboundRequestByAdmin,
+    markInboundRequestAsNoCost,
     approveOrDeclineQuoteByClient,
     updateInboundRequestItem,
     completeInboundRequest,

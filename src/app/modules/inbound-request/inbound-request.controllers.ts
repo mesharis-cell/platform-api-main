@@ -89,6 +89,22 @@ const approveInboundRequestByAdmin = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- MARK INBOUND REQUEST AS NO-COST ------------------------
+const markInboundRequestAsNoCost = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const id = getRequiredString(req.params.id, "id");
+
+    const result = await InboundRequestServices.markInboundRequestAsNoCost(id, user, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Inbound request marked as no-cost.",
+        data: result,
+    });
+});
+
 // ----------------------------------- APPROVE OR DECLINE QUOTE BY CLIENT ---------------------
 const approveOrDeclineQuoteByClient = catchAsync(async (req, res) => {
     const user = (req as any).user;
@@ -202,6 +218,7 @@ export const InboundRequestControllers = {
     getInboundRequestById,
     submitForApproval,
     approveInboundRequestByAdmin,
+    markInboundRequestAsNoCost,
     approveOrDeclineQuoteByClient,
     updateInboundRequestItem,
     completeInboundRequest,

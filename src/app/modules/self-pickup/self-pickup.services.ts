@@ -763,12 +763,7 @@ const submitForApproval = async (id: string, platformId: string, user: AuthUser)
     );
 };
 
-const approveQuote = async (
-    id: string,
-    platformId: string,
-    user: AuthUser,
-    payload: { margin_override_percent?: number; margin_override_reason?: string } = {}
-) => {
+const approveQuote = async (id: string, platformId: string, user: AuthUser) => {
     const pickup = await getSelfPickupById(id, platformId);
     if (!canApproveQuote(pickup.self_pickup_status)) {
         throw new CustomizedError(
@@ -777,45 +772,15 @@ const approveQuote = async (
         );
     }
 
-    const { margin_override_percent, margin_override_reason } = payload;
-
-    // Apply margin override (if provided) via PricingService — mirrors
-    // order.services.ts:2456-2470. The recalculation writes the override
-    // flag + reason into the prices row and rebuilds breakdown_lines.
-    if (margin_override_percent !== undefined) {
-        if (!margin_override_reason?.trim()) {
-            throw new CustomizedError(
-                httpStatus.BAD_REQUEST,
-                "Margin override reason is required when overriding the margin"
-            );
-        }
-        await db.transaction(async (tx) => {
-            await PricingService.recalculate({
-                entity_type: "SELF_PICKUP",
-                entity_id: id,
-                platform_id: platformId,
-                calculated_by: user.id,
-                set_margin_override: {
-                    percent: margin_override_percent,
-                    reason: margin_override_reason || null,
-                },
-                tx,
-            });
-        });
-    }
-
+    // Blanket margin override retired (Phase 1, P1-6): approval no longer
+    // recalculates pricing — the quote is sent exactly as priced via the
+    // per-line ledger (line_items.sell_unit_rate).
     return transitionStatus(
         id,
         platformId,
         user,
         "QUOTED",
-        margin_override_percent !== undefined
-            ? `Admin approved with margin override (${margin_override_percent}%): ${margin_override_reason}`
-            : "Admin approved — quote sent to client",
-        {
-            margin_override_percent: margin_override_percent ?? null,
-            margin_override_reason: margin_override_reason ?? null,
-        }
+        "Admin approved — quote sent to client"
     );
 };
 

@@ -1202,6 +1202,10 @@ export const orders = pgTable(
         financial_status: financialStatusEnum("financial_status")
             .notNull()
             .default("PENDING_QUOTE"),
+        // Pricing mode — STANDARD runs the normal pricing flow; NO_COST bypasses
+        // it entirely (admin/logistics-triggered, one-way). Mirrors self_pickups.
+        // See pricingModeEnum + PricingService.markEntityAsNoCost. Migration 0071.
+        pricing_mode: pricingModeEnum("pricing_mode").notNull().default("STANDARD"),
 
         // Scanning & photos
         scanning_data: jsonb("scanning_data").default("{}"), // {scanned_out: [], scanned_in: []}
@@ -2941,6 +2945,9 @@ export const inboundRequests = pgTable("inbound_requests", {
     note: text("note"),
     request_status: inboundRequestStatusEnum("request_status").notNull().default("PRICING_REVIEW"),
     financial_status: financialStatusEnum("financial_status").notNull().default("PENDING_QUOTE"),
+    // Pricing mode — STANDARD runs normal pricing; NO_COST bypasses it. Mirrors
+    // self_pickups. See pricingModeEnum + markEntityAsNoCost. Migration 0071.
+    pricing_mode: pricingModeEnum("pricing_mode").notNull().default("STANDARD"),
     request_pricing_id: uuid("request_pricing_id")
         .notNull()
         .references(() => prices.id),
@@ -3073,6 +3080,11 @@ export const serviceRequests = pgTable(
         commercial_status: serviceRequestCommercialStatusEnum("commercial_status")
             .notNull()
             .default("INTERNAL"),
+        // Pricing mode — STANDARD runs normal pricing; NO_COST bypasses it.
+        // Mirrors self_pickups; unifies the retired SR concession path onto the
+        // shared no-cost gesture. See pricingModeEnum + markEntityAsNoCost.
+        // Migration 0071 (column add + concession row-migration).
+        pricing_mode: pricingModeEnum("pricing_mode").notNull().default("STANDARD"),
         title: varchar("title", { length: 200 }).notNull(),
         description: text("description"),
         related_asset_id: uuid("related_asset_id").references(() => assets.id),

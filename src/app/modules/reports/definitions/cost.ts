@@ -131,6 +131,7 @@ type RawRow = {
     margin_override_reason: string | null;
     priced_at: Date | string | null;
     client_sell_override_total: string | null;
+    pricing_mode: string | null;
 };
 
 async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<ReportResult> {
@@ -188,7 +189,8 @@ SELECT
     c.name AS company_name, b.name AS brand_name,
     o.event_start_date AS event_start_date, o.event_end_date AS event_end_date,
     p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
-    p.margin_override_reason, p.calculated_at AS priced_at, NULL::text AS client_sell_override_total
+    p.margin_override_reason, p.calculated_at AS priced_at, NULL::text AS client_sell_override_total,
+    NULL::text AS pricing_mode
 FROM orders o
 LEFT JOIN companies c ON o."company" = c.id
 LEFT JOIN brands b ON o."brand" = b.id
@@ -208,7 +210,8 @@ SELECT
     c.name AS company_name, NULL::text AS brand_name,
     NULL::timestamp AS event_start_date, NULL::timestamp AS event_end_date,
     p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
-    p.margin_override_reason, p.calculated_at AS priced_at, sr.client_sell_override_total::text AS client_sell_override_total
+    p.margin_override_reason, p.calculated_at AS priced_at, sr.client_sell_override_total::text AS client_sell_override_total,
+    sr.pricing_mode::text AS pricing_mode
 FROM service_requests sr
 LEFT JOIN companies c ON sr.company_id = c.id
 LEFT JOIN prices p ON p.id = sr.request_pricing_id
@@ -226,7 +229,8 @@ SELECT
     c.name AS company_name, b.name AS brand_name,
     NULL::timestamp AS event_start_date, NULL::timestamp AS event_end_date,
     p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
-    p.margin_override_reason, p.calculated_at AS priced_at, NULL::text AS client_sell_override_total
+    p.margin_override_reason, p.calculated_at AS priced_at, NULL::text AS client_sell_override_total,
+    NULL::text AS pricing_mode
 FROM self_pickups sp
 LEFT JOIN companies c ON sp.company_id = c.id
 LEFT JOIN brands b ON sp.brand_id = b.id
@@ -245,7 +249,8 @@ SELECT
     c.name AS company_name, NULL::text AS brand_name,
     NULL::timestamp AS event_start_date, NULL::timestamp AS event_end_date,
     p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
-    p.margin_override_reason, p.calculated_at AS priced_at, NULL::text AS client_sell_override_total
+    p.margin_override_reason, p.calculated_at AS priced_at, NULL::text AS client_sell_override_total,
+    NULL::text AS pricing_mode
 FROM inbound_requests ir
 LEFT JOIN companies c ON ir.company_id = c.id
 LEFT JOIN prices p ON p.id = ir.request_pricing_id
@@ -357,16 +362,25 @@ ORDER BY company_name ASC, doc_date ASC, reference ASC`;
         let sellTotal = roundMoney(parseNum(totals?.sell_total));
         let marginAmount = roundMoney(parseNum(totals?.margin_amount));
 
+        // SR no-cost (P1-9): a NO_COST service request zeroes the SELL (buy stays,
+        // so margin goes negative by the full cost — matches the concession model).
+        // Priority over the dormant client_sell_override_total branch (0071 migrated
+        // legacy zero-total concessions to pricing_mode=NO_COST).
+        const isNoCostSr = r.entity_type === "SERVICE_REQUEST" && r.pricing_mode === "NO_COST";
         // SR sell/margin override — honour client_sell_override_total (the SELL is
         // the override ex-VAT; margin re-derives against the same buy_total), to
         // keep cost↔revenue tie-out consistent with accounts-reconciliation.
         const overrideRaw =
+            !isNoCostSr &&
             r.entity_type === "SERVICE_REQUEST" &&
             r.client_sell_override_total !== null &&
             r.client_sell_override_total !== ""
                 ? r.client_sell_override_total
                 : null;
-        if (overrideRaw !== null) {
+        if (isNoCostSr) {
+            sellTotal = 0;
+            marginAmount = roundMoney(0 - buyTotal);
+        } else if (overrideRaw !== null) {
             const vatPercent = parseNum(totals?.sell_vat_percent ?? r.vat_percent);
             const overrideFinal = roundMoney(parseNum(overrideRaw));
             sellTotal = roundMoney(overrideFinal / (1 + vatPercent / 100));

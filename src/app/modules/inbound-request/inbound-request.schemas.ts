@@ -49,17 +49,9 @@ const createInboundRequestSchema = z.object({
     }),
 });
 
+// Blanket margin override retired (Phase 1, P1-6) — see order.schemas.ts note.
 const approveInboundRequestSchema = z.object({
-    body: z
-        .object({
-            margin_override_percent: z
-                .number("Margin override percent should be a number")
-                .min(0, "Margin override percent must be greater than 0")
-                .max(100, "Margin override percent must be less than 100")
-                .optional(),
-            margin_override_reason: z.string("Margin override reason should be a text").optional(),
-        })
-        .strict(),
+    body: z.object({}).strict().optional().default({}),
 });
 
 const approveOrDeclineQuoteByClientSchema = z.object({

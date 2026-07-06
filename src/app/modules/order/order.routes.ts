@@ -373,9 +373,18 @@ router.post(
     "/:id/admin-approve-quote",
     platformValidator,
     auth("ADMIN"),
-    // requirePermission(PERMISSIONS.PRICING_ADMIN_APPROVE),
+    requirePermission(PERMISSIONS.PRICING_ADMIN_APPROVE),
     payloadValidator(orderSchemas.adminApproveQuoteSchema),
     OrderControllers.adminApproveQuote
+);
+
+// Mark order as no-cost (Admin; grant-only orders:mark_no_cost for others)
+router.post(
+    "/:id/mark-no-cost",
+    platformValidator,
+    auth("ADMIN", "LOGISTICS"),
+    requirePermission(PERMISSIONS.ORDERS_MARK_NO_COST),
+    OrderControllers.markOrderAsNoCost
 );
 
 // Return to Logistics (Admin → Logistics)

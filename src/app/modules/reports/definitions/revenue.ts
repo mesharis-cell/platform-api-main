@@ -126,6 +126,7 @@ type RawRow = {
     margin_override_reason: string | null;
     calculated_at: Date | string | null;
     client_sell_override_total: string | null;
+    pricing_mode: string | null;
 };
 
 async function run(params: Record<string, any>, ctx: ReportRunContext): Promise<ReportResult> {
@@ -184,7 +185,8 @@ SELECT
     o.order_status::text AS status, o.financial_status::text AS financial_status,
     c.name AS company, b.name AS brand, u.name AS created_by,
     p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
-    p.margin_override_reason, p.calculated_at, NULL::text AS client_sell_override_total
+    p.margin_override_reason, p.calculated_at, NULL::text AS client_sell_override_total,
+    NULL::text AS pricing_mode
 FROM orders o
 LEFT JOIN companies c ON o.company = c.id
 LEFT JOIN brands b ON o.brand = b.id
@@ -207,7 +209,8 @@ SELECT
     sr.request_status::text AS status, sr.commercial_status::text AS financial_status,
     c.name AS company, NULL::text AS brand, u.name AS created_by,
     p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
-    p.margin_override_reason, p.calculated_at, sr.client_sell_override_total::text AS client_sell_override_total
+    p.margin_override_reason, p.calculated_at, sr.client_sell_override_total::text AS client_sell_override_total,
+    sr.pricing_mode::text AS pricing_mode
 FROM service_requests sr
 LEFT JOIN companies c ON sr.company_id = c.id
 LEFT JOIN users u ON sr.created_by = u.id
@@ -225,7 +228,8 @@ SELECT
     sp.self_pickup_status::text AS status, sp.financial_status::text AS financial_status,
     c.name AS company, b.name AS brand, u.name AS created_by,
     p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
-    p.margin_override_reason, p.calculated_at, NULL::text AS client_sell_override_total
+    p.margin_override_reason, p.calculated_at, NULL::text AS client_sell_override_total,
+    NULL::text AS pricing_mode
 FROM self_pickups sp
 LEFT JOIN companies c ON sp.company_id = c.id
 LEFT JOIN brands b ON sp.brand_id = b.id
@@ -244,7 +248,8 @@ SELECT
     ir.request_status::text AS status, ir.financial_status::text AS financial_status,
     c.name AS company, NULL::text AS brand, u.name AS created_by,
     p.breakdown_lines, p.margin_percent, p.vat_percent, p.margin_is_override,
-    p.margin_override_reason, p.calculated_at, NULL::text AS client_sell_override_total
+    p.margin_override_reason, p.calculated_at, NULL::text AS client_sell_override_total,
+    NULL::text AS pricing_mode
 FROM inbound_requests ir
 LEFT JOIN companies c ON ir.company_id = c.id
 LEFT JOIN users u ON ir.created_by = u.id
@@ -356,16 +361,28 @@ ORDER BY company ASC, doc_date ASC`;
         let finalTotal = roundMoney(parseNum(totals?.sell_total_with_vat));
         const buyTotal = roundMoney(parseNum(totals?.buy_total));
 
+        // SR no-cost (P1-9): a NO_COST service request zeroes the SELL side (buy
+        // stays — the internal cost is still real). This is the going-forward SR
+        // no-cost signal, unifying the retired concession. Takes priority over the
+        // dormant client_sell_override_total branch below (0071 migrated existing
+        // zero-total concession rows to pricing_mode=NO_COST, so that branch reads
+        // dormant data until the column is dropped in Phase 4).
+        const isNoCostSr = r.entity_type === "SERVICE_REQUEST" && r.pricing_mode === "NO_COST";
         // SR sell/final override — honour client_sell_override_total exactly as
         // accounts-reconciliation does: the final IS the override; subtotal + VAT
         // are derived back-out from the frozen VAT%.
         const overrideRaw =
+            !isNoCostSr &&
             r.entity_type === "SERVICE_REQUEST" &&
             r.client_sell_override_total !== null &&
             r.client_sell_override_total !== ""
                 ? r.client_sell_override_total
                 : null;
-        if (overrideRaw !== null) {
+        if (isNoCostSr) {
+            finalTotal = 0;
+            subtotal = 0;
+            vatAmount = 0;
+        } else if (overrideRaw !== null) {
             finalTotal = roundMoney(parseNum(overrideRaw));
             subtotal = roundMoney(finalTotal / (1 + vatPercent / 100));
             vatAmount = roundMoney(finalTotal - subtotal);

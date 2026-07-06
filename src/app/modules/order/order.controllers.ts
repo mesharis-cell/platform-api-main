@@ -519,6 +519,22 @@ const adminApproveQuote = catchAsync(async (req, res) => {
     });
 });
 
+// ----------------------------------- MARK ORDER AS NO-COST -----------------------------------
+const markOrderAsNoCost = catchAsync(async (req, res) => {
+    const user = (req as any).user;
+    const platformId = (req as any).platformId;
+    const id = getRequiredString(req.params.id, "id");
+
+    const result = await OrderServices.markOrderAsNoCost(id, user, platformId);
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: "Order marked as no-cost.",
+        data: result,
+    });
+});
+
 // ----------------------------------- RETURN TO LOGISTICS (NEW) -----------------------------------
 const returnToLogistics = catchAsync(async (req, res) => {
     const user = (req as any).user;
@@ -706,6 +722,7 @@ export const OrderControllers = {
     getPendingApprovalOrders,
     submitForApproval,
     adminApproveQuote,
+    markOrderAsNoCost,
     returnToLogistics,
     cancelOrder,
     updateMaintenanceDecision,
