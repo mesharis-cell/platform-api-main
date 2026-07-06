@@ -133,9 +133,6 @@ export const PERMISSIONS = {
     ACCESS_POLICIES_READ: "access_policies:read",
     ACCESS_POLICIES_UPDATE: "access_policies:update",
     ACCESS_POLICIES_ALL: "access_policies:*",
-    WAREHOUSE_OPS_RATES_READ: "warehouse_ops_rates:read",
-    WAREHOUSE_OPS_RATES_UPDATE: "warehouse_ops_rates:update",
-    WAREHOUSE_OPS_RATES_ALL: "warehouse_ops_rates:*",
 
     // ==================== PAGE VISIBILITY ====================
     ANALYTICS_VIEW_PAGE: "analytics:view_page",
@@ -164,7 +161,6 @@ export const PERMISSIONS = {
     WORKFLOW_DEFINITIONS_VIEW_PAGE: "workflow_definitions:view_page",
     ACCESS_POLICIES_VIEW_PAGE: "access_policies:view_page",
     SERVICE_TYPES_VIEW_PAGE: "service_types:view_page",
-    WAREHOUSE_OPS_RATES_VIEW_PAGE: "warehouse_ops_rates:view_page",
     COUNTRIES_VIEW_PAGE: "countries:view_page",
     CITIES_VIEW_PAGE: "cities:view_page",
 
@@ -306,7 +302,6 @@ export const PERMISSION_TEMPLATES = {
         PERMISSIONS.NOTIFICATION_RULES_ALL,
         PERMISSIONS.ATTACHMENT_TYPES_ALL,
         PERMISSIONS.ACCESS_POLICIES_ALL,
-        PERMISSIONS.WAREHOUSE_OPS_RATES_ALL,
         PERMISSIONS.SERVICE_TYPES_ALL,
         PERMISSIONS.PRICING_ALL,
         PERMISSIONS.ORDERS_ALL,
@@ -347,7 +342,6 @@ export const PERMISSION_TEMPLATES = {
         PERMISSIONS.WORKFLOW_DEFINITIONS_VIEW_PAGE,
         PERMISSIONS.ACCESS_POLICIES_VIEW_PAGE,
         PERMISSIONS.SERVICE_TYPES_VIEW_PAGE,
-        PERMISSIONS.WAREHOUSE_OPS_RATES_VIEW_PAGE,
         PERMISSIONS.COUNTRIES_VIEW_PAGE,
         PERMISSIONS.CITIES_VIEW_PAGE,
         PERMISSIONS.SELF_PICKUPS_VIEW_PAGE,

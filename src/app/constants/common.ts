@@ -41,11 +41,6 @@ export const featureRegistry = {
         description: "Enable invoice generation and payment confirmation flows",
         comingSoon: true,
     },
-    enable_base_operations: {
-        default: true,
-        label: "Enable Picking & Handling",
-        description: "Include Picking & Handling (base operations) in pricing calculations",
-    },
     enable_asset_bulk_upload: {
         default: false,
         label: "Enable Asset Bulk Upload",
@@ -141,7 +136,7 @@ export const companyFeatures = (Object.keys(featureRegistry) as FeatureKey[]).re
  *
  * Pass whatever subset of features you have:
  *   - resolveEffectiveFeature("enable_self_pickup", { platformFeatures, companyFeatures })
- *   - resolveEffectiveFeature("enable_base_operations", { companyFeatures })
+ *   - resolveEffectiveFeature("enable_workflows", { companyFeatures })
  *   - resolveEffectiveFeature("enable_attachments", {})  // → registry default only
  *
  * Why this exists: previously every consumer (auth/context builder,
