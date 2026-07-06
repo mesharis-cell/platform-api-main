@@ -59,12 +59,10 @@ type BreakdownLine = {
     voided_at: string | null;
     void_reason: string | null;
     client_price_visible: boolean;
-    // Resolved effective values at snapshot time. apply_margin is the final
-    // boolean used to gate the sell math for this line (after service_type
-    // inheritance + SYSTEM hardcode). logistics_visible mirrors the line
-    // column verbatim. Both are exposed to ADMIN clients so the frontend
-    // can render policy indicators without re-querying.
-    apply_margin: boolean;
+    // logistics_visible mirrors the line column verbatim. Exposed to ADMIN
+    // clients so the frontend can render the audience indicator without
+    // re-querying. (The per-line apply_margin policy field was retired in the
+    // pricing-ledger rewrite — sell is driven solely by sell_unit_rate.)
     logistics_visible: boolean;
     // Per-line sell override marker. When non-null, the line's sell_total was
     // set directly from this per-unit rate (margin math skipped). null means
@@ -97,8 +95,6 @@ type RawPricingRecord = {
     entity_id?: string;
     margin_percent?: string | number | null;
     vat_percent?: string | number | null;
-    margin_is_override?: boolean | null;
-    margin_override_reason?: string | null;
     breakdown_lines?: unknown;
     calculated_at?: Date | string | null;
     calculated_by?: string | null;
@@ -206,9 +202,6 @@ const toBreakdownLine = (line: unknown): BreakdownLine | null => {
         voided_at: toIso(row.voided_at as Date | string | null | undefined),
         void_reason: row.void_reason ? String(row.void_reason) : null,
         client_price_visible: !!row.client_price_visible,
-        // Default true when reading a legacy snapshot that pre-dates the
-        // policy fields. New snapshots always carry explicit values.
-        apply_margin: row.apply_margin === false ? false : true,
         logistics_visible: row.logistics_visible === false ? false : true,
         // Old snapshots pre-dating the override field read back as null; new
         // snapshots round-trip the stored override value.
@@ -318,9 +311,7 @@ const loadEntityLineItems = async (
             service_type_id: lineItems.service_type_id,
             service_type_name: serviceTypes.name,
             service_type_rate: serviceTypes.default_rate,
-            service_type_apply_margin: serviceTypes.apply_margin,
             client_price_visible: lineItems.client_price_visible,
-            apply_margin: lineItems.apply_margin,
             logistics_visible: lineItems.logistics_visible,
         })
         .from(lineItems)
@@ -362,22 +353,6 @@ const buildBreakdownLinesFromLineItems = (
         const isSystem = item.line_item_type === "SYSTEM";
         const billingMode = String(item.billing_mode || "BILLABLE");
 
-        // Effective apply_margin — INFORMATIONAL ONLY as of the pricing-ledger
-        // rewrite (Phase 1). The sell math below NO LONGER consults it: every
-        // BILLABLE line now carries an explicit sell_unit_rate (stamped by
-        // migration 0072 + written on create/edit). This value is still
-        // resolved + surfaced on the breakdown line so the (Phase-1-era) admin
-        // accordion keeps rendering its margin indicator; the column + this
-        // resolution retire in Phase 4. line override → service_type → true.
-        const effectiveApplyMargin =
-            item.apply_margin === false
-                ? false
-                : item.apply_margin === true
-                  ? true
-                  : item.service_type_apply_margin === false
-                    ? false
-                    : true;
-
         // Canonical per-line sell rate. NULL only for NON_BILLABLE/COMPLIMENTARY
         // lines (never charged) or a legacy in-flight BILLABLE row that predates
         // the 0072 stamp (defensive path below).
@@ -394,8 +369,7 @@ const buildBreakdownLinesFromLineItems = (
         //                                    handler registry — none post-Phase-0)
         //   BILLABLE, rate NULL (legacy)   → defensive: derive from margin seed
         //                                    + warn (should never fire in steady
-        //                                    state; apply_margin NOT consulted —
-        //                                    dormant per §2.1)
+        //                                    state)
         let sellTotal: number;
         let sellUnitPrice: number;
         if (billingMode !== "BILLABLE") {
@@ -477,7 +451,6 @@ const buildBreakdownLinesFromLineItems = (
             voided_at: toIso(item.voided_at as Date | string | null | undefined),
             void_reason: item.void_reason ? String(item.void_reason) : null,
             client_price_visible: !!item.client_price_visible,
-            apply_margin: effectiveApplyMargin,
             logistics_visible: item.logistics_visible === false ? false : true,
             sell_unit_rate_override: rawSellUnitRate,
         };
@@ -657,8 +630,6 @@ const ensurePricingRow = async (
             breakdown_lines: [],
             margin_percent: params.defaultMarginPercent.toFixed(2),
             vat_percent: params.defaultVatPercent.toFixed(2),
-            margin_is_override: false,
-            margin_override_reason: null,
             calculated_by: params.actorId,
             calculated_at: new Date(),
         })
@@ -701,8 +672,6 @@ const buildInitialPricing = (params: BuildInitialPricingParams) => {
         breakdown_lines: [],
         margin_percent: marginPercent.toFixed(2),
         vat_percent: vatPercent.toFixed(2),
-        margin_is_override: false,
-        margin_override_reason: null,
         calculated_at: now,
         calculated_by: params.calculated_by,
     };
@@ -758,18 +727,16 @@ const rebuildBreakdown = async (params: RebuildBreakdownParams) => {
 
     // Margin seed resolution (blanket override retired — Phase 1, P1-6). The seed
     // is the company default on first build, then the stored prices.margin_percent
-    // thereafter. There is NO runtime override path anymore: per-line
+    // thereafter. There is NO runtime override path: per-line
     // line_items.sell_unit_rate is the only sell control (stamped at create/edit/
-    // bulk-margin). `margin_is_override` / `margin_override_reason` are dormant
-    // columns — no longer read for resolution nor written (dropped in migration
-    // 0073). They remain constant false/null here purely to keep the return +
-    // event shape stable for existing readers until the Phase 4 cleanup.
+    // bulk-margin). The former `margin_is_override` / `margin_override_reason`
+    // columns were dropped in migration 0073; the return shape below keeps the
+    // (now constant) is_override:false / override_reason:null fields purely for
+    // reader-shape stability.
     let marginPercent = context.company_margin;
     if (pricingRow?.margin_percent !== undefined && pricingRow?.margin_percent !== null) {
         marginPercent = toNum(pricingRow.margin_percent);
     }
-    const marginIsOverride = false;
-    const marginOverrideReason: string | null = null;
 
     const now = new Date();
     const rawLineItems = await loadEntityLineItems(
@@ -789,8 +756,6 @@ const rebuildBreakdown = async (params: RebuildBreakdownParams) => {
             breakdown_lines: breakdownLines,
             margin_percent: marginPercent.toFixed(2),
             vat_percent: context.vat_percent.toFixed(2),
-            // margin_is_override / margin_override_reason intentionally NOT written
-            // (blanket override retired, P1-6) — columns dormant until dropped in 0073.
             calculated_at: now,
             calculated_by: params.calculated_by,
         })
@@ -824,8 +789,8 @@ const rebuildBreakdown = async (params: RebuildBreakdownParams) => {
         pricing_id: pricingId,
         margin_percent: marginPercent,
         vat_percent: context.vat_percent,
-        margin_is_override: marginIsOverride,
-        margin_override_reason: marginOverrideReason,
+        margin_is_override: false,
+        margin_override_reason: null,
         buy_total: totals.buy_total,
         subtotal: totals.sell_total,
         final_total: totals.sell_total_with_vat,
@@ -841,8 +806,8 @@ const rebuildBreakdown = async (params: RebuildBreakdownParams) => {
         margin: {
             percent: marginPercent,
             amount: totals.margin_amount,
-            is_override: marginIsOverride,
-            override_reason: marginOverrideReason,
+            is_override: false,
+            override_reason: null,
         },
         calculated_at: now,
     };
@@ -923,8 +888,11 @@ const projectByRole = (pricing: RawPricingRecord | null | undefined, role: Prici
     const totals = calculateBreakdownTotals(lines, vatPercent);
     const marginPolicy = {
         percent: toNum(pricing.margin_percent),
-        is_override: !!pricing.margin_is_override,
-        override_reason: pricing.margin_override_reason ?? null,
+        // Blanket margin override retired (pricing-ledger). Kept as constant
+        // false/null for reader-shape stability; the backing columns were
+        // dropped in migration 0073.
+        is_override: false,
+        override_reason: null as string | null,
     };
 
     const adminLines = lines.map((line) => ({ ...line }));
@@ -1168,8 +1136,6 @@ const markEntityAsNoCost = async (params: {
             breakdown_lines: [],
             margin_percent: "0",
             vat_percent: "0",
-            margin_is_override: false,
-            margin_override_reason: null,
             calculated_at: new Date(),
             calculated_by: params.actorId,
         })
