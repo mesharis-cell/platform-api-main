@@ -451,6 +451,7 @@ const getInboundRequestById = async (requestId: string, user: AuthUser, platform
         note: result.request.note,
         request_status: result.request.request_status,
         financial_status: result.request.financial_status,
+        pricing_mode: result.request.pricing_mode,
         company: result.company,
         requester: result.requester,
         request_pricing: requestPricingPayload,
