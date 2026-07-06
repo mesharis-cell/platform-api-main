@@ -713,14 +713,6 @@ const loadContext = async (): Promise<SeedContext> => {
     };
 };
 
-const ensureCompanyBaseOpsRate = async (ctx: SeedContext) => {
-    console.log("\n[2/8] Aligning Pernod warehouse ops rate for demo…");
-    await db
-        .update(schema.companies)
-        .set({ warehouse_ops_rate: "15.60", updated_at: new Date() })
-        .where(eq(schema.companies.id, ctx.company.id));
-};
-
 const importPrAssets = async (ctx: SeedContext) => {
     console.log("\n[3/8] Importing Pernod asset bundle into seeded demo…\n");
     await seedPrAssets({
@@ -870,50 +862,11 @@ const financialPath = (finalStatus: FinancialStatus): FinancialStatus[] => {
     return pathByFinal[finalStatus];
 };
 
-const composeBreakdownLines = (opts: {
-    volume: number;
-    warehouseOpsRate: number;
-    marginPercent: number;
-    createdBy: string;
-    lineItems: OrderLineSeed[];
-}) => {
+const composeBreakdownLines = (opts: { marginPercent: number; lineItems: OrderLineSeed[] }) => {
     const marginMultiplier = 1 + opts.marginPercent / 100;
     const nowIso = new Date().toISOString();
 
-    const baseBuy = Number((opts.volume * opts.warehouseOpsRate).toFixed(2));
-    const baseSell = Number((baseBuy * marginMultiplier).toFixed(2));
-
-    const lines: Record<string, unknown>[] = [
-        {
-            line_id: "BASE_OPS",
-            line_kind: "BASE_OPS",
-            category: "BASE_OPS",
-            label: `Picking & Handling (${opts.volume.toFixed(3)} m³)`,
-            quantity: 1,
-            unit: "service",
-            buy_unit_price: baseBuy,
-            buy_total: baseBuy,
-            sell_unit_price: baseSell,
-            sell_total: baseSell,
-            billing_mode: "BILLABLE",
-            source: {
-                mode: "WAREHOUSE_OPS_RATE",
-                service_type_id: null,
-                service_type_name_snapshot: "Picking & Handling",
-                service_type_rate_snapshot: Number(opts.warehouseOpsRate.toFixed(2)),
-            },
-            is_voided: false,
-            notes: null,
-            created_by: opts.createdBy,
-            created_at: nowIso,
-            updated_by: opts.createdBy,
-            updated_at: nowIso,
-            voided_by: null,
-            voided_at: null,
-            void_reason: null,
-            client_price_visible: false,
-        },
-    ];
+    const lines: Record<string, unknown>[] = [];
 
     for (const item of opts.lineItems) {
         if (item.billing_mode !== "BILLABLE") continue;
@@ -1163,10 +1116,7 @@ const ensureOrderStatusCoverage = async (
         }
 
         const breakdown = composeBreakdownLines({
-            volume,
-            warehouseOpsRate: Number(ctx.company.warehouse_ops_rate),
             marginPercent: Number(ctx.company.platform_margin_percent),
-            createdBy: ctx.adminUser.id,
             lineItems: lineSeeds,
         });
 
@@ -1674,10 +1624,7 @@ const ensureInboundCoverage = async (
         };
 
         const breakdown = composeBreakdownLines({
-            volume: 6.5,
-            warehouseOpsRate: Number(ctx.company.warehouse_ops_rate),
             marginPercent: Number(ctx.company.platform_margin_percent),
-            createdBy: ctx.adminUser.id,
             lineItems: [inboundLine],
         });
 
@@ -1779,10 +1726,7 @@ const ensureInboundCoverage = async (
             vatPercent: Number(ctx.platform.vat_percent || 0),
             calculatedBy: ctx.adminUser.id,
             breakdownLines: composeBreakdownLines({
-                volume: 0,
-                warehouseOpsRate: 0,
                 marginPercent: Number(ctx.company.platform_margin_percent),
-                createdBy: ctx.adminUser.id,
                 lineItems: [
                     {
                         line_item_type: "CATALOG",
@@ -1880,7 +1824,6 @@ const main = async () => {
     runBaseDemoSeed();
     const ctx = await loadContext();
 
-    await ensureCompanyBaseOpsRate(ctx);
     await importPrAssets(ctx);
     console.log("\n[4/8] Uploading and indexing demo media set…");
     const mediaPools = await buildDemoMediaPools(ctx);

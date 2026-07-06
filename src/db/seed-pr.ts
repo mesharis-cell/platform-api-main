@@ -179,7 +179,6 @@ async function seedCompany() {
             },
             features: companyFeatures,
             platform_margin_percent: "25.00",
-            warehouse_ops_rate: "10.00",
             contact_email: "events@pernod-ricard.com",
             contact_phone: "+971-50-111-1111",
             is_active: true,

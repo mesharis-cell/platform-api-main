@@ -41,10 +41,6 @@ const createCompany = z.object({
             .min(0, { message: "Platform margin percent must be at least 0" })
             .max(100, { message: "Platform margin percent cannot exceed 100" })
             .optional(),
-        warehouse_ops_rate: z
-            .number("Warehouse ops rate should be a number")
-            .min(0, { message: "Warehouse ops rate must be at least 0" })
-            .optional(),
         vat_percent_override: z
             .number("VAT override should be a number")
             .min(0, { message: "VAT override must be at least 0" })
@@ -77,10 +73,6 @@ const updateCompany = z.object({
                 .number()
                 .min(0, { message: "Platform margin percent must be at least 0" })
                 .max(100, { message: "Platform margin percent cannot exceed 100" })
-                .optional(),
-            warehouse_ops_rate: z
-                .number("Warehouse ops rate should be a number")
-                .min(0, { message: "Warehouse ops rate must be at least 0" })
                 .optional(),
             vat_percent_override: z
                 .number("VAT override should be a number")

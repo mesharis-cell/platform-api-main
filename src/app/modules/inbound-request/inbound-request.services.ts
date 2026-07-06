@@ -88,14 +88,6 @@ const createInboundRequest = async (
         );
     }
 
-    const totalVolume = data.items.reduce(
-        (acc, item) => acc + (item.quantity || 1) * Number(item.volume_per_unit),
-        0
-    );
-    const baseOpsTotal = Number(company.warehouse_ops_rate) * totalVolume;
-    const companyFeatureFlags = (company.features as Record<string, unknown> | null) || {};
-    const enableBaseOperations =
-        (companyFeatureFlags.enable_base_operations as boolean | undefined) ?? true;
     const vatPercent =
         company.vat_percent_override !== null && company.vat_percent_override !== undefined
             ? Number(company.vat_percent_override)
@@ -111,12 +103,9 @@ const createInboundRequest = async (
             platform_id: platformId,
             entity_type: "INBOUND_REQUEST",
             entity_id: requestDbId,
-            warehouse_ops_rate: company.warehouse_ops_rate,
-            base_ops_total: baseOpsTotal,
             margin_percent: Number(company.platform_margin_percent || 0),
             vat_percent: vatPercent,
             calculated_by: user.id,
-            enable_base_operations: enableBaseOperations,
         });
 
         // Step 2.4: Insert pricing record
@@ -171,7 +160,6 @@ const createInboundRequest = async (
         entity_id: result.id,
         platform_id: platformId,
         calculated_by: user.id,
-        base_ops_total_override: baseOpsTotal,
     });
 
     if (result) {
@@ -518,7 +506,6 @@ const submitForApproval = async (requestId: string, user: AuthUser, platformId: 
                 id: companies.id,
                 name: companies.name,
                 platform_margin_percent: companies.platform_margin_percent,
-                warehouse_ops_rate: companies.warehouse_ops_rate,
             },
             request_pricing: {
                 breakdown_lines: prices.breakdown_lines,
@@ -563,26 +550,12 @@ const submitForApproval = async (requestId: string, user: AuthUser, platformId: 
         );
     }
 
-    // Step 4: Fetch items for this request
-    const items = await db
-        .select()
-        .from(inboundRequestItems)
-        .where(eq(inboundRequestItems.inbound_request_id, requestId));
-
-    // Step 3.1: Calculate total volume from items
-    const totalVolume = items.reduce(
-        (acc, item) => acc + (item.quantity || 1) * Number(item.volume_per_unit),
-        0
-    );
-
-    // Step 5: Recalculate pricing
-    const baseOpsTotal = Number(company.warehouse_ops_rate) * totalVolume;
+    // Step 5: Recalculate pricing from current line items
     await PricingService.recalculate({
         entity_type: "INBOUND_REQUEST",
         entity_id: requestId,
         platform_id: platformId,
         calculated_by: user.id,
-        base_ops_total_override: baseOpsTotal,
     });
 
     // Step 6: Update inbound request status
@@ -629,7 +602,6 @@ const approveInboundRequestByAdmin = async (
                 id: companies.id,
                 name: companies.name,
                 platform_margin_percent: companies.platform_margin_percent,
-                warehouse_ops_rate: companies.warehouse_ops_rate,
             },
             requester: {
                 email: users.email,
@@ -852,9 +824,6 @@ const updateInboundRequestItem = async (
     const [result] = await db
         .select({
             request: inboundRequests,
-            company: {
-                warehouse_ops_rate: companies.warehouse_ops_rate,
-            },
             request_pricing: {
                 id: prices.id,
                 breakdown_lines: prices.breakdown_lines,
@@ -867,13 +836,11 @@ const updateInboundRequestItem = async (
             },
         })
         .from(inboundRequests)
-        .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
         .leftJoin(prices, eq(inboundRequests.request_pricing_id, prices.id))
         .where(and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)));
 
     const inboundRequest = result.request;
     const requestPricing = result.request_pricing;
-    const companyRate = Number(result.company?.warehouse_ops_rate || 0);
 
     if (!inboundRequest || !requestPricing) {
         throw new CustomizedError(
@@ -964,26 +931,12 @@ const updateInboundRequestItem = async (
         .where(eq(inboundRequestItems.id, itemId))
         .returning();
 
-    // Step 7: Fetch items for this request to recalculate pricing
-    const items = await db
-        .select()
-        .from(inboundRequestItems)
-        .where(eq(inboundRequestItems.inbound_request_id, requestId));
-
-    // Step 7.1: Calculate total volume from items
-    const totalVolume = items.reduce(
-        (acc, item) => acc + (item.quantity || 1) * Number(item.volume_per_unit),
-        0
-    );
-
-    // Step 7.2: Recalculate pricing
-    const baseOpsTotal = companyRate * totalVolume;
+    // Step 7: Recalculate pricing from current line items
     await PricingService.recalculate({
         entity_type: "INBOUND_REQUEST",
         entity_id: requestId,
         platform_id: platformId,
         calculated_by: user.id,
-        base_ops_total_override: baseOpsTotal,
     });
 
     // Step 7.5: Regenerate cost estimate PDF
@@ -1403,9 +1356,6 @@ const updateInboundRequest = async (
     const [result] = await db
         .select({
             request: inboundRequests,
-            company: {
-                warehouse_ops_rate: companies.warehouse_ops_rate,
-            },
             request_pricing: {
                 id: prices.id,
                 breakdown_lines: prices.breakdown_lines,
@@ -1418,13 +1368,11 @@ const updateInboundRequest = async (
             },
         })
         .from(inboundRequests)
-        .leftJoin(companies, eq(inboundRequests.company_id, companies.id))
         .leftJoin(prices, eq(inboundRequests.request_pricing_id, prices.id))
         .where(and(eq(inboundRequests.id, requestId), eq(inboundRequests.platform_id, platformId)));
 
     const inboundRequest = result?.request;
     const requestPricing = result?.request_pricing;
-    const companyRate = Number(result?.company?.warehouse_ops_rate || 0);
 
     if (!inboundRequest || !requestPricing) {
         throw new CustomizedError(
@@ -1559,27 +1507,12 @@ const updateInboundRequest = async (
                 await tx.insert(inboundRequestItems).values(itemsToCreate);
             }
 
-            // Step 4.3: Recalculate pricing
-            // Fetch all current items
-            const currentItems = await tx
-                .select()
-                .from(inboundRequestItems)
-                .where(eq(inboundRequestItems.inbound_request_id, requestId));
-
-            // Calculate total volume
-            const totalVolume = currentItems.reduce(
-                (acc, item) => acc + (item.quantity || 1) * Number(item.volume_per_unit),
-                0
-            );
-
-            // Recalculate pricing
-            const baseOpsTotal = companyRate * totalVolume;
+            // Step 4.3: Recalculate pricing from current line items
             await PricingService.recalculate({
                 entity_type: "INBOUND_REQUEST",
                 entity_id: requestId,
                 platform_id: platformId,
                 calculated_by: user.id,
-                base_ops_total_override: baseOpsTotal,
                 tx,
             });
         }

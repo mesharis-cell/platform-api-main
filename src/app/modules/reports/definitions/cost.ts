@@ -9,10 +9,9 @@
  * finance can reconcile what the platform owes the warehouse against client
  * revenue per company over a date window.
  *
- * ORDER rows additionally carry the buy-side cost SPLIT (BASE_OPS / rate-card /
- * custom) + EVENT START / EVENT END. Those columns are BLANK on SR / SP / INBOUND
- * rows — only orders have the BASE_OPS system line + an event window. Every entity
- * shows a single BUY TOTAL.
+ * ORDER rows additionally carry the buy-side cost SPLIT (rate-card / custom) +
+ * EVENT START / EVENT END. Those columns are BLANK on SR / SP / INBOUND rows —
+ * only orders have an event window. Every entity shows a single BUY TOTAL.
  *
  * Inclusion is the shared BILLING SSOT: statusExcludeFragment (drops dead /
  * never-happened states — SUBMITTED-onward kept, widening the old CONFIRMED-onward
@@ -277,8 +276,8 @@ ORDER BY company_name ASC, doc_date ASC, reference ASC`;
         );
 
     // All columns are internal (ctx.canSeeMargin already enforced above). The
-    // BASE OPS / RATE CARD / CUSTOM split + EVENT START/END are ORDER-only and
-    // render BLANK on SR/SP/INBOUND rows; every entity carries a TOTAL BUY COST.
+    // RATE CARD / CUSTOM split + EVENT START/END are ORDER-only and render BLANK
+    // on SR/SP/INBOUND rows; every entity carries a TOTAL BUY COST.
     const columns: ReportColumn[] = [
         { header: "ENTITY TYPE", width: 16 },
         { header: "REFERENCE", width: 20 },
@@ -288,7 +287,6 @@ ORDER BY company_name ASC, doc_date ASC, reference ASC`;
         { header: "FINANCIAL STATUS", width: 18 },
         { header: "EVENT START", width: 13 },
         { header: "EVENT END", width: 13 },
-        { header: "BASE OPS COST", width: 15, align: "right", numFmt: MONEY_FMT },
         { header: "RATE CARD COST", width: 15, align: "right", numFmt: MONEY_FMT },
         { header: "CUSTOM COST", width: 15, align: "right", numFmt: MONEY_FMT },
         { header: "TOTAL BUY COST", width: 16, align: "right", numFmt: MONEY_FMT },
@@ -310,19 +308,17 @@ ORDER BY company_name ASC, doc_date ASC, reference ASC`;
 
     // 1-based column indices for the money columns we grand-total.
     const STATUS_COL = 5;
-    const BASE_OPS = 9;
-    const RATE_CARD = 10;
-    const CUSTOM = 11;
-    const TOTAL_BUY = 12;
-    const SELL = 13;
-    const MARGIN_AMT = 14;
+    const RATE_CARD = 9;
+    const CUSTOM = 10;
+    const TOTAL_BUY = 11;
+    const SELL = 12;
+    const MARGIN_AMT = 13;
     const LABEL = 8; // grand-total label sits under EVENT END (last non-money col)
 
-    // Per-row rounded money — accumulated for the (sub)totals. BASE_OPS / RATE_CARD
-    // / CUSTOM only contribute on ORDER rows (blank on the other three entities);
-    // every entity contributes BUY / SELL / MARGIN.
+    // Per-row rounded money — accumulated for the (sub)totals. RATE_CARD / CUSTOM
+    // only contribute on ORDER rows (blank on the other three entities); every
+    // entity contributes BUY / SELL / MARGIN.
     type Totals = {
-        baseOps: number;
         rateCard: number;
         custom: number;
         buy: number;
@@ -343,11 +339,10 @@ ORDER BY company_name ASC, doc_date ASC, reference ASC`;
               }
             : null;
         // projectByRole(...,'ADMIN') returns the full BreakdownTotals: buy split
-        // (buy_base_ops_total / buy_rate_card_total / buy_custom_total) +
-        // buy_total / sell_total / margin_amount.
+        // (buy_rate_card_total / buy_custom_total) + buy_total / sell_total /
+        // margin_amount.
         const admin = PricingService.projectByRole(pricing as any, "ADMIN") as any;
         const totals = (admin?.totals ?? null) as {
-            buy_base_ops_total?: unknown;
             buy_rate_card_total?: unknown;
             buy_custom_total?: unknown;
             buy_total?: unknown;
@@ -356,7 +351,6 @@ ORDER BY company_name ASC, doc_date ASC, reference ASC`;
             margin_amount?: unknown;
         } | null;
 
-        const baseOps = roundMoney(parseNum(totals?.buy_base_ops_total));
         const rateCard = roundMoney(parseNum(totals?.buy_rate_card_total));
         const custom = roundMoney(parseNum(totals?.buy_custom_total));
         const buyTotal = roundMoney(parseNum(totals?.buy_total));
@@ -396,7 +390,6 @@ ORDER BY company_name ASC, doc_date ASC, reference ASC`;
             r.financial_status ?? "",
             isOrder ? fmtDate(r.event_start_date) : "",
             isOrder ? fmtDate(r.event_end_date) : "",
-            isOrder ? baseOps : "",
             isOrder ? rateCard : "",
             isOrder ? custom : "",
             buyTotal,
@@ -411,7 +404,6 @@ ORDER BY company_name ASC, doc_date ASC, reference ASC`;
 
         // Only order rows contribute to the split sub-totals (others are blank).
         return {
-            baseOps: isOrder ? baseOps : 0,
             rateCard: isOrder ? rateCard : 0,
             custom: isOrder ? custom : 0,
             buy: buyTotal,
@@ -423,14 +415,13 @@ ORDER BY company_name ASC, doc_date ASC, reference ASC`;
     const sumTotals = (list: Totals[]): Totals =>
         list.reduce<Totals>(
             (acc, t) => ({
-                baseOps: acc.baseOps + t.baseOps,
                 rateCard: acc.rateCard + t.rateCard,
                 custom: acc.custom + t.custom,
                 buy: acc.buy + t.buy,
                 sell: acc.sell + t.sell,
                 margin: acc.margin + t.margin,
             }),
-            { baseOps: 0, rateCard: 0, custom: 0, buy: 0, sell: 0, margin: 0 }
+            { rateCard: 0, custom: 0, buy: 0, sell: 0, margin: 0 }
         );
 
     // Cached (no SUM formula) totals row — used in all-companies mode where the
@@ -446,7 +437,6 @@ ORDER BY company_name ASC, doc_date ASC, reference ASC`;
             row.getCell(col).value = roundMoney(val);
             row.getCell(col).numFmt = MONEY_FMT;
         };
-        put(BASE_OPS, t.baseOps);
         put(RATE_CARD, t.rateCard);
         put(CUSTOM, t.custom);
         put(TOTAL_BUY, t.buy);
@@ -496,7 +486,6 @@ ORDER BY company_name ASC, doc_date ASC, reference ASC`;
                 };
                 grand.getCell(col).numFmt = MONEY_FMT;
             };
-            setSum(BASE_OPS, grandTotals.baseOps);
             setSum(RATE_CARD, grandTotals.rateCard);
             setSum(CUSTOM, grandTotals.custom);
             setSum(TOTAL_BUY, grandTotals.buy);
@@ -513,7 +502,7 @@ export const costReport: ReportDefinition = {
     key: "cost",
     label: "Cost Report",
     description:
-        "Admin-only per-document buy-side cost (what the platform owes the warehouse) across orders, service requests, self-pickups and inbound requests — live client-billable documents only (excludes internal SRs, no-cost self-pickups, not-applicable orders/inbound, and dead/cancelled docs). Every document shows total buy cost, sell total (ex-VAT), margin amount and realized margin %; orders additionally show the BASE_OPS / rate-card / custom split + event window. Leave Company blank to run across ALL companies on the platform (grouped, with per-company subtotals + an overall total) — use a date range for all-companies runs. Use Entities to narrow to specific document types. Exposes cost and margin — never client-facing.",
+        "Admin-only per-document buy-side cost (what the platform owes the warehouse) across orders, service requests, self-pickups and inbound requests — live client-billable documents only (excludes internal SRs, no-cost self-pickups, not-applicable orders/inbound, and dead/cancelled docs). Every document shows total buy cost, sell total (ex-VAT), margin amount and realized margin %; orders additionally show the rate-card / custom split + event window. Leave Company blank to run across ALL companies on the platform (grouped, with per-company subtotals + an overall total) — use a date range for all-companies runs. Use Entities to narrow to specific document types. Exposes cost and margin — never client-facing.",
     section: "FINANCIAL",
     audience: "ADMIN",
     operationsRoles: ["ADMIN"],

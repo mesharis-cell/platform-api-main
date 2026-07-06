@@ -664,17 +664,17 @@ const derigCapture = catchAsync(async (req, res) => {
     });
 });
 
-const recalculateBaseOps = catchAsync(async (req, res) => {
+const resyncItemDimensions = catchAsync(async (req, res) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
     const id = getRequiredString(req.params.id, "id");
 
-    const result = await OrderServices.recalculateBaseOps(user, id, platformId);
+    const result = await OrderServices.resyncItemDimensions(user, id, platformId);
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
         success: true,
-        message: "Base operations recalculated from current asset dimensions.",
+        message: "Item dimensions resynced from current asset dimensions.",
         data: result,
     });
 });
@@ -714,5 +714,5 @@ export const OrderControllers = {
     resolveMaintenanceDecisionChangeRequest,
     derigCapture,
     saveOnSiteCapture,
-    recalculateBaseOps,
+    resyncItemDimensions,
 };

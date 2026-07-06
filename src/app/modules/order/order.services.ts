@@ -893,11 +893,6 @@ const submitOrderFromCart = async (
     const calculatedWeight = totalWeight.toFixed(2);
 
     // Step 5: Create base pricing without transport; transport is now explicit line items.
-    const volume = parseFloat(calculatedVolume);
-    const baseOpsTotal = Number(company.warehouse_ops_rate) * volume;
-    const companyFeatureFlags = (company.features as Record<string, unknown> | null) || {};
-    const enableBaseOperations =
-        (companyFeatureFlags.enable_base_operations as boolean | undefined) ?? true;
     const vatPercent =
         company.vat_percent_override !== null && company.vat_percent_override !== undefined
             ? Number(company.vat_percent_override)
@@ -906,13 +901,9 @@ const submitOrderFromCart = async (
         platform_id: platformId,
         entity_type: "ORDER",
         entity_id: randomUUID(),
-        warehouse_ops_rate: company.warehouse_ops_rate,
-        base_ops_total: baseOpsTotal,
         margin_percent: Number(company.platform_margin_percent || 0),
         vat_percent: vatPercent,
         calculated_by: user.id,
-        volume,
-        enable_base_operations: enableBaseOperations,
     });
 
     // Pre-generate SR codes outside the transaction to avoid READ COMMITTED duplicate-code issue
@@ -1119,7 +1110,6 @@ const submitOrderFromCart = async (
         entity_id: orderResult.id,
         platform_id: platformId,
         calculated_by: user.id,
-        base_ops_total_override: baseOpsTotal,
     });
 
     await CommerceRulesServices.recordCheckoutAcknowledgementAudit({
@@ -3173,7 +3163,6 @@ const submitForApproval = async (orderId: string, user: AuthUser, platformId: st
                 id: companies.id,
                 name: companies.name,
                 platform_margin_percent: companies.platform_margin_percent,
-                warehouse_ops_rate: companies.warehouse_ops_rate,
             },
             venue_city_name: cities.name,
             order_pricing: {
@@ -3315,7 +3304,6 @@ const adminApproveQuote = async (
                 id: companies.id,
                 name: companies.name,
                 platform_margin_percent: companies.platform_margin_percent,
-                warehouse_ops_rate: companies.warehouse_ops_rate,
             },
             order_pricing: {
                 breakdown_lines: prices.breakdown_lines,
@@ -3445,8 +3433,6 @@ const adminApproveQuote = async (
     // Project the breakdown for the CLIENT-facing quote email. Re-fetch pricing
     // so a same-request margin override is reflected (the override path writes
     // new breakdown_lines to the prices row inside the transaction above).
-    // BASE_OPS is stripped because the template renders it separately as
-    // "Picking & Handling" — we'd otherwise duplicate it.
     const freshPricing = await db.query.prices.findFirst({
         where: eq(prices.id, order.order_pricing_id!),
         columns: {
@@ -3461,9 +3447,7 @@ const adminApproveQuote = async (
         "CLIENT"
     ) as any;
     const clientLineItems: any[] = Array.isArray(projectedClientPricing?.breakdown_lines)
-        ? projectedClientPricing.breakdown_lines.filter(
-              (line: any) => line.line_kind !== "BASE_OPS"
-          )
+        ? projectedClientPricing.breakdown_lines
         : [];
 
     // Step 4: Emit quote.sent event
@@ -3486,11 +3470,8 @@ const adminApproveQuote = async (
             order_info: buildOrderInfoBlock(order, { companyName: company?.name }),
             line_items: clientLineItems,
             // pricing.* MUST be sourced from the CLIENT projection — never
-            // admin. Admin's base_ops_total is buy-side and margin_amount is
-            // the explicit markup; either on a client-facing email would leak
-            // internal margin structure.
+            // admin — so no buy-side / margin figures leak to the client.
             pricing: {
-                base_ops_total: projectedClientPricing?.totals?.base_ops_total ?? 0,
                 final_total: projectedClientPricing?.final_total ?? finalTotal,
             },
             cost_estimate_url: `${config.server_url}/api/client/v1/invoice/download-cost-estimate-pdf/${order.order_id}?pid=${platformId}`,
@@ -4582,26 +4563,25 @@ const saveOnSiteCapture = async (
 };
 
 // ----------------------------------- RECALCULATE BASE OPS ------------------------------------
-const recalculateBaseOps = async (user: AuthUser, orderId: string, platformId: string) => {
+// Refresh each order item's volume/weight from the current asset dimensions
+// (assets can drift after an order was placed) and re-stamp the order's
+// calculated_totals. No longer touches pricing — BASE_OPS is gone, so volume
+// no longer feeds any charge; this is purely a dimensions/logistics refresh.
+const resyncItemDimensions = async (user: AuthUser, orderId: string, platformId: string) => {
     const [orderRow] = await db
-        .select({
-            order: orders,
-            company: { warehouse_ops_rate: companies.warehouse_ops_rate },
-        })
+        .select({ order: orders })
         .from(orders)
-        .leftJoin(companies, eq(orders.company_id, companies.id))
         .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)))
         .limit(1);
 
     if (!orderRow?.order) throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
-    const RECALCULATE_ALLOWED_STATUSES = ["PRICING_REVIEW", "PENDING_APPROVAL"];
-    if (!RECALCULATE_ALLOWED_STATUSES.includes(orderRow.order.order_status)) {
+    const RESYNC_ALLOWED_STATUSES = ["PRICING_REVIEW", "PENDING_APPROVAL"];
+    if (!RESYNC_ALLOWED_STATUSES.includes(orderRow.order.order_status)) {
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
-            `Pricing can only be recalculated during pricing review. Current status: ${orderRow.order.order_status}`
+            `Item dimensions can only be resynced during pricing review. Current status: ${orderRow.order.order_status}`
         );
     }
-    if (!orderRow.company) throw new CustomizedError(httpStatus.NOT_FOUND, "Company not found");
 
     const items = await db
         .select({ id: orderItems.id, quantity: orderItems.quantity, asset_id: orderItems.asset_id })
@@ -4650,16 +4630,6 @@ const recalculateBaseOps = async (user: AuthUser, orderId: string, platformId: s
             .where(eq(orderItems.id, item.id));
     }
 
-    const baseOpsTotal = Number(orderRow.company.warehouse_ops_rate) * totalVolume;
-
-    const result = await PricingService.recalculate({
-        entity_type: "ORDER",
-        entity_id: orderId,
-        platform_id: platformId,
-        calculated_by: user.id,
-        base_ops_total_override: baseOpsTotal,
-    });
-
     const existingTotals = (orderRow.order.calculated_totals || {}) as Record<string, any>;
     await db
         .update(orders)
@@ -4673,7 +4643,7 @@ const recalculateBaseOps = async (user: AuthUser, orderId: string, platformId: s
         })
         .where(eq(orders.id, orderId));
 
-    return { volume: totalVolume.toFixed(3), weight: totalWeight.toFixed(2), ...result };
+    return { volume: totalVolume.toFixed(3), weight: totalWeight.toFixed(2) };
 };
 
 export const OrderServices = {
@@ -4709,5 +4679,5 @@ export const OrderServices = {
     resolveMaintenanceDecisionChangeRequest,
     saveDerigCapture,
     saveOnSiteCapture,
-    recalculateBaseOps,
+    resyncItemDimensions,
 };

@@ -174,7 +174,6 @@ async function seedCompanies() {
                 },
                 features: companyFeatures,
                 platform_margin_percent: "25.00",
-                warehouse_ops_rate: "10.00",
                 contact_email: "events@pernod-ricard.com",
                 contact_phone: "+971-50-111-1111",
                 is_active: true,
@@ -193,7 +192,6 @@ async function seedCompanies() {
                 },
                 features: companyFeatures,
                 platform_margin_percent: "22.00",
-                warehouse_ops_rate: "12.00",
                 contact_email: "events@diageo.com",
                 contact_phone: "+971-50-222-2222",
                 is_active: true,
@@ -1072,48 +1070,16 @@ async function seedCollections() {
 async function createPricing(opts: {
     entityType: "ORDER" | "INBOUND_REQUEST" | "SERVICE_REQUEST" | "SELF_PICKUP";
     entityId: string;
-    volume: number;
-    warehouseOpsRate: number;
     marginPercent: number;
     catalogTotal?: number;
     customTotal?: number;
     userId: string;
 }) {
-    const baseOps = opts.volume * opts.warehouseOpsRate;
     const catTotal = opts.catalogTotal || 0;
     const custTotal = opts.customTotal || 0;
     const marginMultiplier = 1 + opts.marginPercent / 100;
     const nowIso = new Date().toISOString();
-    const breakdownLines: any[] = [
-        {
-            line_id: "BASE_OPS",
-            line_kind: "BASE_OPS",
-            category: "BASE_OPS",
-            label: `Base Operations (${opts.volume.toFixed(3)} m³)`,
-            quantity: 1,
-            unit: "service",
-            buy_unit_price: Number(baseOps.toFixed(2)),
-            buy_total: Number(baseOps.toFixed(2)),
-            sell_unit_price: Number((baseOps * marginMultiplier).toFixed(2)),
-            sell_total: Number((baseOps * marginMultiplier).toFixed(2)),
-            billing_mode: "BILLABLE",
-            source: {
-                mode: "WAREHOUSE_OPS_RATE",
-                service_type_id: null,
-                service_type_name_snapshot: null,
-                service_type_rate_snapshot: Number(opts.warehouseOpsRate.toFixed(2)),
-            },
-            is_voided: false,
-            notes: null,
-            created_by: opts.userId,
-            created_at: nowIso,
-            updated_by: opts.userId,
-            updated_at: nowIso,
-            voided_by: null,
-            voided_at: null,
-            void_reason: null,
-        },
-    ];
+    const breakdownLines: any[] = [];
     if (catTotal > 0) {
         breakdownLines.push({
             line_id: "SEED_RATE_CARD",
@@ -1202,8 +1168,6 @@ async function createServiceRequestPricing(opts: {
     return createPricing({
         entityType: "SERVICE_REQUEST",
         entityId: opts.entityId,
-        volume: 0,
-        warehouseOpsRate: 0,
         marginPercent: parseFloat(opts.company.platform_margin_percent || "0"),
         catalogTotal: opts.catalogTotal,
         customTotal: opts.customTotal,
@@ -1398,7 +1362,6 @@ async function seedOrders() {
     ];
 
     for (const def of orderDefs) {
-        const warehouseOpsRate = parseFloat(def.company.warehouse_ops_rate);
         const transportRate = 500;
         const catalogTotal = ["PRICING_REVIEW", "DRAFT"].includes(def.status)
             ? 0
@@ -1409,8 +1372,6 @@ async function seedOrders() {
         const pricing = await createPricing({
             entityType: "ORDER",
             entityId: orderDbId,
-            volume: def.volume,
-            warehouseOpsRate,
             marginPercent: def.marginPercent,
             catalogTotal,
             customTotal,
@@ -3513,14 +3474,10 @@ async function seedInboundRequests() {
 
     for (const def of irDefs) {
         const inboundRequestDbId = randomUUID();
-        const warehouseOpsRate = parseFloat(def.company.warehouse_ops_rate);
-        const totalVolume = def.items.reduce((sum, i) => sum + i.qty * i.volume, 0);
         const marginPercent = parseFloat(def.company.platform_margin_percent);
         const price = await createPricing({
             entityType: "INBOUND_REQUEST",
             entityId: inboundRequestDbId,
-            volume: totalVolume,
-            warehouseOpsRate,
             marginPercent,
             catalogTotal: 0,
             customTotal: 0,

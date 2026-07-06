@@ -62,12 +62,6 @@
  *                 maximum: 100
  *                 description: Platform margin percentage (defaults to 25.00 if not provided)
  *                 example: 25.00
- *               warehouse_ops_rate:
- *                 type: number
- *                 format: decimal
- *                 minimum: 0
- *                 description: Warehouse ops rate (defaults to 25.20 if not provided)
- *                 example: 25.20
  *               contact_email:
  *                 type: string
  *                 format: email
@@ -140,10 +134,6 @@
  *                       type: string
  *                       description: Platform margin percentage
  *                       example: "25.00"
- *                     warehouse_ops_rate:
- *                       type: string
- *                       description: Warehouse ops rate
- *                       example: "25.20"
  *                     contact_email:
  *                       type: string
  *                       nullable: true
@@ -334,7 +324,7 @@
  *         required: false
  *         schema:
  *           type: string
- *           enum: [name, domain, platform_margin_percent, warehouse_ops_rate, created_at, updated_at]
+ *           enum: [name, domain, platform_margin_percent, created_at, updated_at]
  *           default: created_at
  *           example: "name"
  *       - name: sort_order
@@ -417,10 +407,6 @@
  *                             type: string
  *                             description: Platform margin percentage
  *                             example: "25.00"
- *                           warehouse_ops_rate:
- *                             type: string
- *                             description: Warehouse ops rate
- *                             example: "25.20"
  *                           contact_email:
  *                             type: string
  *                             nullable: true
@@ -741,12 +727,6 @@
  *                 maximum: 100
  *                 description: Platform margin percentage
  *                 example: 30.00
- *               warehouse_ops_rate:
- *                 type: number
- *                 format: decimal
- *                 minimum: 0
- *                 description: Warehouse ops rate
- *                 example: 25.20
  *               contact_email:
  *                 type: string
  *                 format: email

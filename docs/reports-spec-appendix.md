@@ -655,6 +655,8 @@ SELECT ir.incoming_at AS incoming_at, ir.inbound_request_id AS inbound_request, 
 
 ## Cost Report (`cost`)
 
+> **BASE_OPS removed 2026-07 — historical.** All "BASE OPS COST" / "ORDER BASE OPS (BUY)" columns and the `base_ops_total` / `buy_base_ops_total` projection fields described in this appendix were dropped when the Base Operations feature was deleted entirely. References below are retained for historical context only; the live reports no longer emit those columns.
+
 `FINANCIAL` · `ADMIN` · replaces: pricing buy/margin
 
 **numbers: RISKY** (high) · **visibility: SAFE** · **memory: NEEDS_CAP** · worst-case ~one row per CONFIRMED+ order for the t…

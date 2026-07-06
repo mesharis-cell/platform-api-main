@@ -287,12 +287,6 @@
  *                         nullable: true
  *                         description: Full pricing details for ADMIN/LOGISTICS, only final_total for CLIENT
  *                         properties:
- *                           warehouse_ops_rate:
- *                             type: string
- *                             description: Only visible to ADMIN/LOGISTICS roles
- *                           base_ops_total:
- *                             type: string
- *                             description: Only visible to ADMIN/LOGISTICS roles
  *                           logistics_sub_total:
  *                             type: string
  *                             description: Only visible to ADMIN/LOGISTICS roles
@@ -417,10 +411,6 @@
  *                       nullable: true
  *                       description: Full pricing details for ADMIN/LOGISTICS, only final_total for CLIENT
  *                       properties:
- *                         warehouse_ops_rate:
- *                           type: string
- *                         base_ops_total:
- *                           type: string
  *                         logistics_sub_total:
  *                           type: string
  *                         final_total:

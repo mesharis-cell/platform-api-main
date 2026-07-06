@@ -6,21 +6,8 @@ import { CompanyControllers } from "./company.controllers";
 import { CompanySchemas } from "./company.schemas";
 import requirePermission from "../../middleware/permission";
 import { PERMISSIONS } from "../../constants/permissions";
-import type { NextFunction, Request, Response } from "express";
 
 const router = Router();
-
-const requireCompanyUpdateAccess = (req: Request, res: Response, next: NextFunction) => {
-    const bodyKeys = Object.keys(req.body || {});
-    const onlyWarehouseOpsRate =
-        bodyKeys.length > 0 && bodyKeys.every((key) => key === "warehouse_ops_rate");
-
-    const middleware = onlyWarehouseOpsRate
-        ? requirePermission(PERMISSIONS.COMPANIES_UPDATE, PERMISSIONS.WAREHOUSE_OPS_RATES_UPDATE)
-        : requirePermission(PERMISSIONS.COMPANIES_UPDATE);
-
-    return middleware(req, res, next);
-};
 
 // Create company
 router.post(
@@ -37,7 +24,7 @@ router.get(
     "/",
     platformValidator,
     auth("ADMIN", "LOGISTICS"),
-    requirePermission(PERMISSIONS.COMPANIES_READ, PERMISSIONS.WAREHOUSE_OPS_RATES_READ),
+    requirePermission(PERMISSIONS.COMPANIES_READ),
     CompanyControllers.getCompanies
 );
 
@@ -46,7 +33,7 @@ router.get(
     "/:id",
     platformValidator,
     auth("ADMIN", "LOGISTICS", "CLIENT"),
-    requirePermission(PERMISSIONS.COMPANIES_READ, PERMISSIONS.WAREHOUSE_OPS_RATES_READ),
+    requirePermission(PERMISSIONS.COMPANIES_READ),
     CompanyControllers.getCompanyById
 );
 
@@ -55,7 +42,7 @@ router.patch(
     "/:id",
     platformValidator,
     auth("ADMIN"),
-    requireCompanyUpdateAccess,
+    requirePermission(PERMISSIONS.COMPANIES_UPDATE),
     payloadValidator(CompanySchemas.updateCompany),
     CompanyControllers.updateCompany
 );
