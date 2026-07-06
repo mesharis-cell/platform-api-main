@@ -806,8 +806,6 @@ const createPriceRecord = async (opts: {
             breakdown_lines: opts.breakdownLines || [],
             margin_percent: opts.marginPercent.toFixed(2),
             vat_percent: opts.vatPercent.toFixed(2),
-            margin_is_override: false,
-            margin_override_reason: null,
             calculated_at: new Date(),
             calculated_by: opts.calculatedBy,
         })
