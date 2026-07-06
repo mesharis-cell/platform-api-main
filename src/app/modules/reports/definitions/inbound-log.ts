@@ -177,9 +177,8 @@ ORDER BY co.name ASC, ir.created_at ASC, iri.created_at ASC`;
             }, status, brand, or category.`
         );
 
-    // ── Columns. Sell (FINAL TOTAL) always; cost (BASE OPS TOTAL) gated. ──────
-    const showCost = ctx.canSeeMargin && !ctx.isClientMount;
-
+    // ── Columns. FINAL TOTAL is role-projected (client sees sell, admin sees
+    //    admin final) via projectSummaryForRole below. ────────────────────────
     const columns: ReportColumn[] = [
         { header: "INCOMING AT", width: 13 },
         { header: "INBOUND REQUEST", width: 20 },
@@ -195,21 +194,17 @@ ORDER BY co.name ASC, ir.created_at ASC, iri.created_at ASC`;
         { header: "RECEIVED OUTCOME", width: 16 },
         { header: "CREATED ASSET QR", width: 20 },
         { header: "ASSET STATUS", width: 14 },
-        ...(showCost
-            ? [{ header: "BASE OPS TOTAL", width: 15, align: "right" as const, numFmt: MONEY_FMT }]
-            : []),
         { header: "FINAL TOTAL", width: 15, align: "right", numFmt: MONEY_FMT },
         { header: "NOTE", width: 30 },
         { header: "CREATED AT", width: 13 },
     ];
 
-    // 1-based column indices that vary with the gated cost column.
+    // 1-based column indices.
     const REG = 10;
     const REC = 11;
     const OUTCOME = 12;
     const LABEL = 7; // ITEM NAME column carries the subtotal/grand-total label
-    const BASE_OPS_COL = showCost ? 15 : null;
-    const FINAL_COL = showCost ? 16 : 15;
+    const FINAL_COL = 15;
 
     const h = createReportWorkbook({
         companyName: ctx.companyName,
@@ -239,14 +234,6 @@ ORDER BY co.name ASC, ir.created_at ASC, iri.created_at ASC`;
         for (const [ref, gr] of reqGroups) {
             // Request-level pricing — projected ONCE, rendered first-row-only.
             const pricing = gr[0]?.breakdown_lines != null ? (gr[0] as any) : null;
-            const baseOps = showCost
-                ? roundMoney(
-                      parseNum(
-                          (PricingService.projectByRole(pricing as any, "ADMIN") as any)
-                              ?.base_ops_total
-                      )
-                  )
-                : 0;
             const finalTotal = roundMoney(
                 parseNum(
                     (
@@ -277,8 +264,7 @@ ORDER BY co.name ASC, ir.created_at ASC, iri.created_at ASC`;
                     r.created_asset_qr ?? "",
                     r.asset_status ?? "",
                 ];
-                // Pricing columns appear once per request (first item row only).
-                if (showCost) base.push(idx === 0 ? baseOps : "");
+                // Pricing column appears once per request (first item row only).
                 base.push(idx === 0 ? finalTotal : "");
                 base.push(r.note ?? "");
                 base.push(fmtDate(r.created_at));
@@ -305,9 +291,8 @@ ORDER BY co.name ASC, ir.created_at ASC, iri.created_at ASC`;
                 ],
             });
             // Echo the request-level pricing onto the subtotal row so each request's
-            // single BASE OPS / FINAL figure is legible alongside its qty subtotal,
-            // without being part of any sum.
-            if (BASE_OPS_COL) sub.getCell(BASE_OPS_COL).value = baseOps;
+            // single FINAL figure is legible alongside its qty subtotal, without
+            // being part of any sum.
             sub.getCell(FINAL_COL).value = finalTotal;
             localSubRows.push(sub.number);
             sheet.addRow([]);

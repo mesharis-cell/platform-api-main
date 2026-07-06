@@ -266,8 +266,7 @@ ORDER BY co.name ASC, o.created_at ASC, o.order_id ASC, oi.id ASC`;
     if (showMargin) {
         columns.push(
             { header: "ORDER MARGIN %", width: 12, align: "right", numFmt: MONEY_FMT },
-            { header: "ORDER BUY TOTAL", width: 16, align: "right", numFmt: MONEY_FMT },
-            { header: "ORDER BASE OPS (BUY)", width: 16, align: "right", numFmt: MONEY_FMT }
+            { header: "ORDER BUY TOTAL", width: 16, align: "right", numFmt: MONEY_FMT }
         );
     }
 
@@ -289,7 +288,6 @@ ORDER BY co.name ASC, o.created_at ASC, o.order_id ASC, oi.id ASC`;
         finalTotal: number;
         marginPercent: number;
         buyTotal: number;
-        baseOpsBuy: number;
         company: string; // used to bucket into per-company subtotals
     };
 
@@ -299,7 +297,6 @@ ORDER BY co.name ASC, o.created_at ASC, o.order_id ASC, oi.id ASC`;
         vatAmount: number;
         finalTotal: number;
         buyTotal: number;
-        baseOpsBuy: number;
         qty: number;
         orderCount: number;
     };
@@ -308,17 +305,15 @@ ORDER BY co.name ASC, o.created_at ASC, o.order_id ASC, oi.id ASC`;
             vatAmount = 0,
             finalTotal = 0,
             buyTotal = 0,
-            baseOpsBuy = 0,
             qty = 0;
         for (const [uuid, m] of map) {
             subtotal += m.subtotal;
             vatAmount += m.vatAmount;
             finalTotal += m.finalTotal;
             buyTotal += m.buyTotal;
-            baseOpsBuy += m.baseOpsBuy;
             qty += qtyMap.get(uuid) ?? 0;
         }
-        return { subtotal, vatAmount, finalTotal, buyTotal, baseOpsBuy, qty, orderCount: map.size };
+        return { subtotal, vatAmount, finalTotal, buyTotal, qty, orderCount: map.size };
     };
 
     // Write a cached totals row (no live SUM formulas) — used in all-companies mode
@@ -342,7 +337,6 @@ ORDER BY co.name ASC, o.created_at ASC, o.order_id ASC, oi.id ASC`;
         put(32, sums.finalTotal); // ORDER FINAL TOTAL (INC VAT)
         if (showMargin) {
             put(34, sums.buyTotal); // ORDER BUY TOTAL
-            put(35, sums.baseOpsBuy); // ORDER BASE OPS (BUY)
         }
         return row;
     };
@@ -366,12 +360,10 @@ ORDER BY co.name ASC, o.created_at ASC, o.order_id ASC, oi.id ASC`;
 
             let marginPercent = 0;
             let buyTotal = 0;
-            let baseOpsBuy = 0;
             if (showMargin) {
                 const adminDetail = PricingService.projectByRole(r as any, "ADMIN") as any;
                 buyTotal = parseNum(adminDetail?.totals?.buy_total);
                 const marginAmount = parseNum(adminDetail?.totals?.margin_amount);
-                baseOpsBuy = parseNum(adminDetail?.base_ops_total);
                 // BLENDED (realized) margin % = margin_amount / buy_total * 100 — the
                 // entity-wide margin_percent no longer equals the realized margin once
                 // per-line sell overrides exist. Guard buy_total == 0 (un-priced order).
@@ -384,7 +376,6 @@ ORDER BY co.name ASC, o.created_at ASC, o.order_id ASC, oi.id ASC`;
                 finalTotal,
                 marginPercent,
                 buyTotal,
-                baseOpsBuy,
                 company: r.company_name ?? "",
             });
             qtyByOrder.set(orderUuid, 0);
@@ -432,8 +423,7 @@ ORDER BY co.name ASC, o.created_at ASC, o.order_id ASC, oi.id ASC`;
         if (showMargin) {
             cells.push(
                 isFirstRowOfOrder ? roundMoney(money.marginPercent) : "",
-                isFirstRowOfOrder ? roundMoney(money.buyTotal) : "",
-                isFirstRowOfOrder ? roundMoney(money.baseOpsBuy) : ""
+                isFirstRowOfOrder ? roundMoney(money.buyTotal) : ""
             );
         }
 
@@ -502,7 +492,6 @@ ORDER BY co.name ASC, o.created_at ASC, o.order_id ASC, oi.id ASC`;
             grand.getCell(32).value = roundMoney(grandSums.finalTotal); // ORDER FINAL TOTAL (INC VAT)
             if (showMargin) {
                 grand.getCell(34).value = roundMoney(grandSums.buyTotal); // ORDER BUY TOTAL
-                grand.getCell(35).value = roundMoney(grandSums.baseOpsBuy); // ORDER BASE OPS (BUY)
             }
         }
     }
