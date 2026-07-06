@@ -498,6 +498,13 @@
             "when": 1781583196000,
             "tag": "0071_pricing_mode_three_entities",
             "breakpoints": true
+        },
+        {
+            "idx": 71,
+            "version": "7",
+            "when": 1781583197000,
+            "tag": "0072_stamp_sell_unit_rate",
+            "breakpoints": true
         }
     ]
 }

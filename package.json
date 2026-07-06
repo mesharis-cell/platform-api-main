@@ -32,6 +32,7 @@
         "db:access:sync-defaults:apply": "bun --preload ./src/bootstrap/env-preload.ts ./src/db/scripts/sync-default-access-policies.ts --apply",
         "db:ops:retire-base-ops": "bun --preload ./src/bootstrap/env-preload.ts ./src/db/scripts/retire-base-ops.ts",
         "db:ops:retire-base-ops:apply": "bun --preload ./src/bootstrap/env-preload.ts ./src/db/scripts/retire-base-ops.ts --apply",
+        "db:ops:pricing-tieout": "bun --preload ./src/bootstrap/env-preload.ts ./src/db/scripts/verify-pricing-stamp-tieout.ts",
         "dbops:login-report:prod": "bash scripts/dbops/login-report.sh prod",
         "dbops:login-report:staging": "bash scripts/dbops/login-report.sh staging",
         "dbops:fingerprint:prod": "bash scripts/dbops/fingerprint-db.sh prod",
