@@ -110,10 +110,18 @@ const getLineItemEditability = async (
 ): Promise<LineItemEditability> => {
     if (item.order_id) {
         const [order] = await db
-            .select({ financial_status: orders.financial_status })
+            .select({
+                financial_status: orders.financial_status,
+                pricing_mode: orders.pricing_mode,
+            })
             .from(orders)
             .where(and(eq(orders.id, item.order_id), eq(orders.platform_id, platformId)))
             .limit(1);
+        // NO_COST takes priority over status lock — a comped entity is always
+        // locked (mirrors the SELF_PICKUP branch's choke-point guard).
+        if (order?.pricing_mode === "NO_COST") {
+            return buildEditability(true, order.financial_status || null, "NO_COST");
+        }
         const status = order?.financial_status || null;
         return buildEditability(
             !!status && ORDER_FINANCIAL_LOCKED_STATUSES.includes(String(status)),
@@ -123,7 +131,10 @@ const getLineItemEditability = async (
 
     if (item.inbound_request_id) {
         const [request] = await db
-            .select({ financial_status: inboundRequests.financial_status })
+            .select({
+                financial_status: inboundRequests.financial_status,
+                pricing_mode: inboundRequests.pricing_mode,
+            })
             .from(inboundRequests)
             .where(
                 and(
@@ -132,6 +143,9 @@ const getLineItemEditability = async (
                 )
             )
             .limit(1);
+        if (request?.pricing_mode === "NO_COST") {
+            return buildEditability(true, request.financial_status || null, "NO_COST");
+        }
         const status = request?.financial_status || null;
         return buildEditability(
             !!status && ORDER_FINANCIAL_LOCKED_STATUSES.includes(String(status)),
@@ -141,7 +155,10 @@ const getLineItemEditability = async (
 
     if (item.service_request_id) {
         const [request] = await db
-            .select({ commercial_status: serviceRequests.commercial_status })
+            .select({
+                commercial_status: serviceRequests.commercial_status,
+                pricing_mode: serviceRequests.pricing_mode,
+            })
             .from(serviceRequests)
             .where(
                 and(
@@ -150,6 +167,9 @@ const getLineItemEditability = async (
                 )
             )
             .limit(1);
+        if (request?.pricing_mode === "NO_COST") {
+            return buildEditability(true, request.commercial_status || null, "NO_COST");
+        }
         const status = request?.commercial_status || null;
         return buildEditability(
             !!status && SERVICE_REQUEST_LOCKED_STATUSES.includes(String(status)),
