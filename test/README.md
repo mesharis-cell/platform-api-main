@@ -107,7 +107,7 @@ Demo order set (all Alex Chen):
 | Public ID    | order_status   | financial_status | Notes                                                      |
 | ------------ | -------------- | ---------------- | ---------------------------------------------------------- |
 | ORD-DEMO-001 | PRICING_REVIEW | PENDING_QUOTE    | Just submitted; no line items yet                          |
-| ORD-DEMO-002 | QUOTED         | QUOTE_SENT       | 2 catalog lines + BASE_OPS, ready for client approval      |
+| ORD-DEMO-002 | QUOTED         | QUOTE_SENT       | 2 catalog lines, ready for client approval                 |
 | ORD-DEMO-003 | CONFIRMED      | QUOTE_ACCEPTED   | po_number set, asset bookings active                       |
 | ORD-DEMO-004 | DELIVERED      | QUOTE_ACCEPTED   | Full status history, scan events with truck + derig photos |
 | ORD-DEMO-005 | CLOSED         | PENDING_INVOICE  | Full lifecycle, inbound scan with one discrepancy          |
@@ -167,7 +167,7 @@ See §8 of `api/docs/e2e-testing-system.md` for the full rulebook. Highlights:
   `drizzle-kit push --force`. If you change `schema.ts`, re-bootstrap to
   resync.
 - **Emails not arriving**: check Resend dashboard for the test API key.
-  Confirm `notifications.staging.kadence.ae` is verified. Look for SENT
+  Confirm `staging.notifications.kadence.ae` is verified. Look for SENT
   status + `message_id` in `notification_logs`.
 - **Resend suppression**: bounced addresses get auto-suppressed by Resend.
   Clear in dashboard → Suppressions if needed.

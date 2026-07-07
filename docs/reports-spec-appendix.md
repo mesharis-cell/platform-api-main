@@ -294,6 +294,8 @@ WITH order_returns AS ( SELECT sea.asset_id, se."order"::uuid AS order_id, SUM(s
 
 ## Orders Export (`orders`)
 
+> **BASE_OPS removed 2026-07 — historical.** The "ORDER BASE OPS (BUY)" column and the `base_ops_total` / `buy_base_ops_total` projection fields described below were dropped when the Base Operations feature was deleted entirely (pricing-ledger). The live report now emits 34 columns ending ORDER MARGIN % · ORDER BUY TOTAL (both ADMIN-only, gated on ctx.canSeeMargin); references to the base-ops column below are retained for historical context only.
+
 `OPERATIONS` · `ADMIN_CLIENT` · replaces: orders CSV
 
 **numbers: RISKY** (high) · **visibility: LEAK_RISK** · **memory: MUST_STREAM** · worst-case ~3,000–8,000 rows realistic whole-tenan…
@@ -655,7 +657,7 @@ SELECT ir.incoming_at AS incoming_at, ir.inbound_request_id AS inbound_request, 
 
 ## Cost Report (`cost`)
 
-> **BASE_OPS removed 2026-07 — historical.** All "BASE OPS COST" / "ORDER BASE OPS (BUY)" columns and the `base_ops_total` / `buy_base_ops_total` projection fields described in this appendix were dropped when the Base Operations feature was deleted entirely. References below are retained for historical context only; the live reports no longer emit those columns.
+> **BASE_OPS + MARGIN OVERRIDE removed 2026-07 — historical.** All "BASE OPS COST" / "ORDER BASE OPS (BUY)" columns and the `base_ops_total` / `buy_base_ops_total` projection fields described in this appendix were dropped when the Base Operations feature was deleted entirely. The "MARGIN OVERRIDE" column was also dropped — the blanket margin-override mechanism (`margin_is_override` / `margin_override_reason`) was retired in pricing-ledger (columns dropped in migration 0073); per-line `sell_unit_rate` is now the only sell control. References below are retained for historical context only; the live reports no longer emit those columns.
 
 `FINANCIAL` · `ADMIN` · replaces: pricing buy/margin
 
