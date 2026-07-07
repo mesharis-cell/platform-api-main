@@ -47,6 +47,7 @@ type NormalizedDocumentLineItem = {
     category?: string;
     billing_mode?: string;
     client_price_visible: boolean;
+    client_visible: boolean;
     buy_total: number;
     sell_total: number;
     buy_unit_rate: number;
@@ -129,6 +130,9 @@ export type CommercialDocumentPdfPayload = {
         unit_rate: number | null;
         total: number | null;
         client_price_visible: boolean;
+        // Present so the PDF renderer can show "Complimentary" in the price
+        // position for COMPLIMENTARY lines instead of a number/blank.
+        billing_mode?: string;
     }>;
     line_items_sub_total: number;
 };
@@ -156,9 +160,10 @@ const mapLineItems = (projected: any): NormalizedDocumentLineItem[] => {
         .filter((line: any) => {
             if (line?.is_voided) return false;
             const billingMode = String(line?.billing_mode || "BILLABLE");
-            const lineKind = String(line?.line_kind || "");
-            if (lineKind === "CUSTOM" && billingMode === "NON_BILLABLE") return false;
-            return billingMode === "BILLABLE";
+            // Drop NON_BILLABLE entirely (forced internal cost, never client-
+            // facing). Keep BILLABLE + COMPLIMENTARY — COMPLIMENTARY renders on
+            // the client cost estimate with the word "Complimentary".
+            return billingMode === "BILLABLE" || billingMode === "COMPLIMENTARY";
         })
         .map((line: any) => ({
             line_item_id: String(line?.line_id || ""),
@@ -167,6 +172,7 @@ const mapLineItems = (projected: any): NormalizedDocumentLineItem[] => {
             category: line?.category ? String(line.category) : undefined,
             billing_mode: line?.billing_mode ? String(line.billing_mode) : undefined,
             client_price_visible: Boolean(line?.client_price_visible),
+            client_visible: line?.client_visible !== false,
             buy_total: toNumber(line?.buy_total),
             sell_total: toNumber(line?.sell_total),
             buy_unit_rate: toNumber(line?.buy_unit_price),
@@ -681,30 +687,38 @@ export const buildCommercialDocumentPdfPayload = (
 ): CommercialDocumentPdfPayload => {
     const sellSide = audience === "SELL_SIDE";
     const respectClientLineVisibility = sellSide && options?.respectClientLineVisibility === true;
+    // Client cost estimate: also drop whole lines the CLIENT eye is off for
+    // (client_visible=false). NON_BILLABLE lines were already dropped upstream
+    // in mapLineItems; this is the client_visible half of the audience model.
+    const sourceLines = respectClientLineVisibility
+        ? context.line_items.filter((lineItem) => lineItem.client_visible !== false)
+        : context.line_items;
     const sourceLineTotalsById = new Map(
-        context.line_items.map((lineItem) => [
+        sourceLines.map((lineItem) => [
             lineItem.line_item_id,
             sellSide ? lineItem.sell_total : lineItem.buy_total,
         ])
     );
-    const lineItems = context.line_items.map((lineItem) => ({
-        line_item_id: lineItem.line_item_id,
-        description: lineItem.description,
-        quantity: lineItem.quantity,
-        unit_rate:
-            respectClientLineVisibility && !lineItem.client_price_visible
+    const lineItems = sourceLines.map((lineItem) => {
+        // COMPLIMENTARY lines never carry a client price — the renderer shows
+        // "Complimentary". Suppress the numeric price so it can't leak.
+        const isComplimentary = lineItem.billing_mode === "COMPLIMENTARY";
+        const hidePrice =
+            isComplimentary || (respectClientLineVisibility && !lineItem.client_price_visible);
+        return {
+            line_item_id: lineItem.line_item_id,
+            description: lineItem.description,
+            quantity: lineItem.quantity,
+            unit_rate: hidePrice
                 ? null
                 : sellSide
                   ? lineItem.sell_unit_rate
                   : lineItem.buy_unit_rate,
-        total:
-            respectClientLineVisibility && !lineItem.client_price_visible
-                ? null
-                : sellSide
-                  ? lineItem.sell_total
-                  : lineItem.buy_total,
-        client_price_visible: lineItem.client_price_visible,
-    }));
+            total: hidePrice ? null : sellSide ? lineItem.sell_total : lineItem.buy_total,
+            client_price_visible: lineItem.client_price_visible,
+            billing_mode: lineItem.billing_mode,
+        };
+    });
     const lineItemsSubTotal = lineItems.reduce(
         (sum, lineItem) => sum + toNumber(sourceLineTotalsById.get(lineItem.line_item_id)),
         0

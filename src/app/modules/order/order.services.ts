@@ -94,6 +94,7 @@ import {
     diffChangedFields,
     writeChangeHistory,
 } from "../../utils/entity-change-history";
+import { filterClientChangeRows } from "../../constants/client-changelog-allowlist";
 import { featureNames, uuidRegex } from "../../constants/common";
 import config from "../../config";
 import { formatDateForEmail } from "../../utils/date-time";
@@ -2054,8 +2055,9 @@ const editOrderDetails = async (
 
 // Field-level edit history for an order (order-editing feature). Reads the polymorphic
 // entity_change_history ledger. CLIENT callers are restricted to their own company's orders;
-// ADMIN/LOGISTICS are platform-scoped. Tier A/B/C change rows only ever carry allowlisted
-// edit fields (never margin/buy-price), so the diff is safe to surface to clients.
+// ADMIN/LOGISTICS are platform-scoped. For CLIENT callers the rows are filtered through the
+// client-changelog ALLOWLIST (default-deny) — pricing-action rows (bulk_margin, pricing_mode)
+// and internal ops fields (job_number) vanish; only client-safe fields survive.
 const getOrderChangeHistory = async (orderId: string, user: AuthUser, platformId: string) => {
     const [order] = await db
         .select({ id: orders.id, company_id: orders.company_id })
@@ -2094,7 +2096,8 @@ const getOrderChangeHistory = async (orderId: string, user: AuthUser, platformId
         )
         .orderBy(desc(entityChangeHistory.created_at));
 
-    return rows;
+    // CLIENT: default-deny allowlist — drop any field key not on the registry.
+    return user.role === "CLIENT" ? filterClientChangeRows(rows) : rows;
 };
 
 // ----------------------------------- GET ORDER SCAN EVENTS ----------------------------------

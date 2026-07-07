@@ -8,6 +8,11 @@ const billingModeSchema = z.enum(["BILLABLE", "NON_BILLABLE", "COMPLIMENTARY"], 
 
 const logisticsVisibleSchema = z.boolean().optional();
 
+// Per-line CLIENT audience flag (owner feedback 2026-07-07). Whole-line hide for
+// the CLIENT (distinct from client_price_visible, which hides only the price).
+// ADMIN-only — enforced at the service layer (mirrors logistics_visible).
+const clientVisibleSchema = z.boolean().optional();
+
 // Per-line SELL price override (per-unit). Nullable so callers can express
 // "clear the override, fall back to margin math" via explicit null.
 // ADMIN-only — enforced at the service layer (route gates custom-create to
@@ -34,6 +39,7 @@ const createCatalogLineItemSchema = z.object({
             metadata: z.record(z.string(), z.unknown()).optional().default({}),
             client_price_visible: z.boolean().optional().default(false),
             logistics_visible: logisticsVisibleSchema,
+            client_visible: clientVisibleSchema,
             // Per-line SELL override at create time — kills the admin
             // create-then-PUT hack. ADMIN-only (guarded at the service layer;
             // LOGISTICS catalog-create rejects a supplied value).
@@ -93,6 +99,7 @@ const createCustomLineItemSchema = z.object({
             metadata: z.record(z.string(), z.unknown()).optional().default({}),
             client_price_visible: z.boolean().optional().default(false),
             logistics_visible: logisticsVisibleSchema,
+            client_visible: clientVisibleSchema,
             sell_unit_rate: sellUnitRateSchema,
         })
         .refine((data) => {
@@ -116,6 +123,7 @@ const updateLineItemSchema = z.object({
             metadata: z.record(z.string(), z.unknown()).optional(),
             client_price_visible: z.boolean().optional(),
             logistics_visible: logisticsVisibleSchema,
+            client_visible: clientVisibleSchema,
             sell_unit_rate: sellUnitRateSchema,
         })
         .strict(),
@@ -141,10 +149,14 @@ const patchLineItemVisibilitySchema = z.object({
             logistics_visible: z
                 .boolean({ message: "logistics_visible must be a boolean" })
                 .optional(),
+            client_visible: z.boolean({ message: "client_visible must be a boolean" }).optional(),
         })
         .refine(
-            (d) => d.client_price_visible !== undefined || d.logistics_visible !== undefined,
-            "At least one of client_price_visible or logistics_visible is required"
+            (d) =>
+                d.client_price_visible !== undefined ||
+                d.logistics_visible !== undefined ||
+                d.client_visible !== undefined,
+            "At least one of client_price_visible, logistics_visible or client_visible is required"
         )
         .strict(),
 });
@@ -162,6 +174,7 @@ const patchEntityLineItemsVisibilitySchema = z.object({
             self_pickup_id: z.uuid("Invalid self-pickup ID").optional(),
             client_price_visible: z.boolean().optional(),
             logistics_visible: z.boolean().optional(),
+            client_visible: z.boolean().optional(),
             line_item_ids: z.array(z.uuid("Invalid line item id")).optional(),
         })
         .refine((data) => {
@@ -172,8 +185,11 @@ const patchEntityLineItemsVisibilitySchema = z.object({
             return true;
         }, "Parent entity ID is required matching the purpose_type (order_id / inbound_request_id / service_request_id / self_pickup_id)")
         .refine(
-            (d) => d.client_price_visible !== undefined || d.logistics_visible !== undefined,
-            "At least one of client_price_visible or logistics_visible is required"
+            (d) =>
+                d.client_price_visible !== undefined ||
+                d.logistics_visible !== undefined ||
+                d.client_visible !== undefined,
+            "At least one of client_price_visible, logistics_visible or client_visible is required"
         )
         .strict(),
 });

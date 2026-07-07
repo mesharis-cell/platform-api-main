@@ -42,6 +42,7 @@ import {
 } from "./self-pickup-validation.utils";
 import { CommerceRulesServices } from "../commerce-rules/commerce-rules.services";
 import { WorkflowRequestServices } from "../workflow-request/workflow-request.services";
+import { filterClientChangeRows } from "../../constants/client-changelog-allowlist";
 
 // ----------------------------------- STATUS → EVENT MAP ----------------------------------
 // Maps a new status to the specific event type that should fire alongside
@@ -1166,7 +1167,7 @@ const getSelfPickupChangeHistory = async (id: string, user: AuthUser, platformId
             "You do not have access to this self-pickup"
         );
     }
-    return db
+    const rows = await db
         .select({
             id: entityChangeHistory.id,
             field: entityChangeHistory.field,
@@ -1190,6 +1191,9 @@ const getSelfPickupChangeHistory = async (id: string, user: AuthUser, platformId
             )
         )
         .orderBy(desc(entityChangeHistory.created_at));
+
+    // CLIENT: default-deny allowlist — drop any field key not on the registry.
+    return user.role === "CLIENT" ? filterClientChangeRows(rows) : rows;
 };
 
 export const SelfPickupServices = {
