@@ -113,6 +113,18 @@ const downloadCostEstimatePDF = catchAsync(async (req, res) => {
         );
     }
 
+    // No-cost orders have no priced cost estimate to download (owner feedback
+    // 2026-07-07 item 14). Gate the download so the client sees the clean
+    // no-cost state (banner + 0.00 total) rather than a stale/empty PDF. Mirror
+    // the QUOTE_REVISED 409 pattern; the client UI keys off `code: "NO_COST"`.
+    if (order.pricing_mode === "NO_COST") {
+        throw new CustomizedError(
+            httpStatus.CONFLICT,
+            "This order was approved at no cost — there is no cost estimate to download.",
+            { code: "NO_COST" }
+        );
+    }
+
     const company = order.company as typeof companies.$inferSelect | null;
     const companySlug = (company?.name || "unknown-company").replace(/\s/g, "-").toLowerCase();
     const s3Key = `cost-estimates/${companySlug}/${order.order_id}.pdf`;
@@ -186,6 +198,18 @@ const downloadServiceRequestCostEstimatePDF = catchAsync(async (req, res) => {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Service request not found");
     }
     assertClientEntityAccess(user, serviceRequest.company_id, "service request");
+
+    // No-cost SR (concession) has no priced estimate — gate the download so the
+    // client sees the no-cost state (owner feedback 2026-07-07 item 14; mirrors
+    // the ORDER gate). SR concession voids all line items → the estimate would
+    // be empty/misleading.
+    if (serviceRequest.pricing_mode === "NO_COST") {
+        throw new CustomizedError(
+            httpStatus.CONFLICT,
+            "This service request was approved at no cost — there is no cost estimate to download.",
+            { code: "NO_COST" }
+        );
+    }
 
     const company = serviceRequest.company as typeof companies.$inferSelect | null;
     const companySlug = (company?.name || "unknown-company").replace(/\s/g, "-").toLowerCase();
