@@ -916,6 +916,12 @@ const respondToServiceRequestQuote = async (
     return refreshed;
 };
 
+// Concession (= SR mark-no-cost) is only permitted while the quote is still
+// open. Mirrors the ORDER/INBOUND no-cost status whitelists so an INVOICED/PAID
+// (or already-approved/cancelled) SR can't be silently un-priced by an internal
+// or replayed POST.
+const SR_CONCESSION_ALLOWED_STATUSES = ["INTERNAL", "PENDING_QUOTE", "QUOTED"];
+
 const applyServiceRequestConcession = async (
     id: string,
     payload: ApplyServiceRequestConcessionPayload,
@@ -931,6 +937,12 @@ const applyServiceRequestConcession = async (
         throw new CustomizedError(
             httpStatus.BAD_REQUEST,
             "Concession is only available for client-billable service requests"
+        );
+    }
+    if (!SR_CONCESSION_ALLOWED_STATUSES.includes(String(existing.commercial_status))) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            `Cannot apply concession in commercial status: ${existing.commercial_status}. Must be INTERNAL, PENDING_QUOTE or QUOTED.`
         );
     }
 

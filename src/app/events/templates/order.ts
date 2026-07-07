@@ -860,12 +860,22 @@ const fmtChangeValue = (v: unknown) => {
     if (typeof v === "object") return JSON.stringify(v);
     return String(v);
 };
-const changedFieldsRows = (d: Record<string, any>) => {
-    const fields: Array<{ field: string; old: unknown; new: unknown }> = Array.isArray(
+// Internal references a client must never receive in a changed-fields diff —
+// mirrors CLIENT_HIDDEN_KEYS in order-info-rows.ts. job_number is an ops-side
+// reference; special_instructions can carry internal handling notes.
+const CLIENT_HIDDEN_CHANGE_FIELDS: ReadonlySet<string> = new Set([
+    "job_number",
+    "special_instructions",
+]);
+const changedFieldsRows = (d: Record<string, any>, forClient = false) => {
+    const allFields: Array<{ field: string; old: unknown; new: unknown }> = Array.isArray(
         d.changed_fields
     )
         ? d.changed_fields
         : [];
+    const fields = forClient
+        ? allFields.filter((c) => !CLIENT_HIDDEN_CHANGE_FIELDS.has(c.field))
+        : allFields;
     if (fields.length === 0) return infoRow("Changes", "—");
     return fields
         .map((c) =>
@@ -909,7 +919,7 @@ export const orderUpdatedClient: EmailTemplate = {
         return wrap(`
             <h1 style="margin: 0 0 24px; font-size: 28px; font-weight: bold; color: #2563eb;">Order Updated</h1>
             <p style="margin: 0 0 16px; font-size: 16px; color: #374151;">Hi ${d.contact_name ?? "there"}, the details of your order ${d.entity_id_readable} have been updated.</p>
-            ${infoBox(changedFieldsRows(d), "#eff6ff")}
+            ${infoBox(changedFieldsRows(d, true), "#eff6ff")}
             ${actionButton("View Order", d.order_url)}
             ${footer()}
         `);

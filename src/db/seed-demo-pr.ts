@@ -608,7 +608,7 @@ const buildDemoMediaPools = async (ctx: SeedContext): Promise<DemoMediaPools> =>
 };
 
 const runBaseDemoSeed = () => {
-    console.log("\n[1/8] Running baseline demo seed (seed.ts)…\n");
+    console.log("\n[1/7] Running baseline demo seed (seed.ts)…\n");
     const result = spawnSync("bun", ["run", "src/db/seed.ts"], {
         cwd: process.cwd(),
         stdio: "inherit",
@@ -714,7 +714,7 @@ const loadContext = async (): Promise<SeedContext> => {
 };
 
 const importPrAssets = async (ctx: SeedContext) => {
-    console.log("\n[3/8] Importing Pernod asset bundle into seeded demo…\n");
+    console.log("\n[2/7] Importing Pernod asset bundle into seeded demo…\n");
     await seedPrAssets({
         platformId: ctx.platform.id,
         companyId: ctx.company.id,
@@ -727,7 +727,7 @@ const importPrAssets = async (ctx: SeedContext) => {
 const upsertRfqServiceTypes = async (
     ctx: SeedContext
 ): Promise<Map<string, typeof schema.serviceTypes.$inferSelect>> => {
-    console.log("\n[5/8] Upserting RFQ-aligned service catalog…");
+    console.log("\n[4/7] Upserting RFQ-aligned service catalog…");
 
     const results = new Map<string, typeof schema.serviceTypes.$inferSelect>();
 
@@ -937,7 +937,7 @@ const ensureOrderStatusCoverage = async (
     ctx: SeedContext,
     serviceTypes: Map<string, typeof schema.serviceTypes.$inferSelect>
 ) => {
-    console.log("\n[6/8] Ensuring complete order status walkthrough matrix…");
+    console.log("\n[5/7] Ensuring complete order status walkthrough matrix…");
 
     const existingOrders = await db
         .select({
@@ -1338,7 +1338,7 @@ const insertScanEvent = async (opts: {
 };
 
 const ensureScanCoverage = async (ctx: SeedContext, mediaPools: DemoMediaPools) => {
-    console.log("\n[7/8] Ensuring scan activity coverage with demo media…");
+    console.log("\n[6/7] Ensuring scan activity coverage with demo media…");
 
     const orderRows = await db
         .select({
@@ -1564,7 +1564,7 @@ const ensureInboundCoverage = async (
     serviceTypes: Map<string, typeof schema.serviceTypes.$inferSelect>,
     mediaPools: DemoMediaPools
 ) => {
-    console.log("\n[8/8] Ensuring inbound/service-request demo coverage…");
+    console.log("\n[7/7] Ensuring inbound/service-request demo coverage…");
 
     const existingInbound = await db
         .select({ request_status: schema.inboundRequests.request_status })
@@ -1823,7 +1823,7 @@ const main = async () => {
     const ctx = await loadContext();
 
     await importPrAssets(ctx);
-    console.log("\n[4/8] Uploading and indexing demo media set…");
+    console.log("\n[3/7] Uploading and indexing demo media set…");
     const mediaPools = await buildDemoMediaPools(ctx);
     const rfqServices = await upsertRfqServiceTypes(ctx);
     await ensureOrderStatusCoverage(ctx, rfqServices);

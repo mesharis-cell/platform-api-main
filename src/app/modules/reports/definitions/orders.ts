@@ -6,10 +6,11 @@
  * (export.services.ts:exportOrdersService).
  *
  * LEAK-RISK report. The sell columns (subtotal ex-VAT, VAT %, VAT amount, final
- * total inc-VAT) are always allowed. The three cost/margin columns — ORDER
- * MARGIN %, ORDER BUY TOTAL, ORDER BASE OPS (BUY) — are gated on ctx.canSeeMargin
- * and are NEVER built into the client/sell variant. (Spec appendix "Orders
- * Export" → "Safety leak columns".)
+ * total inc-VAT) are always allowed. The two cost/margin columns — ORDER
+ * MARGIN % and ORDER BUY TOTAL — are gated on ctx.canSeeMargin and are NEVER
+ * built into the client/sell variant. (The former ORDER BASE OPS (BUY) column
+ * was dropped with BASE_OPS retirement — pricing-ledger.) (Spec appendix
+ * "Orders Export" → "Safety leak columns".)
  *
  * MONEY FAN-OUT FIX (spec required fix): a single order's pricing row fans out
  * across all its order_items rows. Order-level money is written ONCE per order

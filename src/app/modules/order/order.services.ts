@@ -3467,10 +3467,13 @@ const adminApproveQuote = async (
 // NOT_APPLICABLE (shared PricingService.markEntityAsNoCost), then moves the order
 // to CONFIRMED so it proceeds to fulfilment (bookings already exist from SUBMIT —
 // gotcha #44 — so no booking work here). Mirrors the SP mark-no-cost pattern.
-// NOTE: no client-facing confirm email / workflow auto-open is emitted here — that
-// stays with the real confirm path; the client + workflow wiring lands when the
-// admin ledger surfaces this action (Phase 2/3). An ORDER audit trail (status +
-// financial history + entity_change_history + PRICING_RECALCULATED event) is written.
+// Because the order genuinely becomes CONFIRMED here, this fires ORDER_CONFIRMED
+// (LOGISTICS ops notification + client confirm email via ENTITY_OWNER) and runs
+// WorkflowAutoOpenService('ORDER_CONFIRMED') so permit-handling workflows open —
+// mirroring approveQuote's confirm side effects. It deliberately does NOT emit
+// QUOTE_APPROVED: no client quote approval happened (owner decision 2026-07-07).
+// An ORDER audit trail (status + financial history + entity_change_history +
+// PRICING_RECALCULATED event) is also written. Actor is the acting admin/logistics.
 const ORDER_NO_COST_ALLOWED_STATUSES = [
     "SUBMITTED",
     "PRICING_REVIEW",
@@ -3479,17 +3482,16 @@ const ORDER_NO_COST_ALLOWED_STATUSES = [
 ];
 
 const markOrderAsNoCost = async (orderId: string, user: AuthUser, platformId: string) => {
-    const [order] = await db
-        .select({
-            id: orders.id,
-            order_id: orders.order_id,
-            order_status: orders.order_status,
-            pricing_mode: orders.pricing_mode,
-            company_id: orders.company_id,
-        })
-        .from(orders)
-        .where(and(eq(orders.id, orderId), eq(orders.platform_id, platformId)))
-        .limit(1);
+    // Full order load (company + venue_city relations) so the ORDER_CONFIRMED
+    // emit can compose the same payload approveQuote does (buildOrderInfoBlock +
+    // company/venue fields) and WorkflowAutoOpenService gets the order payload.
+    const order = await db.query.orders.findFirst({
+        where: and(eq(orders.id, orderId), eq(orders.platform_id, platformId)),
+        with: {
+            company: { columns: { name: true } },
+            venue_city: { columns: { name: true } },
+        },
+    });
 
     if (!order) {
         throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
@@ -3563,6 +3565,63 @@ const markOrderAsNoCost = async (orderId: string, user: AuthUser, platformId: st
             reason: null,
         },
     });
+
+    // The order truly becomes CONFIRMED here, so mirror approveQuote's confirm
+    // side effects: emit ORDER_CONFIRMED (LOGISTICS ops notification + client
+    // confirm email via ENTITY_OWNER). Operational payload — deliberately no
+    // pricing (recipients must not see SELL totals / margins). Actor is the
+    // acting admin/logistics (NOT a client). No QUOTE_APPROVED is emitted
+    // because no client quote approval happened (owner decision 2026-07-07).
+    await eventBus.emit({
+        platform_id: platformId,
+        event_type: EVENT_TYPES.ORDER_CONFIRMED,
+        entity_type: "ORDER",
+        entity_id: order.id,
+        actor_id: user.id,
+        actor_role: user.role,
+        payload: {
+            entity_id_readable: order.order_id,
+            company_id: order.company_id,
+            company_name: (order.company as any)?.name || "N/A",
+            contact_name: order.contact_name,
+            event_start_date: order.event_start_date?.toISOString().split("T")[0] || "",
+            event_end_date: order.event_end_date?.toISOString().split("T")[0] || "",
+            venue_name: order.venue_name || "",
+            venue_city: (order.venue_city as any)?.name || "",
+            venue_location: order.venue_location || null,
+            delivery_window: order.delivery_window || "",
+            pickup_window: order.pickup_window || "",
+            order_info: buildOrderInfoBlock(order, {
+                companyName: (order.company as any)?.name,
+                venueCityName: (order.venue_city as any)?.name,
+            }),
+            order_url: "",
+        },
+    });
+
+    // Rule-matrix evaluator runs on ORDER_CONFIRMED — any workflow definition
+    // with auto_open_conditions.trigger_event === 'ORDER_CONFIRMED' (permit
+    // handling is the canonical v1 example) auto-creates a workflow_request.
+    // Exactly as approveQuote calls it. Defensive: a failure here must never
+    // block the no-cost confirmation itself.
+    try {
+        await WorkflowAutoOpenService.evaluateAndCreate(
+            "ORDER_CONFIRMED",
+            {
+                type: "ORDER",
+                id: order.id,
+                payload: order as Record<string, unknown>,
+            },
+            {
+                platformId,
+                companyId: order.company_id,
+                triggeredByUserId: user.id,
+                triggeredByRole: user.role,
+            }
+        );
+    } catch (err) {
+        console.error("[order:markOrderAsNoCost] workflow auto-open evaluator failed", err);
+    }
 
     return {
         id: orderId,

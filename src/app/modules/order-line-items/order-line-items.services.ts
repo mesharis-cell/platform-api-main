@@ -34,10 +34,10 @@ import {
 import { buildOrderInfoBlockById } from "../../utils/helper-query";
 import queryValidator from "../../utils/query-validator";
 import { DocumentService } from "../../services/document.service";
-import { roundCurrency } from "../../utils/pricing-engine";
+import { applyMarginPerLine, roundCurrency } from "../../utils/pricing-engine";
 import { eventBus } from "../../events/event-bus";
 import { EVENT_TYPES } from "../../events/event-types";
-import { PricingService } from "../../services/pricing.service";
+import { PricingService, type PricedEntityType } from "../../services/pricing.service";
 import { buildEntityUpdatedPayload, writeChangeHistory } from "../../utils/entity-change-history";
 
 const LINE_ITEM_ID_UNIQUE_CONSTRAINT = "line_items_platform_line_item_id_unique";
@@ -110,10 +110,18 @@ const getLineItemEditability = async (
 ): Promise<LineItemEditability> => {
     if (item.order_id) {
         const [order] = await db
-            .select({ financial_status: orders.financial_status })
+            .select({
+                financial_status: orders.financial_status,
+                pricing_mode: orders.pricing_mode,
+            })
             .from(orders)
             .where(and(eq(orders.id, item.order_id), eq(orders.platform_id, platformId)))
             .limit(1);
+        // NO_COST takes priority over status lock — a comped entity is always
+        // locked (mirrors the SELF_PICKUP branch's choke-point guard).
+        if (order?.pricing_mode === "NO_COST") {
+            return buildEditability(true, order.financial_status || null, "NO_COST");
+        }
         const status = order?.financial_status || null;
         return buildEditability(
             !!status && ORDER_FINANCIAL_LOCKED_STATUSES.includes(String(status)),
@@ -123,7 +131,10 @@ const getLineItemEditability = async (
 
     if (item.inbound_request_id) {
         const [request] = await db
-            .select({ financial_status: inboundRequests.financial_status })
+            .select({
+                financial_status: inboundRequests.financial_status,
+                pricing_mode: inboundRequests.pricing_mode,
+            })
             .from(inboundRequests)
             .where(
                 and(
@@ -132,6 +143,9 @@ const getLineItemEditability = async (
                 )
             )
             .limit(1);
+        if (request?.pricing_mode === "NO_COST") {
+            return buildEditability(true, request.financial_status || null, "NO_COST");
+        }
         const status = request?.financial_status || null;
         return buildEditability(
             !!status && ORDER_FINANCIAL_LOCKED_STATUSES.includes(String(status)),
@@ -141,7 +155,10 @@ const getLineItemEditability = async (
 
     if (item.service_request_id) {
         const [request] = await db
-            .select({ commercial_status: serviceRequests.commercial_status })
+            .select({
+                commercial_status: serviceRequests.commercial_status,
+                pricing_mode: serviceRequests.pricing_mode,
+            })
             .from(serviceRequests)
             .where(
                 and(
@@ -150,6 +167,9 @@ const getLineItemEditability = async (
                 )
             )
             .limit(1);
+        if (request?.pricing_mode === "NO_COST") {
+            return buildEditability(true, request.commercial_status || null, "NO_COST");
+        }
         const status = request?.commercial_status || null;
         return buildEditability(
             !!status && SERVICE_REQUEST_LOCKED_STATUSES.includes(String(status)),
@@ -352,10 +372,27 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
 
     // Per-line sell override. NULL = fall back to margin math (seed-derived);
     // a value = fixed sell rate (stored as decimal string).
-    const catalogSellUnitRate =
+    let catalogSellUnitRate: string | null =
         data.sell_unit_rate === undefined || data.sell_unit_rate === null
             ? null
             : data.sell_unit_rate.toString();
+
+    // §2.1 "always stamped" invariant: a BILLABLE line with no caller-supplied
+    // sell (LOGISTICS can never supply one — the guard above blocks it) gets its
+    // sell_unit_rate stamped server-side from the entity's margin seed — the same
+    // derivation the next rebuild uses — so the defensive restamp warn stays
+    // silent for new lines. NON_BILLABLE/COMPLIMENTARY keep NULL (engine sell 0).
+    if (catalogSellUnitRate === null && effectiveBillingMode === "BILLABLE") {
+        const marginSeed = await PricingService.resolveEntityMarginSeed({
+            entity_type: purpose_type as PricedEntityType,
+            entity_id: order_id || inbound_request_id || service_request_id || self_pickup_id || "",
+            platform_id,
+        });
+        catalogSellUnitRate = applyMarginPerLine(
+            Number(serviceType.default_rate),
+            marginSeed
+        ).toString();
+    }
 
     const result = await runWithLineItemIdRetry(async () =>
         db.transaction(async (tx) => {
@@ -506,10 +543,23 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
     // Per-line sell override at create time. Route gates custom-create to
     // ADMIN, so no role check needed. NULL = fall back to margin math; a
     // value = fixed sell rate (stored as decimal string).
-    const customSellUnitRate =
+    let customSellUnitRate: string | null =
         data.sell_unit_rate === undefined || data.sell_unit_rate === null
             ? null
             : data.sell_unit_rate.toString();
+
+    // §2.1 "always stamped" invariant: a BILLABLE line with no caller-supplied
+    // sell gets its sell_unit_rate stamped server-side from the entity's margin
+    // seed — the same derivation the next rebuild uses. NON_BILLABLE/COMPLIMENTARY
+    // keep NULL (engine renders sell 0).
+    if (customSellUnitRate === null && effectiveBillingMode === "BILLABLE") {
+        const marginSeed = await PricingService.resolveEntityMarginSeed({
+            entity_type: purpose_type as PricedEntityType,
+            entity_id: order_id || inbound_request_id || service_request_id || self_pickup_id || "",
+            platform_id,
+        });
+        customSellUnitRate = applyMarginPerLine(Number(unit_rate), marginSeed).toString();
+    }
 
     const result = await runWithLineItemIdRetry(async () =>
         db.transaction(async (tx) => {
@@ -1246,19 +1296,29 @@ const bulkMarginLineItems = async (platformId: string, data: BulkMarginPayload, 
             )
             .returning({ id: lineItems.id });
 
-        // R5 audit: one entity_change_history row for ORDER / SELF_PICKUP.
-        if (purpose_type === "ORDER" || purpose_type === "SELF_PICKUP") {
+        // R5 audit: one entity_change_history row for ORDER / SELF_PICKUP. Skip
+        // entirely when nothing was updated (zero eligible lines, or a
+        // cross-tenant entity_id whose parentCondition matched no rows) so no
+        // audit trail / event is written for a no-op. The readable-ref lookups
+        // are platform-scoped so a cross-platform entity_id can't leak the other
+        // tenant's human ref into this platform's audit row.
+        if (rows.length > 0 && (purpose_type === "ORDER" || purpose_type === "SELF_PICKUP")) {
             const [readable] =
                 purpose_type === "ORDER"
                     ? await tx
                           .select({ ref: orders.order_id })
                           .from(orders)
-                          .where(eq(orders.id, entity_id))
+                          .where(and(eq(orders.id, entity_id), eq(orders.platform_id, platformId)))
                           .limit(1)
                     : await tx
                           .select({ ref: selfPickups.self_pickup_id })
                           .from(selfPickups)
-                          .where(eq(selfPickups.id, entity_id))
+                          .where(
+                              and(
+                                  eq(selfPickups.id, entity_id),
+                                  eq(selfPickups.platform_id, platformId)
+                              )
+                          )
                           .limit(1);
             await writeChangeHistory(tx, {
                 platformId,
@@ -1281,47 +1341,52 @@ const bulkMarginLineItems = async (platformId: string, data: BulkMarginPayload, 
         return rows;
     });
 
-    // Single rebuild via the entity's post-quote revert hook — same path a
-    // single-line edit takes (rebuild + QUOTED→PENDING_APPROVAL revert + estimate
-    // regen where applicable).
-    switch (purpose_type) {
-        case "ORDER":
-            await updateOrderPricingAfterLineItemChange(entity_id, platformId, userId);
-            break;
-        case "INBOUND_REQUEST":
-            await updateInboundRequestPricingAfterLineItemChange(entity_id, platformId, userId);
-            break;
-        case "SERVICE_REQUEST":
-            await updateServiceRequestPricingAfterLineItemChange(entity_id, platformId, userId);
-            break;
-        case "SELF_PICKUP":
-            await updateSelfPickupPricingAfterLineItemChange(entity_id, platformId, userId);
-            break;
-    }
+    // Nothing repriced (zero eligible lines / cross-tenant no-op) → skip the
+    // rebuild + audit event entirely so a no-op call leaves no trace.
+    if (updated.length > 0) {
+        // Single rebuild via the entity's post-quote revert hook — same path a
+        // single-line edit takes (rebuild + QUOTED→PENDING_APPROVAL revert +
+        // estimate regen where applicable).
+        switch (purpose_type) {
+            case "ORDER":
+                await updateOrderPricingAfterLineItemChange(entity_id, platformId, userId);
+                break;
+            case "INBOUND_REQUEST":
+                await updateInboundRequestPricingAfterLineItemChange(entity_id, platformId, userId);
+                break;
+            case "SERVICE_REQUEST":
+                await updateServiceRequestPricingAfterLineItemChange(entity_id, platformId, userId);
+                break;
+            case "SELF_PICKUP":
+                await updateSelfPickupPricingAfterLineItemChange(entity_id, platformId, userId);
+                break;
+        }
 
-    // R5 audit event — the existing PRICING_RECALCULATED event, tagged with the
-    // bulk-margin action so history/audit can distinguish it from a plain reprice.
-    await eventBus.emit({
-        platform_id: platformId,
-        event_type: EVENT_TYPES.PRICING_RECALCULATED,
-        entity_type: purpose_type as
-            | "ORDER"
-            | "INBOUND_REQUEST"
-            | "SERVICE_REQUEST"
-            | "SELF_PICKUP",
-        entity_id,
-        actor_id: userId,
-        actor_role: "ADMIN",
-        payload: {
-            entity_id_readable: entity_id,
-            company_id: "",
-            company_name: "",
-            action: "bulk_margin",
-            percent: margin_percent,
-            reason: reason || null,
-            updated_count: updated.length,
-        },
-    });
+        // R5 audit event — the existing PRICING_RECALCULATED event, tagged with
+        // the bulk-margin action so history/audit can distinguish it from a plain
+        // reprice.
+        await eventBus.emit({
+            platform_id: platformId,
+            event_type: EVENT_TYPES.PRICING_RECALCULATED,
+            entity_type: purpose_type as
+                | "ORDER"
+                | "INBOUND_REQUEST"
+                | "SERVICE_REQUEST"
+                | "SELF_PICKUP",
+            entity_id,
+            actor_id: userId,
+            actor_role: "ADMIN",
+            payload: {
+                entity_id_readable: entity_id,
+                company_id: "",
+                company_name: "",
+                action: "bulk_margin",
+                percent: margin_percent,
+                reason: reason || null,
+                updated_count: updated.length,
+            },
+        });
+    }
 
     return {
         purpose_type,
