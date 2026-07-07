@@ -709,7 +709,11 @@ export const buildCommercialDocumentPdfPayload = (
             line_item_id: lineItem.line_item_id,
             description: lineItem.description,
             quantity: lineItem.quantity,
-            unit_rate: hidePrice ? null : sellSide ? lineItem.sell_unit_rate : lineItem.buy_unit_rate,
+            unit_rate: hidePrice
+                ? null
+                : sellSide
+                  ? lineItem.sell_unit_rate
+                  : lineItem.buy_unit_rate,
             total: hidePrice ? null : sellSide ? lineItem.sell_total : lineItem.buy_total,
             client_price_visible: lineItem.client_price_visible,
             billing_mode: lineItem.billing_mode,

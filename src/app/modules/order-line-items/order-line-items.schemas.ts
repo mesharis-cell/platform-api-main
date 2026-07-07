@@ -149,9 +149,7 @@ const patchLineItemVisibilitySchema = z.object({
             logistics_visible: z
                 .boolean({ message: "logistics_visible must be a boolean" })
                 .optional(),
-            client_visible: z
-                .boolean({ message: "client_visible must be a boolean" })
-                .optional(),
+            client_visible: z.boolean({ message: "client_visible must be a boolean" }).optional(),
         })
         .refine(
             (d) =>
