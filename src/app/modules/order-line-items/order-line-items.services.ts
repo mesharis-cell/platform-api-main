@@ -385,8 +385,7 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
     if (catalogSellUnitRate === null && effectiveBillingMode === "BILLABLE") {
         const marginSeed = await PricingService.resolveEntityMarginSeed({
             entity_type: purpose_type as PricedEntityType,
-            entity_id:
-                order_id || inbound_request_id || service_request_id || self_pickup_id || "",
+            entity_id: order_id || inbound_request_id || service_request_id || self_pickup_id || "",
             platform_id,
         });
         catalogSellUnitRate = applyMarginPerLine(
@@ -556,8 +555,7 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
     if (customSellUnitRate === null && effectiveBillingMode === "BILLABLE") {
         const marginSeed = await PricingService.resolveEntityMarginSeed({
             entity_type: purpose_type as PricedEntityType,
-            entity_id:
-                order_id || inbound_request_id || service_request_id || self_pickup_id || "",
+            entity_id: order_id || inbound_request_id || service_request_id || self_pickup_id || "",
             platform_id,
         });
         customSellUnitRate = applyMarginPerLine(Number(unit_rate), marginSeed).toString();
