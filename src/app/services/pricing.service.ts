@@ -1210,6 +1210,46 @@ const markEntityAsNoCost = async (params: {
     }
 };
 
+/**
+ * Effective per-line margin seed for an entity, resolved EXACTLY as
+ * rebuildBreakdown does (§2.1 stamp derivation): the stored prices.margin_percent
+ * when present, else the company default (platform_margin_percent). Used by the
+ * line-item create paths to stamp sell_unit_rate = applyMarginPerLine(unit_rate,
+ * seed) at insert time so the "always stamped" invariant holds for new BILLABLE
+ * lines (and the defensive restamp warn stays silent). 1:1 with what the next
+ * rebuild would derive, so stamping introduces no financial drift.
+ */
+const resolveEntityMarginSeed = async (params: {
+    entity_type: PricedEntityType;
+    entity_id: string;
+    platform_id: string;
+    tx?: any;
+}): Promise<number> => {
+    const executor = params.tx ?? db;
+    const context = await resolveEntityContext(
+        executor,
+        params.entity_type,
+        params.entity_id,
+        params.platform_id
+    );
+    const [pricingRow] = await executor
+        .select({ margin_percent: prices.margin_percent })
+        .from(prices)
+        .where(
+            and(
+                eq(prices.platform_id, params.platform_id),
+                eq(prices.entity_type, params.entity_type),
+                eq(prices.entity_id, params.entity_id)
+            )
+        )
+        .limit(1);
+    let marginPercent = context.company_margin;
+    if (pricingRow?.margin_percent !== undefined && pricingRow?.margin_percent !== null) {
+        marginPercent = toNum(pricingRow.margin_percent);
+    }
+    return marginPercent;
+};
+
 export const PricingService = {
     buildInitialPricing,
     rebuildBreakdown,
@@ -1222,5 +1262,6 @@ export const PricingService = {
     parseBreakdownLines,
     calculateBreakdownTotals,
     markEntityAsNoCost,
+    resolveEntityMarginSeed,
     recomputeTotalsForTieout,
 };

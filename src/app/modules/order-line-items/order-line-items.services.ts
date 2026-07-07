@@ -34,10 +34,10 @@ import {
 import { buildOrderInfoBlockById } from "../../utils/helper-query";
 import queryValidator from "../../utils/query-validator";
 import { DocumentService } from "../../services/document.service";
-import { roundCurrency } from "../../utils/pricing-engine";
+import { applyMarginPerLine, roundCurrency } from "../../utils/pricing-engine";
 import { eventBus } from "../../events/event-bus";
 import { EVENT_TYPES } from "../../events/event-types";
-import { PricingService } from "../../services/pricing.service";
+import { PricingService, type PricedEntityType } from "../../services/pricing.service";
 import { buildEntityUpdatedPayload, writeChangeHistory } from "../../utils/entity-change-history";
 
 const LINE_ITEM_ID_UNIQUE_CONSTRAINT = "line_items_platform_line_item_id_unique";
@@ -372,10 +372,28 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
 
     // Per-line sell override. NULL = fall back to margin math (seed-derived);
     // a value = fixed sell rate (stored as decimal string).
-    const catalogSellUnitRate =
+    let catalogSellUnitRate: string | null =
         data.sell_unit_rate === undefined || data.sell_unit_rate === null
             ? null
             : data.sell_unit_rate.toString();
+
+    // §2.1 "always stamped" invariant: a BILLABLE line with no caller-supplied
+    // sell (LOGISTICS can never supply one — the guard above blocks it) gets its
+    // sell_unit_rate stamped server-side from the entity's margin seed — the same
+    // derivation the next rebuild uses — so the defensive restamp warn stays
+    // silent for new lines. NON_BILLABLE/COMPLIMENTARY keep NULL (engine sell 0).
+    if (catalogSellUnitRate === null && effectiveBillingMode === "BILLABLE") {
+        const marginSeed = await PricingService.resolveEntityMarginSeed({
+            entity_type: purpose_type as PricedEntityType,
+            entity_id:
+                order_id || inbound_request_id || service_request_id || self_pickup_id || "",
+            platform_id,
+        });
+        catalogSellUnitRate = applyMarginPerLine(
+            Number(serviceType.default_rate),
+            marginSeed
+        ).toString();
+    }
 
     const result = await runWithLineItemIdRetry(async () =>
         db.transaction(async (tx) => {
@@ -526,10 +544,24 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
     // Per-line sell override at create time. Route gates custom-create to
     // ADMIN, so no role check needed. NULL = fall back to margin math; a
     // value = fixed sell rate (stored as decimal string).
-    const customSellUnitRate =
+    let customSellUnitRate: string | null =
         data.sell_unit_rate === undefined || data.sell_unit_rate === null
             ? null
             : data.sell_unit_rate.toString();
+
+    // §2.1 "always stamped" invariant: a BILLABLE line with no caller-supplied
+    // sell gets its sell_unit_rate stamped server-side from the entity's margin
+    // seed — the same derivation the next rebuild uses. NON_BILLABLE/COMPLIMENTARY
+    // keep NULL (engine renders sell 0).
+    if (customSellUnitRate === null && effectiveBillingMode === "BILLABLE") {
+        const marginSeed = await PricingService.resolveEntityMarginSeed({
+            entity_type: purpose_type as PricedEntityType,
+            entity_id:
+                order_id || inbound_request_id || service_request_id || self_pickup_id || "",
+            platform_id,
+        });
+        customSellUnitRate = applyMarginPerLine(Number(unit_rate), marginSeed).toString();
+    }
 
     const result = await runWithLineItemIdRetry(async () =>
         db.transaction(async (tx) => {
