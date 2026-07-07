@@ -10,6 +10,7 @@ import {
     wrap,
 } from "./base";
 import { orderInfoRows } from "./order-info-rows";
+import { filterClientChangeRows } from "../../constants/client-changelog-allowlist";
 
 const p = (payload: Record<string, unknown>) => payload as Record<string, any>;
 
@@ -860,22 +861,16 @@ const fmtChangeValue = (v: unknown) => {
     if (typeof v === "object") return JSON.stringify(v);
     return String(v);
 };
-// Internal references a client must never receive in a changed-fields diff —
-// mirrors CLIENT_HIDDEN_KEYS in order-info-rows.ts. job_number is an ops-side
-// reference; special_instructions can carry internal handling notes.
-const CLIENT_HIDDEN_CHANGE_FIELDS: ReadonlySet<string> = new Set([
-    "job_number",
-    "special_instructions",
-]);
 const changedFieldsRows = (d: Record<string, any>, forClient = false) => {
     const allFields: Array<{ field: string; old: unknown; new: unknown }> = Array.isArray(
         d.changed_fields
     )
         ? d.changed_fields
         : [];
-    const fields = forClient
-        ? allFields.filter((c) => !CLIENT_HIDDEN_CHANGE_FIELDS.has(c.field))
-        : allFields;
+    // CLIENT diff runs through the default-deny changelog ALLOWLIST (registry
+    // is the single source of truth — replaces the old hand-maintained
+    // denylist). The admin variant (forClient=false) stays unredacted.
+    const fields = forClient ? filterClientChangeRows(allFields) : allFields;
     if (fields.length === 0) return infoRow("Changes", "—");
     return fields
         .map((c) =>
