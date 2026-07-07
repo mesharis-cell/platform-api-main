@@ -1298,19 +1298,29 @@ const bulkMarginLineItems = async (platformId: string, data: BulkMarginPayload, 
             )
             .returning({ id: lineItems.id });
 
-        // R5 audit: one entity_change_history row for ORDER / SELF_PICKUP.
-        if (purpose_type === "ORDER" || purpose_type === "SELF_PICKUP") {
+        // R5 audit: one entity_change_history row for ORDER / SELF_PICKUP. Skip
+        // entirely when nothing was updated (zero eligible lines, or a
+        // cross-tenant entity_id whose parentCondition matched no rows) so no
+        // audit trail / event is written for a no-op. The readable-ref lookups
+        // are platform-scoped so a cross-platform entity_id can't leak the other
+        // tenant's human ref into this platform's audit row.
+        if (rows.length > 0 && (purpose_type === "ORDER" || purpose_type === "SELF_PICKUP")) {
             const [readable] =
                 purpose_type === "ORDER"
                     ? await tx
                           .select({ ref: orders.order_id })
                           .from(orders)
-                          .where(eq(orders.id, entity_id))
+                          .where(and(eq(orders.id, entity_id), eq(orders.platform_id, platformId)))
                           .limit(1)
                     : await tx
                           .select({ ref: selfPickups.self_pickup_id })
                           .from(selfPickups)
-                          .where(eq(selfPickups.id, entity_id))
+                          .where(
+                              and(
+                                  eq(selfPickups.id, entity_id),
+                                  eq(selfPickups.platform_id, platformId)
+                              )
+                          )
                           .limit(1);
             await writeChangeHistory(tx, {
                 platformId,
@@ -1333,47 +1343,52 @@ const bulkMarginLineItems = async (platformId: string, data: BulkMarginPayload, 
         return rows;
     });
 
-    // Single rebuild via the entity's post-quote revert hook — same path a
-    // single-line edit takes (rebuild + QUOTED→PENDING_APPROVAL revert + estimate
-    // regen where applicable).
-    switch (purpose_type) {
-        case "ORDER":
-            await updateOrderPricingAfterLineItemChange(entity_id, platformId, userId);
-            break;
-        case "INBOUND_REQUEST":
-            await updateInboundRequestPricingAfterLineItemChange(entity_id, platformId, userId);
-            break;
-        case "SERVICE_REQUEST":
-            await updateServiceRequestPricingAfterLineItemChange(entity_id, platformId, userId);
-            break;
-        case "SELF_PICKUP":
-            await updateSelfPickupPricingAfterLineItemChange(entity_id, platformId, userId);
-            break;
-    }
+    // Nothing repriced (zero eligible lines / cross-tenant no-op) → skip the
+    // rebuild + audit event entirely so a no-op call leaves no trace.
+    if (updated.length > 0) {
+        // Single rebuild via the entity's post-quote revert hook — same path a
+        // single-line edit takes (rebuild + QUOTED→PENDING_APPROVAL revert +
+        // estimate regen where applicable).
+        switch (purpose_type) {
+            case "ORDER":
+                await updateOrderPricingAfterLineItemChange(entity_id, platformId, userId);
+                break;
+            case "INBOUND_REQUEST":
+                await updateInboundRequestPricingAfterLineItemChange(entity_id, platformId, userId);
+                break;
+            case "SERVICE_REQUEST":
+                await updateServiceRequestPricingAfterLineItemChange(entity_id, platformId, userId);
+                break;
+            case "SELF_PICKUP":
+                await updateSelfPickupPricingAfterLineItemChange(entity_id, platformId, userId);
+                break;
+        }
 
-    // R5 audit event — the existing PRICING_RECALCULATED event, tagged with the
-    // bulk-margin action so history/audit can distinguish it from a plain reprice.
-    await eventBus.emit({
-        platform_id: platformId,
-        event_type: EVENT_TYPES.PRICING_RECALCULATED,
-        entity_type: purpose_type as
-            | "ORDER"
-            | "INBOUND_REQUEST"
-            | "SERVICE_REQUEST"
-            | "SELF_PICKUP",
-        entity_id,
-        actor_id: userId,
-        actor_role: "ADMIN",
-        payload: {
-            entity_id_readable: entity_id,
-            company_id: "",
-            company_name: "",
-            action: "bulk_margin",
-            percent: margin_percent,
-            reason: reason || null,
-            updated_count: updated.length,
-        },
-    });
+        // R5 audit event — the existing PRICING_RECALCULATED event, tagged with
+        // the bulk-margin action so history/audit can distinguish it from a plain
+        // reprice.
+        await eventBus.emit({
+            platform_id: platformId,
+            event_type: EVENT_TYPES.PRICING_RECALCULATED,
+            entity_type: purpose_type as
+                | "ORDER"
+                | "INBOUND_REQUEST"
+                | "SERVICE_REQUEST"
+                | "SELF_PICKUP",
+            entity_id,
+            actor_id: userId,
+            actor_role: "ADMIN",
+            payload: {
+                entity_id_readable: entity_id,
+                company_id: "",
+                company_name: "",
+                action: "bulk_margin",
+                percent: margin_percent,
+                reason: reason || null,
+                updated_count: updated.length,
+            },
+        });
+    }
 
     return {
         purpose_type,
