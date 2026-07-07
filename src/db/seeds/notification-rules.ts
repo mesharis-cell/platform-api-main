@@ -25,6 +25,12 @@ type NotificationRuleDef = {
     template_key: string;
     sort_order: number;
     conditions?: Array<Record<string, unknown>>;
+    // Owner feedback 2026-07-07 (item 15): the edit-notification rules
+    // (order.updated / self_pickup.updated) ship DISABLED — edit-emails are
+    // silent by default; the dashboard can re-enable per platform/company.
+    // Defaults to enabled when omitted (every other rule). Migration 0074
+    // flips the same rows on already-seeded platforms.
+    is_enabled?: boolean;
 };
 
 export const PLATFORM_DEFAULT_NOTIFICATION_RULES: NotificationRuleDef[] = [
@@ -90,6 +96,7 @@ export const PLATFORM_DEFAULT_NOTIFICATION_RULES: NotificationRuleDef[] = [
         template_key: "order_updated_admin",
         sort_order: 0,
         conditions: [{ field: "status_reverted", operator: "equals", value: "true" }],
+        is_enabled: false, // item 15 — edit-emails default OFF
     },
     {
         event_type: "order.updated",
@@ -98,6 +105,7 @@ export const PLATFORM_DEFAULT_NOTIFICATION_RULES: NotificationRuleDef[] = [
         template_key: "order_updated_admin",
         sort_order: 1,
         conditions: [{ field: "status_reverted", operator: "equals", value: "true" }],
+        is_enabled: false, // item 15 — edit-emails default OFF
     },
 
     // quote.sent / quote.revised / quote.approved / quote.declined
@@ -574,6 +582,7 @@ export const PLATFORM_DEFAULT_NOTIFICATION_RULES: NotificationRuleDef[] = [
         template_key: "self_pickup_updated_admin",
         sort_order: 0,
         conditions: [{ field: "status_reverted", operator: "equals", value: "true" }],
+        is_enabled: false, // item 15 — edit-emails default OFF
     },
     {
         event_type: "self_pickup.updated",
@@ -582,6 +591,7 @@ export const PLATFORM_DEFAULT_NOTIFICATION_RULES: NotificationRuleDef[] = [
         template_key: "self_pickup_updated_admin",
         sort_order: 1,
         conditions: [{ field: "status_reverted", operator: "equals", value: "true" }],
+        is_enabled: false, // item 15 — edit-emails default OFF
     },
 
     // auth + line_item_request
@@ -609,8 +619,9 @@ export const seedNotificationRules = async (opts: SeedNotificationRulesOpts) => 
     const rows = PLATFORM_DEFAULT_NOTIFICATION_RULES.map((r) => ({
         platform_id: opts.platformId,
         company_id: null,
-        is_enabled: true,
         ...r,
+        // Edit-notification rules default OFF (item 15); everything else ON.
+        is_enabled: r.is_enabled ?? true,
         conditions: r.conditions ?? [],
     }));
     return db.insert(schema.notificationRules).values(rows).returning();

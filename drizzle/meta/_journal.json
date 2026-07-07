@@ -512,6 +512,13 @@
             "when": 1781583198000,
             "tag": "0073_drop_retired_pricing_columns",
             "breakpoints": true
+        },
+        {
+            "idx": 73,
+            "version": "7",
+            "when": 1781583199000,
+            "tag": "0074_client_visible_and_notify_defaults",
+            "breakpoints": true
         }
     ]
 }

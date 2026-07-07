@@ -1437,6 +1437,14 @@ export const lineItems = pgTable(
         // client_price_visible). ADMIN always sees it.
         logistics_visible: boolean("logistics_visible").notNull().default(true),
 
+        // Per-line CLIENT audience flag (owner feedback 2026-07-07). When false,
+        // the whole line is stripped from CLIENT projections entirely (display
+        // rows AND totals — symmetric with logistics_visible). Distinct from
+        // client_price_visible, which only hides the per-line PRICE while the
+        // line itself still renders. NON_BILLABLE lines are forced never-client
+        // regardless of this flag (projection rule). ADMIN always sees it.
+        client_visible: boolean("client_visible").notNull().default(true),
+
         // Voiding (for cancellations, reskin cancellations)
         is_voided: boolean("is_voided").notNull().default(false),
         voided_at: timestamp("voided_at"),
