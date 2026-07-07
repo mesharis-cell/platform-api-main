@@ -64,6 +64,11 @@ type BreakdownLine = {
     // re-querying. (The per-line apply_margin policy field was retired in the
     // pricing-ledger rewrite — sell is driven solely by sell_unit_rate.)
     logistics_visible: boolean;
+    // Per-line CLIENT audience flag. When false, the whole line is stripped from
+    // CLIENT projections (display rows AND totals — symmetric with
+    // logistics_visible). Distinct from client_price_visible, which hides only
+    // the per-line price. ADMIN always sees it; LOGISTICS is unaffected.
+    client_visible: boolean;
     // Per-line sell override marker. When non-null, the line's sell_total was
     // set directly from this per-unit rate (margin math skipped). null means
     // the sell price was derived normally (buy × margin or buy passthrough).
@@ -203,6 +208,10 @@ const toBreakdownLine = (line: unknown): BreakdownLine | null => {
         void_reason: row.void_reason ? String(row.void_reason) : null,
         client_price_visible: !!row.client_price_visible,
         logistics_visible: row.logistics_visible === false ? false : true,
+        // Old snapshots pre-dating client_visible read back as absent → default
+        // to client-visible (the column default), so historical breakdown_lines
+        // never spuriously hide a line from the client.
+        client_visible: row.client_visible === false ? false : true,
         // Old snapshots pre-dating the override field read back as null; new
         // snapshots round-trip the stored override value.
         sell_unit_rate_override:
@@ -218,8 +227,15 @@ const parseBreakdownLines = (lines: unknown): BreakdownLine[] => {
 const shouldCountInTotals = (line: BreakdownLine) =>
     !line.is_voided && line.billing_mode === "BILLABLE";
 
+// CLIENT audience rules (owner feedback 2026-07-07, items 2/3/13/14). A line is
+// hidden from the CLIENT entirely (display + totals) when EITHER:
+//   - billing_mode === NON_BILLABLE  → forced internal cost, never client-facing
+//     (no toggle — any kind, superseding the old CUSTOM-only rule); OR
+//   - client_visible === false       → the whole-line CLIENT eye is off.
+// Voided lines are filtered separately (never render). COMPLIMENTARY lines are
+// NOT hidden — they render with "Complimentary" in the price position.
 const shouldHideLineForClient = (line: BreakdownLine) =>
-    line.line_kind === "CUSTOM" && line.billing_mode === "NON_BILLABLE";
+    line.billing_mode === "NON_BILLABLE" || line.client_visible === false;
 
 const calculateBreakdownTotals = (lines: BreakdownLine[], vatPercent = 0): BreakdownTotals => {
     const totals: BreakdownTotals = {
@@ -313,6 +329,7 @@ const loadEntityLineItems = async (
             service_type_rate: serviceTypes.default_rate,
             client_price_visible: lineItems.client_price_visible,
             logistics_visible: lineItems.logistics_visible,
+            client_visible: lineItems.client_visible,
         })
         .from(lineItems)
         .leftJoin(serviceTypes, eq(lineItems.service_type_id, serviceTypes.id))
@@ -452,6 +469,7 @@ const buildBreakdownLinesFromLineItems = (
             void_reason: item.void_reason ? String(item.void_reason) : null,
             client_price_visible: !!item.client_price_visible,
             logistics_visible: item.logistics_visible === false ? false : true,
+            client_visible: item.client_visible === false ? false : true,
             sell_unit_rate_override: rawSellUnitRate,
         };
 
@@ -976,42 +994,62 @@ const projectByRole = (pricing: RawPricingRecord | null | undefined, role: Prici
         };
     }
 
-    // Exclude voided lines from the client display. calculateBreakdownTotals
-    // already drops them from the totals (shouldCountInTotals), so without
-    // this filter the client sees a voided line that the total doesn't
-    // account for — the list stops reconciling with the final total.
-    const clientLines = lines
-        .filter((line) => !line.is_voided && !shouldHideLineForClient(line))
-        .map((line) => ({
-            line_id: line.line_id,
-            line_kind: line.line_kind,
-            category: line.category,
-            label: line.label,
-            quantity: line.quantity,
-            unit: line.unit,
-            billing_mode: line.billing_mode,
-            unit_price: line.client_price_visible ? line.sell_unit_price : null,
-            total: line.client_price_visible ? line.sell_total : null,
-            client_price_visible: line.client_price_visible,
-        }));
+    // Build the CLIENT-visible line set FIRST, then compute totals over exactly
+    // that set — symmetric with the LOGISTICS branch above. Dropping voided +
+    // NON_BILLABLE + client_visible=false lines from BOTH the display AND the
+    // totals keeps the shown lines reconciling with the shown total (a
+    // client_visible=false billable line is neither displayed nor charged; a
+    // voided line the total doesn't account for never appears). COMPLIMENTARY
+    // lines survive: they render with billing_mode=COMPLIMENTARY so the client
+    // sees "Complimentary" in the price position, and contribute 0 to totals.
+    const clientVisibleLines = lines.filter(
+        (line) => !line.is_voided && !shouldHideLineForClient(line)
+    );
+    const clientTotals = calculateBreakdownTotals(clientVisibleLines, vatPercent);
+    const clientLines = clientVisibleLines.map((line) => ({
+        line_id: line.line_id,
+        line_kind: line.line_kind,
+        category: line.category,
+        label: line.label,
+        quantity: line.quantity,
+        unit: line.unit,
+        billing_mode: line.billing_mode,
+        // COMPLIMENTARY lines are never charged; surface the flag so the client
+        // UI/PDF/email render "Complimentary" instead of a price. Otherwise the
+        // per-line price is gated by client_price_visible (default hidden).
+        is_complimentary: line.billing_mode === "COMPLIMENTARY",
+        unit_price:
+            line.billing_mode === "COMPLIMENTARY"
+                ? null
+                : line.client_price_visible
+                  ? line.sell_unit_price
+                  : null,
+        total:
+            line.billing_mode === "COMPLIMENTARY"
+                ? null
+                : line.client_price_visible
+                  ? line.sell_total
+                  : null,
+        client_price_visible: line.client_price_visible,
+    }));
     return {
         breakdown_lines: clientLines,
         lines: clientLines,
         totals: {
-            system_total: totals.sell_system_total,
-            rate_card_total: totals.sell_rate_card_total,
-            custom_total: totals.sell_custom_total,
-            subtotal: totals.sell_total,
-            vat_percent: totals.sell_vat_percent,
-            vat_amount: totals.sell_vat_amount,
-            total: totals.sell_total_with_vat,
+            system_total: clientTotals.sell_system_total,
+            rate_card_total: clientTotals.sell_rate_card_total,
+            custom_total: clientTotals.sell_custom_total,
+            subtotal: clientTotals.sell_total,
+            vat_percent: clientTotals.sell_vat_percent,
+            vat_amount: clientTotals.sell_vat_amount,
+            total: clientTotals.sell_total_with_vat,
         },
-        subtotal: totals.sell_total.toFixed(2),
+        subtotal: clientTotals.sell_total.toFixed(2),
         vat: {
-            percent: totals.sell_vat_percent,
-            amount: totals.sell_vat_amount,
+            percent: clientTotals.sell_vat_percent,
+            amount: clientTotals.sell_vat_amount,
         },
-        final_total: totals.sell_total_with_vat.toFixed(2),
+        final_total: clientTotals.sell_total_with_vat.toFixed(2),
     };
 };
 
@@ -1028,11 +1066,19 @@ const projectSummaryForRole = (pricing: RawPricingRecord | null | undefined, rol
         };
     }
     if (role === "CLIENT") {
+        // Compute the CLIENT summary over the client-visible set so it matches
+        // the detailed CLIENT projection (drops NON_BILLABLE + client_visible=
+        // false + voided). Otherwise a hidden billable line would inflate the
+        // summary total above what the client's line list sums to.
+        const clientTotals = calculateBreakdownTotals(
+            lines.filter((line) => !line.is_voided && !shouldHideLineForClient(line)),
+            vatPercent
+        );
         return {
-            subtotal: totals.sell_total.toFixed(2),
-            vat_percent: totals.sell_vat_percent,
-            vat_amount: totals.sell_vat_amount.toFixed(2),
-            final_total: totals.sell_total_with_vat.toFixed(2),
+            subtotal: clientTotals.sell_total.toFixed(2),
+            vat_percent: clientTotals.sell_vat_percent,
+            vat_amount: clientTotals.sell_vat_amount.toFixed(2),
+            final_total: clientTotals.sell_total_with_vat.toFixed(2),
         };
     }
     return {

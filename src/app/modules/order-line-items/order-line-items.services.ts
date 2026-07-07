@@ -12,6 +12,7 @@ import {
     selfPickups,
     serviceRequests,
     serviceTypes,
+    users,
 } from "../../../db/schema";
 import CustomizedError from "../../error/customized-error";
 import {
@@ -266,6 +267,18 @@ const getLineItems = async (
         .from(lineItems)
         .where(and(...conditions));
 
+    // Resolve the line creator's display name (owner feedback 2026-07-07 item 9)
+    // so the admin ledger expand row shows a name instead of a raw added_by id.
+    // One batched lookup over the distinct creators on this entity's lines.
+    const creatorIds = [...new Set(results.map((r) => r.added_by).filter(Boolean))] as string[];
+    const creatorRows = creatorIds.length
+        ? await db
+              .select({ id: users.id, name: users.name })
+              .from(users)
+              .where(inArray(users.id, creatorIds))
+        : [];
+    const creatorNameById = new Map(creatorRows.map((u) => [u.id, u.name]));
+
     const formattedResults = await Promise.all(
         results.map(async (item) => ({
             ...item,
@@ -273,6 +286,7 @@ const getLineItems = async (
             unit_rate: item.unit_rate ? parseFloat(item.unit_rate) : null,
             sell_unit_rate: item.sell_unit_rate != null ? parseFloat(item.sell_unit_rate) : null,
             total: parseFloat(item.total),
+            added_by_name: item.added_by ? (creatorNameById.get(item.added_by) ?? null) : null,
             ...(await getLineItemEditability(item, platformId)),
         }))
     );
@@ -422,6 +436,7 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
                     metadata: effectiveMetadata,
                     client_price_visible: data.client_price_visible ?? false,
                     logistics_visible: data.logistics_visible ?? true,
+                    client_visible: data.client_visible ?? true,
                 })
                 .returning();
             return inserted;
@@ -589,6 +604,7 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
                     metadata: parsedMetadata,
                     client_price_visible: data.client_price_visible ?? false,
                     logistics_visible: data.logistics_visible ?? true,
+                    client_visible: data.client_visible ?? true,
                 })
                 .returning();
             return inserted;
@@ -726,7 +742,10 @@ const updateLineItem = async (
             );
         }
     }
-    if (userRole === "LOGISTICS" && data.logistics_visible !== undefined) {
+    if (
+        userRole === "LOGISTICS" &&
+        (data.logistics_visible !== undefined || data.client_visible !== undefined)
+    ) {
         throw new CustomizedError(
             httpStatus.FORBIDDEN,
             "Only Platform Admin can change visibility"
@@ -742,6 +761,9 @@ const updateLineItem = async (
         }),
         ...(data.logistics_visible !== undefined && {
             logistics_visible: data.logistics_visible,
+        }),
+        ...(data.client_visible !== undefined && {
+            client_visible: data.client_visible,
         }),
         // Per-line sell override. ABSENT = no change. Explicit null = clear the
         // override so pricing falls back to margin math. A value = fixed sell
@@ -795,7 +817,9 @@ const updateLineItem = async (
     // sees per line. Both need the breakdown_lines JSONB refreshed so downstream
     // readers see the new state.
     const visibilityOrPolicyChanged =
-        data.logistics_visible !== undefined || data.client_price_visible !== undefined;
+        data.logistics_visible !== undefined ||
+        data.client_price_visible !== undefined ||
+        data.client_visible !== undefined;
     const shouldTriggerRebuild = pricingFieldRequested || visibilityOrPolicyChanged;
 
     if (shouldTriggerRebuild) {
@@ -971,6 +995,9 @@ const patchLineItemVisibility = async (
             ...(data.logistics_visible !== undefined && {
                 logistics_visible: data.logistics_visible,
             }),
+            ...(data.client_visible !== undefined && {
+                client_visible: data.client_visible,
+            }),
             updated_at: new Date(),
         })
         .where(eq(lineItems.id, id))
@@ -1028,6 +1055,7 @@ const patchLineItemVisibility = async (
         line_item_id: result.line_item_id,
         client_price_visible: result.client_price_visible,
         logistics_visible: result.logistics_visible,
+        client_visible: result.client_visible,
     };
 };
 
@@ -1082,6 +1110,9 @@ const patchEntityLineItemsVisibility = async (
             ...(data.logistics_visible !== undefined && {
                 logistics_visible: data.logistics_visible,
             }),
+            ...(data.client_visible !== undefined && {
+                client_visible: data.client_visible,
+            }),
             updated_at: new Date(),
         })
         .where(and(...conditions))
@@ -1128,6 +1159,7 @@ const patchEntityLineItemsVisibility = async (
         target_id: targetId,
         client_price_visible: data.client_price_visible,
         logistics_visible: data.logistics_visible,
+        client_visible: data.client_visible,
         updated_count: updated.length,
     };
 };

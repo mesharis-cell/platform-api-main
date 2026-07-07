@@ -269,8 +269,15 @@ export async function renderCostEstimatePDF(
             } else {
                 lineRows.forEach((line, index) => {
                     const label = `${index + 1}. ${line.description}`;
+                    // COMPLIMENTARY lines show the word "Complimentary" in the
+                    // price position (never charged); otherwise a hidden price
+                    // (total null) renders blank and a visible price formats.
                     const amountLabel =
-                        line.total === null ? "" : formatCurrency(String(line.total));
+                        line.billing_mode === "COMPLIMENTARY"
+                            ? "Complimentary"
+                            : line.total === null
+                              ? ""
+                              : formatCurrency(String(line.total));
                     const lineY = doc.y;
 
                     doc.fontSize(9)
