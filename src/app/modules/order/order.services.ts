@@ -96,7 +96,7 @@ import {
 } from "../../utils/entity-change-history";
 import { filterClientChangeRows } from "../../constants/client-changelog-allowlist";
 import { featureNames, uuidRegex } from "../../constants/common";
-import config from "../../config";
+import { buildCostEstimateDownloadUrl } from "../invoice/cost-estimate-link";
 import { formatDateForEmail } from "../../utils/date-time";
 import { DocumentService } from "../../services/document.service";
 import { GoodsFormType, generateGoodsFormXlsx } from "../../utils/goods-form-xlsx";
@@ -3448,7 +3448,12 @@ const adminApproveQuote = async (
             pricing: {
                 final_total: projectedClientPricing?.final_total ?? finalTotal,
             },
-            cost_estimate_url: `${config.server_url}/api/client/v1/invoice/download-cost-estimate-pdf/${order.order_id}?pid=${platformId}`,
+            // Signed-token public download (cost-estimate-link.ts). Replaces the old
+            // `${server_url}/api/client/v1/...?pid=` link which 404'd ("API Not found!"):
+            // the router mounts at "/" not "/api", and a cold mailbox click carries no
+            // x-platform header / auth token, so the direct authed route could never
+            // serve it. The token carries the entity + platform and self-authorizes.
+            cost_estimate_url: buildCostEstimateDownloadUrl("ORDER", order.order_id, platformId),
             order_url: "",
         },
     });

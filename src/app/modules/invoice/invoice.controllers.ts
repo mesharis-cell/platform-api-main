@@ -7,6 +7,7 @@ import { and, eq } from "drizzle-orm";
 import CustomizedError from "../../error/customized-error";
 import { getRequiredString } from "../../utils/request";
 import { DocumentService } from "../../services/document.service";
+import { verifyCostEstimateToken } from "./cost-estimate-link";
 
 const resolvePlatformId = (req: any) =>
     getRequiredString(
@@ -231,6 +232,76 @@ const downloadServiceRequestCostEstimatePDF = catchAsync(async (req, res) => {
     res.status(httpStatus.OK).send(buffer);
 });
 
+// ----------------------------------- DOWNLOAD COST ESTIMATE PDF (PUBLIC, TOKEN) -------------
+// Serves the emailed "Download Cost Estimate PDF" link. PUBLIC by design — mounted
+// without platformValidator / auth / requirePermission (see invoice.routes.ts) —
+// because it is clicked cold from a mailbox with no session/header. Authorization is
+// the signed, scoped, 30-day token (cost-estimate-link.ts): only the recipient holds
+// it, and it resolves the exact entity + platform. Streams the same client-facing PDF
+// as the in-app authed routes, applying the same freshness gates for orders.
+const sendPdfBuffer = (res: any, buffer: Buffer, fileName: string) => {
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    res.setHeader("Content-Length", buffer.length);
+    res.status(httpStatus.OK).send(buffer);
+};
+
+const downloadCostEstimateByToken = catchAsync(async (req, res) => {
+    const token = getRequiredString(req.query.token as string | string[] | undefined, "token");
+    const payload = verifyCostEstimateToken(token);
+
+    if (payload.purpose === "ORDER") {
+        const order = await db.query.orders.findFirst({
+            where: and(
+                eq(orders.order_id, payload.entity_id),
+                eq(orders.platform_id, payload.platform_id)
+            ),
+            with: { company: true },
+        });
+        if (!order) {
+            throw new CustomizedError(httpStatus.NOT_FOUND, "Order not found");
+        }
+        // Same gates as the authed order route: never serve a stale (being-revised)
+        // or no-cost estimate.
+        if (order.financial_status === "QUOTE_REVISED") {
+            throw new CustomizedError(
+                httpStatus.CONFLICT,
+                "This quote is being revised — a new estimate will be available once it is re-approved.",
+                { code: "QUOTE_REVISED" }
+            );
+        }
+        if (order.pricing_mode === "NO_COST") {
+            throw new CustomizedError(
+                httpStatus.CONFLICT,
+                "This order was approved at no cost — there is no cost estimate to download.",
+                { code: "NO_COST" }
+            );
+        }
+        const company = order.company as typeof companies.$inferSelect | null;
+        const companySlug = (company?.name || "unknown-company").replace(/\s/g, "-").toLowerCase();
+        const s3Key = `cost-estimates/${companySlug}/${order.order_id}.pdf`;
+        const buffer = await getPDFBufferFromS3(s3Key);
+        return sendPdfBuffer(res, buffer, `cost-estimate-${order.order_id}.pdf`);
+    }
+
+    // INBOUND_REQUEST
+    const request = await db.query.inboundRequests.findFirst({
+        where: and(
+            eq(inboundRequests.inbound_request_id, payload.entity_id),
+            eq(inboundRequests.platform_id, payload.platform_id)
+        ),
+        with: { company: true },
+    });
+    if (!request) {
+        throw new CustomizedError(httpStatus.NOT_FOUND, "Inbound request not found");
+    }
+    const company = request.company as typeof companies.$inferSelect | null;
+    const companySlug = (company?.name || "unknown-company").replace(/\s/g, "-").toLowerCase();
+    const s3Key = `cost-estimates/inbound-request/${companySlug}/${request.inbound_request_id}.pdf`;
+    const buffer = await getPDFBufferFromS3(s3Key);
+    return sendPdfBuffer(res, buffer, `cost-estimate-${request.inbound_request_id}.pdf`);
+});
+
 export const InvoiceControllers = {
     getInvoiceById,
     downloadInvoice,
@@ -241,4 +312,5 @@ export const InvoiceControllers = {
     downloadCostEstimatePDF,
     downloadIRCostEstimatePDF,
     downloadServiceRequestCostEstimatePDF,
+    downloadCostEstimateByToken,
 };

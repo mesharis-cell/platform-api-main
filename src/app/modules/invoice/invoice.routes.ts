@@ -64,6 +64,13 @@ router.patch(
     InvoiceControllers.confirmPayment
 );
 
+// PUBLIC cost-estimate download for emailed links (token-authorized).
+// Deliberately NO platformValidator / auth / requirePermission: the link is clicked
+// cold from a mailbox (no session/header). The signed, scoped, expiring token IS the
+// authorization (see cost-estimate-link.ts + downloadCostEstimateByToken). Distinct
+// two-segment path — no collision with the `/:invoiceId` single-segment route.
+router.get("/cost-estimate/download", InvoiceControllers.downloadCostEstimateByToken);
+
 // Download cost estimate PDF (direct download)
 router.get(
     "/download-cost-estimate-pdf/:orderId",
