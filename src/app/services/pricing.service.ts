@@ -999,18 +999,21 @@ const projectByRole = (pricing: RawPricingRecord | null | undefined, role: Prici
         };
     }
 
-    // Build the CLIENT-visible line set FIRST, then compute totals over exactly
-    // that set — symmetric with the LOGISTICS branch above. Dropping voided +
-    // NON_BILLABLE + client_visible=false lines from BOTH the display AND the
-    // totals keeps the shown lines reconciling with the shown total (a
-    // client_visible=false billable line is neither displayed nor charged; a
-    // voided line the total doesn't account for never appears). COMPLIMENTARY
-    // lines survive: they render with billing_mode=COMPLIMENTARY so the client
-    // sees "Complimentary" in the price position, and contribute 0 to totals.
+    // OPTION A (owner decision 2026-07-08): client_visible is a DISPLAY-ONLY
+    // toggle — a hidden BILLABLE line STAYS IN THE CLIENT TOTAL (it's charged,
+    // just not itemised to the client). So the client totals are the FULL-line-
+    // set totals (identical to `totals` above): calculateBreakdownTotals's
+    // internal billable/voided gate (shouldCountInTotals) is the ONLY totals
+    // filter, and NON_BILLABLE + COMPLIMENTARY + voided lines already contribute
+    // 0 there. The DISPLAY list (clientLines) still drops voided +
+    // shouldHideLineForClient lines — client_visible governs what's SHOWN, not
+    // what's summed. COMPLIMENTARY lines survive display with
+    // billing_mode=COMPLIMENTARY (client sees "Complimentary" in the price
+    // position; they contribute 0 to the total).
+    const clientTotals = totals;
     const clientVisibleLines = lines.filter(
         (line) => !line.is_voided && !shouldHideLineForClient(line)
     );
-    const clientTotals = calculateBreakdownTotals(clientVisibleLines, vatPercent);
     const clientLines = clientVisibleLines.map((line) => ({
         line_id: line.line_id,
         line_kind: line.line_kind,
@@ -1071,19 +1074,17 @@ const projectSummaryForRole = (pricing: RawPricingRecord | null | undefined, rol
         };
     }
     if (role === "CLIENT") {
-        // Compute the CLIENT summary over the client-visible set so it matches
-        // the detailed CLIENT projection (drops NON_BILLABLE + client_visible=
-        // false + voided). Otherwise a hidden billable line would inflate the
-        // summary total above what the client's line list sums to.
-        const clientTotals = calculateBreakdownTotals(
-            lines.filter((line) => !line.is_voided && !shouldHideLineForClient(line)),
-            vatPercent
-        );
+        // OPTION A (owner 2026-07-08): client_visible is DISPLAY-ONLY, so a
+        // hidden billable line stays in the client total. The CLIENT summary is
+        // therefore the FULL-line-set total (identical to `totals` above); the
+        // only totals gate is shouldCountInTotals inside calculateBreakdownTotals
+        // (NON_BILLABLE/COMPLIMENTARY/voided contribute 0). Only sell-side fields
+        // are surfaced to the client.
         return {
-            subtotal: clientTotals.sell_total.toFixed(2),
-            vat_percent: clientTotals.sell_vat_percent,
-            vat_amount: clientTotals.sell_vat_amount.toFixed(2),
-            final_total: clientTotals.sell_total_with_vat.toFixed(2),
+            subtotal: totals.sell_total.toFixed(2),
+            vat_percent: totals.sell_vat_percent,
+            vat_amount: totals.sell_vat_amount.toFixed(2),
+            final_total: totals.sell_total_with_vat.toFixed(2),
         };
     }
     return {
