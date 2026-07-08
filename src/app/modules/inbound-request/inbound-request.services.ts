@@ -41,7 +41,7 @@ import {
     inboundRequestSortableFields,
 } from "./inbound-request.utils";
 import { DocumentService } from "../../services/document.service";
-import config from "../../config";
+import { buildCostEstimateDownloadUrl } from "../invoice/cost-estimate-link";
 import { eventBus, EVENT_TYPES } from "../../events";
 import { PricingService } from "../../services/pricing.service";
 
@@ -704,7 +704,14 @@ const approveInboundRequestByAdmin = async (
             company_name: company?.name || "N/A",
             contact_name: requester.name,
             final_total: String(finalTotal),
-            cost_estimate_url: `${config.server_url}/api/client/v1/invoice/download-ir-cost-estimate-pdf/${inboundRequest.inbound_request_id}?pid=${platformId}`,
+            // Signed-token public download (cost-estimate-link.ts) — see the ORDER
+            // builder in order.services.ts for why the old `/api/...?pid=` direct link
+            // 404'd on a cold mailbox click.
+            cost_estimate_url: buildCostEstimateDownloadUrl(
+                "INBOUND_REQUEST",
+                inboundRequest.inbound_request_id,
+                platformId
+            ),
             request_url: "",
         },
     });

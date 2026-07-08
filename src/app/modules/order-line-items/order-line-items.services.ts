@@ -5,6 +5,7 @@ import {
     companies,
     financialStatusHistory,
     inboundRequests,
+    lineItemRequests,
     lineItems,
     orders,
     orderStatusHistory,
@@ -267,6 +268,35 @@ const getLineItems = async (
         .from(lineItems)
         .where(and(...conditions));
 
+    // Provenance: which of these lines were created from an APPROVED logistics
+    // line-item request (R3). The link lives on line_item_requests.approved_line_item_id
+    // (set at approval — line-item-requests.services.ts). One batched reverse
+    // lookup keyed by this entity's line ids. Surfaced as `lir_origin` (boolean)
+    // + `line_item_request_id` (the readable LIR id) so the warehouse ledger can
+    // render the unit_rate cell read-only for logistics (the server also hard-
+    // blocks a logistics unit_rate change in updateLineItem).
+    const resultLineIds = results.map((r) => r.id);
+    const lirOriginRows = resultLineIds.length
+        ? await db
+              .select({
+                  approved_line_item_id: lineItemRequests.approved_line_item_id,
+                  line_item_request_id: lineItemRequests.line_item_request_id,
+              })
+              .from(lineItemRequests)
+              .where(
+                  and(
+                      eq(lineItemRequests.platform_id, platformId),
+                      eq(lineItemRequests.status, "APPROVED"),
+                      inArray(lineItemRequests.approved_line_item_id, resultLineIds)
+                  )
+              )
+        : [];
+    const lirReadableByLineId = new Map(
+        lirOriginRows
+            .filter((r) => r.approved_line_item_id)
+            .map((r) => [r.approved_line_item_id as string, r.line_item_request_id])
+    );
+
     // Resolve the line creator's display name (owner feedback 2026-07-07 item 9)
     // so the admin ledger expand row shows a name instead of a raw added_by id.
     // One batched lookup over the distinct creators on this entity's lines.
@@ -287,6 +317,9 @@ const getLineItems = async (
             sell_unit_rate: item.sell_unit_rate != null ? parseFloat(item.sell_unit_rate) : null,
             total: parseFloat(item.total),
             added_by_name: item.added_by ? (creatorNameById.get(item.added_by) ?? null) : null,
+            // R3 provenance flags (survive the LOGISTICS projection below).
+            lir_origin: lirReadableByLineId.has(item.id),
+            line_item_request_id: lirReadableByLineId.get(item.id) ?? null,
             ...(await getLineItemEditability(item, platformId)),
         }))
     );
@@ -727,6 +760,34 @@ const updateLineItem = async (
             httpStatus.FORBIDDEN,
             "Only Platform Admin can set a sell price override"
         );
+    }
+    // R3: a line created from an APPROVED logistics line-item request has its
+    // unit_rate FROZEN for LOGISTICS — the rate was fixed by admin at approval.
+    // Logistics may still edit quantity / notes; only the rate is locked. ADMIN
+    // is unaffected. Fire the reverse-lookup only when logistics actually attempts
+    // to CHANGE the rate (an idempotent resubmit of the same value is allowed).
+    if (
+        userRole === "LOGISTICS" &&
+        data.unit_rate !== undefined &&
+        Number(data.unit_rate) !== Number(existing.unit_rate ?? 0)
+    ) {
+        const [lirOrigin] = await db
+            .select({ readable: lineItemRequests.line_item_request_id })
+            .from(lineItemRequests)
+            .where(
+                and(
+                    eq(lineItemRequests.approved_line_item_id, id),
+                    eq(lineItemRequests.platform_id, platformId),
+                    eq(lineItemRequests.status, "APPROVED")
+                )
+            )
+            .limit(1);
+        if (lirOrigin) {
+            throw new CustomizedError(
+                httpStatus.FORBIDDEN,
+                `The unit rate on this line was set when line-item request ${lirOrigin.readable} was approved and can no longer be changed by logistics. Ask a Platform Admin to adjust it.`
+            );
+        }
     }
     // A per-line sell override only applies to BILLABLE lines — on NON_BILLABLE /
     // COMPLIMENTARY lines the projection excludes the line's sell from totals, so an

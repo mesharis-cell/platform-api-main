@@ -112,13 +112,29 @@ export const projectLineItemsForClient = (items: Array<Record<string, any>>) =>
 // + total (that IS the warehouse cost it operates on) but must NEVER see the
 // ADMIN-only SELL override. sell_unit_rate is the only sell/margin field on a
 // raw line_items row (apply_margin + the prices-level margin-override columns
-// were retired in migration 0073), so a targeted denylist strip is sufficient
-// and keeps every buy/display/logistics field the warehouse app needs. Apply
-// this to any LOGISTICS-facing response that embeds the raw line_items array
-// (order/inbound detail) or returns rows from getLineItems.
+// were retired in migration 0073).
+//
+// R6+R13 (owner feedback 2026-07-08): logistics must ALSO never see billing-mode
+// concepts — a complimentary / non-billable line renders to the warehouse as a
+// normal paid line. Strip `billing_mode` (and the derived `is_complimentary`, if
+// a caller ever attaches it) alongside the sell override. This is the server-side
+// half of defence-in-depth; the warehouse UI drops the tokens/badges separately.
+//
+// Denylist (not allowlist) so every other buy/display/logistics field the
+// warehouse app needs — including the R3 `lir_origin` / `line_item_request_id`
+// provenance flags — passes through untouched. Apply this to any LOGISTICS-facing
+// response that embeds the raw line_items array (order/inbound detail) or returns
+// rows from getLineItems.
 export const projectLineItemForLogistics = <T extends Record<string, any>>(item: T) => {
-    const { sell_unit_rate: _sellUnitRate, ...rest } = item;
+    const {
+        sell_unit_rate: _sellUnitRate,
+        billing_mode: _billingMode,
+        is_complimentary: _isComplimentary,
+        ...rest
+    } = item;
     void _sellUnitRate;
+    void _billingMode;
+    void _isComplimentary;
     return rest;
 };
 
