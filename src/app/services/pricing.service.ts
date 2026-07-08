@@ -961,6 +961,12 @@ const projectByRole = (pricing: RawPricingRecord | null | undefined, role: Prici
             (line) => line.logistics_visible !== false && !line.is_voided
         );
         const logisticsTotals = calculateBreakdownTotals(visibleLines, vatPercent);
+        // R6+R13 (owner feedback 2026-07-08): logistics never sees billing-mode
+        // concepts — a comp / non-billable line reads as a normal paid line here.
+        // billing_mode is deliberately NOT projected onto the logistics breakdown
+        // lines (it played no part in the filter/total math above — those key off
+        // logistics_visible + is_voided). Mirrors the raw-array strip in
+        // projectLineItemForLogistics.
         const logisticsLines = visibleLines.map((line) => ({
             line_id: line.line_id,
             line_kind: line.line_kind,
@@ -970,7 +976,6 @@ const projectByRole = (pricing: RawPricingRecord | null | undefined, role: Prici
             unit: line.unit,
             unit_price: line.buy_unit_price,
             total: line.buy_total,
-            billing_mode: line.billing_mode,
             is_voided: line.is_voided,
             notes: line.notes,
         }));
