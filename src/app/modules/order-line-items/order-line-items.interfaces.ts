@@ -30,6 +30,7 @@ export type PatchEntityLineItemsVisibilityPayload = z.infer<
 
 export type VoidLineItemPayload = z.infer<typeof LineItemsSchemas.voidLineItemSchema>["body"] & {
     voided_by: string;
+    voided_by_role: "ADMIN" | "LOGISTICS";
 };
 
 export type BulkMarginPayload = z.infer<typeof LineItemsSchemas.bulkMarginSchema>["body"];

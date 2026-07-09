@@ -159,6 +159,7 @@ const voidLineItem = catchAsync(async (req: Request, res: Response) => {
     const payload = {
         ...req.body,
         voided_by: user.id,
+        voided_by_role: user.role,
     };
 
     const lineItem = await LineItemsServices.voidLineItem(itemId, platformId, payload);
@@ -176,7 +177,12 @@ const bulkMargin = catchAsync(async (req: Request, res: Response) => {
     const user = (req as any).user;
     const platformId = (req as any).platformId;
 
-    const result = await LineItemsServices.bulkMarginLineItems(platformId, req.body, user.id);
+    const result = await LineItemsServices.bulkMarginLineItems(
+        platformId,
+        req.body,
+        user.id,
+        user.role
+    );
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
