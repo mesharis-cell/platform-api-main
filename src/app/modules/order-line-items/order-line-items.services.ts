@@ -883,10 +883,21 @@ const updateLineItem = async (
         data.client_visible !== undefined;
     const shouldTriggerRebuild = pricingFieldRequested || visibilityOrPolicyChanged;
 
+    // F1 mode for the ORDER hook: a visibility-ONLY edit is display-only (REBUILD_ONLY — refresh the
+    // snapshot, never pull back the quote); a pricing-field edit takes the default REVERT
+    // (QUOTED → PENDING_APPROVAL).
+    const orderPricingMode: OrderPricingUpdateMode =
+        visibilityOrPolicyChanged && !pricingFieldRequested ? "REBUILD_ONLY" : "REVERT";
+
     if (shouldTriggerRebuild) {
         // Update order pricing after line item change
         if (result.order_id) {
-            await updateOrderPricingAfterLineItemChange(result.order_id, platformId, userId);
+            await updateOrderPricingAfterLineItemChange(
+                result.order_id,
+                platformId,
+                userId,
+                orderPricingMode
+            );
         }
         if (result.inbound_request_id) {
             await updateInboundRequestPricingAfterLineItemChange(
@@ -1064,9 +1075,17 @@ const patchLineItemVisibility = async (
         .where(eq(lineItems.id, id))
         .returning();
 
-    // Refresh the breakdown snapshot so role projections reflect the new flag(s).
+    // Refresh the breakdown snapshot so role projections reflect the new flag(s). F1: a visibility
+    // change is display-only — pass REBUILD_ONLY so it NEVER pulls a QUOTED order back to
+    // PENDING_APPROVAL (client_visible / client_price_visible / logistics_visible change what a role
+    // SEES, not what anything costs; the quote itself is still valid).
     if (result.order_id) {
-        await updateOrderPricingAfterLineItemChange(result.order_id, platformId, userId);
+        await updateOrderPricingAfterLineItemChange(
+            result.order_id,
+            platformId,
+            userId,
+            "REBUILD_ONLY"
+        );
     }
     if (result.inbound_request_id) {
         await updateInboundRequestPricingAfterLineItemChange(
@@ -1179,10 +1198,16 @@ const patchEntityLineItemsVisibility = async (
         .where(and(...conditions))
         .returning({ id: lineItems.id });
 
-    // Refresh the breakdown for the parent entity so role projections update.
+    // Refresh the breakdown for the parent entity so role projections update. F1: bulk visibility is
+    // display-only — REBUILD_ONLY so a QUOTED order is never pulled back for a display toggle.
     switch (data.purpose_type) {
         case "ORDER":
-            await updateOrderPricingAfterLineItemChange(targetId, platformId, userId);
+            await updateOrderPricingAfterLineItemChange(
+                targetId,
+                platformId,
+                userId,
+                "REBUILD_ONLY"
+            );
             break;
         case "INBOUND_REQUEST":
             await updateInboundRequestPricingAfterLineItemChange(targetId, platformId, userId);
@@ -1594,10 +1619,19 @@ const calculateServiceRequestLineItemsTotals = async (
 };
 
 // ----------------------------------- UPDATE ORDER PRICING AFTER LINE ITEM CHANGE ------------
+// F1 revert-mode selector for the ORDER post-line-item-change hook:
+//   REVERT       — default. A pricing-affecting change on a QUOTED order pulls the quote back to
+//                  PENDING_APPROVAL + QUOTE_REVISED + fires the re-review notification.
+//   REBUILD_ONLY — visibility toggles. Refresh the breakdown snapshot so role projections pick up
+//                  the new display flags, but never touch order status (display-only). (F7 later
+//                  extends this union with a QUIET_AMEND value.)
+type OrderPricingUpdateMode = "REVERT" | "REBUILD_ONLY";
+
 const updateOrderPricingAfterLineItemChange = async (
     orderId: string,
     platformId: string,
-    userId: string
+    userId: string,
+    mode: OrderPricingUpdateMode = "REVERT"
 ): Promise<void> => {
     await PricingService.rebuildBreakdown({
         entity_type: "ORDER",
@@ -1605,6 +1639,11 @@ const updateOrderPricingAfterLineItemChange = async (
         platform_id: platformId,
         calculated_by: userId,
     });
+
+    // F1: a visibility/display-only change refreshes the breakdown snapshot (done above) but must
+    // NOT pull back a sent quote — client_visible / client_price_visible / logistics_visible change
+    // what each role SEES, not what anything COSTS. Bail before the QUOTED-revert logic.
+    if (mode === "REBUILD_ONLY") return;
 
     // OQ10 reprice ripple: if the client has already seen a quote (order is QUOTED), a pricing
     // change invalidates it — bounce the order to PENDING_APPROVAL so the admin can re-review and
