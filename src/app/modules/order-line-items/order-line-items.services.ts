@@ -1716,8 +1716,8 @@ const updateOrderPricingAfterLineItemChange = async (
 
     // F1: a visibility/display-only change refreshes the breakdown snapshot (done above) but must
     // NOT pull back a sent quote — client_visible / client_price_visible / logistics_visible change
-    // what each role SEES, not what anything COSTS. Bail before the QUOTED-revert logic.
-    if (mode === "REBUILD_ONLY") return;
+    // what each role SEES, not what anything COSTS. Its estimate-PDF refresh (G1) is handled AFTER
+    // the order fetch below (QUOTED-only), so REBUILD_ONLY no longer bails before the fetch.
 
     // OQ10 reprice ripple: if the client has already seen a quote (order is QUOTED), a pricing
     // change invalidates it — bounce the order to PENDING_APPROVAL so the admin can re-review and
@@ -1742,6 +1742,30 @@ const updateOrderPricingAfterLineItemChange = async (
         .limit(1);
 
     if (!order || order.order_status !== "QUOTED") return;
+
+    // G1 REBUILD_ONLY: a client-visibility/display-only toggle on a QUOTED order refreshes the
+    // breakdown snapshot (done above) AND now regenerates the cost-estimate PDF so the client's
+    // downloadable quote reflects the new per-line display flags (client_visible /
+    // client_price_visible drive respectClientLineVisibility in the PDF). This is NOT a reprice:
+    // NO status change, NO QUOTE_REVISED flip, NO notification. `hasEstimate` guards the normal
+    // path (a QUOTED order always has one from approveQuote, but a mid-flight edge could not); the
+    // try/catch swallows ONLY a vanished-file race between the check and the delete+recreate,
+    // mirroring the SP path (isMissingS3ObjectError) — any other failure still surfaces. QUOTED-only
+    // is deliberate: pre-quote there is no sent estimate to refresh, and a PENDING_APPROVAL order may
+    // be mid-QUOTE_REVISED where the download is 409-blocked and re-approval regenerates.
+    if (mode === "REBUILD_ONLY") {
+        if (await DocumentService.hasEstimate("ORDER", orderId, platformId)) {
+            try {
+                await DocumentService.generateEstimate("ORDER", orderId, platformId, {
+                    regenerate: true,
+                    generatedByUserId: userId,
+                });
+            } catch (error) {
+                if (!isMissingS3ObjectError(error)) throw error;
+            }
+        }
+        return;
+    }
 
     // F7 QUIET-AMEND: the admin chose "Update quietly" on a QUOTED order. Keep the order QUOTED
     // (no status revert, no QUOTE_REVISED flip, no ORDER_UPDATED re-review notification) but
