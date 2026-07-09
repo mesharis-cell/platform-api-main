@@ -817,6 +817,23 @@ const updateLineItem = async (
             "Only Platform Admin can set a sell price override"
         );
     }
+    // G9: unit_rate (buy) on a CATALOG line is owned by the service type's rate
+    // card — it cannot be changed by ANYONE, ADMIN included. Quantity and the
+    // per-line sell_unit_rate override stay the pricing levers; CUSTOM/SYSTEM
+    // lines are unaffected (SYSTEM already 403s above). Compare values so an
+    // idempotent payload echoing the unchanged rate passes through untouched.
+    // This subsumes the LOGISTICS-only LIR rate lock below for catalog lines
+    // (kept as harmless defense-in-depth).
+    if (
+        data.unit_rate !== undefined &&
+        Number(data.unit_rate) !== Number(existing.unit_rate ?? 0) &&
+        existing.line_item_type === "CATALOG"
+    ) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Unit price on catalog lines comes from the rate card and cannot be changed"
+        );
+    }
     // R3: a line created from an APPROVED logistics line-item request has its
     // unit_rate FROZEN for LOGISTICS — the rate was fixed by admin at approval.
     // Logistics may still edit quantity / notes; only the rate is locked. ADMIN
