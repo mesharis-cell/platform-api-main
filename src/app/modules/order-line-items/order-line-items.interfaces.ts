@@ -74,5 +74,11 @@ export interface LineItemsTotals {
 export interface LineItemEditability {
     can_edit_pricing_fields: boolean;
     can_edit_metadata_fields: boolean;
+    // G2: false once an ORDER's financial_status is in ORDER_FINANCIAL_LOCKED_STATUSES
+    // (post-quote-acceptance) — client_visible / client_price_visible are frozen so the
+    // client's already-accepted, downloadable cost-estimate PDF can't silently go stale.
+    // Always true for non-ORDER entities (they regenerate their estimate on every edit).
+    // logistics_visible is unaffected (internal-only, never on the client PDF).
+    can_edit_client_visibility: boolean;
     lock_reason: string | null;
 }
