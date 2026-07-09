@@ -113,10 +113,15 @@ const resolveOrderPricingMode = (
 const buildEditability = (
     isLocked: boolean,
     lockStatus: string | null,
-    reasonKind: "QUOTE_LOCK" | "NO_COST" = "QUOTE_LOCK"
+    reasonKind: "QUOTE_LOCK" | "NO_COST" = "QUOTE_LOCK",
+    // G2: whether client-facing visibility flags (client_visible / client_price_visible) may still
+    // be changed. ORDER-scoped — defaults true (non-ORDER entities always regenerate their estimate,
+    // so a visibility change never leaves a stale client PDF). The ORDER branch passes the real value.
+    canEditClientVisibility = true
 ): LineItemEditability => ({
     can_edit_pricing_fields: !isLocked,
     can_edit_metadata_fields: true,
+    can_edit_client_visibility: canEditClientVisibility,
     lock_reason: isLocked
         ? reasonKind === "NO_COST"
             ? "Entity is marked as no-cost — line items cannot be added or changed."
@@ -148,10 +153,10 @@ const getLineItemEditability = async (
             return buildEditability(true, order.financial_status || null, "NO_COST");
         }
         const status = order?.financial_status || null;
-        return buildEditability(
-            !!status && ORDER_FINANCIAL_LOCKED_STATUSES.includes(String(status)),
-            status
-        );
+        const locked = !!status && ORDER_FINANCIAL_LOCKED_STATUSES.includes(String(status));
+        // G2: on an ORDER the client-visibility lock condition is exactly the pricing lock
+        // (post-quote-acceptance financial_status) — so can_edit_client_visibility = !locked.
+        return buildEditability(locked, status, "QUOTE_LOCK", !locked);
     }
 
     if (item.inbound_request_id) {
@@ -788,6 +793,18 @@ const updateLineItem = async (
             editability.lock_reason || "Line is locked"
         );
     }
+    // G2: once an ORDER's quote is accepted (financial_status locked) the client's downloadable
+    // cost estimate is frozen — client_visible / client_price_visible can no longer be changed
+    // (they would silently stale that PDF). logistics_visible stays editable (internal-only, never
+    // on the client PDF). ORDER-scoped: can_edit_client_visibility is always true for other entities.
+    const clientVisibilityRequested =
+        data.client_visible !== undefined || data.client_price_visible !== undefined;
+    if (clientVisibilityRequested && !editability.can_edit_client_visibility) {
+        throw new CustomizedError(
+            httpStatus.BAD_REQUEST,
+            "Client visibility is locked after quote acceptance"
+        );
+    }
     if (userRole === "LOGISTICS" && data.billing_mode !== undefined) {
         throw new CustomizedError(
             httpStatus.FORBIDDEN,
@@ -1108,6 +1125,22 @@ const patchLineItemVisibility = async (
         throw new CustomizedError(httpStatus.NOT_FOUND, "Line item not found");
     }
 
+    // G2: reject client_visible / client_price_visible changes once the parent ORDER's quote is
+    // accepted (financial_status locked) so the client's frozen cost-estimate PDF can't go stale.
+    // ORDER-scoped: can_edit_client_visibility is always true for non-ORDER entities. logistics_visible
+    // is unaffected (internal-only, never on the client PDF).
+    const clientVisibilityRequested =
+        data.client_visible !== undefined || data.client_price_visible !== undefined;
+    if (clientVisibilityRequested) {
+        const editability = await getLineItemEditability(existing, platformId);
+        if (!editability.can_edit_client_visibility) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Client visibility is locked after quote acceptance"
+            );
+        }
+    }
+
     const [result] = await db
         .update(lineItems)
         .set({
@@ -1206,6 +1239,30 @@ const patchEntityLineItemsVisibility = async (
 
     if (!targetId) {
         throw new CustomizedError(httpStatus.BAD_REQUEST, "Target entity id is required");
+    }
+
+    // G2 (ORDER branch only): reject a bulk client_visible / client_price_visible change once the
+    // order's quote is accepted (financial_status locked) — the client's frozen cost estimate must
+    // not silently stale. logistics_visible-only bulk changes are always allowed. Non-ORDER entities
+    // regenerate their estimate on every edit, so they carry no staleness risk (no guard).
+    const clientVisibilityRequested =
+        data.client_visible !== undefined || data.client_price_visible !== undefined;
+    if (data.purpose_type === "ORDER" && clientVisibilityRequested) {
+        const editability = await getLineItemEditability(
+            {
+                order_id: targetId,
+                inbound_request_id: null,
+                service_request_id: null,
+                self_pickup_id: null,
+            },
+            platformId
+        );
+        if (!editability.can_edit_client_visibility) {
+            throw new CustomizedError(
+                httpStatus.BAD_REQUEST,
+                "Client visibility is locked after quote acceptance"
+            );
+        }
     }
 
     const getLineItemParentCondition = () => {
