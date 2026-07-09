@@ -19,6 +19,15 @@ const clientVisibleSchema = z.boolean().optional();
 // ADMIN; update has an explicit LOGISTICS guard).
 const sellUnitRateSchema = z.number().min(0).nullable().optional();
 
+// F7 QUIET-AMEND (ADMIN-only, ORDER-only). When a mutation touches an already-
+// QUOTED order this flag amends the sent quote IN PLACE — rebuild pricing +
+// regenerate the cost estimate so the client sees corrected numbers, but WITHOUT
+// the QUOTED→PENDING_APPROVAL revert, the QUOTE_REVISED financial flip, or the
+// re-review notification. Enforced ADMIN-only at the service layer (403 for
+// LOGISTICS); ignored (no-op) for SP / inbound / service-request entities, which
+// have no post-quote revert to skip. Absent/false = the default pull-back behavior.
+const quietAmendSchema = z.boolean().optional();
+
 const createCatalogLineItemSchema = z.object({
     body: z
         .object({
@@ -44,6 +53,7 @@ const createCatalogLineItemSchema = z.object({
             // create-then-PUT hack. ADMIN-only (guarded at the service layer;
             // LOGISTICS catalog-create rejects a supplied value).
             sell_unit_rate: sellUnitRateSchema,
+            quiet_amend: quietAmendSchema,
         })
         .refine((data) => {
             if (data.purpose_type === "ORDER" && !data.order_id) {
@@ -101,6 +111,7 @@ const createCustomLineItemSchema = z.object({
             logistics_visible: logisticsVisibleSchema,
             client_visible: clientVisibleSchema,
             sell_unit_rate: sellUnitRateSchema,
+            quiet_amend: quietAmendSchema,
         })
         .refine((data) => {
             if (data.purpose_type === "ORDER" && !data.order_id) return false;
@@ -125,6 +136,7 @@ const updateLineItemSchema = z.object({
             logistics_visible: logisticsVisibleSchema,
             client_visible: clientVisibleSchema,
             sell_unit_rate: sellUnitRateSchema,
+            quiet_amend: quietAmendSchema,
         })
         .strict(),
 });
@@ -200,6 +212,7 @@ const voidLineItemSchema = z.object({
             void_reason: z
                 .string({ message: "Void reason is required" })
                 .min(10, "Void reason must be at least 10 characters"),
+            quiet_amend: quietAmendSchema,
         })
         .strict(),
 });
@@ -223,6 +236,7 @@ const bulkMarginSchema = z.object({
                 .min(0, "Margin percent must be 0 or greater")
                 .max(1000, "Margin percent must be 1000 or less"),
             reason: z.string().max(1000).optional(),
+            quiet_amend: quietAmendSchema,
         })
         .strict(),
 });

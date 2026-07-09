@@ -87,6 +87,29 @@ const runWithLineItemIdRetry = async <T>(operation: () => Promise<T>): Promise<T
 const ORDER_FINANCIAL_LOCKED_STATUSES = ["QUOTE_ACCEPTED", "PENDING_INVOICE", "INVOICED", "PAID"];
 const SERVICE_REQUEST_LOCKED_STATUSES = ["QUOTE_APPROVED", "INVOICED", "PAID"];
 
+// F7 QUIET-AMEND guard + mode selector (shared by every line-item mutation that can hit a QUOTED
+// order). `quiet_amend` is ADMIN-only and ORDER-only: reject it from LOGISTICS (403) BEFORE any DB
+// write, then return QUIET_AMEND for the ORDER post-change hook. When the flag is absent the caller's
+// `fallback` mode is used (REVERT for pricing edits, REBUILD_ONLY for visibility-only edits). The
+// returned mode is only meaningful for the ORDER dispatch — SP/inbound/SR ignore it (they have no
+// post-quote revert), but the ADMIN-only guard still fires for them so the capability is never
+// exposed to LOGISTICS on any entity. (The OrderPricingUpdateMode type is declared with the hook
+// below; TS type aliases are position-independent so it resolves here.)
+const resolveOrderPricingMode = (
+    quietAmend: boolean | undefined,
+    role: "ADMIN" | "LOGISTICS",
+    fallback: OrderPricingUpdateMode = "REVERT"
+): OrderPricingUpdateMode => {
+    if (!quietAmend) return fallback;
+    if (role !== "ADMIN") {
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            "Only Platform Admin can quietly amend a sent quote"
+        );
+    }
+    return "QUIET_AMEND";
+};
+
 const buildEditability = (
     isLocked: boolean,
     lockStatus: string | null,
@@ -363,6 +386,9 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
         );
     }
 
+    // F7: resolve the quiet-amend mode up front so a LOGISTICS quiet_amend 403s BEFORE any insert.
+    const orderPricingMode = resolveOrderPricingMode(data.quiet_amend, added_by_role);
+
     // Get service type details
     const [serviceType] = await db
         .select()
@@ -478,7 +504,12 @@ const createCatalogLineItem = async (data: CreateCatalogLineItemPayload) => {
 
     // Update order pricing after adding new line item
     if (order_id) {
-        await updateOrderPricingAfterLineItemChange(order_id, platform_id, added_by);
+        await updateOrderPricingAfterLineItemChange(
+            order_id,
+            platform_id,
+            added_by,
+            orderPricingMode
+        );
     }
     if (inbound_request_id) {
         await updateInboundRequestPricingAfterLineItemChange(
@@ -557,6 +588,9 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
         added_by_role,
     } = data;
     const total = quantity * unit_rate;
+    // F7: resolve the quiet-amend mode up front so a LOGISTICS quiet_amend 403s BEFORE any insert
+    // (custom-create is ADMIN-only by route, but the guard is defense-in-depth).
+    const orderPricingMode = resolveOrderPricingMode(data.quiet_amend, added_by_role);
     const createEditability = await getLineItemEditability(
         {
             order_id: order_id || null,
@@ -646,7 +680,12 @@ const createCustomLineItem = async (data: CreateCustomLineItemPayload) => {
 
     // Update order pricing after adding new line item
     if (order_id) {
-        await updateOrderPricingAfterLineItemChange(order_id, platform_id, added_by);
+        await updateOrderPricingAfterLineItemChange(
+            order_id,
+            platform_id,
+            added_by,
+            orderPricingMode
+        );
     }
     if (inbound_request_id) {
         await updateInboundRequestPricingAfterLineItemChange(
@@ -812,6 +851,13 @@ const updateLineItem = async (
             "Only Platform Admin can change visibility"
         );
     }
+    // F7: quiet-amend is ADMIN-only — reject a LOGISTICS quiet_amend BEFORE the update write.
+    if (data.quiet_amend && userRole !== "ADMIN") {
+        throw new CustomizedError(
+            httpStatus.FORBIDDEN,
+            "Only Platform Admin can quietly amend a sent quote"
+        );
+    }
 
     const dbData: any = {
         ...(data.notes !== undefined && { notes: data.notes }),
@@ -883,10 +929,25 @@ const updateLineItem = async (
         data.client_visible !== undefined;
     const shouldTriggerRebuild = pricingFieldRequested || visibilityOrPolicyChanged;
 
+    // F1/F7 mode for the ORDER hook: quiet-amend wins (regenerate estimate, no revert); otherwise a
+    // visibility-ONLY edit is display-only (REBUILD_ONLY — refresh snapshot, never pull back the
+    // quote); a pricing-field edit takes the default REVERT (QUOTED → PENDING_APPROVAL). The
+    // ADMIN-only guard for quiet_amend already fired above.
+    const orderPricingMode: OrderPricingUpdateMode = data.quiet_amend
+        ? "QUIET_AMEND"
+        : visibilityOrPolicyChanged && !pricingFieldRequested
+          ? "REBUILD_ONLY"
+          : "REVERT";
+
     if (shouldTriggerRebuild) {
         // Update order pricing after line item change
         if (result.order_id) {
-            await updateOrderPricingAfterLineItemChange(result.order_id, platformId, userId);
+            await updateOrderPricingAfterLineItemChange(
+                result.order_id,
+                platformId,
+                userId,
+                orderPricingMode
+            );
         }
         if (result.inbound_request_id) {
             await updateInboundRequestPricingAfterLineItemChange(
@@ -1064,9 +1125,17 @@ const patchLineItemVisibility = async (
         .where(eq(lineItems.id, id))
         .returning();
 
-    // Refresh the breakdown snapshot so role projections reflect the new flag(s).
+    // Refresh the breakdown snapshot so role projections reflect the new flag(s). F1: a visibility
+    // change is display-only — pass REBUILD_ONLY so it NEVER pulls a QUOTED order back to
+    // PENDING_APPROVAL (client_visible / client_price_visible / logistics_visible change what a role
+    // SEES, not what anything costs; the quote itself is still valid).
     if (result.order_id) {
-        await updateOrderPricingAfterLineItemChange(result.order_id, platformId, userId);
+        await updateOrderPricingAfterLineItemChange(
+            result.order_id,
+            platformId,
+            userId,
+            "REBUILD_ONLY"
+        );
     }
     if (result.inbound_request_id) {
         await updateInboundRequestPricingAfterLineItemChange(
@@ -1179,10 +1248,16 @@ const patchEntityLineItemsVisibility = async (
         .where(and(...conditions))
         .returning({ id: lineItems.id });
 
-    // Refresh the breakdown for the parent entity so role projections update.
+    // Refresh the breakdown for the parent entity so role projections update. F1: bulk visibility is
+    // display-only — REBUILD_ONLY so a QUOTED order is never pulled back for a display toggle.
     switch (data.purpose_type) {
         case "ORDER":
-            await updateOrderPricingAfterLineItemChange(targetId, platformId, userId);
+            await updateOrderPricingAfterLineItemChange(
+                targetId,
+                platformId,
+                userId,
+                "REBUILD_ONLY"
+            );
             break;
         case "INBOUND_REQUEST":
             await updateInboundRequestPricingAfterLineItemChange(targetId, platformId, userId);
@@ -1227,7 +1302,7 @@ const patchEntityLineItemsVisibility = async (
 
 // ----------------------------------- VOID LINE ITEM -----------------------------------------
 const voidLineItem = async (id: string, platformId: string, data: VoidLineItemPayload) => {
-    const { void_reason, voided_by } = data;
+    const { void_reason, voided_by, voided_by_role } = data;
 
     const [existing] = await db
         .select()
@@ -1257,6 +1332,9 @@ const voidLineItem = async (id: string, platformId: string, data: VoidLineItemPa
         );
     }
 
+    // F7: resolve the quiet-amend mode up front so a LOGISTICS quiet_amend 403s BEFORE the void.
+    const orderPricingMode = resolveOrderPricingMode(data.quiet_amend, voided_by_role);
+
     const [result] = await db
         .update(lineItems)
         .set({
@@ -1270,7 +1348,12 @@ const voidLineItem = async (id: string, platformId: string, data: VoidLineItemPa
 
     // Update order pricing after line item void
     if (result.order_id) {
-        await updateOrderPricingAfterLineItemChange(result.order_id, platformId, voided_by);
+        await updateOrderPricingAfterLineItemChange(
+            result.order_id,
+            platformId,
+            voided_by,
+            orderPricingMode
+        );
     }
     if (result.inbound_request_id) {
         await updateInboundRequestPricingAfterLineItemChange(
@@ -1339,8 +1422,17 @@ const voidLineItem = async (id: string, platformId: string, data: VoidLineItemPa
 // rebuild via the entity's post-quote revert hook (identical to a single-line
 // edit) reprices + reverts a QUOTED order to PENDING_APPROVAL. Emits the
 // PRICING_RECALCULATED audit event tagged {action:'bulk_margin'} (R5).
-const bulkMarginLineItems = async (platformId: string, data: BulkMarginPayload, userId: string) => {
+const bulkMarginLineItems = async (
+    platformId: string,
+    data: BulkMarginPayload,
+    userId: string,
+    userRole: "ADMIN" | "LOGISTICS"
+) => {
     const { purpose_type, entity_id, margin_percent, reason } = data;
+
+    // F7: quiet-amend is ADMIN-only. Bulk-margin is already ADMIN-only by route; the guard is
+    // defense-in-depth and 403s before any stamp.
+    const orderPricingMode = resolveOrderPricingMode(data.quiet_amend, userRole);
 
     const parentCondition =
         purpose_type === "ORDER"
@@ -1442,7 +1534,12 @@ const bulkMarginLineItems = async (platformId: string, data: BulkMarginPayload, 
         // estimate regen where applicable).
         switch (purpose_type) {
             case "ORDER":
-                await updateOrderPricingAfterLineItemChange(entity_id, platformId, userId);
+                await updateOrderPricingAfterLineItemChange(
+                    entity_id,
+                    platformId,
+                    userId,
+                    orderPricingMode
+                );
                 break;
             case "INBOUND_REQUEST":
                 await updateInboundRequestPricingAfterLineItemChange(entity_id, platformId, userId);
@@ -1594,10 +1691,21 @@ const calculateServiceRequestLineItemsTotals = async (
 };
 
 // ----------------------------------- UPDATE ORDER PRICING AFTER LINE ITEM CHANGE ------------
+// F1/F7 revert-mode selector for the ORDER post-line-item-change hook:
+//   REVERT        — default. A pricing-affecting change on a QUOTED order pulls the quote
+//                   back to PENDING_APPROVAL + QUOTE_REVISED + fires the re-review notification.
+//   QUIET_AMEND   — F7 (ADMIN-only). Amend the sent quote IN PLACE: rebuild + regenerate the
+//                   cost estimate so the client sees corrected numbers, but skip the revert,
+//                   the QUOTE_REVISED flip and the notification.
+//   REBUILD_ONLY  — F1 (visibility toggles). Refresh the breakdown snapshot so role projections
+//                   pick up the new display flags, but never touch order status (display-only).
+type OrderPricingUpdateMode = "REVERT" | "QUIET_AMEND" | "REBUILD_ONLY";
+
 const updateOrderPricingAfterLineItemChange = async (
     orderId: string,
     platformId: string,
-    userId: string
+    userId: string,
+    mode: OrderPricingUpdateMode = "REVERT"
 ): Promise<void> => {
     await PricingService.rebuildBreakdown({
         entity_type: "ORDER",
@@ -1605,6 +1713,11 @@ const updateOrderPricingAfterLineItemChange = async (
         platform_id: platformId,
         calculated_by: userId,
     });
+
+    // F1: a visibility/display-only change refreshes the breakdown snapshot (done above) but must
+    // NOT pull back a sent quote — client_visible / client_price_visible / logistics_visible change
+    // what each role SEES, not what anything COSTS. Bail before the QUOTED-revert logic.
+    if (mode === "REBUILD_ONLY") return;
 
     // OQ10 reprice ripple: if the client has already seen a quote (order is QUOTED), a pricing
     // change invalidates it — bounce the order to PENDING_APPROVAL so the admin can re-review and
@@ -1629,6 +1742,22 @@ const updateOrderPricingAfterLineItemChange = async (
         .limit(1);
 
     if (!order || order.order_status !== "QUOTED") return;
+
+    // F7 QUIET-AMEND: the admin chose "Update quietly" on a QUOTED order. Keep the order QUOTED
+    // (no status revert, no QUOTE_REVISED flip, no ORDER_UPDATED re-review notification) but
+    // regenerate the cost-estimate PDF in place so the client's downloadable quote reflects the
+    // corrected numbers — mirrors approveQuote's regen call (generateEstimate accepts QUOTED). The
+    // per-line LINE_ITEM_* / PRICING_RECALCULATED event still fires from the caller, and the
+    // bulk-margin path still writes its entity_change_history row, so the amendment stays on the
+    // audit trail. The client keeps a valid, downloadable quote (financial_status stays QUOTE_SENT,
+    // so the estimate-download 409 gate never trips).
+    if (mode === "QUIET_AMEND") {
+        await DocumentService.generateEstimate("ORDER", orderId, platformId, {
+            regenerate: true,
+            generatedByUserId: userId,
+        });
+        return;
+    }
 
     // Wrap the status/financial flip + BOTH history inserts in a single transaction so a
     // crash mid-sequence can't half-revert the order (status moved but no history row, etc.).
