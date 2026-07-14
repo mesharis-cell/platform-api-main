@@ -4,35 +4,64 @@ set -euo pipefail
 # restore-db-snapshot.sh  —  DESTRUCTIVE wholesale restore into staging
 #
 # Restores a custom-format dump (from snapshot-db.sh) into staging. This DROPS +
-# recreates app objects in the dumped schemas, so it is the single most
-# destructive step in the staging-refresh flow.
+# recreates the app-owned schemas WHOLESALE (public + drizzle), so it is the
+# single most destructive step in the staging-refresh flow.
 #
-# EXECUTION MODEL (changed 2026-07-14; hardened 2026-07-14b — MATERIALISE-FIRST):
+# EXECUTION MODEL (changed 2026-07-14; hardened 2026-07-14b MATERIALISE-FIRST;
+# 2026-07-14c WHOLESALE-RESET):
 #   The restore runs in TWO phases so a partial COMMIT is STRUCTURALLY impossible:
 #
 #     Phase A — MATERIALISE. pg_restore EMITS the whole dump as plain SQL to a
-#       file in the run dir (`pg_restore --clean --if-exists --no-owner --no-acl
-#       -f <run-dir>/restore.sql`) — no DB connection, no transaction of its own.
-#       Its exit code is checked EXPLICITLY. If pg_restore dies mid-stream (incl.
-#       mid-COPY), psql is NEVER invoked, so a truncated COPY stream can never be
-#       COMMITted. (This replaced the old pg_restore|psql live pipe + poison
-#       DO-block: on a narrow path — single-column text table, well-formed partial
-#       rows, clean EOF-inside-COPY — the poison block was consumable AS COPY data
-#       and psql could COMMIT a partial restore. Materialising first removes that
-#       path entirely; the poison mechanism is deleted.)
-#     Phase B — EXECUTE. ONLY on pg_restore exit 0, the materialised SQL (with any
-#       DB_RESTORE_APPEND_SQL appended as its final statements) is fed to
+#       file in the run dir (`pg_restore --no-owner --no-acl -f
+#       <run-dir>/restore.sql` — NOTE: NO --clean; see WHOLESALE RESET below) — no
+#       DB connection, no transaction of its own. Its exit code is checked
+#       EXPLICITLY. If pg_restore dies mid-stream (incl. mid-COPY), psql is NEVER
+#       invoked, so a truncated COPY stream can never be COMMITted. (This replaced
+#       the old pg_restore|psql live pipe + poison DO-block: on a narrow path —
+#       single-column text table, well-formed partial rows, clean EOF-inside-COPY —
+#       the poison block was consumable AS COPY data and psql could COMMIT a partial
+#       restore. Materialising first removes that path entirely.) The file is then
+#       PREPARED in place (still no DB): the dump preamble's lock_timeout is bounded,
+#       the WHOLESALE-RESET block is PREPENDED, and the grant/queue tail APPENDED.
+#     Phase B — EXECUTE. ONLY on pg_restore exit 0, the prepared file is fed to
 #       `psql --single-transaction -v ON_ERROR_STOP=1 -f <run-dir>/restore.sql`.
-#       psql wraps the SINGLE -f file in ONE BEGIN/COMMIT, so every restored object
-#       AND the appended statements share one transaction:
+#       psql wraps the SINGLE -f file in ONE BEGIN/COMMIT, so the reset block, every
+#       restored object, the best-effort grants AND any appended queue-flip share
+#       one transaction:
 #         * all-or-nothing atomicity (equivalent to the old
 #           `pg_restore --single-transaction`), and
 #         * ON_ERROR_STOP rolls the ENTIRE transaction back on any error — incl. a
 #           failure in the appended SQL — so a mid-restore failure leaves staging
 #           unchanged and the whole refresh stays re-runnable.
-#       A finite lock_timeout is forced into the materialised SQL (pg_dump's own
-#       preamble emits `SET lock_timeout = 0;` = wait forever; we rewrite it) so a
-#       lock wait ABORTS + rolls back (re-runnable) instead of hanging.
+#
+#   WHOLESALE RESET (replaces pg_restore --clean; 2026-07-14c):
+#     pg_restore --clean emits per-object DROPs derived from the DUMP's (prod's)
+#     schema and runs them against STAGING's schema — so ANY schema drift aborts the
+#     whole transaction. The live failure was `DROP INDEX
+#     workflow_definitions_platform_code_unique` (a plain UNIQUE INDEX on prod) hit a
+#     same-named UNIQUE CONSTRAINT on staging ("cannot drop index ... constraint
+#     requires it"). Rather than reconcile object-by-object forever, we kill the
+#     drift class WHOLESALE: --clean is removed and this block is PREPENDED to the
+#     materialised SQL so it runs as the FIRST statements of the single txn:
+#         SET lock_timeout = '<RESTORE_LOCK_TIMEOUT>';
+#         DROP SCHEMA IF EXISTS drizzle CASCADE;
+#         DROP SCHEMA IF EXISTS public CASCADE;
+#     The dump body itself then recreates BOTH schemas (VERIFIED: the emission
+#     contains `CREATE SCHEMA drizzle;` AND `CREATE SCHEMA public;`) plus every
+#     object, so this block does NOT recreate them — doing so would COLLIDE with the
+#     dump's own CREATE and abort the txn (the very failure class we are killing).
+#     Staging-only objects in public/drizzle are dropped BY DESIGN (wholesale
+#     replace); other schemas (extensions/vault/pg_catalog/…) are UNTOUCHED — staging
+#     has NO extensions in public, so the CASCADE drop is safe. Supabase public-schema
+#     grants (stripped by --no-acl) are re-granted BEST-EFFORT at the END of the txn
+#     (DO-wrapped so a missing role can't abort the restore; fully-qualified so the
+#     dump's search_path='' is moot).
+#
+#   A finite lock_timeout is forced into the materialised SQL: pg_dump's own preamble
+#   emits `SET lock_timeout = 0;` (wait forever); we rewrite it (bounded to the
+#   preamble) so a lock wait ABORTS + rolls back (re-runnable) instead of hanging.
+#   The reset block sets the same lock_timeout up-front so the CASCADE drops — which
+#   run BEFORE the dump preamble reasserts it — are bounded too.
 #
 #   DB_RESTORE_APPEND_SQL (optional env/arg): SQL appended to the materialised
 #   file INSIDE the transaction — it runs ATOMICALLY WITH THE RESTORE and commits
@@ -43,12 +72,14 @@ set -euo pipefail
 #   queue row — the notification worker can never see prod's queue even for a
 #   sub-second window.
 #
-# PRE-RESTORE CONNECTION SWEEP (apply only): immediately before the restore
-#   transaction, other client connections to the staging DB are terminated
-#   (pg_terminate_backend over pg_stat_activity for current_database(), self
-#   excluded) so the --clean drops can take ACCESS EXCLUSIVE locks without
-#   waiting on the staging API/worker. Connected clients reconnect and may see
-#   brief connection errors. Best-effort: a sweep failure is non-fatal. NOTE: on a
+# PRE-RESTORE CONNECTION SWEEP (apply only): runs BETWEEN Phase A and Phase B —
+#   immediately before the restore transaction (materialisation can take minutes,
+#   so sweeping before it would just let clients reconnect in the gap). Other
+#   client connections to the staging DB are terminated (pg_terminate_backend over
+#   pg_stat_activity for current_database(), self excluded) so the DROP SCHEMA
+#   CASCADE can take ACCESS EXCLUSIVE locks without waiting on the staging
+#   API/worker. Connected clients reconnect and may see brief connection errors.
+#   Best-effort: a sweep failure is non-fatal. NOTE: on a
 #   Supabase TRANSACTION-pooler URL the sweep is best-effort only — the pooler
 #   multiplexes many client sessions onto a shared set of backends, so terminating
 #   a backend does not map 1:1 to a client and some sessions may survive; a direct
@@ -81,8 +112,9 @@ usage() {
 Usage: APP_ENV=staging $0 staging /path/to/snapshot.dump [--dry-run]
 
 Restores a custom-format dump created by snapshot-db.sh.
-This is destructive: pg_restore runs with --clean --if-exists and can drop
-objects in the dumped schemas before recreating them from the snapshot.
+This is destructive: it drops the app-owned schemas (public + drizzle) WHOLESALE
+(DROP SCHEMA ... CASCADE) inside one transaction, then rebuilds every object from
+the snapshot. Other schemas (extensions/vault/pg_catalog/…) are left untouched.
 EOF
 }
 
@@ -242,6 +274,10 @@ CHECKSUM_PATH="$RUN_DIR/sha256sum.txt"
 LOG_PATH="$RUN_DIR/restore.log"
 PG_RESTORE_ERR_LOG="$RUN_DIR/pg-restore-stderr.log"
 CONN_SWEEP_LOG="$RUN_DIR/conn-sweep.log"
+RESTORE_SQL_PATH="$RUN_DIR/restore.sql"
+# Finite lock_timeout for the restore transaction (reset block + rewritten dump
+# preamble). Defined here so the dry-run plan can print it too. Override via env.
+RESTORE_LOCK_TIMEOUT="${RESTORE_LOCK_TIMEOUT:-30s}"
 
 echo "Restore target: staging"
 echo "Dump: $DUMP_PATH"
@@ -292,10 +328,16 @@ sha256sum "$DUMP_PATH" > "$CHECKSUM_PATH"
 
 if [[ "$MODE" == "--dry-run" || "$MODE" == "dry-run" ]]; then
     echo "Dry run complete. Dump is readable; no DB writes were made."
-    echo "On apply this would (in order): sweep other connections, then MATERIALISE the"
-    echo "  dump to <run-dir>/restore.sql via 'pg_restore --clean --if-exists --no-owner"
-    echo "  --no-acl -f <file>' (exit checked BEFORE psql is invoked), then execute it as"
-    echo "  ONE transaction: 'psql --single-transaction -v ON_ERROR_STOP=1 -f <file>'."
+    echo "On apply this would (in order):"
+    echo "  A) MATERIALISE the dump to <run-dir>/restore.sql via 'pg_restore --no-owner"
+    echo "     --no-acl -f <file>' (NO --clean; exit checked BEFORE psql is invoked),"
+    echo "     then PREPARE the file in place (no DB): bound the preamble lock_timeout,"
+    echo "     PREPEND the wholesale-reset block, APPEND grants + any queue-flip:"
+    echo "       | SET lock_timeout = '$RESTORE_LOCK_TIMEOUT';"
+    echo "       | DROP SCHEMA IF EXISTS drizzle CASCADE;"
+    echo "       | DROP SCHEMA IF EXISTS public CASCADE;   -- dump body recreates both schemas"
+    echo "  B) SWEEP other client connections, then EXECUTE the whole file as ONE"
+    echo "     transaction: 'psql --single-transaction -v ON_ERROR_STOP=1 -f <file>'."
     if [[ -n "${DB_RESTORE_APPEND_SQL:-}" ]]; then
         echo "  with DB_RESTORE_APPEND_SQL appended INSIDE that single transaction (atomic with the restore):"
         printf '%s\n' "$DB_RESTORE_APPEND_SQL" | sed 's/^/      | /'
@@ -321,48 +363,19 @@ EOF
 fi
 
 # ----------------------------------------------------------------------------
-# Pre-restore connection sweep (best-effort). Terminate other client connections
-# to the staging DB so the --clean drops can take ACCESS EXCLUSIVE locks without
-# waiting on the staging API/worker. Self is excluded (pg_backend_pid()); only
-# client backends are targeted (background workers/autovacuum can't be signalled
-# this way and are irrelevant to table locks). Connected clients reconnect and
-# may see brief connection errors. A sweep failure is NON-FATAL: the restore
-# still proceeds (the forced lock_timeout below then bounds any lock wait).
-# CAVEAT: over a Supabase TRANSACTION-pooler URL this sweep is best-effort — the
-# pooler multiplexes many client sessions across a shared backend pool, so a
-# terminated backend does not map 1:1 to a client and some sessions may persist.
-# A direct db.<ref>.supabase.co URL gives the strongest sweep. Either way the
-# Phase-B lock_timeout is the backstop (fail-fast + re-runnable, never a hang).
-# ----------------------------------------------------------------------------
-echo "Pre-restore connection sweep: terminating other client connections to staging."
-CONN_SWEEP_SQL="select count(*) as terminated_client_backends from (
-    select pg_terminate_backend(pid)
-    from pg_stat_activity
-    where datname = current_database()
-      and pid <> pg_backend_pid()
-      and backend_type = 'client backend'
-) s;"
-if ! PGCONNECT_TIMEOUT="${PGCONNECT_TIMEOUT:-15}" "$PSQL_BIN" "$DB_URL" -P pager=off -c "$CONN_SWEEP_SQL" | tee "$CONN_SWEEP_LOG"; then
-    echo "  [sweep] warning: could not terminate other connections (continuing; the restore may wait on locks)." >&2
-fi
-
-# ----------------------------------------------------------------------------
 # Phase A — MATERIALISE. pg_restore EMITS the dump as SQL to a file in the run dir
-# (no DB connection, no transaction). Its exit code is checked EXPLICITLY: if
-# pg_restore dies mid-stream (incl. mid-COPY), psql is NEVER invoked, so a
-# truncated COPY stream can never be COMMITted. This structurally removes the
-# partial-commit path the old pg_restore|psql pipe + poison-DO-block only hoped to
-# cover. The materialised file is ~dump size; it lives in the run dir (700/umask
-# 077), is removed on success, and is kept on failure for inspection.
+# (no DB connection, no transaction). NO --clean: the drift-prone per-object DROPs
+# that --clean derives from prod's schema are replaced by the WHOLESALE-RESET block
+# prepended below. pg_restore's exit code is checked EXPLICITLY: if it dies
+# mid-stream (incl. mid-COPY), psql is NEVER invoked, so a truncated COPY stream
+# can never be COMMITted. This structurally removes the partial-commit path the old
+# pg_restore|psql pipe + poison-DO-block only hoped to cover. The materialised file
+# is ~dump size; it lives in the run dir (700/umask 077), is removed on success,
+# and is kept on failure for inspection.
 # ----------------------------------------------------------------------------
-RESTORE_SQL_PATH="$RUN_DIR/restore.sql"
-RESTORE_LOCK_TIMEOUT="${RESTORE_LOCK_TIMEOUT:-30s}"
-
 echo "Phase A: materialising dump as SQL -> $RESTORE_SQL_PATH"
 pg_restore_rc=0
 PGCONNECT_TIMEOUT="${PGCONNECT_TIMEOUT:-15}" "$PG_RESTORE_BIN" \
-    --clean \
-    --if-exists \
     --no-owner \
     --no-acl \
     -f "$RESTORE_SQL_PATH" \
@@ -379,27 +392,88 @@ if (( pg_restore_rc != 0 )); then
     exit 1
 fi
 
-# Force a finite lock_timeout for the restore transaction. pg_dump's own preamble
-# emits `SET lock_timeout = 0;` (wait forever); rewrite it in place so the --clean
-# DROP/CREATE statements FAIL FAST (abort + roll back, leaving the refresh
-# re-runnable) if a reconnecting client still holds a conflicting lock, instead of
-# hanging. Best-effort: if the preamble format ever changes and the rewrite
-# matches nothing, the restore still runs with the default (0) lock_timeout.
-if sed -i "s/^SET lock_timeout = 0;\$/SET lock_timeout = '$RESTORE_LOCK_TIMEOUT';/" "$RESTORE_SQL_PATH" \
+# Force a finite lock_timeout in the dump PREAMBLE. pg_dump emits `SET lock_timeout
+# = 0;` (wait forever) as its ~11th line; rewrite it so the dump body's CREATEs
+# FAIL FAST (abort + roll back, re-runnable) instead of hanging on a straggler
+# lock. BOUNDED to lines 1-50 (the preamble) so the substitution can NEVER touch a
+# later COPY data row that happens to read `SET lock_timeout = 0;`. This runs BEFORE
+# the reset block is prepended, so the preamble is still at the top. Best-effort: if
+# the preamble format ever changes and nothing matches, the reset block below still
+# bounds the CASCADE drops, but the dump preamble may reassert 0 for the CREATEs.
+if sed -i "1,50s/^SET lock_timeout = 0;\$/SET lock_timeout = '$RESTORE_LOCK_TIMEOUT';/" "$RESTORE_SQL_PATH" \
     && grep -qF "SET lock_timeout = '$RESTORE_LOCK_TIMEOUT';" "$RESTORE_SQL_PATH"; then
-    echo "  lock_timeout forced to $RESTORE_LOCK_TIMEOUT inside the restore transaction."
+    echo "  lock_timeout forced to $RESTORE_LOCK_TIMEOUT in the dump preamble."
 else
-    echo "  [warn] could not force lock_timeout (pg_dump preamble not matched); restore uses the default (may wait on locks)." >&2
+    echo "  [warn] could not force lock_timeout in the dump preamble (format not matched); the reset block still bounds the CASCADE drops." >&2
 fi
 
-# Append the queue-neutralisation (any DB_RESTORE_APPEND_SQL) as the FINAL
-# statements of the SAME file, so psql --single-transaction wraps the restore AND
-# the append in ONE BEGIN/COMMIT — they commit or roll back together.
+# PREPEND the WHOLESALE-RESET block (replaces pg_restore --clean). It becomes the
+# FIRST statements of the single restore transaction: bound the locks, then DROP the
+# app-owned schemas (public + drizzle) WHOLESALE. The dump body below then recreates
+# BOTH schemas + every object — VERIFIED that the emission itself contains
+# `CREATE SCHEMA drizzle;` AND `CREATE SCHEMA public;`, so this block must NOT
+# recreate them (a duplicate CREATE would abort the txn — the exact drift class we
+# are killing). Staging-only objects in public/drizzle are dropped BY DESIGN; other
+# schemas are untouched; staging has no extensions in public, so the CASCADE is safe.
+RESET_PREAMBLE_PATH="$RUN_DIR/reset-preamble.sql"
+cat > "$RESET_PREAMBLE_PATH" <<EOF
+-- ===== staging-refresh WHOLESALE RESET (prepended; replaces pg_restore --clean) =====
+-- Drops the app-owned schemas WHOLESALE so the dump rebuilds them clean, sidestepping
+-- the per-object DROP drift --clean would hit (e.g. DROP INDEX vs a same-named UNIQUE
+-- CONSTRAINT). Runs inside the SAME psql --single-transaction as the restore, so it
+-- rolls back with everything else on any error. Other schemas are untouched; staging
+-- has no extensions in public, so the CASCADE drop is safe. The dump body recreates
+-- both schemas + all objects; Supabase public grants are re-granted at the tail.
+SET lock_timeout = '$RESTORE_LOCK_TIMEOUT';
+DROP SCHEMA IF EXISTS drizzle CASCADE;
+DROP SCHEMA IF EXISTS public CASCADE;
+EOF
+cat "$RESET_PREAMBLE_PATH" "$RESTORE_SQL_PATH" > "$RESTORE_SQL_PATH.tmp" \
+    && mv "$RESTORE_SQL_PATH.tmp" "$RESTORE_SQL_PATH"
+echo "  Prepended wholesale-reset block (DROP SCHEMA drizzle/public CASCADE)."
+
+# APPEND the tail INSIDE the same transaction: (1) best-effort Supabase public-schema
+# grants — the dump's --no-acl stripped them and the dump body already recreated
+# `public`; DO-wrapped so a missing role can't abort the txn, fully-qualified so the
+# dump's search_path='' is moot; (2) any DB_RESTORE_APPEND_SQL (queue neutralise).
+# psql --single-transaction wraps reset + restore + this tail in ONE BEGIN/COMMIT.
+{
+    printf '\n-- ===== staging-refresh tail: best-effort Supabase public-schema grants (--no-acl dropped them) =====\n'
+    printf 'DO $$ BEGIN GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role; EXCEPTION WHEN undefined_object THEN NULL; END $$;\n'
+} >> "$RESTORE_SQL_PATH"
 if [[ -n "${DB_RESTORE_APPEND_SQL:-}" ]]; then
     {
         printf '\n-- ===== DB_RESTORE_APPEND_SQL: runs ATOMICALLY within the restore transaction =====\n'
         printf '%s\n' "$DB_RESTORE_APPEND_SQL"
     } >> "$RESTORE_SQL_PATH"
+fi
+
+# ----------------------------------------------------------------------------
+# Pre-restore connection sweep (best-effort) — BETWEEN Phase A and Phase B, i.e.
+# IMMEDIATELY before the restore transaction. Materialisation (Phase A) can take
+# minutes, so sweeping earlier would just let clients reconnect in the gap; here
+# the sweep is adjacent to the txn, where it actually matters. Terminate other
+# client connections so the DROP SCHEMA CASCADE can take ACCESS EXCLUSIVE locks
+# without waiting on the staging API/worker. Self excluded (pg_backend_pid()); only
+# client backends targeted (background workers/autovacuum can't be signalled this
+# way and are irrelevant to table locks). Connected clients reconnect and may see
+# brief errors. NON-FATAL: on failure the restore still proceeds (the forced
+# lock_timeout then bounds any lock wait). CAVEAT: over a Supabase TRANSACTION-pooler
+# URL this sweep is best-effort — the pooler multiplexes many sessions onto a shared
+# backend pool, so a terminated backend does not map 1:1 to a client and some may
+# persist; a direct db.<ref>.supabase.co URL sweeps hardest. The lock_timeout is the
+# backstop either way (fail-fast + re-runnable, never a hang).
+# ----------------------------------------------------------------------------
+echo "Pre-restore connection sweep: terminating other client connections to staging."
+CONN_SWEEP_SQL="select count(*) as terminated_client_backends from (
+    select pg_terminate_backend(pid)
+    from pg_stat_activity
+    where datname = current_database()
+      and pid <> pg_backend_pid()
+      and backend_type = 'client backend'
+) s;"
+if ! PGCONNECT_TIMEOUT="${PGCONNECT_TIMEOUT:-15}" "$PSQL_BIN" "$DB_URL" -P pager=off -c "$CONN_SWEEP_SQL" | tee "$CONN_SWEEP_LOG"; then
+    echo "  [sweep] warning: could not terminate other connections (continuing; the restore may wait on locks)." >&2
 fi
 
 # ----------------------------------------------------------------------------
@@ -426,10 +500,12 @@ capture_db_fingerprint "$FINGERPRINT_AFTER" 2>/dev/null \
 
 if (( PSQL_RC == 0 )); then
     echo "Restore committed atomically (psql exit 0; tee exit $TEE_RC)."
-    rm -f "$RESTORE_SQL_PATH" # large derived artifact; the DB is now the record
+    rm -f "$RESTORE_SQL_PATH" "$RESET_PREAMBLE_PATH" # derived artifacts; the DB is now the record
 else
     echo "ERROR: restore transaction failed (psql exit $PSQL_RC; tee exit $TEE_RC)." >&2
-    echo "       psql --single-transaction + ON_ERROR_STOP rolls back on any error." >&2
+    echo "       psql --single-transaction + ON_ERROR_STOP rolls back on any error — the" >&2
+    echo "       wholesale reset (DROP SCHEMA drizzle/public CASCADE), the rebuild, the" >&2
+    echo "       grants and any appended queue-flip all revert together (all-or-nothing)." >&2
     if [[ -s "$FINGERPRINT_BEFORE" && -s "$FINGERPRINT_AFTER" ]] \
         && diff -q "$FINGERPRINT_BEFORE" "$FINGERPRINT_AFTER" >/dev/null 2>&1; then
         echo "       Rolled back cleanly: staging fingerprint (identity + public table/asset counts) is UNCHANGED vs before. Re-run from the top." >&2
