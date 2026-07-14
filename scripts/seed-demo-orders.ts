@@ -68,6 +68,24 @@ function dateStr(d: Date) {
     return d.toISOString().split("T")[0];
 }
 
+// Per-unit SELL rate at the demo entity margin (25%), returned as a 2dp string
+// to match the decimal column shape. sell = ROUND(buy * 1.25, 2).
+const sellAt25 = (rate: number) => (Math.round(rate * 1.25 * 100) / 100).toFixed(2);
+
+// Compose a logistics window in the current { start, end } Date shape the live
+// API writes (order.services.ts updateTimeWindows). The admin Fulfillment
+// Windows card parses .start/.end — the legacy { date, time_from, time_to }
+// shape renders "Invalid Date".
+function windowOf(day: Date, from: string, to: string): { start: Date; end: Date } {
+    const [fromH, fromM] = from.split(":").map(Number);
+    const [toH, toM] = to.split(":").map(Number);
+    const start = new Date(day);
+    start.setHours(fromH, fromM, 0, 0);
+    const end = new Date(day);
+    end.setHours(toH, toM, 0, 0);
+    return { start, end };
+}
+
 async function getAssetByQR(qr: string) {
     const [a] = await db.select().from(assets).where(eq(assets.qr_code, qr)).limit(1);
     if (!a) throw new Error(`Asset not found: ${qr}`);
@@ -204,8 +222,11 @@ async function main() {
         entity_id: orderId1,
         breakdown_lines: [
             {
-                line_kind: "BASE_OPS",
-                description: "Picking & Handling",
+                line_kind: "SYSTEM",
+                category: "HANDLING",
+                label: "Picking & Handling",
+                quantity: 3,
+                unit: "unit",
                 buy_unit_price: 50,
                 buy_total: 150,
                 sell_unit_price: 62.5,
@@ -214,7 +235,10 @@ async function main() {
             },
             {
                 line_kind: "RATE_CARD",
-                description: "Equipment Setup",
+                category: "EQUIPMENT",
+                label: "Equipment Setup",
+                quantity: 1,
+                unit: "job",
                 buy_unit_price: 200,
                 buy_total: 200,
                 sell_unit_price: 250,
@@ -224,7 +248,6 @@ async function main() {
         ],
         margin_percent: "25",
         vat_percent: "5",
-        created_by: LOGISTICS_USER,
         calculated_by: LOGISTICS_USER,
         updated_at: new Date(),
     });
@@ -244,15 +267,18 @@ async function main() {
         event_end_date: eventEnd1,
         venue_name: "Jumeirah Beach Hotel",
         venue_city_id: CITY_DUBAI,
-        venue_address: "Jumeirah Road, Dubai",
-        venue_location: { lat: 25.2048, lng: 55.2708 },
+        venue_location: {
+            country: "United Arab Emirates",
+            address: "Jumeirah Road, Dubai",
+            access_notes: null,
+        },
         contact_name: "Ahmad Khalil",
         contact_email: "ahmad@redbull.com",
         contact_phone: "+971501234567",
         order_pricing_id: priceId1,
-        delivery_window: { date: dateStr(daysAgo(9)), time_from: "08:00", time_to: "12:00" },
-        pickup_window: { date: dateStr(daysAgo(5)), time_from: "14:00", time_to: "18:00" },
-        calculated_totals: { total_volume: 1.5, total_weight: 85 },
+        delivery_window: windowOf(daysAgo(9), "08:00", "12:00"),
+        pickup_window: windowOf(daysAgo(5), "14:00", "18:00"),
+        calculated_totals: { volume: 1.5, weight: 85 },
         scanning_data: {
             outbound: { total: 3, scanned: 3, complete: true },
             inbound: { total: 3, scanned: 0, complete: false },
@@ -339,9 +365,9 @@ async function main() {
         quantity: 1,
         unit: "job",
         unit_rate: "250",
+        sell_unit_rate: sellAt25(250),
         total: "250",
         added_by: LOGISTICS_USER,
-        created_by: LOGISTICS_USER,
         updated_at: new Date(),
     });
 
@@ -364,30 +390,44 @@ async function main() {
         entity_id: orderId2,
         breakdown_lines: [
             {
-                line_kind: "BASE_OPS",
-                description: "Picking & Handling",
+                line_kind: "SYSTEM",
+                category: "HANDLING",
+                label: "Picking & Handling",
+                quantity: 1,
+                unit: "job",
+                buy_unit_price: 200,
                 buy_total: 200,
+                sell_unit_price: 250,
                 sell_total: 250,
                 billing_mode: "BILLABLE",
             },
             {
                 line_kind: "RATE_CARD",
-                description: "Assembly & Rigging",
+                category: "ASSEMBLY",
+                label: "Assembly & Rigging",
+                quantity: 1,
+                unit: "job",
+                buy_unit_price: 350,
                 buy_total: 350,
+                sell_unit_price: 437.5,
                 sell_total: 437.5,
                 billing_mode: "BILLABLE",
             },
             {
                 line_kind: "CUSTOM",
-                description: "Site Access Fee",
+                category: "OTHER",
+                label: "Site Access Fee",
+                quantity: 1,
+                unit: "flat",
+                buy_unit_price: 100,
                 buy_total: 100,
+                sell_unit_price: 125,
                 sell_total: 125,
                 billing_mode: "BILLABLE",
             },
         ],
         margin_percent: "25",
         vat_percent: "5",
-        created_by: LOGISTICS_USER,
         calculated_by: LOGISTICS_USER,
         updated_at: new Date(),
     });
@@ -406,15 +446,18 @@ async function main() {
         event_end_date: eventEnd2,
         venue_name: "Le Meridien Dubai",
         venue_city_id: CITY_DUBAI,
-        venue_address: "Airport Road, Garhoud, Dubai",
-        venue_location: { lat: 25.2532, lng: 55.3325 },
+        venue_location: {
+            country: "United Arab Emirates",
+            address: "Airport Road, Garhoud, Dubai",
+            access_notes: null,
+        },
         contact_name: "Fatima Al Rashid",
         contact_email: "fatima@redbull.com",
         contact_phone: "+971507654321",
         order_pricing_id: priceId2,
-        delivery_window: { date: dateStr(daysAgo(12)), time_from: "07:00", time_to: "11:00" },
-        pickup_window: { date: dateStr(daysAgo(8)), time_from: "16:00", time_to: "20:00" },
-        calculated_totals: { total_volume: 2.1, total_weight: 120 },
+        delivery_window: windowOf(daysAgo(12), "07:00", "11:00"),
+        pickup_window: windowOf(daysAgo(8), "16:00", "20:00"),
+        calculated_totals: { volume: 2.1, weight: 120 },
         scanning_data: {
             outbound: { total: 3, scanned: 3, complete: true },
             inbound: { total: 3, scanned: 0, complete: false },
@@ -531,9 +574,9 @@ async function main() {
         quantity: 1,
         unit: "job",
         unit_rate: "437.50",
+        sell_unit_rate: sellAt25(437.5),
         total: "437.50",
         added_by: LOGISTICS_USER,
-        created_by: LOGISTICS_USER,
         updated_at: new Date(),
     });
     await db.insert(lineItems).values({
@@ -549,9 +592,9 @@ async function main() {
         quantity: 1,
         unit: "flat",
         unit_rate: "125",
+        sell_unit_rate: sellAt25(125),
         total: "125",
         added_by: LOGISTICS_USER,
-        created_by: LOGISTICS_USER,
         updated_at: new Date(),
     });
 
@@ -574,23 +617,32 @@ async function main() {
         entity_id: orderId3,
         breakdown_lines: [
             {
-                line_kind: "BASE_OPS",
-                description: "Picking & Handling",
+                line_kind: "SYSTEM",
+                category: "HANDLING",
+                label: "Picking & Handling",
+                quantity: 1,
+                unit: "job",
+                buy_unit_price: 180,
                 buy_total: 180,
+                sell_unit_price: 225,
                 sell_total: 225,
                 billing_mode: "BILLABLE",
             },
             {
                 line_kind: "RATE_CARD",
-                description: "Transport — Round Trip",
+                category: "TRANSPORT",
+                label: "Transport — Round Trip",
+                quantity: 1,
+                unit: "trip",
+                buy_unit_price: 300,
                 buy_total: 300,
+                sell_unit_price: 375,
                 sell_total: 375,
                 billing_mode: "BILLABLE",
             },
         ],
         margin_percent: "25",
         vat_percent: "5",
-        created_by: LOGISTICS_USER,
         calculated_by: LOGISTICS_USER,
         updated_at: new Date(),
     });
@@ -609,15 +661,18 @@ async function main() {
         event_end_date: eventEnd3,
         venue_name: "Caesars Palace Bluewaters",
         venue_city_id: CITY_DUBAI,
-        venue_address: "Bluewaters Island, Dubai",
-        venue_location: { lat: 25.0784, lng: 55.1186 },
+        venue_location: {
+            country: "United Arab Emirates",
+            address: "Bluewaters Island, Dubai",
+            access_notes: null,
+        },
         contact_name: "Omar Hassan",
         contact_email: "omar@redbull.com",
         contact_phone: "+971509876543",
         order_pricing_id: priceId3,
-        delivery_window: { date: dateStr(daysAgo(17)), time_from: "06:00", time_to: "10:00" },
-        pickup_window: { date: dateStr(daysAgo(13)), time_from: "15:00", time_to: "19:00" },
-        calculated_totals: { total_volume: 1.8, total_weight: 95 },
+        delivery_window: windowOf(daysAgo(17), "06:00", "10:00"),
+        pickup_window: windowOf(daysAgo(13), "15:00", "19:00"),
+        calculated_totals: { volume: 1.8, weight: 95 },
         scanning_data: {
             outbound: { total: 3, scanned: 3, complete: true },
             inbound: { total: 3, scanned: 3, complete: true },
@@ -768,8 +823,9 @@ async function main() {
         damage_report_entries: [
             { url: MOCK_RETURN2, description: "Minor scuffs on left armrest from event setup" },
         ],
+        photos: [MOCK_RETURN2],
         updated_by: LOGISTICS_USER,
-        created_at: daysAgo(13),
+        timestamp: daysAgo(13),
     });
 
     // a9 (Coolman Boxes #7) returns GREEN
@@ -800,9 +856,9 @@ async function main() {
         quantity: 1,
         unit: "trip",
         unit_rate: "375",
+        sell_unit_rate: sellAt25(375),
         total: "375",
         added_by: LOGISTICS_USER,
-        created_by: LOGISTICS_USER,
         updated_at: new Date(),
     });
 
@@ -828,8 +884,11 @@ async function main() {
         entity_id: orderId4,
         breakdown_lines: [
             {
-                line_kind: "BASE_OPS",
-                description: "Picking & Handling",
+                line_kind: "SYSTEM",
+                category: "HANDLING",
+                label: "Picking & Handling",
+                quantity: 3,
+                unit: "unit",
                 buy_unit_price: 60,
                 buy_total: 180,
                 sell_unit_price: 75,
@@ -838,7 +897,10 @@ async function main() {
             },
             {
                 line_kind: "RATE_CARD",
-                description: "Barrel Tent Installation (3 units)",
+                category: "EQUIPMENT",
+                label: "Barrel Tent Installation (3 units)",
+                quantity: 1,
+                unit: "job",
                 buy_unit_price: 450,
                 buy_total: 450,
                 sell_unit_price: 560,
@@ -847,7 +909,10 @@ async function main() {
             },
             {
                 line_kind: "RATE_CARD",
-                description: "Transport — Round Trip (Desert Venue)",
+                category: "TRANSPORT",
+                label: "Transport — Round Trip (Desert Venue)",
+                quantity: 1,
+                unit: "trip",
                 buy_unit_price: 400,
                 buy_total: 400,
                 sell_unit_price: 500,
@@ -857,7 +922,6 @@ async function main() {
         ],
         margin_percent: "25",
         vat_percent: "5",
-        created_by: LOGISTICS_USER,
         calculated_by: LOGISTICS_USER,
         updated_at: new Date(),
     });
@@ -876,15 +940,18 @@ async function main() {
         event_end_date: eventEnd4,
         venue_name: "Al Qudra Lakes",
         venue_city_id: CITY_DUBAI,
-        venue_address: "Al Qudra Desert, Dubai",
-        venue_location: { lat: 24.8131, lng: 55.3425 },
+        venue_location: {
+            country: "United Arab Emirates",
+            address: "Al Qudra Desert, Dubai",
+            access_notes: null,
+        },
         contact_name: "Layla Al Mansoori",
         contact_email: "layla@redbull.com",
         contact_phone: "+971505551234",
         order_pricing_id: priceId4,
-        delivery_window: { date: dateStr(daysFromNow(13)), time_from: "07:00", time_to: "11:00" },
-        pickup_window: { date: dateStr(daysFromNow(17)), time_from: "14:00", time_to: "18:00" },
-        calculated_totals: { total_volume: 4.5, total_weight: 240 },
+        delivery_window: windowOf(daysFromNow(13), "07:00", "11:00"),
+        pickup_window: windowOf(daysFromNow(17), "14:00", "18:00"),
+        calculated_totals: { volume: 4.5, weight: 240 },
         scanning_data: {
             outbound: { total: 3, scanned: 0, complete: false },
             inbound: { total: 3, scanned: 0, complete: false },
@@ -932,9 +999,9 @@ async function main() {
         quantity: 3,
         unit: "each",
         unit_rate: "560",
+        sell_unit_rate: sellAt25(560),
         total: "1680",
         added_by: LOGISTICS_USER,
-        created_by: LOGISTICS_USER,
         updated_at: new Date(),
     });
     await db.insert(lineItems).values({
@@ -950,9 +1017,9 @@ async function main() {
         quantity: 1,
         unit: "trip",
         unit_rate: "500",
+        sell_unit_rate: sellAt25(500),
         total: "500",
         added_by: LOGISTICS_USER,
-        created_by: LOGISTICS_USER,
         updated_at: new Date(),
     });
 
