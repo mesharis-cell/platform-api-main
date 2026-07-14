@@ -94,21 +94,46 @@ Flow (`scripts/dbops/refresh-staging-from-prod.sh` + `refresh-staging-full.sh`):
    `drizzle.__drizzle_migrations` journal. Supabase-managed schemas are excluded.
 2. **Restore wholesale** into staging via `restore-db-snapshot.sh`
    (`pg_restore --clean --if-exists --single-transaction --no-owner --no-acl`) —
-   staging's drizzle journal becomes **prod's**.
-3. **Sanitize** (`sanitize-staging.sh`) — neutralise the outbound notification
-   queue, then rewrite every email-bearing / outbound-contact column so staging
-   cannot mail real customers. Idempotent.
-4. **Migrate** — `APP_ENV=staging bunx drizzle-kit migrate`. With prod's journal
+   staging's drizzle journal becomes **prod's**. This also restores prod's live
+   outbound notification queue (`notification_logs` rows with status
+   `QUEUED`/`PROCESSING`/`RETRYING`) into staging.
+3. **Kill queue (immediate, autocommit)** — the orchestrator runs a **single
+   autocommit `psql -c`** (no `BEGIN`/`COMMIT`) flipping every pending
+   `notification_logs` row → `SKIPPED`, immediately after the restore succeeds
+   and **before** the full sanitize. Because it is its own committed statement it
+   can never be rolled back by a later failure in sanitize's multi-statement
+   transaction — the one write that must land first so the staging worker can
+   never dispatch prod's restored queue to real customers.
+4. **Sanitize** (`sanitize-staging.sh`) — re-neutralise the outbound queue
+   (idempotent belt-and-suspenders; also covers standalone sanitize runs), then
+   rewrite every email-bearing / outbound-contact column so staging cannot mail
+   real customers. Idempotent.
+5. **Migrate** — `APP_ENV=staging bunx drizzle-kit migrate`. With prod's journal
    restored, drizzle replays **exactly** the migrations prod has not run yet
    (DDL + data backfills) = the cutover, rehearsed.
-5. **Seed** demo orders, then **re-sanitize** (wrapper only).
+6. **Seed** demo orders, then **re-sanitize** (wrapper only).
+
+**Stop the staging worker first (hard gate).** The restore brings prod's live
+outbound queue into staging, and the staging notification worker polls **every
+1 second**, claims `status IN ('QUEUED','RETRYING')` and sends via Resend to
+`recipient_email`. A worker running during the refresh can leak prod mail to
+**real customers** in the window before the queue is neutralised. Therefore
+`apply` is a **hard gate**: stop or scale the staging API (or its worker) to zero
+**before** refreshing, then affirm it with `DBOPS_WORKER_ACK="WORKER STOPPED"`.
+Restart the worker **after** the refresh completes — the queue is neutralised
+immediately post-restore (step 3, autocommit) and again by sanitize (step 4), so
+it starts against a clean, `SKIPPED` queue.
 
 Safety: `APP_ENV=staging` gate; `dry-run` reads both DBs but writes nothing;
-`apply` requires `DBOPS_REFRESH_CONFIRM="REFRESH STAGING <ref>"` plus a fifth
+`apply` requires **both** `DBOPS_REFRESH_CONFIRM="REFRESH STAGING <ref>"` **and**
+`DBOPS_WORKER_ACK="WORKER STOPPED"` (checked before the first write), plus a fifth
 guard (`lib-dbops-guard.sh`) that resolves the write target's Supabase ref +
-live fingerprint and hard-refuses if it is (or resolves to) prod. Restore is a
-single transaction, so a mid-refresh failure is safely re-runnable from the top;
-reuse an existing dump on retry with `DBOPS_REFRESH_DUMP=/path/to.dump`.
+live fingerprint and hard-refuses if it is (or resolves to) prod. That same guard
+now also runs **inside `restore-db-snapshot.sh` itself** before its first
+destructive statement, so the restore refuses a prod write target even when
+invoked standalone (not just via the orchestrator). Restore is a single
+transaction, so a mid-refresh failure is safely re-runnable from the top; reuse
+an existing dump on retry with `DBOPS_REFRESH_DUMP=/path/to.dump`.
 `PROD_DATABASE_URL` supplies data in exactly one place (the dump) and is never
 exported into a write-capable step.
 
