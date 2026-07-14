@@ -1,9 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# ============================================================================
+# restore-db-snapshot.sh  —  DESTRUCTIVE wholesale restore into staging
+#
+# Restores a custom-format dump (from snapshot-db.sh) into staging via
+# pg_restore --clean --if-exists --single-transaction. This DROPS + recreates
+# app objects in the dumped schemas, so it is the single most destructive step
+# in the staging-refresh flow.
+#
+# SAFETY GATES (all enforced before the first destructive statement):
+#   - APP_ENV=staging hard-gate.
+#   - Typed confirmation: DB_RESTORE_CONFIRM="RESTORE STAGING <dump-basename>".
+#   - Anti-prod guard (own defence — does NOT trust the caller): sources
+#     lib-dbops-guard.sh and calls dbops_assert_write_target_safe on the write
+#     target (STAGING_DATABASE_URL) vs PROD_DATABASE_URL. Resolves the write
+#     target's Supabase ref + live fingerprint and HARD-REFUSES if it is (or
+#     resolves to) prod. Runs standalone: if PROD_DATABASE_URL is absent it
+#     falls back to a write-target reachability check. This guard is why the
+#     script is safe even when invoked directly, not only via the orchestrator.
+# ============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 API_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ENV_FILE="${DBOPS_ENV_FILE:-$API_ROOT/.env.dbops}"
+
+# shellcheck source=scripts/dbops/lib-dbops-guard.sh
+source "$SCRIPT_DIR/lib-dbops-guard.sh"
 
 usage() {
     cat >&2 <<EOF
@@ -110,6 +132,25 @@ fi
 if [[ ! -f "$DUMP_PATH" ]]; then
     echo "Dump not found: $DUMP_PATH" >&2
     exit 1
+fi
+
+# ----------------------------------------------------------------------------
+# Anti-prod guard (own defence, before ANY read or destructive statement on the
+# write target). Does not trust the caller: resolves the write target's Supabase
+# ref + live fingerprint and hard-refuses if it is (or resolves to) prod. A
+# ref/host match refuses at parse-level before any connection, so a swapped
+# .env.dbops (STAGING_DATABASE_URL pointing at prod) dies here. Standalone-safe:
+# if PROD_DATABASE_URL is absent, fall back to a write-target reachability check.
+# ----------------------------------------------------------------------------
+echo "=== Anti-prod guard: confirm write target is staging, not prod ==="
+if [[ -n "${PROD_DATABASE_URL:-}" ]]; then
+    dbops_assert_write_target_safe "$DB_URL" "$PROD_DATABASE_URL" 0
+else
+    echo "  [guard] PROD_DATABASE_URL not set — running write-target reachability check only." >&2
+    dbops_live_fingerprint "$DB_URL" >/dev/null || {
+        echo "ERROR: [guard] write target unreachable. Refusing." >&2
+        exit 1
+    }
 fi
 
 RUN_TIMESTAMP="$(date -u +%Y%m%d-%H%M%S)"
