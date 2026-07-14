@@ -19,16 +19,21 @@ set -euo pipefail
 #                               drizzle.__drizzle_migrations journal. Supabase-
 #                               managed schemas are excluded exactly as
 #                               snapshot-db.sh already scopes them.
-#   2. RESTORE wholesale        restore-db-snapshot.sh emits the dump as SQL
-#      + IN-TXN QUEUE KILL       (pg_restore --clean --if-exists --no-owner
-#                               --no-acl -f -), CONCATENATES a queue-neutralise
-#                               UPDATE (passed as DB_RESTORE_APPEND_SQL), and runs
-#                               the WHOLE stream through psql --single-transaction
-#                               -v ON_ERROR_STOP=1. Every app object incl. the
-#                               journal is dropped + recreated AND prod's restored
-#                               outbound queue (notification_logs QUEUED /
-#                               PROCESSING / RETRYING) is flipped to SKIPPED in
-#                               the SAME commit. STRUCTURALLY ZERO-WINDOW: at the
+#   2. RESTORE wholesale        restore-db-snapshot.sh MATERIALISES the dump as
+#      + IN-TXN QUEUE KILL       SQL to a file (pg_restore --clean --if-exists
+#                               --no-owner --no-acl -f <run-dir>/restore.sql) and
+#                               checks pg_restore's exit BEFORE psql runs; only on
+#                               success it APPENDS a queue-neutralise UPDATE
+#                               (passed as DB_RESTORE_APPEND_SQL) to that file and
+#                               runs it as ONE psql --single-transaction -v
+#                               ON_ERROR_STOP=1 -f <file>. Materialising first
+#                               makes a partial COMMIT structurally impossible (a
+#                               mid-COPY pg_restore death never reaches psql).
+#                               Every app object incl. the journal is dropped +
+#                               recreated AND prod's restored outbound queue
+#                               (notification_logs QUEUED / PROCESSING / RETRYING)
+#                               is flipped to SKIPPED in the SAME commit.
+#                               STRUCTURALLY ZERO-WINDOW: at the
 #                               commit-instant the DB never, at any visible
 #                               instant, contains a claimable queue row — the
 #                               staging worker can never see prod's queue, so
@@ -184,10 +189,11 @@ if [[ "$MODE" == "dry-run" ]]; then
     echo ""
     echo "=== [dry-run] Plan ==="
     echo "  1. SNAPSHOT prod  -> pg_dump (public + drizzle) via snapshot-db.sh"
-    echo "  2. RESTORE (atomic) -> connection sweep, then pg_restore -f -  ==pipe==>"
-    echo "                       psql --single-transaction -v ON_ERROR_STOP=1 into staging"
-    echo "                       ($CONFIRM_TOKEN), WITH the queue-neutralise UPDATE appended"
-    echo "                       INSIDE that same transaction (structurally zero-window):"
+    echo "  2. RESTORE (atomic) -> connection sweep, then MATERIALISE the dump to a file"
+    echo "                       (pg_restore -f <run-dir>/restore.sql, exit checked), then"
+    echo "                       psql --single-transaction -v ON_ERROR_STOP=1 -f <file> into"
+    echo "                       staging ($CONFIRM_TOKEN), WITH the queue-neutralise UPDATE"
+    echo "                       appended INSIDE that same transaction (structurally zero-window):"
     echo "                         | $QUEUE_NEUTRALISE_SQL"
     echo "  3. KILL QUEUE     -> autocommit UPDATE re-run (belt-and-suspenders; now redundant)"
     echo "  4. SANITIZE       -> sanitize-staging.sh (re-neutralise queue + email columns)"
