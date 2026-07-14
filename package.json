@@ -44,6 +44,8 @@
         "dbops:refresh-staging": "APP_ENV=staging bash scripts/dbops/refresh-staging-full.sh apply",
         "dbops:refresh-staging:bare:dry": "APP_ENV=staging bash scripts/dbops/refresh-staging-from-prod.sh dry-run",
         "dbops:refresh-staging:bare": "APP_ENV=staging bash scripts/dbops/refresh-staging-from-prod.sh apply",
+        "dbops:sanitize-staging:dry": "APP_ENV=staging bash scripts/dbops/sanitize-staging.sh dry-run",
+        "dbops:sanitize-staging": "APP_ENV=staging bash scripts/dbops/sanitize-staging.sh apply",
         "deploy:status": "bash scripts/deploy/check-all.sh",
         "deploy:status:api": "bash scripts/deploy/check-codepipeline.sh && bash scripts/deploy/check-eb.sh",
         "deploy:status:amplify": "bash scripts/deploy/check-amplify.sh",
