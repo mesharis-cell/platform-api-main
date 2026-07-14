@@ -2,16 +2,31 @@
 #
 # refresh-staging-full.sh
 #
-# One-shot wrapper that refreshes staging from prod AND re-seeds the demo
-# orders with truck evidence, scans, and a pending-approval quote.
+# One-shot wrapper around the DRESS-REHEARSAL prod -> staging refresh.
+#
+# MODEL (2026-07-14): the heavy lifting lives in refresh-staging-from-prod.sh,
+# which now SNAPSHOTs prod, RESTOREs it wholesale into staging (schema + data +
+# prod's drizzle journal), SANITIZEs outbound contacts, then runs
+# `drizzle-kit migrate` so the prod-head -> local-head migrations REPLAY on
+# prod-shaped data — the cutover, rehearsed. See that script's header for the
+# full model + safety contract.
+#
+# This wrapper adds:
+#   Step 2 — re-seed the demo orders (truck evidence, scans, pending quote).
+#   Step 3 — re-run sanitize so demo-seed contact emails are neutralised too
+#            (the seed writes placeholder addresses at real domains).
 #
 # Usage:
-#   ./refresh-staging-full.sh apply      # full: refresh prod → staging + seed
+#   ./refresh-staging-full.sh apply      # snapshot->restore->sanitize->migrate->seed->sanitize
 #   ./refresh-staging-full.sh dry-run    # inspect only; no DB writes
 #
 # Called by package.json scripts:
 #   bun run dbops:refresh-staging        -> apply
 #   bun run dbops:refresh-staging:dry    -> dry-run
+#
+# apply mode still requires the typed confirmation the bare script enforces:
+#   APP_ENV=staging DBOPS_REFRESH_CONFIRM="REFRESH STAGING <ref>" \
+#       bun run dbops:refresh-staging
 #
 
 set -euo pipefail
@@ -33,11 +48,11 @@ if [[ "$MODE" != "apply" && "$MODE" != "dry-run" ]]; then
 fi
 
 # ----------------------------------------------------------------------------
-# Step 1 — Refresh staging from prod (schema check, truncate+copy, rewrites)
+# Step 1 — Dress-rehearsal refresh (snapshot -> restore -> sanitize -> migrate)
 # ----------------------------------------------------------------------------
 echo ""
 echo "====================================================================="
-echo " Step 1/2: Refresh staging from prod"
+echo " Step 1/3: Refresh staging from prod (dress rehearsal)"
 echo "====================================================================="
 bash "$SCRIPT_DIR/refresh-staging-from-prod.sh" "$MODE"
 
@@ -46,22 +61,20 @@ bash "$SCRIPT_DIR/refresh-staging-from-prod.sh" "$MODE"
 # ----------------------------------------------------------------------------
 echo ""
 echo "====================================================================="
-echo " Step 2/2: Re-seed demo orders"
+echo " Step 2/3: Re-seed demo orders"
 echo "====================================================================="
 
 if [[ "$MODE" == "dry-run" ]]; then
     cat <<EOF
 [dry-run] SKIPPED — would run: bun run tsx scripts/seed-demo-orders.ts
 
-On apply, this step creates 4 demo orders in staging for Red Bull:
-  1. DELIVERED        — outbound truck photos, scans, delivered state
-  2. DERIG            — onsite + derig captures, mid-lifecycle
-  3. CLOSED           — full lifecycle incl. return truck, condition reports
-  4. PENDING_APPROVAL — fresh quote awaiting client review (3 Barrel Tents)
-
-All demo assets are verified to exist in prod, so the re-seed will always
-succeed after a refresh.
+On apply, this step creates demo orders in staging (delivered / derig / closed /
+pending-approval) for lifecycle testing. It runs AFTER the migrate replay, so
+the demo rows land on the post-cutover schema.
 EOF
+    echo ""
+    echo "[dry-run] Step 3 (post-seed sanitize) would then re-run to neutralise"
+    echo "          any demo-seed contact emails."
     echo ""
     echo "Full dry run complete."
     exit 0
@@ -74,7 +87,18 @@ else
     npx tsx scripts/seed-demo-orders.ts
 fi
 
+# ----------------------------------------------------------------------------
+# Step 3 — Re-run sanitize so demo-seed contact emails are neutralised too.
+#          Idempotent: already-staging addresses are skipped.
+# ----------------------------------------------------------------------------
+echo ""
+echo "====================================================================="
+echo " Step 3/3: Re-sanitize (catch demo-seed contacts)"
+echo "====================================================================="
+APP_ENV=staging bash "$SCRIPT_DIR/sanitize-staging.sh" apply
+
 echo ""
 echo "====================================================================="
 echo " Full staging refresh complete"
 echo "====================================================================="
+echo " Fidelity gate (recommended): APP_ENV=staging bun run db:ops:pricing-tieout"
