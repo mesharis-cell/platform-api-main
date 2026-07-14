@@ -93,17 +93,20 @@ Flow (`scripts/dbops/refresh-staging-from-prod.sh` + `refresh-staging-full.sh`):
    `drizzle`) via `snapshot-db.sh`; captures schema, data, and prod's
    `drizzle.__drizzle_migrations` journal. Supabase-managed schemas are excluded.
 2. **Restore wholesale + neutralise queue in ONE transaction** via
-   `restore-db-snapshot.sh`, using a **materialise-first** two-phase model.
-   _Phase A:_ `pg_restore --clean --if-exists --no-owner --no-acl -f
-<run-dir>/restore.sql` **materialises** the dump to a file (no DB connection),
-   and its exit code is checked **explicitly**. If `pg_restore` dies mid-stream
-   (incl. mid-`COPY`), **psql is never invoked** — so a truncated `COPY` stream
-   can never be committed. _Phase B (only on `pg_restore` exit 0):_ the
-   queue-neutralise `UPDATE` (passed as `DB_RESTORE_APPEND_SQL`) is **appended** to
-   that file and the whole file is run as **one** `psql --single-transaction -v
-ON_ERROR_STOP=1 -f <file>`. So every app object (incl. prod's drizzle journal —
-   staging's journal becomes **prod's**) **and** the flip of prod's restored
-   outbound queue (`notification_logs` rows with status
+   `restore-db-snapshot.sh`, using a **materialise-first** two-phase model with a
+   **wholesale schema reset** (replaces `pg_restore --clean`; 2026-07-14c).
+   _Phase A:_ `pg_restore --no-owner --no-acl -f <run-dir>/restore.sql` (**no
+   `--clean`**) **materialises** the dump to a file (no DB connection), and its exit
+   code is checked **explicitly**. If `pg_restore` dies mid-stream (incl.
+   mid-`COPY`), **psql is never invoked** — so a truncated `COPY` stream can never
+   be committed. The file is then prepared in place (still no DB): the preamble
+   `lock_timeout` is bounded, a **wholesale-reset block is prepended**, and a tail
+   of best-effort public-schema grants + any `DB_RESTORE_APPEND_SQL` (the
+   queue-neutralise `UPDATE`) is **appended**. _Phase B (only on `pg_restore` exit
+   0):_ the whole file runs as **one** `psql --single-transaction -v
+ON_ERROR_STOP=1 -f <file>`. So the reset, every app object (incl. prod's drizzle
+   journal — staging's journal becomes **prod's**) **and** the flip of prod's
+   restored outbound queue (`notification_logs` rows with status
    `QUEUED`/`PROCESSING`/`RETRYING` → `SKIPPED`) **commit together, atomically**.
    This is **structurally zero-window**: at the commit-instant the DB never, at
    any visible instant, contains a claimable queue row, so the staging worker can
@@ -111,14 +114,44 @@ ON_ERROR_STOP=1 -f <file>`. So every app object (incl. prod's drizzle journal �
    `ON_ERROR_STOP` rolls the **entire** transaction back on any failure (incl. a
    failure in the appended SQL), so a mid-restore failure leaves staging unchanged
    and the refresh is re-runnable (the script confirms this by diffing an
-   identity/row-count fingerprint captured before vs after). A **pre-restore
-   connection sweep** (`pg_terminate_backend` over other client backends on the
-   staging DB, self excluded) runs first so the `--clean` drops don't wait on
-   staging API/worker locks; connected clients reconnect and see brief errors. A
-   finite `lock_timeout` is forced into the restore transaction so a lock wait
-   fails fast (re-runnable) instead of hanging. (Over a Supabase **transaction**
-   pooler URL the sweep is best-effort — a direct `db.<ref>` URL sweeps hardest;
-   the `lock_timeout` is the backstop either way.)
+   identity/row-count fingerprint captured before vs after).
+
+    **Why wholesale, not `--clean`:** `pg_restore --clean` emits per-object `DROP`s
+    derived from the **dump's (prod's)** schema and runs them against **staging's**
+    schema, so **any** drift between the two aborts the whole transaction. The first
+    live run failed exactly here — `DROP INDEX workflow_definitions_platform_code_unique`
+    (a plain `UNIQUE INDEX` on prod) hit a same-named **`UNIQUE CONSTRAINT`** on
+    staging (`cannot drop index … constraint requires it`) and rolled the txn back
+    (cleanly — the machinery worked). Rather than reconcile object-by-object forever,
+    the reset drops the whole drift class: the prepended block runs as the first
+    statements of the txn —
+
+    ```sql
+    SET lock_timeout = '<RESTORE_LOCK_TIMEOUT>';
+    DROP SCHEMA IF EXISTS drizzle CASCADE;
+    DROP SCHEMA IF EXISTS public CASCADE;
+    ```
+
+    — and the **dump body itself recreates both schemas** (verified: the emission
+    contains `CREATE SCHEMA drizzle;` **and** `CREATE SCHEMA public;`) plus every
+    object, so the reset does **not** recreate them (a duplicate `CREATE` would abort
+    the txn). Staging-only objects in `public`/`drizzle` are dropped **by design**
+    (wholesale replace); other schemas (`extensions`/`vault`/`pg_catalog`/…) are
+    **untouched** — staging has no extensions in `public`, so the `CASCADE` is safe.
+    Supabase `public`-schema grants (stripped by `--no-acl`) are re-granted
+    **best-effort** in the tail (`GRANT USAGE ON SCHEMA public TO anon, authenticated,
+   service_role`, `DO`-wrapped so a missing role can't abort the restore).
+
+    A **connection sweep** (`pg_terminate_backend` over other client backends on the
+    staging DB, self excluded) runs **between materialise and execute** (adjacent to
+    the transaction — materialisation can take minutes, so sweeping earlier would
+    just let clients reconnect) so the `DROP SCHEMA CASCADE` doesn't wait on staging
+    API/worker locks; connected clients reconnect and see brief errors. A finite
+    `lock_timeout` is forced into the restore transaction (reset block + rewritten
+    dump preamble) so a lock wait fails fast (re-runnable) instead of hanging. (Over
+    a Supabase **transaction** pooler URL the sweep is best-effort — a direct
+    `db.<ref>` URL sweeps hardest; the `lock_timeout` is the backstop either way.)
+
 3. **Kill queue (autocommit, belt-and-suspenders)** — the orchestrator re-runs
    the same flip in a single autocommit `psql -c` immediately after the restore.
    This is now **provably redundant** (step 2 already neutralised the queue in
