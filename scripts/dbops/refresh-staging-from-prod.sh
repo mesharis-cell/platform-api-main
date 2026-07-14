@@ -23,38 +23,57 @@ set -euo pipefail
 #                               --no-owner --no-acl into staging via
 #                               restore-db-snapshot.sh. Every app object incl.
 #                               the journal is dropped + recreated from the dump,
-#                               so staging's drizzle journal becomes PROD's.
-#   3. SANITIZE                 sanitize-staging.sh: neutralise the outbound
-#                               notification queue FIRST, then rewrite every
-#                               email-bearing / outbound-contact column so
-#                               staging cannot mail real customers.
-#   4. MIGRATE (the rehearsal)  APP_ENV=staging bunx drizzle-kit migrate against
+#                               so staging's drizzle journal becomes PROD's. This
+#                               ALSO restores prod's live outbound notification
+#                               queue (notification_logs with status QUEUED /
+#                               PROCESSING / RETRYING) into staging.
+#   3. KILL QUEUE (autocommit)  IMMEDIATELY after restore succeeds and BEFORE the
+#                               full sanitize, flip every pending notification_logs
+#                               row (QUEUED/PROCESSING/RETRYING → SKIPPED) in ONE
+#                               autocommit psql statement (no BEGIN/COMMIT). This
+#                               can never be rolled back by a later failure, so
+#                               the staging worker can never dispatch prod's
+#                               restored queue to real customers. (Sanitize's own
+#                               step-0 repeats this — belt-and-suspenders.)
+#   4. SANITIZE                 sanitize-staging.sh: re-neutralise the queue
+#                               (idempotent), then rewrite every email-bearing /
+#                               outbound-contact column so staging cannot mail
+#                               real customers.
+#   5. MIGRATE (the rehearsal)  APP_ENV=staging bunx drizzle-kit migrate against
 #                               staging. With prod's journal restored, drizzle
 #                               replays EXACTLY the migrations prod has not run
 #                               yet — DDL + data backfills, in order — which is
 #                               the cutover itself, rehearsed on prod-shaped data.
 #
-#   (The demo-order seed is step 5, run by the refresh-staging-full.sh wrapper,
-#    which then re-runs the sanitize once more to catch seed-authored contacts.)
+#   (The demo-order seed is a further step, run by the refresh-staging-full.sh
+#    wrapper, which then re-runs the sanitize once more to catch seed contacts.)
 #
 # SAFETY (non-negotiable):
 #   - APP_ENV=staging hard-gate at entry.
 #   - dry-run is default-safe: it READS both DBs to print the full plan (guard
 #     result, snapshot/restore intent, the exact migrations that would replay,
 #     the sanitize plan) but issues ZERO writes.
-#   - apply mode requires a typed confirmation naming the staging target
-#     (DBOPS_REFRESH_CONFIRM="REFRESH STAGING <ref>") + the shared FIFTH GUARD
-#     (write target must not be prod) BEFORE the first destructive statement.
+#   - apply mode requires TWO typed acknowledgments BEFORE the first write:
+#       (a) DBOPS_REFRESH_CONFIRM="REFRESH STAGING <ref>" — names the target.
+#       (b) DBOPS_WORKER_ACK="WORKER STOPPED" — a HARD GATE affirming the staging
+#           notification worker is stopped. The restore copies prod's live
+#           outbound queue into staging; the staging worker polls every 1s and
+#           sends QUEUED/RETRYING rows via Resend to recipient_email, so a running
+#           worker can leak prod mail to real customers in the window before the
+#           queue is neutralised. Stop/scale the staging API (or its worker) to
+#           zero BEFORE refreshing, restart it AFTER.
+#     Plus the shared FIFTH GUARD (write target must not be prod).
 #   - PROD_DATABASE_URL is consumed for DATA in exactly ONE place — the dump
 #     (snapshot-db.sh). It is NEVER exported into a write-capable step; the
 #     migrate step is run with `env -u PROD_DATABASE_URL`.
 #   - Mid-failure re-runnable: restore is a single transaction (atomic rollback),
-#     migrate/sanitize are idempotent, and an existing dump can be reused via
-#     DBOPS_REFRESH_DUMP=/path/to.dump to avoid re-hitting prod on a retry.
+#     the queue-kill + migrate/sanitize are idempotent, and an existing dump can
+#     be reused via DBOPS_REFRESH_DUMP=/path/to.dump to avoid re-hitting prod.
 #
 # Usage:
 #   APP_ENV=staging bash scripts/dbops/refresh-staging-from-prod.sh dry-run
 #   APP_ENV=staging DBOPS_REFRESH_CONFIRM="REFRESH STAGING <ref>" \
+#       DBOPS_WORKER_ACK="WORKER STOPPED" \
 #       bash scripts/dbops/refresh-staging-from-prod.sh apply
 # ============================================================================
 
@@ -146,10 +165,12 @@ if [[ "$MODE" == "dry-run" ]]; then
     echo "=== [dry-run] Plan ==="
     echo "  1. SNAPSHOT prod  -> pg_dump (public + drizzle) via snapshot-db.sh"
     echo "  2. RESTORE        -> wholesale pg_restore into staging ($CONFIRM_TOKEN)"
-    echo "  3. SANITIZE       -> sanitize-staging.sh (queue + email columns)"
-    echo "  4. MIGRATE        -> APP_ENV=staging bunx drizzle-kit migrate (replay)"
+    echo "  3. KILL QUEUE     -> autocommit UPDATE: pending notification_logs -> SKIPPED"
+    echo "  4. SANITIZE       -> sanitize-staging.sh (re-neutralise queue + email columns)"
+    echo "  5. MIGRATE        -> APP_ENV=staging bunx drizzle-kit migrate (replay)"
     echo ""
     echo "  Apply requires: DBOPS_REFRESH_CONFIRM=\"$REQUIRED_CONFIRM\""
+    echo "                  DBOPS_WORKER_ACK=\"WORKER STOPPED\" (staging worker must be stopped)"
 
     echo ""
     echo "=== [dry-run] Migration-replay plan (the dress rehearsal) ==="
@@ -185,6 +206,41 @@ EOF
 fi
 echo "  Confirmation accepted for target: $CONFIRM_TOKEN"
 
+# ----------------------------------------------------------------------------
+# HARD WORKER GATE (before any write). The restore copies prod's live outbound
+# notification queue into staging; the staging notification worker polls every
+# 1 second, claims rows with status IN ('QUEUED','RETRYING') and sends them via
+# Resend to recipient_email. A worker running during the refresh can dispatch
+# prod's restored queue to REAL CUSTOMERS in the window before it is neutralised.
+# This gate refuses unless the operator has affirmed the worker is stopped.
+# ----------------------------------------------------------------------------
+echo ""
+echo "=== Worker-stop acknowledgment (hard gate, before any write) ==="
+if [[ "${DBOPS_WORKER_ACK:-}" != "WORKER STOPPED" ]]; then
+    cat >&2 <<'EOF'
+Refusing destructive refresh: staging notification worker not acknowledged as stopped.
+
+WHY THIS GATE EXISTS
+  The restore copies prod's notification_logs wholesale into staging — including
+  its in-flight OUTBOUND QUEUE (rows with status QUEUED / PROCESSING / RETRYING).
+  The staging API's notification worker polls every 1 second, claims rows with
+  status IN ('QUEUED','RETRYING'), and sends them via Resend to recipient_email.
+  If that worker is running during the refresh it can dispatch prod's restored
+  queue to REAL CUSTOMERS in the window before the queue is neutralised.
+
+HOW TO SATISFY IT
+  1. STOP the staging notification worker first — stop or scale the staging API
+     (or its dedicated worker process) to zero so nothing polls the queue.
+  2. Re-run this refresh with the acknowledgment set:
+         DBOPS_WORKER_ACK="WORKER STOPPED"
+  3. RESTART the staging API / worker AFTER the refresh completes. The queue is
+     neutralised immediately after restore (autocommit) and again by sanitize,
+     so the worker starts against a clean, SKIPPED queue.
+EOF
+    exit 1
+fi
+echo "  Worker-stop acknowledged (DBOPS_WORKER_ACK)."
+
 # Optional allowlist (honoured if present in the sourced env): staging ref must
 # be explicitly allow-listed. Absent => rely on typed confirm + the fifth guard.
 if [[ -n "${DB_DESTRUCTIVE_ALLOWED_SUPABASE_REFS:-}" && -n "$STAGING_REF" ]]; then
@@ -204,7 +260,7 @@ dbops_assert_write_target_safe "$STAGING_DATABASE_URL" "$PROD_DATABASE_URL" 1
 #          Reuse an existing dump via DBOPS_REFRESH_DUMP for cheap retries.
 # ----------------------------------------------------------------------------
 echo ""
-echo "=== Step 1/4: Snapshot prod (read-only) ==="
+echo "=== Step 1/5: Snapshot prod (read-only) ==="
 if [[ -n "${DBOPS_REFRESH_DUMP:-}" ]]; then
     if [[ ! -f "$DBOPS_REFRESH_DUMP" ]]; then
         echo "DBOPS_REFRESH_DUMP set but file not found: $DBOPS_REFRESH_DUMP" >&2
@@ -233,24 +289,39 @@ print_replay_plan "$APPLIED_BEFORE" | tee "$RUN_DIR/replay-plan.txt"
 #          mid-restore failure rolls back and the whole refresh is re-runnable.
 # ----------------------------------------------------------------------------
 echo ""
-echo "=== Step 2/4: Restore wholesale into staging ==="
+echo "=== Step 2/5: Restore wholesale into staging ==="
 DB_RESTORE_CONFIRM="RESTORE STAGING $(basename "$DUMP_PATH")" \
     APP_ENV=staging bash "$SCRIPT_DIR/restore-db-snapshot.sh" staging "$DUMP_PATH" apply
 
 # ----------------------------------------------------------------------------
-# Step 3 — SANITIZE (neutralise queue first, then rewrite contact columns).
+# Step 3 — KILL QUEUE (time-critical, own autocommit statement). The restore
+#          just brought prod's live outbound queue into staging. Neutralise it
+#          NOW, in a SINGLE autocommit psql -c (NO BEGIN/COMMIT), so it can never
+#          be rolled back by a later failure in the multi-statement sanitize
+#          transaction. This is the one write that MUST land before anything else
+#          can fail. Sanitize's own step-0 repeats it (idempotent).
 # ----------------------------------------------------------------------------
 echo ""
-echo "=== Step 3/4: Sanitize staging ==="
+echo "=== Step 3/5: Neutralise outbound queue (immediate, autocommit) ==="
+"$PSQL_BIN" "$STAGING_DATABASE_URL" -v ON_ERROR_STOP=1 -P pager=off -c \
+    "update public.notification_logs set status = 'SKIPPED', next_attempt_at = null, error_message = coalesce(error_message, '') || ' [staging-refresh: queue neutralised immediately post-restore]' where status in ('QUEUED','PROCESSING','RETRYING');" \
+    | tee "$RUN_DIR/queue-kill.log"
+echo "  Outbound queue neutralised (pending notification_logs -> SKIPPED)."
+
+# ----------------------------------------------------------------------------
+# Step 4 — SANITIZE (re-neutralise queue, then rewrite contact columns).
+# ----------------------------------------------------------------------------
+echo ""
+echo "=== Step 4/5: Sanitize staging ==="
 APP_ENV=staging bash "$SCRIPT_DIR/sanitize-staging.sh" apply | tee "$RUN_DIR/sanitize.log"
 
 # ----------------------------------------------------------------------------
-# Step 4 — MIGRATE (the dress rehearsal). Replays prod-head -> local-head:
+# Step 5 — MIGRATE (the dress rehearsal). Replays prod-head -> local-head:
 #          DDL + data backfills, in journal order, against prod-shaped data.
 #          PROD_DATABASE_URL is stripped from this write-capable step.
 # ----------------------------------------------------------------------------
 echo ""
-echo "=== Step 4/4: Migrate staging (replay) ==="
+echo "=== Step 5/5: Migrate staging (replay) ==="
 (
     cd "$API_ROOT"
     env -u PROD_DATABASE_URL DATABASE_URL="$STAGING_DATABASE_URL" APP_ENV=staging \
@@ -273,6 +344,7 @@ echo "  Dump                : $DUMP_PATH"
 echo "  Prod journal (before): $APPLIED_BEFORE migration(s)"
 echo "  Staging journal (after migrate): $APPLIED_AFTER migration(s)"
 echo "  Replay plan         : $RUN_DIR/replay-plan.txt"
+echo "  Queue-kill log      : $RUN_DIR/queue-kill.log"
 echo "  Sanitize log        : $RUN_DIR/sanitize.log"
 echo "  Migrate log         : $RUN_DIR/migrate.log"
 echo ""
