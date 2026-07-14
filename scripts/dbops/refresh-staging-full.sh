@@ -66,7 +66,7 @@ echo "====================================================================="
 
 if [[ "$MODE" == "dry-run" ]]; then
     cat <<EOF
-[dry-run] SKIPPED — would run: bun run tsx scripts/seed-demo-orders.ts
+[dry-run] SKIPPED — would run: bun --preload ./src/bootstrap/env-preload.ts scripts/seed-demo-orders.ts
 
 On apply, this step creates demo orders in staging (delivered / derig / closed /
 pending-approval) for lifecycle testing. It runs AFTER the migrate replay, so
@@ -81,11 +81,11 @@ EOF
 fi
 
 cd "$API_ROOT"
-if command -v bun >/dev/null 2>&1; then
-    bun run tsx scripts/seed-demo-orders.ts
-else
-    npx tsx scripts/seed-demo-orders.ts
-fi
+# The seed connects via src/db which reads DATABASE_URL from the bootstrap env
+# loader — it MUST run under the env preload (APP_ENV=staging is already
+# enforced at entry). A bare `tsx` invocation has no env and silently targets
+# libpq's localhost default (first live run failed exactly this way).
+bun --preload ./src/bootstrap/env-preload.ts scripts/seed-demo-orders.ts
 
 # ----------------------------------------------------------------------------
 # Step 3 — Re-run sanitize so demo-seed contact emails are neutralised too.
