@@ -20,27 +20,34 @@ set -euo pipefail
 #                               managed schemas are excluded exactly as
 #                               snapshot-db.sh already scopes them.
 #   2. RESTORE wholesale        restore-db-snapshot.sh MATERIALISES the dump as
-#      + IN-TXN QUEUE KILL       SQL to a file (pg_restore --clean --if-exists
-#                               --no-owner --no-acl -f <run-dir>/restore.sql) and
-#                               checks pg_restore's exit BEFORE psql runs; only on
-#                               success it APPENDS a queue-neutralise UPDATE
-#                               (passed as DB_RESTORE_APPEND_SQL) to that file and
-#                               runs it as ONE psql --single-transaction -v
-#                               ON_ERROR_STOP=1 -f <file>. Materialising first
-#                               makes a partial COMMIT structurally impossible (a
-#                               mid-COPY pg_restore death never reaches psql).
-#                               Every app object incl. the journal is dropped +
-#                               recreated AND prod's restored outbound queue
-#                               (notification_logs QUEUED / PROCESSING / RETRYING)
-#                               is flipped to SKIPPED in the SAME commit.
-#                               STRUCTURALLY ZERO-WINDOW: at the
-#                               commit-instant the DB never, at any visible
-#                               instant, contains a claimable queue row — the
-#                               staging worker can never see prod's queue, so
-#                               stopping the worker is no longer a safety
-#                               requirement. A pre-restore connection sweep
-#                               terminates other client backends first so the
-#                               --clean drops don't wait on worker locks.
+#      + IN-TXN QUEUE KILL       SQL to a file (pg_restore --no-owner --no-acl -f
+#                               <run-dir>/restore.sql — NO --clean) and checks
+#                               pg_restore's exit BEFORE psql runs; only on success
+#                               it PREPENDS a WHOLESALE-RESET block (DROP SCHEMA
+#                               drizzle/public CASCADE) and APPENDS best-effort
+#                               public grants + a queue-neutralise UPDATE (passed as
+#                               DB_RESTORE_APPEND_SQL) to that file, then runs it as
+#                               ONE psql --single-transaction -v ON_ERROR_STOP=1 -f
+#                               <file>. Materialising first makes a partial COMMIT
+#                               structurally impossible (a mid-COPY pg_restore death
+#                               never reaches psql). The wholesale reset REPLACES
+#                               --clean: --clean derives per-object DROPs from PROD's
+#                               schema and runs them against STAGING's, so any drift
+#                               aborts the txn (the live failure: DROP INDEX vs a
+#                               same-named UNIQUE CONSTRAINT). Dropping the app
+#                               schemas wholesale and letting the dump rebuild them
+#                               kills that class. Every app object incl. the journal
+#                               is dropped + recreated AND prod's restored outbound
+#                               queue (notification_logs QUEUED / PROCESSING /
+#                               RETRYING) is flipped to SKIPPED in the SAME commit.
+#                               STRUCTURALLY ZERO-WINDOW: at the commit-instant the
+#                               DB never, at any visible instant, contains a
+#                               claimable queue row — the staging worker can never
+#                               see prod's queue, so stopping the worker is no longer
+#                               a safety requirement. A connection sweep (run between
+#                               materialise + execute, adjacent to the txn)
+#                               terminates other client backends first so the DROP
+#                               SCHEMA CASCADE doesn't wait on worker locks.
 #   3. KILL QUEUE (autocommit)  Belt-and-suspenders. IMMEDIATELY after restore,
 #                               flip any pending notification_logs → SKIPPED again
 #                               in ONE autocommit psql statement. Now PROVABLY
@@ -189,11 +196,14 @@ if [[ "$MODE" == "dry-run" ]]; then
     echo ""
     echo "=== [dry-run] Plan ==="
     echo "  1. SNAPSHOT prod  -> pg_dump (public + drizzle) via snapshot-db.sh"
-    echo "  2. RESTORE (atomic) -> connection sweep, then MATERIALISE the dump to a file"
-    echo "                       (pg_restore -f <run-dir>/restore.sql, exit checked), then"
-    echo "                       psql --single-transaction -v ON_ERROR_STOP=1 -f <file> into"
-    echo "                       staging ($CONFIRM_TOKEN), WITH the queue-neutralise UPDATE"
-    echo "                       appended INSIDE that same transaction (structurally zero-window):"
+    echo "  2. RESTORE (atomic, WHOLESALE) -> MATERIALISE the dump to a file (pg_restore"
+    echo "                       --no-owner --no-acl -f <run-dir>/restore.sql; NO --clean;"
+    echo "                       exit checked), PREPEND a wholesale-reset (DROP SCHEMA"
+    echo "                       drizzle/public CASCADE), APPEND grants + the queue-flip,"
+    echo "                       SWEEP other connections, then run psql --single-transaction"
+    echo "                       -v ON_ERROR_STOP=1 -f <file> into staging ($CONFIRM_TOKEN)"
+    echo "                       WITH the queue-neutralise UPDATE INSIDE that same"
+    echo "                       transaction (structurally zero-window):"
     echo "                         | $QUEUE_NEUTRALISE_SQL"
     echo "  3. KILL QUEUE     -> autocommit UPDATE re-run (belt-and-suspenders; now redundant)"
     echo "  4. SANITIZE       -> sanitize-staging.sh (re-neutralise queue + email columns)"
