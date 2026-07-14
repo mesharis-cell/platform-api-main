@@ -3,10 +3,40 @@ set -euo pipefail
 # ============================================================================
 # restore-db-snapshot.sh  —  DESTRUCTIVE wholesale restore into staging
 #
-# Restores a custom-format dump (from snapshot-db.sh) into staging via
-# pg_restore --clean --if-exists --single-transaction. This DROPS + recreates
-# app objects in the dumped schemas, so it is the single most destructive step
-# in the staging-refresh flow.
+# Restores a custom-format dump (from snapshot-db.sh) into staging. This DROPS +
+# recreates app objects in the dumped schemas, so it is the single most
+# destructive step in the staging-refresh flow.
+#
+# EXECUTION MODEL (changed 2026-07-14 — see DB_RESTORE_APPEND_SQL below):
+#   pg_restore no longer opens its own connection/transaction. Instead it EMITS
+#   plain SQL to stdout (`pg_restore --clean --if-exists --no-owner --no-acl
+#   -f -`, which writes NO transaction control of its own), that stream is
+#   concatenated with any DB_RESTORE_APPEND_SQL, and the WHOLE stream is fed to
+#   `psql --single-transaction -v ON_ERROR_STOP=1`. psql therefore wraps every
+#   restored object AND the appended statements in ONE BEGIN/COMMIT:
+#     * all-or-nothing atomicity is preserved (equivalent to the old
+#       `pg_restore --single-transaction`), and
+#     * ON_ERROR_STOP rolls the ENTIRE transaction back on any failure — incl.
+#       a failure in the appended SQL — so a mid-restore failure leaves staging
+#       byte-unchanged and the whole refresh stays re-runnable.
+#   If pg_restore itself dies mid-emit, the emitter appends a poison
+#   `RAISE EXCEPTION`, so psql aborts + rolls back instead of COMMITting a
+#   partial restore at EOF.
+#
+#   DB_RESTORE_APPEND_SQL (optional env/arg): SQL appended to the stream INSIDE
+#   the transaction — it runs ATOMICALLY WITH THE RESTORE and commits (or rolls
+#   back) with it. The staging-refresh orchestrator uses this to neutralise
+#   prod's restored outbound notification queue (flip pending notification_logs
+#   -> SKIPPED) in the SAME commit as the restore, so at the commit-instant the
+#   DB never, at any visible instant, contains a claimable queue row — the
+#   notification worker can never see prod's queue even for a sub-second window.
+#
+# PRE-RESTORE CONNECTION SWEEP (apply only): immediately before the restore
+#   transaction, other client connections to the staging DB are terminated
+#   (pg_terminate_backend over pg_stat_activity for current_database(), self
+#   excluded) so the --clean drops can take ACCESS EXCLUSIVE locks without
+#   waiting on the staging API/worker. Connected clients reconnect and may see
+#   brief connection errors. Best-effort: a sweep failure is non-fatal.
 #
 # SAFETY GATES (all enforced before the first destructive statement):
 #   - APP_ENV=staging hard-gate.
@@ -18,6 +48,7 @@ set -euo pipefail
 #     resolves to) prod. Runs standalone: if PROD_DATABASE_URL is absent it
 #     falls back to a write-target reachability check. This guard is why the
 #     script is safe even when invoked directly, not only via the orchestrator.
+#     The guard + all gates run BEFORE the connection sweep and the restore.
 # ============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -164,6 +195,8 @@ FINGERPRINT_AFTER="$RUN_DIR/fingerprint-after.tsv"
 TOC_PATH="$RUN_DIR/pg-restore-list.txt"
 CHECKSUM_PATH="$RUN_DIR/sha256sum.txt"
 LOG_PATH="$RUN_DIR/restore.log"
+PG_RESTORE_ERR_LOG="$RUN_DIR/pg-restore-stderr.log"
+CONN_SWEEP_LOG="$RUN_DIR/conn-sweep.log"
 
 echo "Restore target: staging"
 echo "Dump: $DUMP_PATH"
@@ -209,6 +242,14 @@ sha256sum "$DUMP_PATH" > "$CHECKSUM_PATH"
 
 if [[ "$MODE" == "--dry-run" || "$MODE" == "dry-run" ]]; then
     echo "Dry run complete. Dump is readable; no DB writes were made."
+    echo "On apply this would (in order): sweep other connections, then run"
+    echo "  pg_restore --clean --if-exists --no-owner --no-acl -f -  ==pipe==>  psql --single-transaction -v ON_ERROR_STOP=1"
+    if [[ -n "${DB_RESTORE_APPEND_SQL:-}" ]]; then
+        echo "  with DB_RESTORE_APPEND_SQL appended INSIDE that single transaction (atomic with the restore):"
+        printf '%s\n' "$DB_RESTORE_APPEND_SQL" | sed 's/^/      | /'
+    else
+        echo "  (no DB_RESTORE_APPEND_SQL set — plain restore)"
+    fi
     echo "Review artifacts in $RUN_DIR"
     exit 0
 fi
@@ -227,15 +268,75 @@ EOF
     exit 1
 fi
 
-echo "Starting destructive restore. This may drop and recreate public/drizzle objects."
-PGCONNECT_TIMEOUT="${PGCONNECT_TIMEOUT:-15}" "$PG_RESTORE_BIN" \
-    --dbname "$DB_URL" \
-    --clean \
-    --if-exists \
-    --no-owner \
-    --no-acl \
-    --single-transaction \
-    "$DUMP_PATH" 2>&1 | tee "$LOG_PATH"
+# ----------------------------------------------------------------------------
+# Pre-restore connection sweep (best-effort). Terminate other client connections
+# to the staging DB so the --clean drops can take ACCESS EXCLUSIVE locks without
+# waiting on the staging API/worker. Self is excluded (pg_backend_pid()); only
+# client backends are targeted (background workers/autovacuum can't be signalled
+# this way and are irrelevant to table locks). Connected clients reconnect and
+# may see brief connection errors. A sweep failure is NON-FATAL: the restore
+# still proceeds (it may then wait on a lock).
+# ----------------------------------------------------------------------------
+echo "Pre-restore connection sweep: terminating other client connections to staging."
+CONN_SWEEP_SQL="select count(*) as terminated_client_backends from (
+    select pg_terminate_backend(pid)
+    from pg_stat_activity
+    where datname = current_database()
+      and pid <> pg_backend_pid()
+      and backend_type = 'client backend'
+) s;"
+if ! PGCONNECT_TIMEOUT="${PGCONNECT_TIMEOUT:-15}" "$PSQL_BIN" "$DB_URL" -P pager=off -c "$CONN_SWEEP_SQL" | tee "$CONN_SWEEP_LOG"; then
+    echo "  [sweep] warning: could not terminate other connections (continuing; the restore may wait on locks)." >&2
+fi
+
+# ----------------------------------------------------------------------------
+# Restore as ONE psql transaction. pg_restore only EMITS SQL (-f -, no self
+# transaction); we concatenate DB_RESTORE_APPEND_SQL after it; psql wraps the
+# whole stream in a single BEGIN/COMMIT (--single-transaction) with ON_ERROR_STOP
+# so it is all-or-nothing. If pg_restore dies mid-emit, emit_restore_sql appends
+# a poison RAISE EXCEPTION so psql ROLLS BACK rather than COMMITting a partial
+# restore at EOF.
+# ----------------------------------------------------------------------------
+emit_restore_sql() {
+    local rc
+    PGCONNECT_TIMEOUT="${PGCONNECT_TIMEOUT:-15}" "$PG_RESTORE_BIN" \
+        --clean \
+        --if-exists \
+        --no-owner \
+        --no-acl \
+        -f - \
+        "$DUMP_PATH" 2>"$PG_RESTORE_ERR_LOG" && rc=0 || rc=$?
+    if (( rc != 0 )); then
+        # pg_restore failed mid-stream. Poison the transaction so psql
+        # (ON_ERROR_STOP=1 + --single-transaction) rolls back everything it has
+        # already applied instead of COMMITting a partial restore at EOF.
+        printf "\nDO \$poison\$ BEGIN RAISE EXCEPTION 'pg_restore failed mid-stream (exit %s) — aborting restore transaction'; END \$poison\$;\n" "$rc"
+        return "$rc"
+    fi
+    if [[ -n "${DB_RESTORE_APPEND_SQL:-}" ]]; then
+        printf '\n-- ===== DB_RESTORE_APPEND_SQL: runs ATOMICALLY within the restore transaction =====\n'
+        printf '%s\n' "$DB_RESTORE_APPEND_SQL"
+    fi
+    return 0
+}
+
+echo "Starting destructive restore (single psql transaction: pg_restore SQL${DB_RESTORE_APPEND_SQL:+ + appended neutralisation})."
+if emit_restore_sql \
+    | PGCONNECT_TIMEOUT="${PGCONNECT_TIMEOUT:-15}" "$PSQL_BIN" "$DB_URL" \
+        -v ON_ERROR_STOP=1 --single-transaction -f - 2>&1 | tee "$LOG_PATH"; then
+    RESTORE_PIPE_STATUS=("${PIPESTATUS[@]}")
+    echo "Restore committed atomically (emit|psql|tee exit: ${RESTORE_PIPE_STATUS[*]})."
+else
+    RESTORE_PIPE_STATUS=("${PIPESTATUS[@]}")
+    echo "ERROR: restore stream failed (emit|psql|tee exit: ${RESTORE_PIPE_STATUS[*]})." >&2
+    echo "       psql --single-transaction + ON_ERROR_STOP rolled the ENTIRE transaction back:" >&2
+    echo "       staging is byte-unchanged (no partial restore, no claimable queue rows). Re-run from the top." >&2
+    if [[ -s "$PG_RESTORE_ERR_LOG" ]]; then
+        echo "       pg_restore stderr (last lines):" >&2
+        tail -5 "$PG_RESTORE_ERR_LOG" | sed 's/^/         /' >&2
+    fi
+    exit 1
+fi
 
 PGCONNECT_TIMEOUT="${PGCONNECT_TIMEOUT:-15}" "$PSQL_BIN" "$DB_URL" -v ON_ERROR_STOP=1 -At -F $'\t' <<'SQL' > "$FINGERPRINT_AFTER"
 select 'database_name', current_database();
@@ -258,5 +359,7 @@ SQL
 
 echo "Restore complete."
 echo "Log: $LOG_PATH"
+echo "pg_restore stderr: $PG_RESTORE_ERR_LOG"
+echo "Connection sweep: $CONN_SWEEP_LOG"
 echo "Fingerprint before: $FINGERPRINT_BEFORE"
 echo "Fingerprint after: $FINGERPRINT_AFTER"
