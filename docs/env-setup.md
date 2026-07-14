@@ -5,14 +5,14 @@ which env, and where the safety guards live.
 
 ## Env files
 
-| File                | Loaded when                          | Contents                                                                                                | Git        |
-| ------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------- | ---------- |
-| `.env`              | Always (shared fallback)             | Truly-shared defaults only: SALT*ROUNDS, JWT expiry, APP_NAME, SYSTEM_USER*\*, EMAIL_FROM               | gitignored |
-| `.env.staging`      | `APP_ENV=staging`                    | Staging DB URL, JWT secrets, RESEND key, AWS creds, destructive-guard allowlist for staging ref         | gitignored |
-| `.env.testing`      | `APP_ENV=testing`                    | Test DB URL, JWT secrets, RESEND key, AWS creds, destructive-guard allowlist for test ref, `PORT=9100`  | gitignored |
-| `.env.production`   | `APP_ENV=production`                 | **FAKE values only** — safety net for local. Real prod secrets live ONLY in AWS EB env properties       | gitignored |
-| `.env.dbops`        | Sourced by `scripts/dbops/*.sh` only | `STAGING_DATABASE_URL` + `PROD_DATABASE_URL` for cross-env operations (refresh-staging, fingerprint-db) | gitignored |
-| `.env.test.example` | N/A                                  | Template copy-from-for-new-devs                                                                         | committed  |
+| File                | Loaded when                          | Contents                                                                                                                            | Git        |
+| ------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| `.env`              | Always (shared fallback)             | Truly-shared defaults only: SALT*ROUNDS, JWT expiry, APP_NAME, SYSTEM_USER*\*, EMAIL_FROM                                           | gitignored |
+| `.env.staging`      | `APP_ENV=staging`                    | Staging DB URL, JWT secrets, RESEND key, AWS creds, destructive-guard allowlist for staging ref                                     | gitignored |
+| `.env.testing`      | `APP_ENV=testing`                    | Test DB URL, JWT secrets, RESEND key, AWS creds, destructive-guard allowlist for test ref, `PORT=9100`                              | gitignored |
+| `.env.production`   | `APP_ENV=production`                 | **FAKE values only** — safety net for local. Real prod secrets live ONLY in AWS EB env properties                                   | gitignored |
+| `.env.dbops`        | Sourced by `scripts/dbops/*.sh` only | `STAGING_DATABASE_URL` + `PROD_DATABASE_URL` for cross-env operations (refresh-staging, snapshot/restore, sanitize, fingerprint-db) | gitignored |
+| `.env.test.example` | N/A                                  | Template copy-from-for-new-devs                                                                                                     | committed  |
 
 **Hard rule:** real prod secrets never touch a developer machine. `.env.production`
 locally holds dead DB URL + fake keys. Anything connecting with
@@ -80,6 +80,37 @@ Scripts that wipe data call `assertAppEnv(["staging"])` + either
 
 Risky scripts that require `APP_ENV` to be set explicitly by the operator
 fail-fast with a helpful message if it's missing.
+
+## Staging refresh (dress-rehearsal model)
+
+`dbops:refresh-staging` reproduces "prod data as it will look **after** the next
+cutover", so it can be used to rehearse the migration + backfill and gate it with
+`db:ops:pricing-tieout`. It is NOT a data-only copy.
+
+Flow (`scripts/dbops/refresh-staging-from-prod.sh` + `refresh-staging-full.sh`):
+
+1. **Snapshot prod** — read-only `pg_dump` of the app-owned schemas (`public` +
+   `drizzle`) via `snapshot-db.sh`; captures schema, data, and prod's
+   `drizzle.__drizzle_migrations` journal. Supabase-managed schemas are excluded.
+2. **Restore wholesale** into staging via `restore-db-snapshot.sh`
+   (`pg_restore --clean --if-exists --single-transaction --no-owner --no-acl`) —
+   staging's drizzle journal becomes **prod's**.
+3. **Sanitize** (`sanitize-staging.sh`) — neutralise the outbound notification
+   queue, then rewrite every email-bearing / outbound-contact column so staging
+   cannot mail real customers. Idempotent.
+4. **Migrate** — `APP_ENV=staging bunx drizzle-kit migrate`. With prod's journal
+   restored, drizzle replays **exactly** the migrations prod has not run yet
+   (DDL + data backfills) = the cutover, rehearsed.
+5. **Seed** demo orders, then **re-sanitize** (wrapper only).
+
+Safety: `APP_ENV=staging` gate; `dry-run` reads both DBs but writes nothing;
+`apply` requires `DBOPS_REFRESH_CONFIRM="REFRESH STAGING <ref>"` plus a fifth
+guard (`lib-dbops-guard.sh`) that resolves the write target's Supabase ref +
+live fingerprint and hard-refuses if it is (or resolves to) prod. Restore is a
+single transaction, so a mid-refresh failure is safely re-runnable from the top;
+reuse an existing dump on retry with `DBOPS_REFRESH_DUMP=/path/to.dump`.
+`PROD_DATABASE_URL` supplies data in exactly one place (the dump) and is never
+exported into a write-capable step.
 
 ## Fail-fast examples
 
