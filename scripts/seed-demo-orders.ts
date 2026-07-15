@@ -1,8 +1,18 @@
 /**
- * Demo Order Seeder — Creates 3 orders at DELIVERED, DERIG, CLOSED stages
- * with full scan events, truck photos, status history, and pricing.
+ * Demo Order Seeder — Creates 4 orders at DELIVERED, DERIG, CLOSED, and
+ * PENDING_APPROVAL stages with full scan events, truck photos, status history,
+ * and pricing.
  *
- * Run: cd api && bun run tsx scripts/seed-demo-orders.ts
+ * Pricing: the `prices` row is inserted with an EMPTY `breakdown_lines` (the
+ * margin_percent seed + entity linkage are what matter). After each order's
+ * line_items are inserted, we call the REAL engine
+ * (`PricingService.rebuildBreakdown`) to (re)build the snapshot from those
+ * line_items. This keeps `prices.breakdown_lines` engine-consistent by
+ * construction — it ties out against `db:ops:pricing-tieout` and shows the
+ * correct numbers in the admin pricing card without waiting for a first edit.
+ * Never hand-author breakdown_lines here again; they will drift from line_items.
+ *
+ * Run: cd api && bun --preload ./src/bootstrap/env-preload.ts scripts/seed-demo-orders.ts
  */
 
 import { db } from "../src/db";
@@ -21,6 +31,7 @@ import {
     assetConditionHistory,
 } from "../src/db/schema";
 import { eq, sql } from "drizzle-orm";
+import { PricingService } from "../src/app/services/pricing.service";
 
 // ============================================================
 // CONSTANTS
@@ -220,32 +231,8 @@ async function main() {
         platform_id: PLATFORM_ID,
         entity_type: "ORDER",
         entity_id: orderId1,
-        breakdown_lines: [
-            {
-                line_kind: "SYSTEM",
-                category: "HANDLING",
-                label: "Picking & Handling",
-                quantity: 3,
-                unit: "unit",
-                buy_unit_price: 50,
-                buy_total: 150,
-                sell_unit_price: 62.5,
-                sell_total: 187.5,
-                billing_mode: "BILLABLE",
-            },
-            {
-                line_kind: "RATE_CARD",
-                category: "EQUIPMENT",
-                label: "Equipment Setup",
-                quantity: 1,
-                unit: "job",
-                buy_unit_price: 200,
-                buy_total: 200,
-                sell_unit_price: 250,
-                sell_total: 250,
-                billing_mode: "BILLABLE",
-            },
-        ],
+        // Engine-generated after line_items insert via rebuildBreakdown (below).
+        breakdown_lines: [],
         margin_percent: "25",
         vat_percent: "5",
         calculated_by: LOGISTICS_USER,
@@ -371,6 +358,15 @@ async function main() {
         updated_at: new Date(),
     });
 
+    // Build the pricing snapshot from the just-inserted line_items via the real
+    // engine so prices.breakdown_lines is tie-out-consistent by construction.
+    await PricingService.rebuildBreakdown({
+        entity_type: "ORDER",
+        entity_id: orderId1,
+        platform_id: PLATFORM_ID,
+        calculated_by: LOGISTICS_USER,
+    });
+
     console.log(`  ✓ ${orderRef1} — DELIVERED — 3 assets, outbound scans + truck photos\n`);
 
     // ================================================================
@@ -388,44 +384,8 @@ async function main() {
         platform_id: PLATFORM_ID,
         entity_type: "ORDER",
         entity_id: orderId2,
-        breakdown_lines: [
-            {
-                line_kind: "SYSTEM",
-                category: "HANDLING",
-                label: "Picking & Handling",
-                quantity: 1,
-                unit: "job",
-                buy_unit_price: 200,
-                buy_total: 200,
-                sell_unit_price: 250,
-                sell_total: 250,
-                billing_mode: "BILLABLE",
-            },
-            {
-                line_kind: "RATE_CARD",
-                category: "ASSEMBLY",
-                label: "Assembly & Rigging",
-                quantity: 1,
-                unit: "job",
-                buy_unit_price: 350,
-                buy_total: 350,
-                sell_unit_price: 437.5,
-                sell_total: 437.5,
-                billing_mode: "BILLABLE",
-            },
-            {
-                line_kind: "CUSTOM",
-                category: "OTHER",
-                label: "Site Access Fee",
-                quantity: 1,
-                unit: "flat",
-                buy_unit_price: 100,
-                buy_total: 100,
-                sell_unit_price: 125,
-                sell_total: 125,
-                billing_mode: "BILLABLE",
-            },
-        ],
+        // Engine-generated after line_items insert via rebuildBreakdown (below).
+        breakdown_lines: [],
         margin_percent: "25",
         vat_percent: "5",
         calculated_by: LOGISTICS_USER,
@@ -598,6 +558,13 @@ async function main() {
         updated_at: new Date(),
     });
 
+    await PricingService.rebuildBreakdown({
+        entity_type: "ORDER",
+        entity_id: orderId2,
+        platform_id: PLATFORM_ID,
+        calculated_by: LOGISTICS_USER,
+    });
+
     console.log(`  ✓ ${orderRef2} — DERIG — 3 assets, outbound + on-site + derig captures\n`);
 
     // ================================================================
@@ -615,32 +582,8 @@ async function main() {
         platform_id: PLATFORM_ID,
         entity_type: "ORDER",
         entity_id: orderId3,
-        breakdown_lines: [
-            {
-                line_kind: "SYSTEM",
-                category: "HANDLING",
-                label: "Picking & Handling",
-                quantity: 1,
-                unit: "job",
-                buy_unit_price: 180,
-                buy_total: 180,
-                sell_unit_price: 225,
-                sell_total: 225,
-                billing_mode: "BILLABLE",
-            },
-            {
-                line_kind: "RATE_CARD",
-                category: "TRANSPORT",
-                label: "Transport — Round Trip",
-                quantity: 1,
-                unit: "trip",
-                buy_unit_price: 300,
-                buy_total: 300,
-                sell_unit_price: 375,
-                sell_total: 375,
-                billing_mode: "BILLABLE",
-            },
-        ],
+        // Engine-generated after line_items insert via rebuildBreakdown (below).
+        breakdown_lines: [],
         margin_percent: "25",
         vat_percent: "5",
         calculated_by: LOGISTICS_USER,
@@ -862,6 +805,13 @@ async function main() {
         updated_at: new Date(),
     });
 
+    await PricingService.rebuildBreakdown({
+        entity_type: "ORDER",
+        entity_id: orderId3,
+        platform_id: PLATFORM_ID,
+        calculated_by: LOGISTICS_USER,
+    });
+
     console.log(
         `  ✓ ${orderRef3} — CLOSED — 3 assets, full lifecycle with inbound scans + condition reports\n`
     );
@@ -882,44 +832,8 @@ async function main() {
         platform_id: PLATFORM_ID,
         entity_type: "ORDER",
         entity_id: orderId4,
-        breakdown_lines: [
-            {
-                line_kind: "SYSTEM",
-                category: "HANDLING",
-                label: "Picking & Handling",
-                quantity: 3,
-                unit: "unit",
-                buy_unit_price: 60,
-                buy_total: 180,
-                sell_unit_price: 75,
-                sell_total: 225,
-                billing_mode: "BILLABLE",
-            },
-            {
-                line_kind: "RATE_CARD",
-                category: "EQUIPMENT",
-                label: "Barrel Tent Installation (3 units)",
-                quantity: 1,
-                unit: "job",
-                buy_unit_price: 450,
-                buy_total: 450,
-                sell_unit_price: 560,
-                sell_total: 560,
-                billing_mode: "BILLABLE",
-            },
-            {
-                line_kind: "RATE_CARD",
-                category: "TRANSPORT",
-                label: "Transport — Round Trip (Desert Venue)",
-                quantity: 1,
-                unit: "trip",
-                buy_unit_price: 400,
-                buy_total: 400,
-                sell_unit_price: 500,
-                sell_total: 500,
-                billing_mode: "BILLABLE",
-            },
-        ],
+        // Engine-generated after line_items insert via rebuildBreakdown (below).
+        breakdown_lines: [],
         margin_percent: "25",
         vat_percent: "5",
         calculated_by: LOGISTICS_USER,
@@ -1021,6 +935,13 @@ async function main() {
         total: "500",
         added_by: LOGISTICS_USER,
         updated_at: new Date(),
+    });
+
+    await PricingService.rebuildBreakdown({
+        entity_type: "ORDER",
+        entity_id: orderId4,
+        platform_id: PLATFORM_ID,
+        calculated_by: LOGISTICS_USER,
     });
 
     console.log(
