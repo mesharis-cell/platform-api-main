@@ -433,7 +433,10 @@ export const PERMISSION_TEMPLATES = {
         PERMISSIONS.ORDERS_CREATE,
         PERMISSIONS.ORDERS_READ,
         PERMISSIONS.ORDERS_UPDATE,
-        PERMISSIONS.ORDERS_EDIT_DETAILS,
+        // ORDERS_EDIT_DETAILS deliberately excluded: client-side order editing
+        // is NOT launched yet — grant-only until go-live. Re-add here (+ run
+        // db:access:sync-defaults:apply) to enable client edit. Admin/logistics
+        // edit via the orders:* wildcard, unaffected.
         PERMISSIONS.ORDERS_VIEW_STATUS_HISTORY,
         PERMISSIONS.QUOTES_APPROVE,
         PERMISSIONS.QUOTES_DECLINE,
@@ -451,7 +454,9 @@ export const PERMISSION_TEMPLATES = {
         PERMISSIONS.ATTACHMENT_TYPES_READ,
         PERMISSIONS.SELF_PICKUPS_CREATE,
         PERMISSIONS.SELF_PICKUPS_READ,
-        PERMISSIONS.SELF_PICKUPS_EDIT_DETAILS,
+        // SELF_PICKUPS_EDIT_DETAILS deliberately excluded: client-side self-pickup
+        // editing is NOT launched yet — grant-only until go-live. Re-add here (+
+        // run db:access:sync-defaults:apply) to enable. Admin edits via self_pickups:*.
         PERMISSIONS.SELF_PICKUPS_CANCEL,
     ],
 };
