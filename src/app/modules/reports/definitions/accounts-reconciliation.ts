@@ -390,14 +390,14 @@ ORDER BY company ASC, document_date ASC`;
                 ? d.lines
                 : [{ label: "(no priced charges)", category: "", quantity: 0, buy: 0, sell: 0 }];
             for (const ln of linesToRender) {
+                // Leading blanks MUST match the document-context column count, or the
+                // per-line BUY/SELL/MARGIN shift out from under their headers (the
+                // subtotal rows use explicit column indices, so they stay aligned —
+                // hence the symptom "per-line sell/margin blank but subtotal shows them").
+                // Derive from baseColumns.length so it can't drift when a context column
+                // is added/removed.
                 const cells: (string | number)[] = [
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
+                    ...Array<string | number>(baseColumns.length).fill(""),
                     ln.label,
                     ln.category,
                     ln.quantity,
